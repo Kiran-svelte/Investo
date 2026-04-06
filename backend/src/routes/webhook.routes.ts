@@ -39,14 +39,30 @@ router.get('/', (req: Request, res: Response) => {
  * Applies webhook-specific size limit: 1mb (not the global 10mb)
  */
 router.post('/', express.json({ limit: '1mb' }), async (req: Request, res: Response) => {
+  // Log all incoming webhook requests for debugging
+  logger.info('Webhook POST received', {
+    hasSignature: !!req.headers['x-hub-signature-256'],
+    bodyObject: req.body?.object,
+    hasEntries: !!req.body?.entry?.length,
+    ip: req.ip || req.headers['x-forwarded-for'],
+  });
+
   // Must respond 200 within 5 seconds (Meta requirement)
   res.status(200).json({ status: 'received' });
 
-  // Verify signature
+  // Verify signature (skip in dev mode or if no app secret configured)
   const signature = req.headers['x-hub-signature-256'] as string;
   if (!verifyWebhookSignature(req.body, signature)) {
-    logger.warn('Invalid webhook signature - possible spoofing attempt');
-    return;
+    logger.warn('Invalid webhook signature - possible spoofing attempt', {
+      hasSignature: !!signature,
+      hasAppSecret: !!config.whatsapp.appSecret,
+    });
+    // In production without app secret, allow through with warning
+    if (config.env === 'production' && !config.whatsapp.appSecret) {
+      logger.warn('Allowing webhook without signature verification (no app secret configured)');
+    } else if (config.env !== 'development') {
+      return;
+    }
   }
 
   // Check for duplicate messages
@@ -71,8 +87,14 @@ router.post('/', express.json({ limit: '1mb' }), async (req: Request, res: Respo
  * Verify the webhook payload signature from Meta.
  */
 function verifyWebhookSignature(body: any, signature: string): boolean {
-  if (!signature || !config.whatsapp.appSecret) {
-    // In dev, allow without signature if no secret configured
+  // If no app secret configured, skip verification with warning
+  if (!config.whatsapp.appSecret) {
+    logger.warn('WHATSAPP_APP_SECRET not configured - skipping signature verification');
+    return true; // Allow through but log warning
+  }
+  
+  if (!signature) {
+    // In dev, allow without signature
     if (config.env === 'development') return true;
     return false;
   }
@@ -92,12 +114,23 @@ function verifyWebhookSignature(body: any, signature: string): boolean {
  * Process incoming webhook payload from Meta.
  */
 async function processWebhook(body: any): Promise<void> {
-  if (body.object !== 'whatsapp_business_account') return;
+  logger.info('Processing webhook payload', {
+    object: body.object,
+    entryCount: body.entry?.length || 0,
+  });
+
+  if (body.object !== 'whatsapp_business_account') {
+    logger.warn('Ignoring non-WhatsApp webhook', { object: body.object });
+    return;
+  }
 
   const entries = body.entry || [];
   for (const entry of entries) {
     const changes = entry.changes || [];
+    logger.info('Processing entry', { changeCount: changes.length });
+    
     for (const change of changes) {
+      logger.info('Processing change', { field: change.field });
       if (change.field !== 'messages') continue;
 
       const value = change.value;
@@ -106,11 +139,25 @@ async function processWebhook(body: any): Promise<void> {
       const messages = value.messages || [];
       const contacts = value.contacts || [];
 
+      logger.info('Message payload', {
+        phoneNumberId,
+        messageCount: messages.length,
+        contactCount: contacts.length,
+      });
+
       for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
         const contact = contacts[i];
 
-        if (message.type !== 'text') continue;
+        logger.info('Processing message', {
+          type: message.type,
+          id: message.id,
+        });
+
+        if (message.type !== 'text') {
+          logger.info('Skipping non-text message', { type: message.type });
+          continue;
+        }
 
         const customerPhone = message.from; // E.164 format without +
         const customerName = contact?.profile?.name || '';
@@ -120,15 +167,21 @@ async function processWebhook(body: any): Promise<void> {
         logger.info('Incoming WhatsApp message', {
           from: customerPhone.substring(0, 6) + '****', // Mask phone in logs
           phoneNumberId,
+          text: messageText.substring(0, 50),
         });
 
-        await whatsappService.handleIncomingMessage({
-          phoneNumberId,
-          customerPhone: '+' + customerPhone,
-          customerName,
-          messageText,
-          messageId,
-        });
+        try {
+          await whatsappService.handleIncomingMessage({
+            phoneNumberId,
+            customerPhone: '+' + customerPhone,
+            customerName,
+            messageText,
+            messageId,
+          });
+          logger.info('Message handled successfully', { messageId });
+        } catch (err: any) {
+          logger.error('Failed to handle message', { messageId, error: err.message });
+        }
       }
     }
   }

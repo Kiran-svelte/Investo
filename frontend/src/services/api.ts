@@ -59,7 +59,7 @@ export const refreshAuthTokens = async (): Promise<AuthTokens> => {
     throw new Error('Refresh token missing');
   }
 
-  const { data } = await axios.post<ApiResponse<AuthTokens>>('/api/auth/refresh', {
+  const { data } = await api.post<ApiResponse<AuthTokens>>('/auth/refresh', {
     refresh_token: refreshToken,
     refreshToken,
   });
@@ -71,8 +71,25 @@ export const refreshAuthTokens = async (): Promise<AuthTokens> => {
 // Axios instance
 // ──────────────────────────────────────────────
 
+const getApiBaseUrl = (): string => {
+  const envApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
+
+  if (envApiUrl && envApiUrl.trim()) {
+    return envApiUrl.replace(/\/$/, '').replace(/\/api$/, '/api');
+  }
+
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return '/api';
+    }
+  }
+
+  return 'https://investo-backend-v2.onrender.com/api';
+};
+
 const api: AxiosInstance = axios.create({
-  baseURL: '/api',
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },

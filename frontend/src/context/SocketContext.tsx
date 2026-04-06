@@ -29,9 +29,20 @@ interface SocketContextType {
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
 const getSocketUrl = (): string => {
-  // Use the same origin as the API
-  const apiUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
-  return apiUrl.replace('/api', '');
+  const apiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
+
+  if (apiUrl && apiUrl.trim()) {
+    return apiUrl.replace(/\/api$/, '').replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
+  }
+
+  return 'https://investo-backend-v2.onrender.com';
 };
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

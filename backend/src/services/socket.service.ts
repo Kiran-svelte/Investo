@@ -3,6 +3,7 @@ import { Server, Socket } from 'socket.io';
 import logger from '../config/logger';
 import jwt from 'jsonwebtoken';
 import config from '../config';
+import { isAllowedCorsOrigin } from '../config';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -18,7 +19,14 @@ class SocketService {
   initialize(httpServer: HttpServer): Server {
     this.io = new Server(httpServer, {
       cors: {
-        origin: config.cors.origins,
+        origin: (origin, callback) => {
+          if (isAllowedCorsOrigin(origin)) {
+            callback(null, origin || true);
+            return;
+          }
+
+          callback(new Error(`CORS blocked for origin: ${origin || 'unknown'}`));
+        },
         methods: ['GET', 'POST'],
         credentials: true,
       },

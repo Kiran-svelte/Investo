@@ -22,6 +22,7 @@ import featureRoutes from './routes/feature.routes';
 import onboardingRoutes from './routes/onboarding.routes';
 import auditRoutes from './routes/audit.routes';
 import propertyImportRoutes from './routes/property-import.routes';
+import { isAllowedCorsOrigin } from './config';
 
 const app = express();
 
@@ -31,7 +32,14 @@ app.use(helmet());
 // CORS
 app.use(
   cors({
-    origin: config.cors.origins,
+    origin: (origin, callback) => {
+      if (isAllowedCorsOrigin(origin)) {
+        callback(null, origin || true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin || 'unknown'}`));
+    },
     credentials: true,
   })
 );
