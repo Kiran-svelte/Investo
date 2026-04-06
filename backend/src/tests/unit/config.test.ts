@@ -43,7 +43,7 @@ describe('Database configuration guard', () => {
     expect(isNeonDatabaseUrl('postgresql://user:pass@ep-example.us-east-1.aws.neon.tech/db?sslmode=require')).toBe(true);
   });
 
-  test('rejects a non-Neon connection string', () => {
+  test('accepts a non-Neon PostgreSQL connection string', () => {
     expect(isNeonDatabaseUrl('postgresql://user:pass@localhost:5432/db')).toBe(false);
   });
 
@@ -59,9 +59,9 @@ describe('Database configuration guard', () => {
     ).toBe(false);
   });
 
-  test('throws for a non-Neon connection string', () => {
-    expect(() => assertValidDatabaseUrl('postgresql://user:pass@localhost:5432/db')).toThrow(
-      'DATABASE_URL must be a Neon connection string',
+  test('throws for a non-PostgreSQL connection string', () => {
+    expect(() => assertValidDatabaseUrl('mysql://user:pass@localhost:3306/db')).toThrow(
+      'DATABASE_URL must be a PostgreSQL connection string',
     );
   });
 

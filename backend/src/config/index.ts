@@ -30,6 +30,15 @@ export function isNeonDatabaseUrl(databaseUrl: string): boolean {
   }
 }
 
+export function isPostgresDatabaseUrl(databaseUrl: string): boolean {
+  try {
+    const parsedUrl = new URL(databaseUrl);
+    return parsedUrl.protocol === 'postgres:' || parsedUrl.protocol === 'postgresql:';
+  } catch {
+    return false;
+  }
+}
+
 export function isNeonPoolerDatabaseUrl(databaseUrl: string): boolean {
   try {
     const parsedUrl = new URL(databaseUrl);
@@ -49,11 +58,11 @@ export function resolveDatabaseUrl(): string {
   }
 
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL is required and must point to a Neon database');
+    throw new Error('DATABASE_URL is required and must be a valid PostgreSQL connection string');
   }
 
-  if (!isNeonDatabaseUrl(databaseUrl)) {
-    throw new Error('DATABASE_URL must be a Neon connection string (hostname must contain "neon")');
+  if (!isPostgresDatabaseUrl(databaseUrl)) {
+    throw new Error('DATABASE_URL must be a PostgreSQL connection string (postgres:// or postgresql://)');
   }
 
   try {
@@ -105,13 +114,59 @@ function resolveJwtSecret(envName: 'JWT_SECRET' | 'JWT_REFRESH_SECRET', testDefa
   throw new Error(`${envName} is required when NODE_ENV is not test`);
 }
 
-export function assertValidDatabaseUrl(databaseUrl: string): void {
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is required and must point to a Neon database');
+function normalizeOrigin(origin: string): string {
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return origin.replace(/\/+$/, '');
+  }
+}
+
+function buildCorsOrigins(): string[] {
+  const defaultOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:4180',
+    'http://localhost:5181',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:4180',
+    'http://127.0.0.1:5181',
+    'https://investo-frontend-in3m.onrender.com',
+    'https://investo-frontend-v2.onrender.com',
+  ];
+
+  const envOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return Array.from(
+    new Set([...defaultOrigins, ...envOrigins].map(normalizeOrigin))
+  );
+}
+
+export function isAllowedCorsOrigin(origin?: string | null): boolean {
+  if (!origin) {
+    return true;
   }
 
-  if (!isNeonDatabaseUrl(databaseUrl)) {
-    throw new Error('DATABASE_URL must be a Neon connection string (hostname must contain "neon")');
+  const normalizedOrigin = normalizeOrigin(origin);
+
+  if (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:')) {
+    return true;
+  }
+
+  return buildCorsOrigins().includes(normalizedOrigin);
+}
+
+export function assertValidDatabaseUrl(databaseUrl: string): void {
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL is required and must be a valid PostgreSQL connection string');
+  }
+
+  if (!isPostgresDatabaseUrl(databaseUrl)) {
+    throw new Error('DATABASE_URL must be a PostgreSQL connection string (postgres:// or postgresql://)');
   }
 }
 
@@ -193,7 +248,7 @@ const config = {
   },
 
   cors: {
-    origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173').split(','),
+    origins: buildCorsOrigins(),
   },
 
   rateLimit: {
