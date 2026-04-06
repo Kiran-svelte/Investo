@@ -1,0 +1,99 @@
+services:
+  # Main Backend API
+  - type: web
+    name: investo-backend
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: NEON_AUTH_URL
+        value: https://ep-silent-cell-amwzz7s3.neonauth.c-5.us-east-1.aws.neon.tech/neondb/auth
+      - key: UPSTASH_REDIS_REST_URL
+        value: https://usw1-selected-corgi-34285.upstash.io
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 24h
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: WHATSAPP_API_URL
+        value: https://graph.facebook.com/v18.0
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_IP_WHITELIST_ENABLED
+        value: false
+      - key: SKIP_IP_WHITELIST
+        value: true
+      - key: WHATSAPP_WEBHOOK_MAX_SIZE
+        value: 1mb
+      - key: WHATSAPP_DEDUP_TTL_SECONDS
+        value: 300
+      - key: AI_PROVIDER
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: CORS_ORIGINS
+        value: https://frontend-navy-eight-37.vercel.app,http://localhost:3000,http://localhost:5173
+      - key: FRONTEND_BASE_URL
+        value: https://frontend-navy-eight-37.vercel.app
+      - key: RATE_LIMIT_USER
+        value: 100
+      - key: RATE_LIMIT_COMPANY
+        value: 1000
+      - key: DB_AUTO_MIGRATE
+        value: true
+      - key: DB_AUTO_SEED
+        value: true
+    healthCheckPath: /api/health
+
+  # Background Worker for queued tasks
+  - type: worker
+    name: investo-worker
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && npm run start:worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: NEON_AUTH_URL
+        value: https://ep-silent-cell-amwzz7s3.neonauth.c-5.us-east-1.aws.neon.tech/neondb/auth
+      - key: UPSTASH_REDIS_REST_URL
+        value: https://usw1-selected-corgi-34285.upstash.io
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: AI_PROVIDER
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
