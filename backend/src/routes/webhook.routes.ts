@@ -292,4 +292,116 @@ router.post('/test', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/webhook/debug
+ * Debug endpoint to test the full webhook flow synchronously.
+ * Returns detailed step-by-step info about what happens.
+ * TEMPORARY - remove after debugging.
+ */
+router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: Response) => {
+  const debugLog: string[] = [];
+  const log = (msg: string) => {
+    debugLog.push(`[${new Date().toISOString()}] ${msg}`);
+    logger.info(`DEBUG: ${msg}`);
+  };
+
+  try {
+    log('Starting debug webhook processing');
+    
+    const body = req.body;
+    log(`Body object: ${body.object}`);
+    log(`Entry count: ${body.entry?.length || 0}`);
+
+    if (body.object !== 'whatsapp_business_account') {
+      log('ERROR: Not a whatsapp_business_account object');
+      res.json({ success: false, debugLog });
+      return;
+    }
+
+    const entries = body.entry || [];
+    for (const entry of entries) {
+      const changes = entry.changes || [];
+      log(`Entry has ${changes.length} changes`);
+
+      for (const change of changes) {
+        log(`Change field: ${change.field}`);
+        if (change.field !== 'messages') {
+          log('Skipping non-messages change');
+          continue;
+        }
+
+        const value = change.value;
+        const metadata = value.metadata;
+        const phoneNumberId = metadata?.phone_number_id;
+        const messages = value.messages || [];
+        const contacts = value.contacts || [];
+
+        log(`Phone Number ID: ${phoneNumberId}`);
+        log(`Messages: ${messages.length}, Contacts: ${contacts.length}`);
+
+        // Try to find company
+        log('Looking up company by phoneNumberId...');
+        const companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
+        
+        if (!companyResult) {
+          log('ERROR: No company found for phoneNumberId!');
+          res.json({ success: false, error: 'No company found', debugLog });
+          return;
+        }
+
+        log(`Found company: ${companyResult.company.name} (${companyResult.company.id})`);
+
+        for (let i = 0; i < messages.length; i++) {
+          const message = messages[i];
+          const contact = contacts[i];
+
+          log(`Message ${i}: type=${message.type}, from=${message.from}`);
+          
+          if (message.type !== 'text') {
+            log('Skipping non-text message');
+            continue;
+          }
+
+          const customerPhone = '+' + message.from;
+          const customerName = contact?.profile?.name || '';
+          const messageText = message.text?.body || '';
+
+          log(`Processing: phone=${customerPhone}, name=${customerName}, text=${messageText}`);
+
+          // Call handleIncomingMessage
+          log('Calling whatsappService.handleIncomingMessage...');
+          await whatsappService.handleIncomingMessage({
+            phoneNumberId,
+            customerPhone,
+            customerName,
+            messageText,
+            messageId: message.id,
+          });
+
+          log('handleIncomingMessage completed successfully');
+        }
+      }
+    }
+
+    // Check if lead was created
+    const prisma = (await import('../config/prisma')).default;
+    const recentLeads = await prisma.lead.findMany({
+      where: { companyId: entries[0]?.changes?.[0]?.value?.metadata?.phone_number_id ? undefined : undefined },
+      orderBy: { createdAt: 'desc' },
+      take: 3,
+    });
+
+    log(`Recent leads in DB: ${recentLeads.length}`);
+    recentLeads.forEach((l: any, i: number) => {
+      log(`Lead ${i}: ${l.phone} - ${l.customerName} - ${l.createdAt}`);
+    });
+
+    res.json({ success: true, debugLog, recentLeads: recentLeads.map((l: any) => ({ id: l.id, phone: l.phone, name: l.customerName })) });
+  } catch (err: any) {
+    log(`EXCEPTION: ${err.message}`);
+    log(`Stack: ${err.stack?.substring(0, 500)}`);
+    res.json({ success: false, error: err.message, debugLog });
+  }
+});
+
 export default router;
