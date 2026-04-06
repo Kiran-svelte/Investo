@@ -40,11 +40,22 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
-    await provisionNeonIdentity({
-      email: normalizedEmail,
-      password: data.password,
-      name: data.name,
-    });
+    
+    // Optionally provision Neon Auth identity (not required for local auth)
+    try {
+      await provisionNeonIdentity({
+        email: normalizedEmail,
+        password: data.password,
+        name: data.name,
+      });
+      logger.info('Neon identity provisioned', { email: normalizedEmail });
+    } catch (err: any) {
+      // Neon Auth is optional - log but continue with local auth
+      logger.warn('Neon identity provisioning skipped', {
+        email: normalizedEmail,
+        reason: err.message,
+      });
+    }
 
     const id = uuidv4();
 
