@@ -57,19 +57,53 @@ export class WhatsAppService {
       };
     }
 
-    // Dev fallback: Return first active company if only one exists
-    if (config.env === 'development' && companies.length === 1) {
-      logger.warn('Dev mode: Using first active company for WhatsApp', { companyId: companies[0].id });
+    // Fallback: If only one company has WhatsApp configured, use it
+    // This handles test webhooks where Meta sends fake phone_number_id
+    const companiesWithWhatsApp = companies.filter(c => {
+      const settings = c.settings as any || {};
+      return settings.whatsapp?.phoneNumberId || settings.whatsapp?.accessToken;
+    });
+
+    if (companiesWithWhatsApp.length === 1) {
+      const company = companiesWithWhatsApp[0];
+      const settings = company.settings as any || {};
+      logger.info('Using company with WhatsApp config (fallback)', { 
+        companyId: company.id, 
+        companyName: company.name,
+        requestedPhoneNumberId: phoneNumberId,
+      });
       return {
-        company: companies[0],
+        company,
         config: {
-          phoneNumberId,
+          phoneNumberId: settings.whatsapp?.phoneNumberId || phoneNumberId,
+          accessToken: settings.whatsapp?.accessToken || config.whatsapp.accessToken,
+          verifyToken: settings.whatsapp?.verifyToken || config.whatsapp.verifyToken,
+        },
+      };
+    }
+
+    // Last resort fallback: Use first active company if env var has access token
+    if (companies.length > 0 && config.whatsapp.accessToken) {
+      const company = companies[0];
+      logger.warn('Using first active company as fallback', { 
+        companyId: company.id,
+        companyName: company.name,
+      });
+      return {
+        company,
+        config: {
+          phoneNumberId: config.whatsapp.phoneNumberId || phoneNumberId,
           accessToken: config.whatsapp.accessToken,
           verifyToken: config.whatsapp.verifyToken,
         },
       };
     }
 
+    logger.error('No company found for WhatsApp', { 
+      phoneNumberId,
+      totalCompanies: companies.length,
+      companiesWithWhatsApp: companiesWithWhatsApp.length,
+    });
     return null;
   }
 

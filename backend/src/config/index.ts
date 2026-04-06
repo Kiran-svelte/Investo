@@ -216,6 +216,7 @@ const config = {
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
     appSecret: process.env.WHATSAPP_APP_SECRET || '',
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     // Security settings
     ipWhitelistEnabled: process.env.WHATSAPP_IP_WHITELIST_ENABLED === 'true',
     skipIpWhitelist: process.env.SKIP_IP_WHITELIST === 'true',
