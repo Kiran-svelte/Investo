@@ -234,6 +234,7 @@ export const createUserSchema = z.object({
   password: z.string().min(8).max(128),
   phone: optionalPhone,
   role: z.enum(ROLES),
+  target_company_id: z.string().uuid().optional(), // For super_admin to create users in any company
 });
 
 export const aiSettingsSchema = z.object({

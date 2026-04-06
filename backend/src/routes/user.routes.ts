@@ -163,8 +163,16 @@ router.post(
   auditLog('create', 'users'),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = getCompanyId(req);
-      const { name, email, password, phone, role } = req.body;
+      const { name, email, password, phone, role, target_company_id } = req.body;
+      
+      // Determine which company to create user in
+      // Super admin can specify target_company_id, others use their own company
+      let companyId: string;
+      if (req.user!.role === 'super_admin' && target_company_id) {
+        companyId = target_company_id;
+      } else {
+        companyId = getCompanyId(req);
+      }
 
       // Company admin cannot create super_admin role
       if (req.user!.role === 'company_admin' && role === 'super_admin') {
