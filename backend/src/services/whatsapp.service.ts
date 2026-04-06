@@ -117,13 +117,24 @@ export class WhatsAppService {
    * 5. Send AI response via WhatsApp Cloud API
    */
   async handleIncomingMessage(msg: IncomingMessage): Promise<void> {
+    logger.info('=== WHATSAPP SERVICE: handleIncomingMessage START ===', {
+      phoneNumberId: msg.phoneNumberId,
+      customerPhone: msg.customerPhone,
+    });
+
     // 1. Find company by WhatsApp phone number ID
     const result = await this.getCompanyByPhoneNumberId(msg.phoneNumberId);
 
     if (!result) {
-      logger.warn('No company found for WhatsApp phone number ID', { phoneNumberId: msg.phoneNumberId });
+      logger.error('=== NO COMPANY FOUND ===', { phoneNumberId: msg.phoneNumberId });
       return;
     }
+
+    logger.info('=== COMPANY FOUND ===', {
+      companyId: result.company.id,
+      companyName: result.company.name,
+      hasConfig: !!result.config,
+    });
 
     const { company, config: whatsappConfig } = result;
     const companyId = company.id;

@@ -114,24 +114,30 @@ function verifyWebhookSignature(body: any, signature: string): boolean {
  * Process incoming webhook payload from Meta.
  */
 async function processWebhook(body: any): Promise<void> {
-  logger.info('Processing webhook payload', {
+  logger.info('=== PROCESS WEBHOOK START ===', {
     object: body.object,
     entryCount: body.entry?.length || 0,
+    fullBody: JSON.stringify(body).substring(0, 500),
   });
 
   if (body.object !== 'whatsapp_business_account') {
     logger.warn('Ignoring non-WhatsApp webhook', { object: body.object });
     return;
   }
+  
+  logger.info('Object check passed, processing entries...');
 
   const entries = body.entry || [];
   for (const entry of entries) {
     const changes = entry.changes || [];
-    logger.info('Processing entry', { changeCount: changes.length });
+    logger.info('Processing entry', { entryId: entry.id, changeCount: changes.length });
     
     for (const change of changes) {
-      logger.info('Processing change', { field: change.field });
-      if (change.field !== 'messages') continue;
+      logger.info('Processing change', { field: change.field, hasValue: !!change.value });
+      if (change.field !== 'messages') {
+        logger.info('Skipping non-messages field', { field: change.field });
+        continue;
+      }
 
       const value = change.value;
       const metadata = value.metadata;
@@ -139,19 +145,23 @@ async function processWebhook(body: any): Promise<void> {
       const messages = value.messages || [];
       const contacts = value.contacts || [];
 
-      logger.info('Message payload', {
+      logger.info('=== MESSAGE PAYLOAD ===', {
         phoneNumberId,
         messageCount: messages.length,
         contactCount: contacts.length,
+        hasMetadata: !!metadata,
       });
 
       for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
         const contact = contacts[i];
 
-        logger.info('Processing message', {
+        logger.info('=== PROCESSING MESSAGE ===', {
+          index: i,
           type: message.type,
           id: message.id,
+          from: message.from,
+          hasContact: !!contact,
         });
 
         if (message.type !== 'text') {
@@ -164,9 +174,10 @@ async function processWebhook(body: any): Promise<void> {
         const messageText = message.text?.body || '';
         const messageId = message.id;
 
-        logger.info('Incoming WhatsApp message', {
-          from: customerPhone.substring(0, 6) + '****', // Mask phone in logs
+        logger.info('=== CALLING handleIncomingMessage ===', {
           phoneNumberId,
+          customerPhone: customerPhone.substring(0, 6) + '****', // Mask phone in logs
+          customerName,
           text: messageText.substring(0, 50),
         });
 
@@ -178,9 +189,13 @@ async function processWebhook(body: any): Promise<void> {
             messageText,
             messageId,
           });
-          logger.info('Message handled successfully', { messageId });
+          logger.info('=== MESSAGE HANDLED SUCCESSFULLY ===', { messageId });
         } catch (err: any) {
-          logger.error('Failed to handle message', { messageId, error: err.message });
+          logger.error('=== MESSAGE HANDLING FAILED ===', { 
+            messageId, 
+            error: err.message,
+            stack: err.stack?.substring(0, 500),
+          });
         }
       }
     }
