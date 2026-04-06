@@ -170,8 +170,8 @@ router.put(
       const { id } = req.params;
 
       if (req.user!.role === 'super_admin') {
-        // Super admin can update everything
-        const { name, slug, whatsapp_phone, plan_id, status } = req.body;
+        // Super admin can update everything including settings
+        const { name, slug, whatsapp_phone, plan_id, status, settings } = req.body;
 
         let normalizedWhatsAppPhone: string | null | undefined = undefined;
         if (whatsapp_phone !== undefined) {
@@ -212,6 +212,7 @@ router.put(
             ...(whatsapp_phone !== undefined && { whatsappPhone: normalizedWhatsAppPhone }),
             ...(plan_id !== undefined && { planId: plan_id }),
             ...(status && { status }),
+            ...(settings !== undefined && { settings }),
           },
         });
       } else if (req.user!.role === 'company_admin' && id === req.user!.company_id) {
