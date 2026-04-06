@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <defs>
+    <linearGradient id="bg6" x1="0" y1="0" x2="800" y2="500">
+      <stop offset="0%" style="stop-color:#0a0a1a"/>
+      <stop offset="100%" style="stop-color:#1a0a2e"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="url(#bg6)" rx="16"/>
+  
+  <text x="400" y="42" text-anchor="middle" fill="#ffffff" font-size="24" font-weight="bold" font-family="Segoe UI">💼 Subscription Plans</text>
+  <text x="400" y="65" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">Flexible Pricing for Every Real Estate Business</text>
+  
+  <!-- Starter Plan -->
+  <rect x="40" y="90" width="230" height="390" rx="12" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="155" y="125" text-anchor="middle" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">STARTER</text>
+  <text x="155" y="165" text-anchor="middle" fill="#ffffff" font-size="36" font-weight="bold" font-family="Segoe UI">₹4,999</text>
+  <text x="155" y="185" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">/month</text>
+  
+  <line x1="60" y1="200" x2="250" y2="200" stroke="#334155" stroke-width="1"/>
+  
+  <text x="70" y="230" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 3 Sales Agents</text>
+  <text x="70" y="258" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 500 Leads/month</text>
+  <text x="70" y="286" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 50 Properties</text>
+  <text x="70" y="314" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ WhatsApp AI</text>
+  <text x="70" y="342" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 11 Languages</text>
+  <text x="70" y="370" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ CRM Dashboard</text>
+  <text x="70" y="398" fill="#94a3b8" font-size="12" font-family="Segoe UI">❌ Advanced Analytics</text>
+  <text x="70" y="426" fill="#94a3b8" font-size="12" font-family="Segoe UI">❌ Priority Support</text>
+  
+  <rect x="60" y="440" width="190" height="30" rx="6" fill="#334155"/>
+  <text x="155" y="460" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="bold" font-family="Segoe UI">Get Started</text>
+  
+  <!-- Growth Plan (Featured) -->
+  <rect x="285" y="80" width="230" height="405" rx="12" fill="#1e3a5f" stroke="#3b82f6" stroke-width="2"/>
+  <rect x="335" y="80" width="130" height="22" rx="4" fill="#3b82f6"/>
+  <text x="400" y="95" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold" font-family="Segoe UI">⭐ MOST POPULAR</text>
+  <text x="400" y="130" text-anchor="middle" fill="#93c5fd" font-size="14" font-weight="bold" font-family="Segoe UI">GROWTH</text>
+  <text x="400" y="170" text-anchor="middle" fill="#ffffff" font-size="36" font-weight="bold" font-family="Segoe UI">₹14,999</text>
+  <text x="400" y="190" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">/month</text>
+  
+  <line x1="305" y1="205" x2="495" y2="205" stroke="#334155" stroke-width="1"/>
+  
+  <text x="315" y="235" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 10 Sales Agents</text>
+  <text x="315" y="263" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 2,000 Leads/month</text>
+  <text x="315" y="291" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 200 Properties</text>
+  <text x="315" y="319" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ WhatsApp AI</text>
+  <text x="315" y="347" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ 11 Languages</text>
+  <text x="315" y="375" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Advanced Analytics</text>
+  <text x="315" y="403" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Priority Support</text>
+  <text x="315" y="431" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Custom AI Tone</text>
+  
+  <rect x="305" y="445" width="190" height="30" rx="6" fill="#3b82f6"/>
+  <text x="400" y="465" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold" font-family="Segoe UI">Start Growing →</text>
+  
+  <!-- Enterprise Plan -->
+  <rect x="530" y="90" width="230" height="390" rx="12" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="645" y="125" text-anchor="middle" fill="#f59e0b" font-size="14" font-weight="bold" font-family="Segoe UI">ENTERPRISE</text>
+  <text x="645" y="165" text-anchor="middle" fill="#ffffff" font-size="36" font-weight="bold" font-family="Segoe UI">₹49,999</text>
+  <text x="645" y="185" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">/month</text>
+  
+  <line x1="550" y1="200" x2="740" y2="200" stroke="#334155" stroke-width="1"/>
+  
+  <text x="560" y="230" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Unlimited Agents</text>
+  <text x="560" y="258" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Unlimited Leads</text>
+  <text x="560" y="286" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Unlimited Properties</text>
+  <text x="560" y="314" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ WhatsApp AI</text>
+  <text x="560" y="342" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Dedicated Support</text>
+  <text x="560" y="370" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ Custom Branding</text>
+  <text x="560" y="398" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ SLA 99.9%</text>
+  <text x="560" y="426" fill="#e2e8f0" font-size="12" font-family="Segoe UI">✅ API Access</text>
+  
+  <rect x="550" y="440" width="190" height="30" rx="6" fill="#f59e0b"/>
+  <text x="645" y="460" text-anchor="middle" fill="#0a0a0a" font-size="12" font-weight="bold" font-family="Segoe UI">Contact Sales</text>
+</svg>

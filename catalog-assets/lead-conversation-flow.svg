@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#121212"/>
+      <stop offset="100%" stop-color="#303030"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <rect x="80" y="70" width="1120" height="580" rx="14" fill="#1d1d1d" stroke="#4f4f4f"/>
+  <rect x="120" y="120" width="1040" height="70" rx="10" fill="#262626"/>
+  <rect x="140" y="230" width="620" height="70" rx="10" fill="#2c2c2c"/>
+  <rect x="520" y="330" width="620" height="70" rx="10" fill="#363636"/>
+  <rect x="140" y="430" width="620" height="70" rx="10" fill="#2c2c2c"/>
+  <text x="640" y="165" fill="#d9d9d9" font-family="Segoe UI, Arial, sans-serif" font-size="26" text-anchor="middle">AI LEAD CONVERSATION FLOW</text>
+  <text x="640" y="612" fill="#9a9a9a" font-family="Segoe UI, Arial, sans-serif" font-size="22" text-anchor="middle">Replace this image with your WhatsApp conversation screenshot</text>
+</svg>

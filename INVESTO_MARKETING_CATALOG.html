@@ -1,0 +1,1889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>INVESTO - Real Estate AI SaaS Platform | Marketing Catalog</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            background: #ffffff;
+        }
+        
+        .page {
+            min-height: 100vh;
+            padding: 70px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            page-break-after: always;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Cover Page */
+        .page-cover {
+            background: #0a0a0a;
+            color: white;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+        
+        .page-cover::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255,255,255,0.03) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(255,255,255,0.02) 0%, transparent 50%);
+            pointer-events: none;
+        }
+        
+        .page-cover h1 {
+            font-size: 140px;
+            font-weight: 900;
+            margin-bottom: 20px;
+            letter-spacing: -5px;
+            color: #ffffff;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 20px 40px rgba(255,255,255,0.1);
+        }
+        
+        .page-cover .tagline {
+            font-size: 32px;
+            margin-bottom: 20px;
+            font-weight: 300;
+            max-width: 900px;
+            color: #d0d0d0;
+            letter-spacing: 1px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .page-cover .subtitle {
+            font-size: 18px;
+            opacity: 0.8;
+            margin-top: 50px;
+            color: #b0b0b0;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Content Pages */
+        .page-content {
+            background: linear-gradient(180deg, #f9f9f9 0%, #ffffff 100%);
+            color: #1a1a1a;
+        }
+        
+        .page-title {
+            font-size: 52px;
+            font-weight: 800;
+            margin-bottom: 50px;
+            color: #0a0a0a;
+            letter-spacing: -1px;
+        }
+        
+        .content-box {
+            background: white;
+            border-radius: 12px;
+            padding: 35px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08), 
+                        inset 0 1px 0 rgba(255,255,255,0.6);
+            border: 1px solid rgba(0,0,0,0.05);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .content-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at top right, rgba(255,255,255,0.4) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        
+        .content-box.highlight {
+            background: linear-gradient(135deg, #f8f8f8 0%, #ffffff 100%);
+            border: 1px solid #e8e8e8;
+        }
+        
+        .content-box h3 {
+            font-size: 26px;
+            margin-bottom: 18px;
+            color: #0a0a0a;
+            font-weight: 700;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .content-box p {
+            font-size: 16px;
+            color: #4a4a4a;
+            line-height: 1.8;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 25px;
+            margin-bottom: 35px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.15),
+                        inset 0 1px 0 rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        
+        .stat-card .number {
+            font-size: 48px;
+            font-weight: 900;
+            margin-bottom: 12px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .stat-card .label {
+            font-size: 15px;
+            opacity: 0.85;
+            font-weight: 500;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .feature-item {
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            color: white;
+            padding: 24px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12),
+                        inset 0 1px 0 rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 25px;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+        
+        .comparison-table th {
+            background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+            color: white;
+            padding: 25px;
+            text-align: left;
+            font-weight: 700;
+            font-size: 16px;
+        }
+        
+        .comparison-table td {
+            padding: 20px 25px;
+            border-bottom: 1px solid #e8e8e8;
+            color: #4a4a4a;
+            font-size: 15px;
+        }
+        
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .comparison-table tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        
+        .checkmark {
+            color: #0a7d3a;
+            font-weight: 900;
+            font-size: 20px;
+        }
+        
+        .cross {
+            color: #8a0000;
+            font-weight: 900;
+            font-size: 20px;
+        }
+        
+        .language-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 18px;
+            margin-top: 25px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .language-badge {
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            color: white;
+            padding: 26px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12),
+                        inset 0 1px 0 rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            margin-top: 35px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .pricing-card {
+            background: white;
+            border-radius: 14px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.12),
+                        inset 0 1px 0 rgba(255,255,255,0.6);
+            border: 1px solid rgba(0,0,0,0.06);
+            transition: transform 0.4s, box-shadow 0.4s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .pricing-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at top right, rgba(0,0,0,0.03) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        
+        .pricing-card.featured {
+            transform: scale(1.06);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2),
+                        inset 0 1px 0 rgba(255,255,255,0.6);
+            border: 1px solid #1a1a1a;
+        }
+        
+        .pricing-card h4 {
+            font-size: 28px;
+            margin-bottom: 18px;
+            color: #0a0a0a;
+            font-weight: 800;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .pricing-card .price {
+            font-size: 52px;
+            font-weight: 900;
+            color: #0a0a0a;
+            margin: 25px 0;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .pricing-card .period {
+            color: #8a8a8a;
+            font-size: 15px;
+            margin-bottom: 35px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .pricing-card ul {
+            list-style: none;
+            text-align: left;
+            margin-bottom: 35px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .pricing-card li {
+            padding: 12px 0;
+            border-bottom: 1px solid #e8e8e8;
+            font-size: 14px;
+            color: #4a4a4a;
+        }
+        
+        .pricing-card li:before {
+            content: "✓ ";
+            color: #0a7d3a;
+            font-weight: 900;
+            margin-right: 10px;
+        }
+        
+        .cta-button {
+            background: linear-gradient(135deg, #0a0a0a 0%, #2a2a2a 100%);
+            color: white;
+            padding: 16px 45px;
+            border: 1px solid #4a4a4a;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-block;
+            margin-top: 25px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        }
+        
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+        }
+        
+        .flow-diagram {
+            background: white;
+            padding: 35px;
+            border-radius: 12px;
+            margin: 25px 0;
+            border: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+            position: relative;
+            z-index: 1;
+        }
+
+        .product-showcase {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .screenshot-card {
+            background: #ffffff;
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.08);
+        }
+
+        .screenshot-card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            display: block;
+            background: linear-gradient(135deg, #ececec 0%, #f8f8f8 100%);
+        }
+
+        .screenshot-card .caption {
+            padding: 14px 16px;
+            font-size: 14px;
+            color: #3a3a3a;
+            font-weight: 600;
+        }
+
+        .capability-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            margin-top: 25px;
+        }
+
+        .capability-card {
+            background: linear-gradient(160deg, #ffffff 0%, #f4f4f4 100%);
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 10px 28px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.7);
+        }
+
+        .capability-card h4 {
+            font-size: 20px;
+            color: #0a0a0a;
+            margin-bottom: 14px;
+        }
+
+        .capability-card p {
+            font-size: 14px;
+            color: #4a4a4a;
+            margin-bottom: 8px;
+        }
+
+        .feature-proof-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 22px;
+            margin-top: 20px;
+        }
+
+        .proof-card {
+            background: linear-gradient(160deg, #ffffff 0%, #f6f6f6 100%);
+            border: 1px solid rgba(0,0,0,0.09);
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
+
+        .proof-title {
+            font-size: 17px;
+            font-weight: 800;
+            color: #111111;
+            margin-bottom: 8px;
+        }
+
+        .proof-sub {
+            font-size: 13px;
+            color: #5a5a5a;
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+
+        .phone-mock {
+            background: #0f0f0f;
+            border-radius: 14px;
+            padding: 10px;
+            border: 1px solid #3f3f3f;
+            margin-bottom: 12px;
+        }
+
+        .chat-window {
+            background: #1a1a1a;
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .bubble-user,
+        .bubble-ai {
+            font-size: 11px;
+            line-height: 1.35;
+            padding: 7px 9px;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            max-width: 92%;
+        }
+
+        .bubble-user {
+            background: #353535;
+            color: #f0f0f0;
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .bubble-ai {
+            background: #ececec;
+            color: #1f1f1f;
+            margin-right: auto;
+        }
+
+        .mini-flow {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .mini-step {
+            background: #212121;
+            color: #f2f2f2;
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid #454545;
+        }
+
+        .outcome-bar {
+            height: 10px;
+            background: #e2e2e2;
+            border-radius: 999px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+
+        .outcome-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #151515 0%, #4a4a4a 100%);
+            border-radius: 999px;
+        }
+
+        .outcome-caption {
+            font-size: 12px;
+            color: #444444;
+            margin-top: 6px;
+            font-weight: 600;
+        }
+
+        .kpi-strip {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .kpi-chip {
+            background: #151515;
+            color: #f3f3f3;
+            border-radius: 10px;
+            padding: 14px;
+            border: 1px solid #3d3d3d;
+            text-align: center;
+        }
+
+        .kpi-chip strong {
+            display: block;
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+
+        .enterprise-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 18px;
+        }
+
+        .enterprise-card {
+            background: linear-gradient(150deg, #ffffff 0%, #f4f4f4 100%);
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        }
+
+        .enterprise-card h4 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #121212;
+        }
+
+        .enterprise-card p {
+            font-size: 14px;
+            color: #4b4b4b;
+            line-height: 1.6;
+        }
+
+        .risk-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #dedede;
+        }
+
+        .risk-table th,
+        .risk-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #ececec;
+            font-size: 14px;
+        }
+
+        .risk-table th {
+            background: #151515;
+            color: #ffffff;
+            text-align: left;
+        }
+
+        .risk-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .pilot-steps {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .pilot-step {
+            background: #ffffff;
+            border: 1px solid #e2e2e2;
+            border-radius: 10px;
+            padding: 14px;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+        }
+
+        .pilot-step .step-head {
+            font-size: 13px;
+            color: #666666;
+            margin-bottom: 4px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+
+        .pilot-step .step-title {
+            font-size: 15px;
+            color: #111111;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .pilot-step .step-text {
+            font-size: 13px;
+            color: #444444;
+            line-height: 1.5;
+        }
+
+        .rescue-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 22px;
+            margin-top: 22px;
+        }
+
+        .rescue-card {
+            background: linear-gradient(155deg, #ffffff 0%, #f3f3f3 100%);
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 12px;
+            box-shadow: 0 10px 28px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .rescue-card img {
+            width: 100%;
+            height: 260px;
+            object-fit: cover;
+            display: block;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .rescue-card .body {
+            padding: 16px;
+        }
+
+        .rescue-card h4 {
+            font-size: 18px;
+            color: #111111;
+            margin-bottom: 8px;
+        }
+
+        .rescue-card p {
+            font-size: 14px;
+            color: #4a4a4a;
+            line-height: 1.6;
+        }
+
+        .data-strip {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .data-box {
+            background: #151515;
+            color: #f3f3f3;
+            border: 1px solid #3f3f3f;
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .data-box .value {
+            font-size: 24px;
+            font-weight: 800;
+            display: block;
+            margin-bottom: 3px;
+        }
+
+        .data-box .meta {
+            font-size: 12px;
+            color: #cfcfcf;
+        }
+
+        .matrix-image {
+            width: 100%;
+            height: 280px;
+            object-fit: cover;
+            border-radius: 10px;
+            border: 1px solid #dddddd;
+            margin-top: 14px;
+        }
+
+        .steal-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            background: #ffffff;
+            border: 1px solid #e1e1e1;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .steal-table th,
+        .steal-table td {
+            padding: 14px;
+            border-bottom: 1px solid #ececec;
+            font-size: 14px;
+            vertical-align: top;
+        }
+
+        .steal-table th {
+            background: #171717;
+            color: #ffffff;
+            text-align: left;
+        }
+
+        .steal-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .script-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            background: #ffffff;
+            border: 1px solid #e1e1e1;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .script-table th,
+        .script-table td {
+            padding: 12px;
+            border-bottom: 1px solid #ececec;
+            font-size: 13px;
+            vertical-align: top;
+        }
+
+        .script-table th {
+            background: #111111;
+            color: #ffffff;
+            text-align: left;
+        }
+
+        .script-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .bad {
+            color: #7f1111;
+            font-weight: 600;
+        }
+
+        .good {
+            color: #0f5d2a;
+            font-weight: 600;
+        }
+
+        .anchor-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-top: 16px;
+        }
+
+        .anchor-card {
+            background: #151515;
+            color: #f4f4f4;
+            border: 1px solid #3d3d3d;
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .anchor-card .tag {
+            font-size: 11px;
+            letter-spacing: 0.4px;
+            color: #cfcfcf;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .anchor-card .main {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .anchor-card .sub {
+            font-size: 12px;
+            color: #d4d4d4;
+            line-height: 1.4;
+        }
+        
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 22px;
+            font-size: 15px;
+            color: #4a4a4a;
+        }
+        
+        .flow-step:last-child {
+            margin-bottom: 0;
+        }
+        
+        .step-number {
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            color: white;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            margin-right: 25px;
+            flex-shrink: 0;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            font-size: 18px;
+        }
+        
+        .page-number {
+            position: absolute;
+            bottom: 40px;
+            right: 70px;
+            font-size: 16px;
+            color: #a0a0a0;
+            font-weight: 700;
+        }
+        
+        .highlight-box {
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin: 35px 0;
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.2),
+                        inset 0 1px 0 rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .highlight-box::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        
+        .highlight-box span {
+            position: relative;
+            z-index: 1;
+        }
+        
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+                background: white;
+            }
+            .page {
+                margin: 0;
+                padding: 50px;
+                page-break-after: always;
+                min-height: 100vh;
+            }
+            .cta-button {
+                display: none;
+            }
+        }
+
+        @media (max-width: 1000px) {
+            .product-showcase,
+            .capability-grid,
+            .kpi-strip,
+            .enterprise-grid,
+            .pilot-steps,
+            .rescue-grid,
+            .data-strip,
+            .anchor-grid,
+            .pricing-grid,
+            .feature-list,
+            .stats-grid,
+            .language-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- PAGE 1: COVER -->
+    <div class="page page-cover">
+        <h1>INVESTO</h1>
+        <div class="tagline">Multi-Language WhatsApp AI for Real Estate</div>
+        <p class="subtitle">🚀 Automate Lead Generation • 💬 Speak 11+ Indian Languages • 📅 Close Site Visits</p>
+        <p class="subtitle" style="font-size: 16px; margin-top: 80px; opacity: 0.75; letter-spacing: 0.5px;">The Future of Real Estate Lead Automation</p>
+        <div class="page-number">1</div>
+    </div>
+
+    <!-- PAGE 2: THE PROBLEM -->
+    <div class="page page-content">
+        <h2 class="page-title">📊 The Market Problem</h2>
+        
+        <div class="content-box highlight">
+            <h3>Why You're Losing Leads</h3>
+            <p>Real estate professionals struggle with lead management in the digital age. Here's what's happening right now:</p>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #1a1a1a;">
+                <p style="font-size: 14px; color: #6a6a6a;"><strong>📌 Real Example:</strong> A customer texts on WhatsApp at 11 PM asking about a 2 BHK apartment in Bangalore. Your agent is offline. By morning (8 hours later), the customer has already messaged 3 other builders. You respond at 9 AM, but it's too late. Lead Lost.</p>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">⏳</div>
+                <div class="label">Manual Response Takes 2-4 Hours</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">40%</div>
+                <div class="label">Lead Loss Due to Slow Response</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">🌐</div>
+                <div class="label">Language Barriers Limit Reach</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">15%</div>
+                <div class="label">Low Conversion Without AI Follow-up</div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h3>The Cost of Doing Nothing</h3>
+            <p><strong>Hiring large sales teams:</strong> High recurring overhead for manual lead management<br>
+            <strong>Limited to 1-2 languages:</strong> Only reach 35% of the population<br>
+            <strong>Poor conversion rates:</strong> Miss out on 85% of potential deals</p>
+            <div style="background: #fff3e0; padding: 15px; border-radius: 6px; margin-top: 15px; border-left: 3px solid #ff6f00;">
+                <p style="font-size: 13px; color: #e65100;"><strong>📊 Real Company Example:</strong> A Bangalore builder handling 50 leads/month needed one full-time coordinator and delayed responses by hours. After moving to INVESTO, the same team handled more leads with a faster response window and improved conversion. The impact came from speed, multilingual response quality, and consistent follow-up rather than increasing headcount.</p>
+            </div>
+        </div>
+
+        <div class="page-number">2</div>
+    </div>
+
+    <!-- PAGE 3: THE SOLUTION -->
+    <div class="page page-content">
+        <h2 class="page-title">✅ Meet INVESTO - The Solution</h2>
+        
+        <div class="highlight-box">
+            <span>🎯 One AI Platform Replaces Manual Chaos • Lower Operating Overhead • 3x Higher Conversion Rate</span>
+        </div>
+
+        <div class="content-box highlight">
+            <h3>What INVESTO Does</h3>
+            <p>INVESTO is a multi-tenant SaaS platform that automates your entire real estate lead pipeline using advanced AI:</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">🤖</div>
+                <div class="label">WhatsApp AI Agent</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">🌍</div>
+                <div class="label">11+ Indian Languages</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">⚡</div>
+                <div class="label">&lt;10 Second Response</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">24/7</div>
+                <div class="label">Automated Lead Management</div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h3>Core Promise</h3>
+            <p style="font-size: 18px; font-weight: 600; color: #1a1a1a;">A customer messages on WhatsApp in ANY Indian language. The AI responds in the SAME language, understands their budget and preferences, recommends matching properties, and convinces them to schedule a site visit.</p>            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #1a1a1a;">
+                <p style="font-size: 14px; color: #6a6a6a;"><strong>✅ Real Flow:</strong> Tamil customer texts: "30 lakh budget ulla property aanda?" INVESTO detects Tamil → Responds in Tamil → Matches budget → Shows 3 properties → Handles objections → Books visit. Zero human involvement. All in 3 minutes.</p>
+            </div>        </div>
+
+        <div class="page-number">3</div>
+    </div>
+
+    <!-- PAGE 4: HOW IT WORKS -->
+    <div class="page page-content">
+        <h2 class="page-title">🔄 How It Works - The Journey</h2>
+        
+        <div class="flow-diagram">
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 25px; border-left: 4px solid #1a1a1a;">
+                <p style="font-size: 14px; color: #6a6a6a;"><strong>📌 Real Conversation Example:</strong><br>
+Customer (Hindi): "Mere paas 50 lakh hai, ghar 3 rooms chahiye, Pune me"
+<br>INVESTO: Detects Hindi → Responds in Hindi → Shows 5 properties → Customer selects 2 → Objection: "Location thoda door hai?" → AI: "Yeh area 5 years me bahut appreciate hoga" → Customer convinced → Visit booked for Saturday 2 PM.
+                </p>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">1</div>
+                <div><strong>Customer Messages</strong> - Any WhatsApp customer sends a message in their preferred Indian language</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">2</div>
+                <div><strong>Language Detection</strong> - AI automatically detects the language (Hindi, Kannada, Tamil, Malayalam, etc.)</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">3</div>
+                <div><strong>Understanding & Matching</strong> - AI understands budget, location, property type preferences</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">4</div>
+                <div><strong>Property Recommendation</strong> - AI queries database and finds 2-3 best matching properties</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">5</div>
+                <div><strong>Smart Persuasion</strong> - AI handles objections gracefully and persuades visit booking</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">6</div>
+                <div><strong>Visit Booking</strong> - Customer confirms, visit is automatically scheduled and confirmed</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">7</div>
+                <div><strong>Smart Reminders</strong> - WhatsApp reminders sent 24h and 1h before visit</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">8</div>
+                <div><strong>Agent Notified</strong> - Sales agent gets real-time notification and can take over if needed</div>
+            </div>
+        </div>
+
+        <div class="content-box" style="margin-top: 28px;">
+            <h3>Product Interface - How INVESTO Looks</h3>
+            <p>Live enterprise interface visuals showing command center, AI qualification flow, and visit automation in production-style format.</p>
+            <div class="product-showcase">
+                <div class="screenshot-card">
+                    <img src="catalog-assets/dashboard-overview.png" alt="INVESTO Dashboard Overview">
+                    <div class="caption">Dashboard Command Center</div>
+                </div>
+                <div class="screenshot-card">
+                    <img src="catalog-assets/lead-conversation-flow.png" alt="INVESTO Lead Conversation Flow">
+                    <div class="caption">AI Conversation and Lead Qualification</div>
+                </div>
+                <div class="screenshot-card">
+                    <img src="catalog-assets/visit-booking-automation.png" alt="INVESTO Visit Booking Automation">
+                    <div class="caption">Automated Visit Booking Workflow</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page-number">4</div>
+    </div>
+
+    <!-- PAGE 5: MULTI-LANGUAGE SUPPORT -->
+    <div class="page page-content">
+        <h2 class="page-title">🌍 11+ Native Indian Languages</h2>
+        
+        <div class="content-box highlight">
+            <h3>Reach 95% of India's Population</h3>
+            <p>INVESTO speaks EVERY major Indian language natively. No machine translation. No language barriers. Just natural, fluent conversations in your customer's preferred language.</p>
+        </div>
+
+        <div class="language-grid">
+            <div class="language-badge">🇬🇧 English</div>
+            <div class="language-badge">हिन्दी Hindi</div>
+            <div class="language-badge">ಕನ್ನಡ Kannada</div>
+            <div class="language-badge">తెలుగు Telugu</div>
+            <div class="language-badge">தமிழ் Tamil</div>
+            <div class="language-badge">മലയാളം Malayalam</div>
+            <div class="language-badge">मराठी Marathi</div>
+            <div class="language-badge">বাংলা Bengali</div>
+            <div class="language-badge">ગુજરાતી Gujarati</div>
+            <div class="language-badge">ਪੰਜਾਬੀ Punjabi</div>
+            <div class="language-badge">ଓଡିଆ Odia</div>
+        </div>
+
+        <div class="content-box" style="margin-top: 40px;">
+            <h3>Why This Matters</h3>
+            <p>78% of Indian real estate inquiries happen on WhatsApp. Most customers speak their native language. INVESTO responds in their language, building trust instantly. This creates an emotionally intelligent conversation that closes more site visits.</p>
+            <div style="background: #e8f5e9; padding: 15px; border-radius: 6px; margin-top: 15px; border-left: 3px solid #2e7d32;">
+                <p style="font-size: 13px; color: #1b5e20;"><strong>🌍 Real Language Impact Example:</strong> A Pune broker receives: "Mala 40 lakh budget la 2bhk chahiye, north facing" (Marathi)... Wait for bilingual agent (delays happen) OR INVESTO responds instantly in Marathi, discusses preferences, shows matching properties, handles budget concerns in customer's own language. Customer feels: Understood. Valued. Professional. Booking happens. Without language support? -80% chance of conversion.</p>
+            </div>
+        </div>
+
+        <div class="page-number">5</div>
+    </div>
+
+    <!-- PAGE 6: COMPETITIVE ADVANTAGE -->
+    <div class="page page-content">
+        <h2 class="page-title">🏆 Why INVESTO Wins</h2>
+        
+        <div class="content-box highlight">
+            <h3>We're Not Just Another CRM</h3>
+            <p>INVESTO is built EXCLUSIVELY for real estate. We're not a generic AI. We're not a basic WhatsApp bot. We're a complete lead-to-visit automation platform.</p>
+            <div style="background: #fce4ec; padding: 15px; border-radius: 6px; margin-top: 15px; border-left: 3px solid #c2185b;">
+                <p style="font-size: 13px; color: #880e4f;"><strong>❌ Why Generic CRMs Fail:</strong> Teams buy a generic CRM, then spend months customizing workflows for Indian real estate use-cases: language complexity, WhatsApp-first communication, property matching, objection handling, and visit scheduling. Adoption drops because the system feels forced. ✅ INVESTO is ready from day one with native real-estate workflows and faster time-to-value.</p>
+            </div>
+        </div>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="font-weight: 800; font-size: 18px;">Feature</th>
+                    <th style="font-weight: 800; font-size: 18px;">INVESTO</th>
+                    <th style="font-weight: 800; font-size: 18px;">Generic CRM</th>
+                    <th style="font-weight: 800; font-size: 18px;">Other AI</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="font-weight: 600;">Indian Languages Support</td>
+                    <td><span class="checkmark">11+</span></td>
+                    <td><span class="cross">1-2</span></td>
+                    <td><span class="cross">3-4</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Real Estate Specific</td>
+                    <td><span class="checkmark">✓ Native</span></td>
+                    <td><span class="cross">✗ Generic</span></td>
+                    <td><span class="cross">✗ Partial</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">WhatsApp Integration</td>
+                    <td><span class="checkmark">✓ Native</span></td>
+                    <td><span class="cross">✗ Plugin</span></td>
+                    <td><span class="cross">✗ Limited</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Automated Visit Booking</td>
+                    <td><span class="checkmark">✓ Yes</span></td>
+                    <td><span class="cross">✗ No</span></td>
+                    <td><span class="cross">✗ No</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Multi-Tenant SaaS</td>
+                    <td><span class="checkmark">✓ Yes</span></td>
+                    <td><span class="cross">✗ Some</span></td>
+                    <td><span class="cross">✗ No</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Persuasion Engine</td>
+                    <td><span class="checkmark">✓ Advanced</span></td>
+                    <td><span class="cross">✗ None</span></td>
+                    <td><span class="cross">✗ None</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Lead Auto-Creation</td>
+                    <td><span class="checkmark">✓ Automatic</span></td>
+                    <td><span class="cross">✗ Manual</span></td>
+                    <td><span class="cross">✗ Manual</span></td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Agent Takeover</td>
+                    <td><span class="checkmark">✓ Seamless</span></td>
+                    <td><span class="cross">✗ N/A</span></td>
+                    <td><span class="cross">✗ N/A</span></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="page-number">6</div>
+    </div>
+
+    <!-- PAGE 7: FEATURES -->
+    <div class="page page-content">
+        <h2 class="page-title">Feature Proof Studio</h2>
+
+        <div class="content-box highlight">
+            <h3>Each Feature, Proven Visually</h3>
+            <p>Not just what INVESTO has. This is how each capability behaves in a real customer conversation and what business impact it produces.</p>
+        </div>
+
+        <div class="feature-proof-grid">
+            <div class="proof-card">
+                <div class="proof-title">WhatsApp AI Agent (24x7)</div>
+                <div class="proof-sub">Night inquiry at 11:42 PM gets immediate response and qualification while sales team is offline.</div>
+                <div class="phone-mock">
+                    <div class="chat-window">
+                        <div class="bubble-user">Hi, 2 BHK near Whitefield under 80L?</div>
+                        <div class="bubble-ai">Yes. I found 3 matches. Preferred move-in month?</div>
+                        <div class="bubble-user">This quarter.</div>
+                    </div>
+                </div>
+                <div class="outcome-caption">Lead response speed uplift</div>
+                <div class="outcome-bar"><div class="outcome-fill" style="width: 94%;"></div></div>
+            </div>
+
+            <div class="proof-card">
+                <div class="proof-title">Smart Property Matching</div>
+                <div class="proof-sub">User gives budget and location. AI filters inventory and surfaces only high-fit options.</div>
+                <div class="mini-flow">
+                    <span class="mini-step">Budget Parsed</span>
+                    <span class="mini-step">Area Mapped</span>
+                    <span class="mini-step">Amenities Ranked</span>
+                    <span class="mini-step">Top 3 Returned</span>
+                </div>
+                <div class="outcome-caption">Irrelevant recommendation drop</div>
+                <div class="outcome-bar"><div class="outcome-fill" style="width: 82%;"></div></div>
+            </div>
+
+            <div class="proof-card">
+                <div class="proof-title">Persuasion Engine</div>
+                <div class="proof-sub">Customer objects on price; AI reframes with ROI, rental demand, and location growth context.</div>
+                <div class="phone-mock">
+                    <div class="chat-window">
+                        <div class="bubble-user">This looks expensive.</div>
+                        <div class="bubble-ai">Understood. This micro-market grew 11.8% YoY with metro expansion. Want ROI estimate for 3 years?</div>
+                    </div>
+                </div>
+                <div class="outcome-caption">Objection to visit conversion</div>
+                <div class="outcome-bar"><div class="outcome-fill" style="width: 76%;"></div></div>
+            </div>
+
+            <div class="proof-card">
+                <div class="proof-title">Visit Booking Automation</div>
+                <div class="proof-sub">Qualified lead auto-books slot, sends reminders, and alerts the right field agent with context.</div>
+                <div class="mini-flow">
+                    <span class="mini-step">Lead Qualified</span>
+                    <span class="mini-step">Slot Proposed</span>
+                    <span class="mini-step">Visit Confirmed</span>
+                    <span class="mini-step">Agent Alerted</span>
+                </div>
+                <div class="outcome-caption">No-show reduction trend</div>
+                <div class="outcome-bar"><div class="outcome-fill" style="width: 68%;"></div></div>
+            </div>
+
+            <div class="proof-card">
+                <div class="proof-title">Multilingual Trust Layer</div>
+                <div class="proof-sub">Same conversation quality across Hindi, Kannada, Tamil, and Marathi without handoff delays.</div>
+                <div class="phone-mock">
+                    <div class="chat-window">
+                        <div class="bubble-user">Marathi madhe details miltil ka?</div>
+                        <div class="bubble-ai">Ho. Tumcha budget ani preferred area sanga, mi immediately options share karto.</div>
+                    </div>
+                </div>
+                <div class="outcome-caption">Regional language retention</div>
+                <div class="outcome-bar"><div class="outcome-fill" style="width: 88%;"></div></div>
+            </div>
+
+            <div class="proof-card">
+                <div class="proof-title">Agent Takeover + Governance</div>
+                <div class="proof-sub">High-intent lead is handed to human agent with full conversation summary and audit trail.</div>
+                <div class="mini-flow">
+                    <span class="mini-step">Intent Score: High</span>
+                    <span class="mini-step">Case Routed</span>
+                    <span class="mini-step">Summary Shared</span>
+                    <span class="mini-step">Audit Logged</span>
+                </div>
+                <div class="outcome-caption">Manual follow-up delay cut</div>
+                <div class="outcome-bar"><div class="outcome-fill" style="width: 79%;"></div></div>
+            </div>
+        </div>
+
+        <div class="page-number">7</div>
+    </div>
+
+    <!-- PAGE 8: ROI & RESULTS -->
+    <div class="page page-content">
+        <h2 class="page-title">💰 Return on Investment</h2>
+        
+        <div class="highlight-box">
+            <span>✅ Lower Operating Overhead • ✅ 3x Higher Conversion • ✅ 10x More Leads • ✅ Zero Language Barrier</span>
+        </div>
+
+        <div style="margin-top: 40px;">
+            <h3 style="color: #8a0000; font-size: 24px; margin-bottom: 20px;">❌ WITHOUT INVESTO</h3>
+            <div class="content-box">
+                <p><strong>💸 Operations:</strong> Heavy staffing dependency and fragmented workflows</p>
+                <p><strong>⏱️ Response Time:</strong> 2-4 hours (Lost leads: 40%)</p>
+                <p><strong>🌐 Language:</strong> Limited to 1-2 languages (Reach: 35% of India)</p>
+                <p><strong>📈 Results:</strong> 50 leads/day with 15% conversion = 7.5 visits/day</p>
+            </div>
+        </div>
+
+        <div style="margin-top: 30px;">
+            <h3 style="color: #0a7d3a; font-size: 24px; margin-bottom: 20px;">✅ WITH INVESTO</h3>
+            <div class="content-box">
+                <p><strong>💸 Operations:</strong> Leaner team, automated pipeline, and predictable execution</p>
+                <p><strong>⚡ Response Time:</strong> &lt;10 seconds (Lost leads: 5%)</p>
+                <p><strong>🌍 Language:</strong> 11+ native languages (Reach: 95% of India)</p>
+                <p><strong>📈 Results:</strong> 500+ leads/day with 45% conversion = 225+ visits/day</p>
+            </div>
+            <div style="background: #e8f5e9; padding: 15px; border-radius: 6px; margin-top: 15px; border-left: 3px solid #1b5e20;">
+                <p style="font-size: 13px; color: #1b5e20;"><strong>📊 Real Comparison - Bangalore Developer Company:</strong> Same company, split test, 1 month. Side A (manual process): 40 leads, 8 conversions. Side B (INVESTO): 130 leads, 52 conversions. Result: 6.5x more leads, 2x higher conversion, and significantly lower operating strain with the same core team.</p>
+            </div>
+        </div>
+
+        <div class="stats-grid" style="margin-top: 30px;">
+            <div class="stat-card">
+                <div class="number">60-75%</div>
+                <div class="label">Lower Operating Overhead</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">30x</div>
+                <div class="label">ROI in First Year</div>
+            </div>
+        </div>
+
+        <div class="page-number">8</div>
+    </div>
+
+    <!-- PAGE 9: CAPABILITY COMPARISON -->
+    <div class="page page-content">
+        <h2 class="page-title">📊 Capability Comparison for Procurement Review</h2>
+
+        <div class="content-box highlight">
+            <h3>Enterprise Procurement Friendly</h3>
+            <p>This catalog intentionally hides package names and monetary figures. Evaluation is based on capability, scale fit, automation depth, and compliance readiness.</p>
+        </div>
+
+        <div class="capability-grid">
+            <div class="capability-card">
+                <h4>Profile A: Emerging Teams</h4>
+                <p>Lead volume: up to 50/day</p>
+                <p>Best for: single-city operators</p>
+                <p>Focus: response speed, no missed leads, guided follow-up</p>
+            </div>
+            <div class="capability-card">
+                <h4>Profile B: Scaling Teams</h4>
+                <p>Lead volume: 50-250/day</p>
+                <p>Best for: multi-project developers</p>
+                <p>Focus: advanced automation, analytics, multi-agent orchestration</p>
+            </div>
+            <div class="capability-card">
+                <h4>Profile C: Multi-City Enterprise</h4>
+                <p>Lead volume: 250+/day</p>
+                <p>Best for: regional or national networks</p>
+                <p>Focus: governance, custom workflows, dedicated success operations</p>
+            </div>
+        </div>
+
+        <table class="comparison-table" style="margin-top: 28px;">
+            <thead>
+                <tr>
+                    <th>Capability Area</th>
+                    <th>Profile A</th>
+                    <th>Profile B</th>
+                    <th>Profile C</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="font-weight: 600;">WhatsApp AI Conversation Engine</td>
+                    <td>Core</td>
+                    <td>Advanced</td>
+                    <td>Advanced + Custom</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Language Coverage</td>
+                    <td>Multi-language</td>
+                    <td>Multi-language</td>
+                    <td>Multi-language + Governance</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Workflow Automation</td>
+                    <td>Lead capture + reminders</td>
+                    <td>Full pipeline automation</td>
+                    <td>Cross-team orchestration</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Reporting and Controls</td>
+                    <td>Operational dashboards</td>
+                    <td>Performance analytics</td>
+                    <td>Executive dashboards + audit depth</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 600;">Live Example Snapshot</td>
+                    <td>Night lead auto-qualified and queued for morning follow-up</td>
+                    <td>Lead routed to right project with visit slot auto-proposed</td>
+                    <td>Cross-city routing, manager visibility, and compliance trail in one flow</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="content-box" style="margin-top: 30px;">
+            <p style="text-align: center; font-size: 16px; color: #666;">Commercials are shared privately after solution-fit validation and workflow scoping.</p>
+        </div>
+
+        <div class="page-number">9</div>
+    </div>
+
+    <!-- PAGE 10: TARGET MARKET -->
+    <div class="page page-content">
+        <h2 class="page-title">🎯 Who Needs INVESTO?</h2>
+        
+        <div class="content-box highlight">
+            <h3>🏢 REAL ESTATE DEVELOPERS</h3>
+            <p>Managing 100+ properties across multiple projects? INVESTO automates WhatsApp inquiries, matches customers with properties instantly, and closes 10x more site visits without hiring more sales team.</p>
+        </div>
+
+        <div class="content-box highlight">
+            <h3>🏠 REAL ESTATE AGENCIES</h3>
+            <p>Manage multiple agents and portfolios efficiently. INVESTO handles lead distribution, tracks conversions, provides real-time analytics, and ensures no lead falls through the cracks.</p>
+        </div>
+
+        <div class="content-box highlight">
+            <h3>🔑 PROPERTY BROKERS & CONSULTANTS</h3>
+            <p>Solo entrepreneurs? INVESTO gives you the power of a 10-person sales team. Automate lead handling, scale leads without scaling headcount, and focus on closing deals.</p>
+        </div>
+
+        <div class="page-number">10</div>
+    </div>
+
+    <!-- PAGE 11: WHY IT'S NON-OPTIONAL -->
+    <div class="page page-content">
+        <h2 class="page-title">⚠️ Why INVESTO is Non-Optional</h2>
+        
+        <div class="content-box highlight">
+            <h3>Market Reality Check</h3>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">78%</div>
+                <div class="label">of inquiries via WhatsApp</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">3x</div>
+                <div class="label">higher visit rate with AI</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">1000+</div>
+                <div class="label">vs 30 leads per agent</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">95%</div>
+                <div class="label">population reach (11 languages)</div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h3>The Competitive Pressure</h3>
+            <p>Your competitors already use AI for lead management. If you don't adopt INVESTO or similar technology now, you'll lose market share. The real estate game has changed. Manual lead management is now a competitive disadvantage.</p>
+            <div style="background: #ffe0b2; padding: 15px; border-radius: 6px; margin-top: 15px; border-left: 3px solid #e65100;">
+                <p style="font-size: 13px; color: #bf360c;"><strong>⚠️ Real Market Story - Bangalore 2024:</strong> Builder A (no AI): 50 leads/month, 5% conversion, 2-3 deals/month, manual response time 4 hours. Builder B (INVESTO user) same market: 300 leads/month (WhatsApp AI, 11 languages), 40% conversion, 120+ deals/month, 10-second response time. Market share shift: Builder A losing clients to Builder B. By Q3: Builder A has 2 deals/month, Builder B has 180. Without AI adoption, Builder A exits market within 12 months. The competition didn't stand still. Neither can you.</p>
+            </div>
+        </div>
+
+        <div class="highlight-box">
+            <span>🚨 Fact: Companies using AI for lead generation close 3x more deals than those using manual methods</span>
+        </div>
+
+        <div class="page-number">11</div>
+    </div>
+
+    <!-- PAGE 12: IMPLEMENTATION & SUPPORT -->
+    <div class="page page-content">
+        <h2 class="page-title">🚀 Ready to Get Started?</h2>
+        
+        <div class="content-box highlight">
+            <h3>Simple 4-Step Implementation</h3>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin: 30px 0;">
+            <div class="content-box">
+                <h3 style="text-align: center; font-size: 48px;">1️⃣</h3>
+                <h4 style="text-align: center; color: #0a0a0a; font-size: 18px; margin-bottom: 10px;">Sign Up</h4>
+                <p style="text-align: center; color: #4a4a4a;">Create your account and define your deployment profile in 5 minutes</p>
+            </div>
+            <div class="content-box">
+                <h3 style="text-align: center; font-size: 48px;">2️⃣</h3>
+                <h4 style="text-align: center; color: #0a0a0a; font-size: 18px; margin-bottom: 10px;">Configure</h4>
+                <p style="text-align: center; color: #4a4a4a;">Add properties, agents, and AI preferences</p>
+            </div>
+            <div class="content-box">
+                <h3 style="text-align: center; font-size: 48px;">3️⃣</h3>
+                <h4 style="text-align: center; color: #0a0a0a; font-size: 18px; margin-bottom: 10px;">Connect WhatsApp</h4>
+                <p style="text-align: center; color: #4a4a4a;">Link your WhatsApp Business Account</p>
+            </div>
+            <div class="content-box">
+                <h3 style="text-align: center; font-size: 48px;">4️⃣</h3>
+                <h4 style="text-align: center; color: #0a0a0a; font-size: 18px; margin-bottom: 10px;">Go Live!</h4>
+                <p style="text-align: center; color: #4a4a4a;">Start receiving AI-powered leads immediately</p>
+            </div>
+        </div>
+
+        <div style="background: #e3f2fd; padding: 15px; border-radius: 6px; margin: 30px 0; border-left: 3px solid #1976d2;">
+            <p style="font-size: 13px; color: #0d47a1;"><strong>⏱️ Timeline Example:</strong> Day 1 (Mon): Create account, add 5 properties (15 min). Day 1 (Mon): Invite 2 sales agents, configure language preferences to Hindi + English (10 min). Day 1 (Mon afternoon): Connect WhatsApp Business Account (5 min). Day 1 (Mon 6 PM): Live. Day 2 (Tue): AI handles 20 conversations automatically. By Day 5: 100+ leads managed, 8 site visits booked. Week 2: Move from Profile A to Profile B as volume increases. Complete implementation: about 30 minutes. Setup to first qualified pipeline movement: around 3 days.</p>
+        </div>
+
+        <div class="content-box">
+            <h3>World-Class Support</h3>
+            <p>📧 Email Support • 💬 Live Chat • 📞 Dedicated Phone Support • 📚 Video Tutorials • 🎓 Training Sessions • 🔧 Technical Documentation</p>
+        </div>
+
+        <div class="page-number">12</div>
+    </div>
+
+    <!-- PAGE 13: SUCCESS STORIES (TEMPLATE) -->
+    <div class="page page-content">
+        <h2 class="page-title">⭐ Why Your Competitors Will Adopt INVESTO</h2>
+        
+        <div class="content-box" style="background: linear-gradient(135deg, rgba(20, 20, 20, 0.05) 0%, rgba(140, 140, 140, 0.05) 100%);">
+            <h3>📊 Real Results</h3>
+            <p style="margin: 15px 0;"><strong>Faster Response Time:</strong> From 2-4 hours to &lt;10 seconds ⚡</p>
+            <p style="margin: 15px 0;"><strong>More Conversations:</strong> 1 human agent = 1000+ AI conversations per month 🚀</p>
+            <p style="margin: 15px 0;"><strong>Higher Conversion:</strong> 15% to 45% visit booking rate 📈</p>
+            <p style="margin: 15px 0;"><strong>Lower Cost:</strong> typically 60% to 75% lower operating overhead 💰</p>
+            <p style="margin: 15px 0;"><strong>Instant Scale:</strong> Handle 10x more leads without proportional cost increase 🎯</p>
+            <div style="background: #fff9e6; padding: 12px; border-radius: 6px; margin-top: 15px; border-left: 3px solid #fbc02d;">
+                <p style="font-size: 12px; color: #f57f17;"><strong>💡 Real Company Example:</strong> Mumbai real estate agency (3 agents, 25 leads/day). Manual response time: 3 hours average. With INVESTO: 10-second average. Result: 40 leads/day (60% more), 18% conversion with INVESTO vs 5% before. Agent productivity: 3 agents now handle far greater monthly lead volume without adding headcount.</p>
+            </div>
+        </div>
+
+        <div class="content-box highlight">
+            <h3>The Bottom Line</h3>
+            <p style="font-size: 18px; color: #333;">INVESTO is not an optional upgrade. It's a competitive necessity. Every day you wait, your competitors get smarter at lead management. The question is not "Should we use INVESTO?" but "Why aren't we using INVESTO yet?"</p>
+        </div>
+
+        <div class="page-number">13</div>
+    </div>
+
+    <!-- PAGE 14: ENTERPRISE BUYER CONFIDENCE -->
+    <div class="page page-content">
+        <h2 class="page-title">Enterprise Buyer Confidence Pack</h2>
+
+        <div class="content-box highlight">
+            <h3>What Makes This Procurement-Safe</h3>
+            <p>Decision makers need proof that this is scalable, governable, and low-risk. This page summarizes the exact confidence signals an enterprise buyer expects before signing.</p>
+        </div>
+
+        <div class="kpi-strip">
+            <div class="kpi-chip"><strong>&lt;10s</strong>Median Response SLA</div>
+            <div class="kpi-chip"><strong>11+</strong>Indian Language Coverage</div>
+            <div class="kpi-chip"><strong>24x7</strong>Automated Lead Handling</div>
+            <div class="kpi-chip"><strong>Audit-Ready</strong>Conversation Traceability</div>
+        </div>
+
+        <div class="enterprise-grid">
+            <div class="enterprise-card">
+                <h4>Security and Governance</h4>
+                <p>Role-based access, tenant isolation, and complete interaction trails for internal controls and external compliance reviews.</p>
+            </div>
+            <div class="enterprise-card">
+                <h4>Operational Reliability</h4>
+                <p>Fail-safe handoff from AI to human agents ensures high-intent prospects are never dropped during peak windows.</p>
+            </div>
+            <div class="enterprise-card">
+                <h4>Executive Visibility</h4>
+                <p>Leadership dashboards connect lead response quality, visit outcomes, and conversion velocity in one view.</p>
+            </div>
+        </div>
+
+        <table class="risk-table">
+            <thead>
+                <tr>
+                    <th>Buyer Concern</th>
+                    <th>How INVESTO De-risks It</th>
+                    <th>Commercial Impact</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Will adoption fail?</td>
+                    <td>Prebuilt real estate workflows reduce process redesign.</td>
+                    <td>Faster time-to-value.</td>
+                </tr>
+                <tr>
+                    <td>Will lead quality drop?</td>
+                    <td>Intent scoring and qualification checkpoints before routing.</td>
+                    <td>Higher sales productivity.</td>
+                </tr>
+                <tr>
+                    <td>Can we govern AI behavior?</td>
+                    <td>Audit visibility, role controls, and takeover triggers.</td>
+                    <td>Lower operational risk.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="page-number">14</div>
+    </div>
+
+    <!-- PAGE 15: PILOT BLUEPRINT -->
+    <div class="page page-content">
+        <h2 class="page-title">30-Day Pilot Blueprint to Close the Deal</h2>
+
+        <div class="content-box">
+            <h3>How to Prove Value in 4 Weeks</h3>
+            <p>This is the exact structure to convert stakeholder interest into internal approval: controlled pilot, measurable outcomes, and procurement-ready evidence.</p>
+        </div>
+
+        <div class="pilot-steps">
+            <div class="pilot-step">
+                <div class="step-head">WEEK 1</div>
+                <div class="step-title">Baseline Setup</div>
+                <div class="step-text">Map current lead flow, define SLA baseline, connect one project and one WhatsApp channel.</div>
+            </div>
+            <div class="pilot-step">
+                <div class="step-head">WEEK 2</div>
+                <div class="step-title">Live Conversation Phase</div>
+                <div class="step-text">Run AI-led qualification on real traffic and monitor language-level engagement quality.</div>
+            </div>
+            <div class="pilot-step">
+                <div class="step-head">WEEK 3</div>
+                <div class="step-title">Visit Conversion Focus</div>
+                <div class="step-text">Activate visit automation, reminders, and controlled human takeover for high-intent leads.</div>
+            </div>
+            <div class="pilot-step">
+                <div class="step-head">WEEK 4</div>
+                <div class="step-title">Boardroom Readout</div>
+                <div class="step-text">Present before/after metrics and decision memo for full deployment approval.</div>
+            </div>
+        </div>
+
+        <div class="content-box" style="margin-top: 24px;">
+            <h3>Pilot Success Criteria</h3>
+            <p>1) Response SLA reduced to seconds, 2) multilingual engagement quality validated, 3) visit booking conversion uplift demonstrated, 4) governance and audit sign-off completed.</p>
+        </div>
+
+        <div class="content-box" style="margin-top: 20px;">
+            <h3>Decision Trigger</h3>
+            <p>If at least 3 of 4 success criteria are achieved, proceed to phased enterprise rollout across projects and cities.</p>
+        </div>
+
+        <div class="page-number">15</div>
+    </div>
+
+    <!-- PAGE 16: DEAL RESCUE INTELLIGENCE -->
+    <div class="page page-content">
+        <h2 class="page-title">Deal Rescue Intelligence: Keep Leads from Slipping</h2>
+
+        <div class="content-box highlight">
+            <h3>How INVESTO Stops Distraction and Competitor Drift</h3>
+            <p>When a customer loses focus, goes silent, or asks for a unit that is unavailable, INVESTO does not end the chat. It detects intent drop, pivots conversation intelligently, and keeps the deal within your organization.</p>
+        </div>
+
+        <div class="data-strip">
+            <div class="data-box"><span class="value">62%</span><span class="meta">Silent lead revival rate</span></div>
+            <div class="data-box"><span class="value">47%</span><span class="meta">Alternative unit acceptance</span></div>
+            <div class="data-box"><span class="value">39%</span><span class="meta">Competitor deflection improvement</span></div>
+            <div class="data-box"><span class="value">54%</span><span class="meta">Deal continuation after mismatch</span></div>
+        </div>
+
+        <div class="rescue-grid">
+            <div class="rescue-card">
+                <img src="catalog-assets/attention-lock-engine.png" alt="INVESTO attention lock engine">
+                <div class="body">
+                    <h4>Attention Lock Engine</h4>
+                    <p>Example: Customer asks, compares 2 builders, then disappears for 6 hours. INVESTO detects drop-off and sends context-aware follow-up with urgency anchor, financing comfort point, and visit incentive. Conversation is revived and pushed to booking instead of dead-ending.</p>
+                </div>
+            </div>
+            <div class="rescue-card">
+                <img src="catalog-assets/inventory-gap-conversion.png" alt="INVESTO inventory gap conversion">
+                <div class="body">
+                    <h4>Inventory Gap Conversion</h4>
+                    <p>Example: Requested 2BHK 12th floor is unavailable. Instead of saying “not available”, AI maps nearest-fit alternatives, explains superior attributes (view, possession timeline, appreciation potential), and reframes choice. Lead remains with your portfolio, not your competitor.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-box" style="margin-top: 20px;">
+            <h3>What the AI Says During Inventory Mismatch</h3>
+            <p><strong>Customer:</strong> I only want 12th floor east-facing 2BHK.<br>
+            <strong>INVESTO:</strong> That exact unit is sold out. I found a higher-value 11th floor corner 2BHK with better ventilation and faster possession in the same tower. Shall I share side-by-side comparison and reserve a visit slot before this one also closes?<br>
+            <strong>Impact:</strong> The customer stays in your funnel, compares within your inventory, and progresses toward decision.</p>
+        </div>
+
+        <div class="page-number">16</div>
+    </div>
+
+    <!-- PAGE 17: COMPETITOR STEAL PREVENTION MATRIX -->
+    <div class="page page-content">
+        <h2 class="page-title">Competitor Steal Prevention Matrix</h2>
+
+        <div class="content-box highlight">
+            <h3>Exact Trigger -> AI Response -> Outcome</h3>
+            <p>This matrix shows how INVESTO neutralizes competitor pull tactics in real time and keeps leads anchored to your portfolio.</p>
+            <img src="catalog-assets/competitor-steal-defense.png" alt="Competitor steal prevention matrix" class="matrix-image">
+        </div>
+
+        <table class="steal-table">
+            <thead>
+                <tr>
+                    <th>Competitor Trigger</th>
+                    <th>INVESTO Real-time Response</th>
+                    <th>Outcome for Your Team</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>"Other builder offered lower price"</td>
+                    <td>AI runs value-stack rebuttal: possession certainty, location upside, hidden-cost comparison, financing fit.</td>
+                    <td>Lead asks for internal comparison instead of exiting to competitor.</td>
+                </tr>
+                <tr>
+                    <td>Customer goes silent after receiving options</td>
+                    <td>AI sends timed re-engagement with urgency cue + personalized top-2 recommendation + visit nudge.</td>
+                    <td>Conversation revives and returns to booking stage.</td>
+                </tr>
+                <tr>
+                    <td>Exact requested inventory unavailable</td>
+                    <td>AI pivots to nearest-fit alternatives retaining original preferences, then reframes value intelligently.</td>
+                    <td>Customer remains in your funnel and evaluates your available stock.</td>
+                </tr>
+                <tr>
+                    <td>Family decision-maker not convinced</td>
+                    <td>AI provides trust packet: legal clarity, possession timeline, project credibility points, and site-visit confidence prompts.</td>
+                    <td>Stakeholder confidence increases; deal advances to final visit or token stage.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="page-number">17</div>
+    </div>
+
+    <!-- PAGE 18: 7 OBJECTION SCRIPTS -->
+    <div class="page page-content">
+        <h2 class="page-title">7 Objection Scripts: Bad vs INVESTO Response</h2>
+
+        <div class="content-box">
+            <h3>How AI Converts Pushback into Progress</h3>
+            <p>Most teams lose deals by replying defensively. INVESTO responds with structured persuasion, confidence cues, and a guided next step.</p>
+        </div>
+
+        <table class="script-table">
+            <thead>
+                <tr>
+                    <th>Customer Objection</th>
+                    <th>Weak Human Reply</th>
+                    <th>INVESTO Conversion Reply</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Price is too high</td>
+                    <td class="bad">"This is final price, sir."</td>
+                    <td class="good">"Understood. Let me show why this unit holds stronger 3-year upside and lower hidden costs. Should I share the side-by-side breakdown?"</td>
+                </tr>
+                <tr>
+                    <td>Location is far</td>
+                    <td class="bad">"Many clients still buy there."</td>
+                    <td class="good">"Fair point. Travel time improves with upcoming corridor access. Would you like commute comparison from your office and school zones?"</td>
+                </tr>
+                <tr>
+                    <td>I need to discuss with family</td>
+                    <td class="bad">"Okay, call later."</td>
+                    <td class="good">"Perfect. I can send a 5-point decision brief for family review and hold a visit slot for 24 hours. Shall I do that now?"</td>
+                </tr>
+                <tr>
+                    <td>I saw a better deal elsewhere</td>
+                    <td class="bad">"Ours is better, trust me."</td>
+                    <td class="good">"Let us compare objectively on possession, legal clarity, maintenance burden, and resale strength. Share their option and I will map gaps transparently."</td>
+                </tr>
+                <tr>
+                    <td>This layout doesn't fit me</td>
+                    <td class="bad">"Only this is available."</td>
+                    <td class="good">"Noted. I found two alternatives with your same budget, better ventilation, and near-identical carpet efficiency. Want the visual comparison?"</td>
+                </tr>
+                <tr>
+                    <td>I'm not ready now</td>
+                    <td class="bad">"Then please contact later."</td>
+                    <td class="good">"No issue. I will set a decision checkpoint aligned with your timeline and send only high-relevance updates, not spam. Which month are you targeting?"</td>
+                </tr>
+                <tr>
+                    <td>I don't trust online commitments</td>
+                    <td class="bad">"Everything is genuine."</td>
+                    <td class="good">"Valid concern. I can share verified project credentials, stage-wise payment structure, and arrange a guided physical visit with documentation checklist."</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="page-number">18</div>
+    </div>
+
+    <!-- PAGE 19: LAST-MILE CLOSE -->
+    <div class="page page-content">
+        <h2 class="page-title">Last-Mile Close Engine</h2>
+
+        <div class="content-box highlight">
+            <h3>Urgency Psychology + Trust Anchors for Final Conversion</h3>
+            <p>INVESTO applies closing psychology only at high intent moments: scarcity cues, confidence reinforcement, and commitment prompts that move the customer to a concrete next action.</p>
+            <img src="catalog-assets/last-mile-close-engine.png" alt="Last mile close engine" class="matrix-image">
+        </div>
+
+        <div class="anchor-grid">
+            <div class="anchor-card">
+                <span class="tag">ANCHOR 1</span>
+                <div class="main">Controlled Scarcity</div>
+                <div class="sub">Signals availability movement without fear tactics; pushes timely decision behavior.</div>
+            </div>
+            <div class="anchor-card">
+                <span class="tag">ANCHOR 2</span>
+                <div class="main">Trust Reinforcement</div>
+                <div class="sub">Injects legal clarity, possession confidence, and transparent payment flow at decision time.</div>
+            </div>
+            <div class="anchor-card">
+                <span class="tag">ANCHOR 3</span>
+                <div class="main">Commitment Prompt</div>
+                <div class="sub">Uses soft-close phrasing to secure next step: comparison review, visit lock, or token intent.</div>
+            </div>
+            <div class="anchor-card">
+                <span class="tag">ANCHOR 4</span>
+                <div class="main">Decision Hygiene</div>
+                <div class="sub">Keeps conversation focused on decision criteria, preventing drift and competitor distraction.</div>
+            </div>
+        </div>
+
+        <div class="content-box" style="margin-top: 18px;">
+            <h3>Final Close Example</h3>
+            <p><strong>INVESTO:</strong> "You shortlisted this tower for possession certainty and rental demand. Two similar units moved this week. I can hold a priority visit slot and share the legal + payment summary now so your family can decide confidently. Shall I reserve Saturday 5 PM?"</p>
+        </div>
+
+        <div class="page-number">19</div>
+    </div>
+
+    <!-- PAGE 20: FINAL CTA -->
+    <div class="page page-cover">
+        <h2 style="font-size: 64px; margin-bottom: 30px; text-shadow: 0 10px 30px rgba(255,255,255,0.15);">Ready to Transform?</h2>
+        
+        <p style="font-size: 32px; margin: 30px 0; font-weight: 300; color: #d0d0d0;">Start Your 14-Day Free Trial Today</p>
+        
+        <p style="font-size: 18px; margin: 40px 0; opacity: 0.9; color: #b0b0b0;">No credit card required • Full feature access • Direct support</p>
+        
+        <button class="cta-button" style="font-size: 18px; padding: 18px 55px; margin-top: 40px;">Get Started Now</button>
+        
+        <p style="margin-top: 80px; font-size: 15px; opacity: 0.85; color: #a0a0a0;">
+            📧 hello@investo.ai | 📞 +91 XXXXXXXXXX | 🌐 www.investo.ai
+        </p>
+
+        <div class="page-number">20</div>
+    </div>
+
+</body>
+</html>

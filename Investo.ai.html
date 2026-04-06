@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>INVESTO - AI That Locks Your Leads | Real Estate WhatsApp Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #ffffff;
+            color: #1a1a2e;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .header {
+            padding: 20px 0;
+            border-bottom: 1px solid #eef2f6;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 100;
+        }
+
+        .header-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #075e54 0%, #25d366 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .nav {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            text-decoration: none;
+            color: #4a5568;
+            font-weight: 500;
+        }
+
+        .contact-btn {
+            background: #075e54;
+            color: white !important;
+            padding: 10px 24px;
+            border-radius: 30px;
+        }
+
+        .hero {
+            padding: 60px 0 40px;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 52px;
+            font-weight: 800;
+            line-height: 1.2;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #075e54 0%, #128c7e 50%, #25d366 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: #4a5568;
+            max-width: 700px;
+            margin: 0 auto 32px;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: center;
+            gap: 48px;
+            flex-wrap: wrap;
+            background: #fafbfc;
+            padding: 32px;
+            border-radius: 24px;
+            margin: 40px 0;
+        }
+
+        .stat-number {
+            font-size: 36px;
+            font-weight: 800;
+            color: #075e54;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #4a5568;
+        }
+
+        .section {
+            padding: 60px 0;
+            border-bottom: 1px solid #eef2f6;
+        }
+
+        .section-dark {
+            background: #fafbfc;
+        }
+
+        .section-title {
+            font-size: 36px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .section-subtitle {
+            text-align: center;
+            color: #4a5568;
+            max-width: 600px;
+            margin: 0 auto 48px;
+            font-size: 18px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 40px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 32px;
+        }
+
+        /* WhatsApp Chat Mock */
+        .whatsapp-mock {
+            background: #efeae2;
+            border-radius: 24px;
+            padding: 20px;
+            max-width: 100%;
+            box-shadow: 0 20px 35px -10px rgba(0,0,0,0.15);
+        }
+
+        .mock-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            margin-bottom: 16px;
+        }
+
+        .mock-avatar {
+            width: 40px;
+            height: 40px;
+            background: #25d366;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        .mock-name {
+            font-weight: 600;
+        }
+
+        .mock-status {
+            font-size: 12px;
+            color: #667781;
+        }
+
+        .message-user {
+            background: #dcf8c5;
+            padding: 10px 14px;
+            border-radius: 18px;
+            margin: 8px 0 8px auto;
+            max-width: 85%;
+            width: fit-content;
+            font-size: 14px;
+        }
+
+        .message-ai {
+            background: white;
+            padding: 10px 14px;
+            border-radius: 18px;
+            margin: 8px 0;
+            max-width: 85%;
+            width: fit-content;
+            font-size: 14px;
+        }
+
+        .message-time {
+            font-size: 10px;
+            color: #667781;
+            margin-top: 4px;
+            text-align: right;
+        }
+
+        /* Dashboard Card Mock */
+        .dashboard-mock {
+            background: #1a1a2e;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 20px 35px -10px rgba(0,0,0,0.2);
+        }
+
+        .dashboard-header {
+            background: #16213e;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            color: white;
+            font-size: 12px;
+        }
+
+        .dashboard-body {
+            padding: 16px;
+        }
+
+        .lead-row {
+            background: #0f3460;
+            margin: 8px 0;
+            padding: 12px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .lead-name {
+            color: white;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .lead-badge {
+            background: #e94560;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            color: white;
+        }
+
+        .calendar-mock {
+            background: white;
+            border-radius: 20px;
+            padding: 16px;
+            border: 1px solid #eef2f6;
+        }
+
+        .calendar-day {
+            background: #075e54;
+            color: white;
+            padding: 8px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .visit-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #eef2f6;
+        }
+
+        /* Core Feature Banner */
+        .core-feature {
+            background: linear-gradient(135deg, #075e54 0%, #128c7e 100%);
+            color: white;
+            border-radius: 32px;
+            padding: 48px;
+            margin: 40px 0;
+            text-align: center;
+        }
+
+        .core-feature h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 24px;
+            margin-top: 32px;
+        }
+
+        .feature-item {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        /* Objection Cards */
+        .objection-card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border-left: 4px solid #e53e3e;
+        }
+
+        .objection-card.good {
+            border-left-color: #25d366;
+        }
+
+        .objection-customer {
+            font-weight: 600;
+            color: #e53e3e;
+            margin-bottom: 8px;
+        }
+
+        .objection-ai {
+            font-weight: 600;
+            color: #25d366;
+            margin-top: 12px;
+            margin-bottom: 4px;
+        }
+
+        /* Language Grid */
+        .language-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin: 32px 0;
+        }
+
+        .language-badge {
+            background: #e8f5e9;
+            padding: 8px 20px;
+            border-radius: 40px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #2e7d32;
+        }
+
+        /* Before/After */
+        .comparison-card {
+            background: white;
+            border-radius: 20px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .comparison-card.bad {
+            background: #fff5f5;
+            border: 1px solid #fed7d7;
+        }
+
+        .comparison-card.good {
+            background: #f0fdf4;
+            border: 1px solid #c6f6d5;
+        }
+
+        .big-number {
+            font-size: 48px;
+            font-weight: 800;
+        }
+
+        /* CTA */
+        .cta {
+            background: linear-gradient(135deg, #075e54 0%, #128c7e 100%);
+            color: white;
+            text-align: center;
+            padding: 60px 24px;
+            border-radius: 32px;
+            margin: 60px 0;
+        }
+
+        .cta-email {
+            background: white;
+            color: #075e54;
+            padding: 16px 32px;
+            border-radius: 60px;
+            font-size: 20px;
+            font-weight: 600;
+            display: inline-block;
+            text-decoration: none;
+        }
+
+        .footer {
+            padding: 40px 0;
+            text-align: center;
+            color: #718096;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 32px; }
+            .section-title { font-size: 28px; }
+            .core-feature { padding: 32px 20px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-inner">
+                <div class="logo">INVESTO<span>.ai</span></div>
+                <div class="nav">
+                    <a href="#core">Lock Engine</a>
+                    <a href="#live">Live Demo</a>
+                    <a href="#languages">Languages</a>
+                    <a href="#contact" class="contact-btn">Contact Sales</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <!-- Hero -->
+            <section class="hero">
+                <h1>Your Customer Will Not<br>Buy From Anyone Else</h1>
+                <p>INVESTO is the only WhatsApp AI engineered to prevent distraction, kill competitor drift, and lock every lead into YOUR site visit. 24x7. 11 languages.</p>
+                <div class="stats-row">
+                    <div class="stat-block"><div class="stat-number">78%</div><div class="stat-label">inquiries on WhatsApp</div></div>
+                    <div class="stat-block"><div class="stat-number">11+</div><div class="stat-label">Indian languages</div></div>
+                    <div class="stat-block"><div class="stat-number">&lt;10s</div><div class="stat-label">response time</div></div>
+                    <div class="stat-block"><div class="stat-number">3x</div><div class="stat-label">higher visit booking</div></div>
+                </div>
+            </section>
+
+            <!-- Core Feature: Anti-Distraction Engine -->
+            <section id="core" class="core-feature">
+                <h2>🔒 The "Attention Lock" Engine</h2>
+                <p>Other chatbots just answer questions. INVESTO actively prevents your leads from drifting to competitors. When a customer tries to leave, compares other builders, or goes silent — our AI intervenes intelligently and brings them back.</p>
+                <div class="feature-grid">
+                    <div class="feature-item">🚫 <strong>Competitor Steal Prevention</strong><br>Customer mentions another builder? AI runs value-stack rebuttal instantly.</div>
+                    <div class="feature-item">⏰ <strong>Silent Lead Revival</strong><br>Customer disappears for 6 hours? AI sends urgency-anchored follow-up.</div>
+                    <div class="feature-item">🔄 <strong>Inventory Gap Conversion</strong><br>Unit sold out? AI maps nearest-fit alternatives — keeps lead in YOUR funnel.</div>
+                    <div class="feature-item">🧠 <strong>Objection Kill Switch</strong><br>"Too expensive", "Let me ask my wife" — AI has structured rebuttals for all.</div>
+                </div>
+            </section>
+
+            <!-- LIVE WhatsApp Chat Mock - Customer tries to leave, AI locks -->
+            <section id="live" class="section">
+                <h2 class="section-title">Watch AI Lock a Lead in Real Time</h2>
+                <p class="section-subtitle">Customer tries to compare another builder. AI intervenes instantly.</p>
+                <div class="whatsapp-mock">
+                    <div class="mock-header">
+                        <div class="mock-avatar">🏠</div>
+                        <div>
+                            <div class="mock-name">INVESTO AI Agent</div>
+                            <div class="mock-status">Online • Usually replies instantly</div>
+                        </div>
+                    </div>
+                    <div class="message-user">📱 Customer: "XYZ builder giving 2 BHK for 50 lakh. Aapka 65 lakh kyun?"</div>
+                    <div class="message-ai">🤖 INVESTO: "Fair question. Let me show you why our 65 lakh gives better value: possession in 6 months (vs 24 months for them), RERA approved, no hidden charges. Want side-by-side comparison? Also, free site visit this Saturday — see the quality yourself."</div>
+                    <div class="message-user">📱 Customer: "Hmm... let me think"</div>
+                    <div class="message-ai">🤖 INVESTO: "Of course. I'll hold a visit slot for you. Only 2 units left in this tower at current price. Confirm Saturday 11 AM? 🎯"</div>
+                    <div class="message-user">📱 Customer: "Okay, Saturday 11 AM"</div>
+                    <div class="message-ai">🤖 INVESTO: "✅ Booked! Agent will meet you at site. Confirmation sent. See you Saturday!"</div>
+                    <div class="message-time" style="text-align: center; margin-top: 12px;">⚡ Customer tried to leave → AI locked the visit in 4 messages</div>
+                </div>
+            </section>
+
+            <!-- Dashboard - What Agent Sees (Visual Cards, Not Boring Text) -->
+            <section class="section-dark" style="padding: 60px 0;">
+                <div class="container">
+                    <h2 class="section-title">What Your Agent Sees</h2>
+                    <p class="section-subtitle">Every lead, conversation, and visit — automatically organized</p>
+                    <div class="grid-2">
+                        <!-- Lead Card -->
+                        <div class="dashboard-mock">
+                            <div class="dashboard-header">
+                                <span>📋 LEADS • Auto-created</span>
+                                <span>Today: 12 new</span>
+                            </div>
+                            <div class="dashboard-body">
+                                <div class="lead-row"><span class="lead-name">Ramesh K. • 3BHK • Budget 85L</span><span class="lead-badge">Hindi</span></div>
+                                <div class="lead-row"><span class="lead-name">Shweta M. • 2BHK • Budget 60L</span><span class="lead-badge">Kannada</span></div>
+                                <div class="lead-row"><span class="lead-name">Abdul R. • Villa • Budget 1.8Cr</span><span class="lead-badge">Urdu</span></div>
+                                <div class="lead-row"><span class="lead-name">Lakshmi N. • 3BHK • Budget 1.2Cr</span><span class="lead-badge">Tamil</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Conversation Card -->
+                        <div class="dashboard-mock">
+                            <div class="dashboard-header">
+                                <span>💬 CONVERSATION • Full transcript</span>
+                                <span>AI: 23 • Human: 0</span>
+                            </div>
+                            <div class="dashboard-body">
+                                <div style="background:#0f3460; border-radius:12px; padding:12px; margin-bottom:8px;">
+                                    <div style="color:#a0c4ff; font-size:11px;">Customer (Hindi):</div>
+                                    <div style="color:white; font-size:13px;">"3BHK kitna hai Whitefield mein?"</div>
+                                </div>
+                                <div style="background:#1a4d3e; border-radius:12px; padding:12px; margin-bottom:8px;">
+                                    <div style="color:#a0ffc4; font-size:11px;">AI (Hindi):</div>
+                                    <div style="color:white; font-size:13px;">"85L se start hai. Kal site visit free hai. Aaoge?"</div>
+                                </div>
+                                <div style="background:#0f3460; border-radius:12px; padding:12px;">
+                                    <div style="color:#a0c4ff; font-size:11px;">Customer:</div>
+                                    <div style="color:white; font-size:13px;">"Haan, kal 11 baje"</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Calendar Card -->
+                        <div class="dashboard-mock">
+                            <div class="dashboard-header">
+                                <span>📅 CALENDAR • Auto-scheduled visits</span>
+                                <span>Today: 5 visits</span>
+                            </div>
+                            <div class="dashboard-body">
+                                <div class="lead-row"><span class="lead-name">11:00 AM • Ramesh K.</span><span class="lead-badge">Green Valley</span></div>
+                                <div class="lead-row"><span class="lead-name">2:00 PM • Shweta M.</span><span class="lead-badge">Royal Orchid</span></div>
+                                <div class="lead-row"><span class="lead-name">4:00 PM • Abdul R.</span><span class="lead-badge">Palm Grove</span></div>
+                                <div style="margin-top: 12px; background:#0f3460; border-radius:12px; padding:8px; text-align:center; font-size:12px; color:#a0c4ff;">⏰ Reminders sent 24h & 1h before</div>
+                            </div>
+                        </div>
+
+                        <!-- Agent Takeover Card -->
+                        <div class="dashboard-mock">
+                            <div class="dashboard-header">
+                                <span>👥 AGENT TAKEOVER • Ready when needed</span>
+                                <span>0 pending</span>
+                            </div>
+                            <div class="dashboard-body">
+                                <div style="background:#0f3460; border-radius:12px; padding:12px;">
+                                    <div style="color:#a0c4ff; font-size:11px;">Customer requested human:</div>
+                                    <div style="color:white; font-size:13px;">"Main directly agent se baat karna chahta hu"</div>
+                                    <div style="margin-top: 12px; background:#e94560; border-radius:8px; padding:8px; text-align:center; color:white; font-size:12px;">🔔 PINNED to Priya (Agent)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Objection Handling - Visual Cards -->
+            <section class="section">
+                <h2 class="section-title">How AI Converts "No" into "Booked"</h2>
+                <p class="section-subtitle">Every objection is a closing opportunity. AI knows exactly what to say.</p>
+                <div class="grid-2">
+                    <div class="objection-card">
+                        <div class="objection-customer">🗣️ "Price is too high"</div>
+                        <div class="objection-ai">🤖 INVESTO:</div>
+                        <div>"Let me show you why this holds stronger 3-year upside. Shall I share the side-by-side breakdown?"</div>
+                    </div>
+                    <div class="objection-card">
+                        <div class="objection-customer">🗣️ "Location is far"</div>
+                        <div class="objection-ai">🤖 INVESTO:</div>
+                        <div>"Travel time improves with upcoming corridor access. Want commute comparison from your office?"</div>
+                    </div>
+                    <div class="objection-card">
+                        <div class="objection-customer">🗣️ "I need to discuss with family"</div>
+                        <div class="objection-ai">🤖 INVESTO:</div>
+                        <div>"I can send a 5-point decision brief and hold a visit slot for 24 hours. Shall I do that now?"</div>
+                    </div>
+                    <div class="objection-card">
+                        <div class="objection-customer">🗣️ "I saw a better deal elsewhere"</div>
+                        <div class="objection-ai">🤖 INVESTO:</div>
+                        <div>"Let's compare objectively on possession, legal clarity, and resale strength. Share their option and I will map gaps."</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Before vs After - Visual Impact -->
+            <section class="section-dark" style="padding: 60px 0;">
+                <div class="container">
+                    <h2 class="section-title">Before INVESTO vs After INVESTO</h2>
+                    <div class="grid-2">
+                        <div class="comparison-card bad">
+                            <div class="big-number" style="color: #e53e3e;">❌ BEFORE</div>
+                            <p style="margin: 16px 0;">Manual process. 2-4 hour response.</p>
+                            <div class="big-number" style="color: #e53e3e;">40%</div>
+                            <p>leads lost to competitors</p>
+                            <div class="big-number" style="color: #e53e3e;">15%</div>
+                            <p>conversion rate</p>
+                            <p style="margin-top: 16px; font-size: 14px;">50 leads → 7.5 visits</p>
+                        </div>
+                        <div class="comparison-card good">
+                            <div class="big-number" style="color: #25d366;">✅ AFTER</div>
+                            <p style="margin: 16px 0;">AI-powered. &lt;10 second response.</p>
+                            <div class="big-number" style="color: #25d366;">5%</div>
+                            <p>leads lost (95% retention)</p>
+                            <div class="big-number" style="color: #25d366;">45%</div>
+                            <p>conversion rate</p>
+                            <p style="margin-top: 16px; font-size: 14px;">130 leads → 52 visits</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Languages -->
+            <section id="languages" class="section">
+                <h2 class="section-title">Speaks Every Indian Language</h2>
+                <div class="language-grid">
+                    <span class="language-badge">🇮🇳 Hindi</span>
+                    <span class="language-badge">🇮🇳 English</span>
+                    <span class="language-badge">🇮🇳 Kannada</span>
+                    <span class="language-badge">🇮🇳 Telugu</span>
+                    <span class="language-badge">🇮🇳 Tamil</span>
+                    <span class="language-badge">🇮🇳 Malayalam</span>
+                    <span class="language-badge">🇮🇳 Marathi</span>
+                    <span class="language-badge">🇮🇳 Bengali</span>
+                    <span class="language-badge">🇮🇳 Gujarati</span>
+                    <span class="language-badge">🇮🇳 Punjabi</span>
+                    <span class="language-badge">🇮🇳 Odia</span>
+                </div>
+            </section>
+
+            <!-- Competitor Steal Prevention -->
+            <section class="section-dark" style="padding: 60px 0;">
+                <div class="container">
+                    <h2 class="section-title">Competitor Steal Prevention</h2>
+                    <p class="section-subtitle">What happens when customer tries to leave</p>
+                    <div class="whatsapp-mock">
+                        <div class="mock-header">
+                            <div class="mock-avatar">🏠</div>
+                            <div><div class="mock-name">INVESTO AI Agent</div><div class="mock-status">Lock Mode: ACTIVE</div></div>
+                        </div>
+                        <div class="message-user">📱 Customer: "I think I'll check with XYZ builder also"</div>
+                        <div class="message-ai">🤖 INVESTO: "Before you do — let me share why our clients chose us over them: possession certainty (6 months vs 18 months), no hidden maintenance fees, and better resale value. I can send you a comparison PDF. Also, your shortlisted unit — only 2 left at this price. Want me to hold it for you?"</div>
+                        <div class="message-user">📱 Customer: "Okay, hold it. Send comparison."</div>
+                        <div class="message-ai">🤖 INVESTO: "Done. Comparison sent. Visit slot held for Saturday. ✅"</div>
+                        <div class="message-time" style="text-align: center; margin-top: 12px;">🎯 Customer stayed. Competitor blocked. Visit locked.</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CTA -->
+            <section id="contact" class="cta">
+                <h2>Ready to Lock Your Leads?</h2>
+                <p>Get in touch with our team. Pricing details shared based on your volume.</p>
+                <a href="mailto:big.investo.sol@gmail.com" class="cta-email">📧 big.investo.sol@gmail.com</a>
+                <div style="margin-top: 20px; font-size: 14px; opacity: 0.8;">*Pricing disclosed during consultation</div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>© 2026 INVESTO — AI Real Estate Agent for WhatsApp | Anti-Distraction Engine</p>
+            <p style="margin-top: 8px;">Contact: <a href="mailto:big.investo.sol@gmail.com" style="color: #075e54; text-decoration: none;">big.investo.sol@gmail.com</a></p>
+        </div>
+    </footer>
+</body>
+</html>

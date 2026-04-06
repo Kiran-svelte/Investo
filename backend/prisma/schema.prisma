@@ -1,0 +1,675 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pgvector(map: "vector", schema: "public"), uuidOssp(map: "uuid-ossp")]
+}
+
+// ─── Subscription Plans ─────────────────────────────────────────────
+model SubscriptionPlan {
+  id             String    @id @default(uuid()) @db.Uuid
+  name           String    @db.VarChar(100)
+  maxAgents      Int       @map("max_agents")
+  maxLeads       Int?      @map("max_leads")
+  maxProperties  Int?      @map("max_properties")
+  priceMonthly   Decimal   @map("price_monthly") @db.Decimal(12, 2)
+  priceYearly    Decimal?  @map("price_yearly") @db.Decimal(12, 2)
+  features       Json      @default("[]")
+  status         PlanStatus @default(active)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  companies Company[]
+
+  @@map("subscription_plans")
+}
+
+// ─── Companies (Tenants) ────────────────────────────────────────────
+model Company {
+  id             String        @id @default(uuid()) @db.Uuid
+  name           String        @db.VarChar(255)
+  slug           String        @unique @db.VarChar(100)
+  whatsappPhone  String?       @unique @map("whatsapp_phone") @db.VarChar(20)
+  planId         String?       @map("plan_id") @db.Uuid
+  status         CompanyStatus @default(active)
+  settings       Json          @default("{}")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  plan           SubscriptionPlan? @relation(fields: [planId], references: [id])
+  users          User[]
+  leads          Lead[]
+  properties     Property[]
+  conversations  Conversation[]
+  visits         Visit[]
+  aiSettings     AiSetting?
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  analytics      Analytics[]
+  companyRoles   CompanyRole[]
+  companyFeatures CompanyFeature[]
+  onboarding     CompanyOnboarding?
+  invoices       Invoice[]
+  propertyImportDrafts PropertyImportDraft[]
+  propertyImportMedia  PropertyImportMedia[]
+  propertyImportJobs   PropertyImportJob[]
+
+  @@map("companies")
+}
+
+// ─── Users ──────────────────────────────────────────────────────────
+model User {
+  id                String     @id @default(uuid()) @db.Uuid
+  authProviderId    String?    @unique @map("auth_provider_id") @db.VarChar(255)
+  companyId         String     @map("company_id") @db.Uuid
+  name              String     @db.VarChar(255)
+  email             String     @unique @db.VarChar(255)
+  phone             String?    @db.VarChar(20)
+  passwordHash      String?    @map("password_hash") @db.VarChar(255)
+  role              UserRole   @default(viewer)
+  status            UserStatus @default(active)
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  lastLogin         DateTime?  @map("last_login")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  company             Company    @relation(fields: [companyId], references: [id])
+  assignedLeads       Lead[]     @relation("AgentLeads")
+  visits              Visit[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  customRole          CompanyRole? @relation(fields: [customRoleId], references: [id])
+  customRoleId        String?      @map("custom_role_id") @db.Uuid
+  createdPropertyImportDrafts PropertyImportDraft[] @relation("PropertyImportCreatedBy")
+  reviewedPropertyImportDrafts PropertyImportDraft[] @relation("PropertyImportReviewedBy")
+
+  @@index([companyId, role])
+  @@map("users")
+}
+
+// ─── Refresh Tokens ─────────────────────────────────────────────────
+model RefreshToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  tokenHash  String   @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime @map("expires_at")
+  revoked    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+// ─── Password Reset Tokens ──────────────────────────────────────────
+model PasswordResetToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  tokenHash  String   @unique @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime @map("expires_at")
+  used       Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ─── Invoices ─────────────────────────────────────────────────────────
+model Invoice {
+  id             String        @id @default(uuid()) @db.Uuid
+  companyId      String        @map("company_id") @db.Uuid
+  invoiceNumber  String        @unique @map("invoice_number") @db.VarChar(50)
+  amount         Decimal       @db.Decimal(12, 2)
+  tax            Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount    Decimal       @map("total_amount") @db.Decimal(12, 2)
+  currency       String        @default("INR") @db.VarChar(3)
+  status         InvoiceStatus @default(pending)
+  periodStart    DateTime      @map("period_start")
+  periodEnd      DateTime      @map("period_end")
+  dueDate        DateTime      @map("due_date")
+  paidAt         DateTime?     @map("paid_at")
+  paymentMethod  String?       @map("payment_method") @db.VarChar(50)
+  paymentRef     String?       @map("payment_ref") @db.VarChar(100)
+  notes          String?       @db.Text
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  company        Company       @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+// ─── Leads (CRM) ───────────────────────────────────────────────────
+model Lead {
+  id                  String       @id @default(uuid()) @db.Uuid
+  companyId           String       @map("company_id") @db.Uuid
+  customerName        String?      @map("customer_name") @db.VarChar(255)
+  phone               String       @db.VarChar(20)
+  email               String?      @db.VarChar(255)
+  budgetMin           Decimal?     @map("budget_min") @db.Decimal(14, 2)
+  budgetMax           Decimal?     @map("budget_max") @db.Decimal(14, 2)
+  locationPreference  String?      @map("location_preference") @db.VarChar(255)
+  propertyType        PropertyType? @map("property_type")
+  source              LeadSource   @default(whatsapp)
+  status              LeadStatus   @default(new)
+  assignedAgentId     String?      @map("assigned_agent_id") @db.Uuid
+  notes               String?      @db.Text
+  language            String       @default("en") @db.VarChar(5)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  lastContactAt       DateTime?    @map("last_contact_at")
+
+  company         Company       @relation(fields: [companyId], references: [id])
+  assignedAgent   User?         @relation("AgentLeads", fields: [assignedAgentId], references: [id])
+  conversations   Conversation[]
+  visits          Visit[]
+
+  @@index([companyId, status])
+  @@index([companyId, assignedAgentId])
+  @@index([phone])
+  @@map("leads")
+}
+
+// ─── Conversations ──────────────────────────────────────────────────
+model Conversation {
+  id             String             @id @default(uuid()) @db.Uuid
+  companyId      String             @map("company_id") @db.Uuid
+  leadId         String?            @map("lead_id") @db.Uuid
+  whatsappPhone  String             @map("whatsapp_phone") @db.VarChar(20)
+  status         ConversationStatus @default(ai_active)
+  language       String             @default("en") @db.VarChar(5)
+  aiEnabled      Boolean            @default(true) @map("ai_enabled")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  lead      Lead?     @relation(fields: [leadId], references: [id])
+  messages  Message[]
+
+  @@index([companyId])
+  @@index([whatsappPhone])
+  @@map("conversations")
+}
+
+// ─── Messages ───────────────────────────────────────────────────────
+model Message {
+  id                String        @id @default(uuid()) @db.Uuid
+  conversationId    String        @map("conversation_id") @db.Uuid
+  senderType        SenderType    @map("sender_type")
+  content           String        @db.Text
+  language          String?       @db.VarChar(5)
+  whatsappMessageId String?       @map("whatsapp_message_id") @db.VarChar(255)
+  status            MessageStatus @default(sent)
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+// ─── Properties ─────────────────────────────────────────────────────
+model Property {
+  id              String         @id @default(uuid()) @db.Uuid
+  companyId       String         @map("company_id") @db.Uuid
+  name            String         @db.VarChar(255)
+  builder         String?        @db.VarChar(255)
+  locationCity    String?        @map("location_city") @db.VarChar(100)
+  locationArea    String?        @map("location_area") @db.VarChar(100)
+  locationPincode String?        @map("location_pincode") @db.VarChar(10)
+  priceMin        Decimal?       @map("price_min") @db.Decimal(14, 2)
+  priceMax        Decimal?       @map("price_max") @db.Decimal(14, 2)
+  bedrooms        Int?
+  propertyType    PropertyType   @map("property_type")
+  amenities       Json           @default("[]")
+  description     String?        @db.Text
+  images          Json           @default("[]")
+  brochureUrl     String?        @map("brochure_url") @db.VarChar(500)
+  reraNumber      String?        @map("rera_number") @db.VarChar(50)
+  status          PropertyStatus @default(available)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  visits   Visit[]
+  publishedFromDrafts PropertyImportDraft[] @relation("PropertyImportPublishedProperty")
+
+  @@index([companyId, status])
+  @@map("properties")
+}
+
+// ─── Property Import Drafts ─────────────────────────────────────────
+model PropertyImportDraft {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  companyId          String                   @map("company_id") @db.Uuid
+  createdByUserId    String                   @map("created_by_user_id") @db.Uuid
+  reviewedByUserId   String?                  @map("reviewed_by_user_id") @db.Uuid
+  publishedPropertyId String?                 @map("published_property_id") @db.Uuid
+  status             PropertyImportDraftStatus @default(draft)
+  extractionStatus   PropertyImportExtractionStatus @default(pending_upload) @map("extraction_status")
+  retryCount         Int                      @default(0) @map("retry_count")
+  maxRetries         Int                      @default(3) @map("max_retries")
+  failureReason      String?                  @map("failure_reason") @db.Text
+  draftData          Json                     @default("{}") @map("draft_data")
+  reviewNotes        String?                  @map("review_notes") @db.Text
+  extractionRequestedAt DateTime?             @map("extraction_requested_at")
+  reviewedAt         DateTime?                @map("reviewed_at")
+  publishedAt        DateTime?                @map("published_at")
+  cancelledAt        DateTime?                @map("cancelled_at")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  company            Company                  @relation(fields: [companyId], references: [id])
+  createdByUser      User                     @relation("PropertyImportCreatedBy", fields: [createdByUserId], references: [id])
+  reviewedByUser     User?                    @relation("PropertyImportReviewedBy", fields: [reviewedByUserId], references: [id])
+  publishedProperty  Property?                @relation("PropertyImportPublishedProperty", fields: [publishedPropertyId], references: [id])
+  mediaAssets        PropertyImportMedia[]
+  extractionJobs     PropertyImportJob[]
+
+  @@index([companyId, status])
+  @@index([companyId, extractionStatus])
+  @@index([createdByUserId])
+  @@map("property_import_drafts")
+}
+
+// ─── Property Import Media ──────────────────────────────────────────
+model PropertyImportMedia {
+  id                String                   @id @default(uuid()) @db.Uuid
+  draftId           String                   @map("draft_id") @db.Uuid
+  companyId         String                   @map("company_id") @db.Uuid
+  assetType         PropertyImportAssetType  @map("asset_type")
+  status            PropertyImportMediaStatus @default(upload_requested)
+  fileName          String                   @map("file_name") @db.VarChar(255)
+  mimeType          String                   @map("mime_type") @db.VarChar(120)
+  fileSize          Int                      @map("file_size")
+  storageKey        String                   @map("storage_key") @db.VarChar(600)
+  publicUrl         String                   @map("public_url") @db.VarChar(700)
+  uploadToken       String                   @unique @map("upload_token") @db.VarChar(64)
+  eTag              String?                  @map("etag") @db.VarChar(255)
+  failureReason     String?                  @map("failure_reason") @db.Text
+  extractedMetadata Json                     @default("{}") @map("extracted_metadata")
+  uploadedAt        DateTime?                @map("uploaded_at")
+  verifiedAt        DateTime?                @map("verified_at")
+  extractedAt       DateTime?                @map("extracted_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+
+  draft             PropertyImportDraft      @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  company           Company                  @relation(fields: [companyId], references: [id])
+  jobs              PropertyImportJob[]
+
+  @@unique([companyId, storageKey])
+  @@index([draftId, status])
+  @@index([companyId, status])
+  @@map("property_import_media")
+}
+
+// ─── Property Import Jobs ───────────────────────────────────────────
+model PropertyImportJob {
+  id                String                   @id @default(uuid()) @db.Uuid
+  draftId           String                   @map("draft_id") @db.Uuid
+  companyId         String                   @map("company_id") @db.Uuid
+  mediaId           String?                  @map("media_id") @db.Uuid
+  jobType           PropertyImportJobType    @map("job_type")
+  status            PropertyImportJobStatus  @default(queued)
+  queueName         String                   @map("queue_name") @db.VarChar(100)
+  idempotencyKey    String                   @map("idempotency_key") @db.VarChar(120)
+  payload           Json                     @default("{}")
+  result            Json?                    
+  failureReason     String?                  @map("failure_reason") @db.Text
+  attempt           Int                      @default(0)
+  maxAttempts       Int                      @default(3) @map("max_attempts")
+  queuedAt          DateTime                 @default(now()) @map("queued_at")
+  startedAt         DateTime?                @map("started_at")
+  finishedAt        DateTime?                @map("finished_at")
+  nextRetryAt       DateTime?                @map("next_retry_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+
+  draft             PropertyImportDraft      @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  company           Company                  @relation(fields: [companyId], references: [id])
+  media             PropertyImportMedia?     @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([draftId, status])
+  @@index([companyId, status, nextRetryAt])
+  @@index([queueName, status])
+  @@map("property_import_jobs")
+}
+
+// ─── Visits ─────────────────────────────────────────────────────────
+model Visit {
+  id              String      @id @default(uuid()) @db.Uuid
+  companyId       String      @map("company_id") @db.Uuid
+  leadId          String      @map("lead_id") @db.Uuid
+  propertyId      String?     @map("property_id") @db.Uuid
+  agentId         String      @map("agent_id") @db.Uuid
+  scheduledAt     DateTime    @map("scheduled_at")
+  durationMinutes Int         @default(60) @map("duration_minutes")
+  status          VisitStatus @default(scheduled)
+  notes           String?     @db.Text
+  reminderSent    Boolean     @default(false) @map("reminder_sent")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  lead      Lead      @relation(fields: [leadId], references: [id])
+  property  Property? @relation(fields: [propertyId], references: [id])
+  agent     User      @relation(fields: [agentId], references: [id])
+
+  @@index([companyId, scheduledAt])
+  @@index([agentId, scheduledAt])
+  @@map("visits")
+}
+
+// ─── AI Settings ────────────────────────────────────────────────────
+model AiSetting {
+  id                  String       @id @default(uuid()) @db.Uuid
+  companyId           String       @unique @map("company_id") @db.Uuid
+  businessName        String?      @map("business_name") @db.VarChar(255)
+  businessDescription String?      @map("business_description") @db.Text
+  operatingLocations  Json         @default("[]") @map("operating_locations")
+  budgetRanges        Json         @default("{}") @map("budget_ranges")
+  responseTone        ResponseTone @default(friendly) @map("response_tone")
+  workingHours        Json         @default("{}") @map("working_hours")
+  faqKnowledge        Json         @default("[]") @map("faq_knowledge")
+  greetingTemplate    String?      @map("greeting_template") @db.Text
+  persuasionLevel     Int          @default(7) @map("persuasion_level")
+  autoDetectLanguage  Boolean      @default(true) @map("auto_detect_language")
+  defaultLanguage     String       @default("en") @map("default_language") @db.VarChar(5)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("ai_settings")
+}
+
+// ─── Notifications ──────────────────────────────────────────────────
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  companyId String?          @map("company_id") @db.Uuid
+  userId    String?          @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String?          @db.VarChar(255)
+  message   String?          @db.Text
+  data      Json             @default("{}") @map("details")
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+// ─── Audit Logs ─────────────────────────────────────────────────────
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String?  @map("company_id") @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  action       String   @db.VarChar(100)
+  resourceType String?  @map("resource_type") @db.VarChar(50)
+  resourceId   String?  @map("resource_id") @db.Uuid
+  details      Json     @default("{}")
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Analytics ──────────────────────────────────────────────────────
+model Analytics {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  date             DateTime @db.Date
+  leadsGenerated   Int      @default(0) @map("leads_generated")
+  visitsScheduled  Int      @default(0) @map("visits_scheduled")
+  visitsCompleted  Int      @default(0) @map("visits_completed")
+  dealsClosed      Int      @default(0) @map("deals_closed")
+  revenue          Decimal  @default(0) @db.Decimal(14, 2)
+  aiConversations  Int      @default(0) @map("ai_conversations")
+  aiMessagesSent   Int      @default(0) @map("ai_messages_sent")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, date])
+  @@map("analytics")
+}
+
+// ─── Company Roles (Dynamic RBAC) ───────────────────────────────────
+model CompanyRole {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  roleName     String   @map("role_name") @db.VarChar(50)
+  displayName  String   @map("display_name") @db.VarChar(100)
+  permissions  Json     @default("{}")
+  isDefault    Boolean  @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+  users   User[]
+
+  @@unique([companyId, roleName])
+  @@index([companyId])
+  @@map("company_roles")
+}
+
+// ─── Company Features (Feature Flags) ───────────────────────────────
+model CompanyFeature {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  featureKey  String   @map("feature_key") @db.VarChar(50)
+  enabled     Boolean  @default(true)
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, featureKey])
+  @@index([companyId])
+  @@map("company_features")
+}
+
+// ─── Company Onboarding ─────────────────────────────────────────────
+model CompanyOnboarding {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @unique @map("company_id") @db.Uuid
+  stepCompleted     Int       @default(0) @map("step_completed")
+  companyProfile    Boolean   @default(false) @map("company_profile")
+  rolesConfigured   Boolean   @default(false) @map("roles_configured")
+  featuresSelected  Boolean   @default(false) @map("features_selected")
+  aiConfigured      Boolean   @default(false) @map("ai_configured")
+  teamInvited       Boolean   @default(false) @map("team_invited")
+  completedAt       DateTime? @map("completed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("company_onboarding")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────
+enum PlanStatus {
+  active
+  inactive
+}
+
+enum InvoiceStatus {
+  pending
+  paid
+  overdue
+  cancelled
+}
+
+enum CompanyStatus {
+  active
+  inactive
+  suspended
+}
+
+enum UserRole {
+  super_admin
+  company_admin
+  sales_agent
+  operations
+  viewer
+}
+
+enum UserStatus {
+  active
+  inactive
+}
+
+enum LeadStatus {
+  new
+  contacted
+  visit_scheduled
+  visited
+  negotiation
+  closed_won
+  closed_lost
+}
+
+enum LeadSource {
+  whatsapp
+  website
+  manual
+  referral
+}
+
+enum PropertyType {
+  villa
+  apartment
+  plot
+  commercial
+  other
+}
+
+enum PropertyStatus {
+  available
+  sold
+  upcoming
+}
+
+enum ConversationStatus {
+  ai_active
+  agent_active
+  closed
+}
+
+enum SenderType {
+  customer
+  ai
+  agent
+}
+
+enum MessageStatus {
+  sent
+  delivered
+  read
+  failed
+}
+
+enum VisitStatus {
+  scheduled
+  confirmed
+  completed
+  cancelled
+  no_show
+}
+
+enum ResponseTone {
+  formal
+  friendly
+  casual
+}
+
+enum NotificationType {
+  // Existing
+  lead_new
+  visit_reminder
+  agent_takeover
+  system
+  follow_up
+
+  // CRM / Visit events (used by UI)
+  lead_assigned
+  lead_status_change
+  lead_reassigned
+
+  visit_scheduled
+  visit_confirmed
+  visit_completed
+  visit_cancelled
+  visit_rescheduled
+
+  system_alert
+}
+
+enum PropertyImportDraftStatus {
+  draft
+  extracting
+  review_ready
+  publish_ready
+  published
+  failed
+  cancelled
+}
+
+enum PropertyImportExtractionStatus {
+  pending_upload
+  upload_completed
+  queued
+  processing
+  extracted
+  failed
+  cancelled
+}
+
+enum PropertyImportMediaStatus {
+  upload_requested
+  uploaded
+  verified
+  queued_for_extraction
+  extracted
+  failed
+  cancelled
+}
+
+enum PropertyImportAssetType {
+  image
+  brochure
+  video
+}
+
+enum PropertyImportJobType {
+  extract_media
+}
+
+enum PropertyImportJobStatus {
+  queued
+  processing
+  succeeded
+  failed
+  cancelled
+}

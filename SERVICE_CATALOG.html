@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investo - Service Catalog</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .cover {
+            text-align: center;
+            padding: 100px 0;
+            border-bottom: 3px solid #2563eb;
+            margin-bottom: 60px;
+            page-break-after: always;
+        }
+        .cover h1 {
+            font-size: 3.5rem;
+            color: #2563eb;
+            letter-spacing: -1px;
+        }
+        .cover .tagline {
+            font-size: 1.5rem;
+            color: #64748b;
+            margin-top: 20px;
+        }
+        .cover .subtitle {
+            font-size: 1.1rem;
+            color: #94a3b8;
+            margin-top: 40px;
+        }
+        h2 {
+            font-size: 1.8rem;
+            color: #1e40af;
+            margin: 40px 0 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        h3 {
+            font-size: 1.3rem;
+            color: #334155;
+            margin: 30px 0 15px;
+        }
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        .highlight-box {
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            padding: 25px;
+            border-radius: 12px;
+            margin: 25px 0;
+            border-left: 4px solid #2563eb;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .stat-card {
+            background: #f8fafc;
+            padding: 25px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        .stat-card .number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #2563eb;
+        }
+        .stat-card .label {
+            font-size: 0.9rem;
+            color: #64748b;
+            margin-top: 5px;
+        }
+        ul {
+            margin: 15px 0 15px 25px;
+        }
+        li {
+            margin-bottom: 10px;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin: 25px 0;
+        }
+        .feature-card {
+            padding: 20px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+        }
+        .feature-card h4 {
+            color: #1e40af;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+        }
+        .comparison-table th, .comparison-table td {
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            text-align: left;
+        }
+        .comparison-table th {
+            background: #f1f5f9;
+            color: #1e40af;
+        }
+        .comparison-table tr:nth-child(even) {
+            background: #f8fafc;
+        }
+        .checkmark {
+            color: #22c55e;
+            font-weight: bold;
+        }
+        .cross {
+            color: #ef4444;
+        }
+        .price-card {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .price-card h3 {
+            color: white;
+            margin: 0 0 10px;
+        }
+        .price-card .price {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+        .price-card .period {
+            opacity: 0.8;
+        }
+        .footer {
+            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+            color: #64748b;
+        }
+        @media print {
+            body {
+                padding: 20px;
+            }
+            .cover {
+                padding: 50px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="cover">
+    <h1>INVESTO</h1>
+    <div class="tagline">AI-Powered Real Estate CRM Platform</div>
+    <div class="subtitle">
+        Multi-language WhatsApp AI that speaks every Indian language,<br>
+        convinces clients, and closes site visits.
+    </div>
+    <div style="margin-top: 60px; color: #94a3b8;">
+        Service Catalog &amp; Platform Overview<br>
+        <strong>Version 1.0</strong>
+    </div>
+</div>
+
+<h2>1. Executive Summary</h2>
+
+<p>
+    <strong>Investo</strong> is a revolutionary multi-tenant SaaS platform designed specifically for the Indian real estate industry. It combines enterprise-grade CRM capabilities with cutting-edge AI technology to automate lead handling, property matching, and site visit scheduling through WhatsApp.
+</p>
+
+<div class="highlight-box">
+    <strong>The Core Promise:</strong> When a customer messages on WhatsApp in ANY Indian language, our AI responds in the SAME language, understands their needs, recommends matching properties, and convinces them to schedule a site visit &mdash; all automatically, 24/7.
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="number">11+</div>
+        <div class="label">Indian Languages</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">24/7</div>
+        <div class="label">AI Availability</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">3x</div>
+        <div class="label">Higher Conversion</div>
+    </div>
+</div>
+
+<h2>2. Why Investo is Non-Optional</h2>
+
+<h3>The Problem We Solve</h3>
+<ul>
+    <li><strong>78% of Indian real estate inquiries start on WhatsApp</strong> &mdash; yet most developers still rely on manual responses</li>
+    <li>Average human agent handles 30 leads per day; your AI handles 1000+ simultaneously</li>
+    <li>Response time matters: leads that get responses within 5 minutes are 9x more likely to convert</li>
+    <li>India's linguistic diversity (22 official languages) means losing leads who don't speak Hindi or English</li>
+    <li>High sales staff turnover means constantly training new people</li>
+</ul>
+
+<h3>The Cost of Inaction</h3>
+<div class="feature-grid">
+    <div class="feature-card">
+        <h4>Without Investo</h4>
+        <ul>
+            <li>Slow response times (hours or days)</li>
+            <li>Lost leads due to language barriers</li>
+            <li>Inconsistent sales messaging</li>
+            <li>High staffing costs</li>
+            <li>No 24/7 availability</li>
+            <li>Manual lead tracking in spreadsheets</li>
+        </ul>
+    </div>
+    <div class="feature-card">
+        <h4>With Investo</h4>
+        <ul>
+            <li>Instant responses (&lt;10 seconds)</li>
+            <li>11+ Indian languages supported</li>
+            <li>Consistent, optimized messaging</li>
+            <li>1/5th the cost of manual team</li>
+            <li>24/7/365 availability</li>
+            <li>Complete CRM with analytics</li>
+        </ul>
+    </div>
+</div>
+
+<h2>3. How Investo Conquers the Market</h2>
+
+<h3>Our Competitive Moat</h3>
+
+<table class="comparison-table">
+    <tr>
+        <th>Feature</th>
+        <th>Investo</th>
+        <th>Generic CRM</th>
+        <th>Other AI Bots</th>
+    </tr>
+    <tr>
+        <td>Indian Languages Supported</td>
+        <td><span class="checkmark">11+</span></td>
+        <td>1-2</td>
+        <td>3-4</td>
+    </tr>
+    <tr>
+        <td>Real Estate Specific AI</td>
+        <td><span class="checkmark">Yes</span></td>
+        <td><span class="cross">No</span></td>
+        <td>Partially</td>
+    </tr>
+    <tr>
+        <td>WhatsApp Native Integration</td>
+        <td><span class="checkmark">Official API</span></td>
+        <td>Plugin</td>
+        <td>Limited</td>
+    </tr>
+    <tr>
+        <td>AI Visit Booking</td>
+        <td><span class="checkmark">Yes</span></td>
+        <td><span class="cross">No</span></td>
+        <td><span class="cross">No</span></td>
+    </tr>
+    <tr>
+        <td>Multi-Tenant SaaS</td>
+        <td><span class="checkmark">Yes</span></td>
+        <td>Sometimes</td>
+        <td><span class="cross">No</span></td>
+    </tr>
+    <tr>
+        <td>Persuasion Engine</td>
+        <td><span class="checkmark">Real Estate Trained</span></td>
+        <td><span class="cross">No</span></td>
+        <td><span class="cross">No</span></td>
+    </tr>
+    <tr>
+        <td>Property Matching AI</td>
+        <td><span class="checkmark">Integrated</span></td>
+        <td><span class="cross">No</span></td>
+        <td><span class="cross">No</span></td>
+    </tr>
+</table>
+
+<h2>4. What Investo Serves</h2>
+
+<h3>Target Customers</h3>
+<div class="feature-grid">
+    <div class="feature-card">
+        <h4>Real Estate Developers</h4>
+        <p>Large-scale developers with multiple projects who need to automate lead handling across properties.</p>
+    </div>
+    <div class="feature-card">
+        <h4>Real Estate Agencies</h4>
+        <p>Brokerages managing multiple agents and projects who need centralized lead management.</p>
+    </div>
+    <div class="feature-card">
+        <h4>Property Brokers</h4>
+        <p>Individual brokers who want AI-powered lead conversion without hiring a sales team.</p>
+    </div>
+    <div class="feature-card">
+        <h4>Channel Partners</h4>
+        <p>Marketing companies that bring leads to developers and need efficient qualification.</p>
+    </div>
+</div>
+
+<h3>Complete Feature Set</h3>
+
+<ul>
+    <li><strong>WhatsApp AI Agent</strong> &mdash; Responds in customer's language, collects requirements, matches properties</li>
+    <li><strong>Persuasion Engine</strong> &mdash; Trained on real estate objection handling to maximize visit bookings</li>
+    <li><strong>Lead Management CRM</strong> &mdash; Complete pipeline from inquiry to closed deal</li>
+    <li><strong>Property Database</strong> &mdash; Manage listings with images, prices, amenities, RERA numbers</li>
+    <li><strong>Visit Scheduling</strong> &mdash; Calendar system with automatic reminders to customers and agents</li>
+    <li><strong>Agent Management</strong> &mdash; Track agent performance, assign leads, monitor activity</li>
+    <li><strong>Analytics Dashboard</strong> &mdash; Real-time metrics on leads, visits, conversions, revenue</li>
+    <li><strong>Multi-Language UI</strong> &mdash; Dashboard available in all supported Indian languages</li>
+    <li><strong>Mobile-First Design</strong> &mdash; Works perfectly on phones, tablets, and desktops</li>
+</ul>
+
+<h2>5. Platform Architecture</h2>
+
+<h3>Enterprise-Grade Technology</h3>
+
+<div class="highlight-box">
+    <strong>Security First:</strong> JWT authentication, bcrypt password hashing, rate limiting, audit logs, tenant isolation, CORS protection, and encrypted data transmission.
+</div>
+
+<ul>
+    <li><strong>Frontend:</strong> React 18 + TypeScript + Tailwind CSS (mobile-responsive)</li>
+    <li><strong>Backend:</strong> Node.js + Express + TypeScript (RESTful API)</li>
+    <li><strong>Database:</strong> PostgreSQL with multi-tenant isolation</li>
+    <li><strong>AI:</strong> Claude API (Anthropic) with real estate-specific training</li>
+    <li><strong>Messaging:</strong> Official WhatsApp Cloud API (Meta)</li>
+    <li><strong>Deployment:</strong> Docker + Docker Compose (cloud-agnostic)</li>
+</ul>
+
+<h2>6. Pricing Plans</h2>
+
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 30px 0;">
+    <div class="price-card">
+        <h3>Starter</h3>
+        <div class="price">₹4,999</div>
+        <div class="period">/month</div>
+        <ul style="text-align: left; margin-top: 20px; list-style: none;">
+            <li>✓ Up to 3 Agents</li>
+            <li>✓ 500 Leads/month</li>
+            <li>✓ 50 Properties</li>
+            <li>✓ WhatsApp AI</li>
+            <li>✓ Basic Analytics</li>
+        </ul>
+    </div>
+    <div class="price-card" style="transform: scale(1.05); box-shadow: 0 10px 40px rgba(37,99,235,0.3);">
+        <div style="background: #fbbf24; color: #1e293b; padding: 5px 15px; border-radius: 20px; display: inline-block; margin-bottom: 15px; font-size: 0.8rem;">MOST POPULAR</div>
+        <h3>Growth</h3>
+        <div class="price">₹14,999</div>
+        <div class="period">/month</div>
+        <ul style="text-align: left; margin-top: 20px; list-style: none;">
+            <li>✓ Up to 10 Agents</li>
+            <li>✓ 2000 Leads/month</li>
+            <li>✓ 200 Properties</li>
+            <li>✓ Advanced AI Training</li>
+            <li>✓ Full Analytics</li>
+            <li>✓ Priority Support</li>
+        </ul>
+    </div>
+    <div class="price-card">
+        <h3>Enterprise</h3>
+        <div class="price">₹49,999</div>
+        <div class="period">/month</div>
+        <ul style="text-align: left; margin-top: 20px; list-style: none;">
+            <li>✓ Unlimited Agents</li>
+            <li>✓ Unlimited Leads</li>
+            <li>✓ Unlimited Properties</li>
+            <li>✓ Custom AI Training</li>
+            <li>✓ API Access</li>
+            <li>✓ Dedicated Support</li>
+        </ul>
+    </div>
+</div>
+
+<h2>7. ROI Calculator</h2>
+
+<div class="highlight-box">
+    <strong>Example: A mid-size developer with 10 sales agents</strong>
+    <ul style="margin-top: 15px;">
+        <li>Cost of 10 agents: ₹3,00,000/month (₹30,000 × 10)</li>
+        <li>Cost of Investo Growth Plan: ₹14,999/month</li>
+        <li>AI handles 80% of initial conversations</li>
+        <li><strong>You can reduce to 4 agents + Investo = ₹1,34,999/month</strong></li>
+        <li><strong>Savings: ₹1,65,000/month = ₹19,80,000/year</strong></li>
+    </ul>
+</div>
+
+<h2>8. Implementation Timeline</h2>
+
+<table class="comparison-table">
+    <tr>
+        <th>Phase</th>
+        <th>Duration</th>
+        <th>Activities</th>
+    </tr>
+    <tr>
+        <td>Onboarding</td>
+        <td>Day 1-2</td>
+        <td>Account setup, WhatsApp Business verification, user training</td>
+    </tr>
+    <tr>
+        <td>Data Migration</td>
+        <td>Day 3-5</td>
+        <td>Import existing leads, properties, agent data</td>
+    </tr>
+    <tr>
+        <td>AI Configuration</td>
+        <td>Day 5-7</td>
+        <td>Configure AI tone, FAQs, property knowledge base</td>
+    </tr>
+    <tr>
+        <td>Go Live</td>
+        <td>Day 8</td>
+        <td>System live, monitoring and optimization begins</td>
+    </tr>
+</table>
+
+<h2>9. Support &amp; SLA</h2>
+
+<ul>
+    <li><strong>Uptime SLA:</strong> 99.5% availability guarantee</li>
+    <li><strong>Response Time:</strong> Critical issues within 1 hour, regular issues within 24 hours</li>
+    <li><strong>Training:</strong> Included onboarding training for all plans</li>
+    <li><strong>Documentation:</strong> Complete API documentation and user guides</li>
+    <li><strong>Updates:</strong> Continuous platform improvements at no extra cost</li>
+</ul>
+
+<div class="footer">
+    <p><strong>Investo</strong> &mdash; AI-Powered Real Estate CRM Platform</p>
+    <p>Contact: sales@investo.ai | www.investo.ai</p>
+    <p style="margin-top: 20px; font-size: 0.8rem;">
+        © 2024 Investo. All rights reserved.<br>
+        This document is for informational purposes only.
+    </p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <defs>
+    <linearGradient id="bg7" x1="0" y1="0" x2="800" y2="500">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#0c2340"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="url(#bg7)" rx="16"/>
+  
+  <text x="400" y="42" text-anchor="middle" fill="#ffffff" font-size="24" font-weight="bold" font-family="Segoe UI">🤖 AI Persuasion Engine</text>
+  <text x="400" y="65" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">Smart Objection Handling That Converts Leads Into Site Visits</text>
+  
+  <!-- Objection -> AI Response Flows -->
+  <!-- Objection 1: Too Expensive -->
+  <rect x="40" y="90" width="200" height="80" rx="8" fill="#2d1b1b" stroke="#ef4444" stroke-width="1"/>
+  <text x="140" y="115" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="bold" font-family="Segoe UI">🚫 "Too Expensive"</text>
+  <text x="140" y="135" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">"Budget is only 50L,</text>
+  <text x="140" y="150" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">this is out of range"</text>
+  
+  <line x1="240" y1="130" x2="280" y2="130" stroke="#f59e0b" stroke-width="2"/>
+  <polygon points="278,125 288,130 278,135" fill="#f59e0b"/>
+  
+  <rect x="290" y="90" width="470" height="80" rx="8" fill="#0a2e1b" stroke="#22c55e" stroke-width="1"/>
+  <text x="525" y="112" text-anchor="middle" fill="#86efac" font-size="12" font-weight="bold" font-family="Segoe UI">✅ AI Response</text>
+  <text x="525" y="132" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">"I understand your budget! We have beautiful 2BHK options in Whitefield</text>
+  <text x="525" y="148" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">starting at ₹45L with great amenities. Shall I arrange a quick visit?"</text>
+  <text x="720" y="162" text-anchor="middle" fill="#22c55e" font-size="9" font-weight="bold" font-family="Segoe UI">→ Shows alternatives</text>
+  
+  <!-- Objection 2: Not Interested -->
+  <rect x="40" y="185" width="200" height="80" rx="8" fill="#2d1b1b" stroke="#ef4444" stroke-width="1"/>
+  <text x="140" y="210" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="bold" font-family="Segoe UI">🚫 "Not Interested"</text>
+  <text x="140" y="230" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">"I'm not looking to</text>
+  <text x="140" y="245" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">buy right now"</text>
+  
+  <line x1="240" y1="225" x2="280" y2="225" stroke="#f59e0b" stroke-width="2"/>
+  <polygon points="278,220 288,225 278,230" fill="#f59e0b"/>
+  
+  <rect x="290" y="185" width="470" height="80" rx="8" fill="#0a2e1b" stroke="#22c55e" stroke-width="1"/>
+  <text x="525" y="207" text-anchor="middle" fill="#86efac" font-size="12" font-weight="bold" font-family="Segoe UI">✅ AI Response</text>
+  <text x="525" y="227" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">"No pressure at all! May I know what specifically doesn't match? I might</text>
+  <text x="525" y="243" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">have something different that fits better. What are you looking for?"</text>
+  <text x="720" y="257" text-anchor="middle" fill="#22c55e" font-size="9" font-weight="bold" font-family="Segoe UI">→ Asks what's missing</text>
+  
+  <!-- Objection 3: Will Think -->
+  <rect x="40" y="280" width="200" height="80" rx="8" fill="#2d1b1b" stroke="#ef4444" stroke-width="1"/>
+  <text x="140" y="305" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="bold" font-family="Segoe UI">🚫 "Will Think About It"</text>
+  <text x="140" y="325" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">"Let me discuss with</text>
+  <text x="140" y="340" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">family first"</text>
+  
+  <line x1="240" y1="320" x2="280" y2="320" stroke="#f59e0b" stroke-width="2"/>
+  <polygon points="278,315 288,320 278,325" fill="#f59e0b"/>
+  
+  <rect x="290" y="280" width="470" height="80" rx="8" fill="#0a2e1b" stroke="#22c55e" stroke-width="1"/>
+  <text x="525" y="302" text-anchor="middle" fill="#86efac" font-size="12" font-weight="bold" font-family="Segoe UI">✅ AI Response</text>
+  <text x="525" y="322" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">"Absolutely! Why not bring your family for a site visit? No commitment,</text>
+  <text x="525" y="338" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">just come see the property. Seeing it in person helps decide!"</text>
+  <text x="720" y="352" text-anchor="middle" fill="#22c55e" font-size="9" font-weight="bold" font-family="Segoe UI">→ Low-pressure visit</text>
+  
+  <!-- Objection 4: Looking Elsewhere -->
+  <rect x="40" y="375" width="200" height="80" rx="8" fill="#2d1b1b" stroke="#ef4444" stroke-width="1"/>
+  <text x="140" y="400" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="bold" font-family="Segoe UI">🚫 "Looking Elsewhere"</text>
+  <text x="140" y="420" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">"Already talking to</text>
+  <text x="140" y="435" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">another builder"</text>
+  
+  <line x1="240" y1="415" x2="280" y2="415" stroke="#f59e0b" stroke-width="2"/>
+  <polygon points="278,410 288,415 278,420" fill="#f59e0b"/>
+  
+  <rect x="290" y="375" width="470" height="80" rx="8" fill="#0a2e1b" stroke="#22c55e" stroke-width="1"/>
+  <text x="525" y="397" text-anchor="middle" fill="#86efac" font-size="12" font-weight="bold" font-family="Segoe UI">✅ AI Response</text>
+  <text x="525" y="417" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">"That's great you're exploring! Our property has RERA-approved 3BHK with</text>
+  <text x="525" y="433" text-anchor="middle" fill="#d1fae5" font-size="10" font-family="Segoe UI">clubhouse &amp; pool — why not compare with a quick visit? Best decision is informed!"</text>
+  <text x="720" y="447" text-anchor="middle" fill="#22c55e" font-size="9" font-weight="bold" font-family="Segoe UI">→ Comparison visit</text>
+  
+  <!-- Bottom bar -->
+  <rect x="50" y="468" width="700" height="25" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="400" y="486" text-anchor="middle" fill="#f59e0b" font-size="11" font-weight="bold" font-family="Segoe UI">🧠 Warm • Friendly • Never Pushy • Always Redirects to Site Visit • Real Estate Only</text>
+</svg>

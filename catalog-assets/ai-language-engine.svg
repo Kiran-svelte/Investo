@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <defs>
+    <linearGradient id="bg1" x1="0" y1="0" x2="800" y2="500">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e3a5f"/>
+    </linearGradient>
+    <linearGradient id="accent1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" style="stop-color:#3b82f6"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="url(#bg1)" rx="16"/>
+  
+  <!-- Title -->
+  <text x="400" y="50" text-anchor="middle" fill="#ffffff" font-size="28" font-weight="bold" font-family="Segoe UI">🧠 AI Language Engine</text>
+  <text x="400" y="78" text-anchor="middle" fill="#94a3b8" font-size="14" font-family="Segoe UI">Speaks Every Indian Language — Convinces Like a Local Expert</text>
+  
+  <!-- Central Brain -->
+  <circle cx="400" cy="250" r="65" fill="url(#accent1)" opacity="0.15" stroke="#3b82f6" stroke-width="2"/>
+  <circle cx="400" cy="250" r="45" fill="url(#accent1)" opacity="0.3"/>
+  <text x="400" y="245" text-anchor="middle" fill="#ffffff" font-size="16" font-weight="bold" font-family="Segoe UI">INVESTO</text>
+  <text x="400" y="265" text-anchor="middle" fill="#93c5fd" font-size="11" font-family="Segoe UI">AI Core</text>
+  
+  <!-- Language Nodes -->
+  <g>
+    <!-- English -->
+    <circle cx="180" cy="120" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="180" y="117" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">English</text>
+    <text x="180" y="132" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">EN</text>
+    <line x1="212" y1="135" x2="355" y2="220" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Hindi -->
+    <circle cx="310" cy="100" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="310" y="97" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">हिन्दी</text>
+    <text x="310" y="112" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">HI</text>
+    <line x1="330" y1="130" x2="375" y2="210" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Kannada -->
+    <circle cx="490" cy="100" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="490" y="97" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">ಕನ್ನಡ</text>
+    <text x="490" y="112" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">KN</text>
+    <line x1="470" y1="130" x2="425" y2="210" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Telugu -->
+    <circle cx="620" cy="120" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="620" y="117" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">తెలుగు</text>
+    <text x="620" y="132" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">TE</text>
+    <line x1="590" y1="135" x2="445" y2="220" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Tamil -->
+    <circle cx="130" cy="250" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="130" y="247" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">தமிழ்</text>
+    <text x="130" y="262" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">TA</text>
+    <line x1="162" y1="250" x2="335" y2="250" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Malayalam -->
+    <circle cx="670" cy="250" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="670" y="247" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold" font-family="Segoe UI">മലയാളം</text>
+    <text x="670" y="262" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">ML</text>
+    <line x1="638" y1="250" x2="465" y2="250" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Marathi -->
+    <circle cx="180" cy="380" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="180" y="377" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">मराठी</text>
+    <text x="180" y="392" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">MR</text>
+    <line x1="212" y1="365" x2="355" y2="280" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Bengali -->
+    <circle cx="310" cy="400" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="310" y="397" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">বাংলা</text>
+    <text x="310" y="412" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">BN</text>
+    <line x1="330" y1="370" x2="375" y2="290" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Gujarati -->
+    <circle cx="490" cy="400" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="490" y="397" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">ગુજરાતી</text>
+    <text x="490" y="412" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">GU</text>
+    <line x1="470" y1="370" x2="425" y2="290" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+    
+    <!-- Punjabi -->
+    <circle cx="620" cy="380" r="32" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="620" y="377" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">ਪੰਜਾਬੀ</text>
+    <text x="620" y="392" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI">PA</text>
+    <line x1="590" y1="365" x2="445" y2="280" stroke="#60a5fa" stroke-width="1" opacity="0.5"/>
+  </g>
+  
+  <!-- Bottom stats bar -->
+  <rect x="50" y="455" width="700" height="35" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="150" y="477" text-anchor="middle" fill="#22c55e" font-size="12" font-weight="bold" font-family="Segoe UI">11+ Languages</text>
+  <text x="320" y="477" text-anchor="middle" fill="#f59e0b" font-size="12" font-weight="bold" font-family="Segoe UI">&lt;10s Response</text>
+  <text x="490" y="477" text-anchor="middle" fill="#3b82f6" font-size="12" font-weight="bold" font-family="Segoe UI">95% Population Reach</text>
+  <text x="660" y="477" text-anchor="middle" fill="#ec4899" font-size="12" font-weight="bold" font-family="Segoe UI">24/7 Active</text>
+</svg>

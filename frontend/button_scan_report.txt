@@ -1,0 +1,216 @@
+
+## FILE: D:\Investo\frontend\src\pages\agents\AgentsPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L134: text='setShowModal(true)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700" > Add Team Member' onClick='() => setShowModal(true)' type=''
+L230: text='setShowModal(false)} className="text-gray-400 hover:text-gray-600">' onClick='() => setShowModal(false)' type=''
+L323: text='setShowModal(false)} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50" > Cancel' onClick='() => setShowModal(false)' type=''
+L330: text='Create' onClick='' type='submit'
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\ai-settings\AISettingsPage.tsx
+--HANDLERS_WITH_API--
+handleSaveWhatsApp: get companies/${user.company_id} | put companies/${user.company_id}
+--BUTTONS--
+L451: text='icon-only' onClick='addFAQ' type=''
+L464: text='removeFAQ(index)} className="absolute top-2 right-2 p-1 hover:bg-red-50 rounded text-red-400 hover:text-red-600" >' onClick='() => removeFAQ(index)' type=''
+L494: text='icon-only' onClick='' type='submit'
+L563: text='setShowWhatsAppTokens(!showWhatsAppTokens)} className="ml-2 text-xs text-blue-600 hover:underline" >' onClick='() => setShowWhatsAppTokens(!showWhatsAppTokens)' type=''
+L607: text='navigator.clipboard.writeText(whatsappConfig.webhookUrl)} className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg" >' onClick='() => navigator.clipboard.writeText(whatsappConfig.webhookUrl)' type=''
+L622: text='icon-only' onClick='handleTestWhatsApp' type=''
+L631: text='icon-only' onClick='handleSaveWhatsApp' type=''
+--STATIC_CONSTS--
+L37: const TONES = ['formal', 'friendly', 'casual'] as const;
+L38: const LANGUAGES = [
+L210: const newSettings = {
+L262: const body = {
+
+## FILE: D:\Investo\frontend\src\pages\analytics\AnalyticsPage.tsx
+--HANDLERS_WITH_API--
+loadAll: get analytics/leads?days=${days}
+--BUTTONS--
+--STATIC_CONSTS--
+L107: const order = ['new', 'contacted', 'visit_scheduled', 'visited', 'negotiation', 'closed_won', 'closed_lost'];
+L139: const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-cyan-500', 'bg-pink-500'];
+
+## FILE: D:\Investo\frontend\src\pages\audit-logs\AuditLogsPage.tsx
+--HANDLERS_WITH_API--
+loadLogs: get audit?${params.toString()}
+--BUTTONS--
+L245: text='setExpandedLog(expandedLog === log.id ? null : log.id) } className="text-sm text-blue-600 hover:text-blue-700" >' onClick='() => setExpandedLog(expandedLog === log.id ? null : log.id) ' type=''
+L279: text='setPage((p) => Math.max(1, p - 1))} disabled= className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" >' onClick='() => setPage((p) => Math.max(1, p - 1))' type=''
+L286: text='setPage((p) => Math.min(totalPages, p + 1))} disabled= className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" >' onClick='() => setPage((p) => Math.min(totalPages, p + 1))' type=''
+--STATIC_CONSTS--
+L86: const actions = ['create', 'update', 'delete', 'deactivate', 'activate', 'login', 'logout'];
+L87: const resources = [
+
+## FILE: D:\Investo\frontend\src\pages\auth\ChangePasswordPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L97: text=') : ( t('auth.change_password_button') || 'Change Password & Continue' )}' onClick='' type='submit'
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\auth\ForgotPasswordPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L97: text=') : ( t('auth.send_reset_link') || 'Send Reset Link' )}' onClick='' type='submit'
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\auth\LoginPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L142: text=') : ( t('auth.login_button') )}' onClick='' type='submit'
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\auth\ResetPasswordPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L167: text=') : ( t('auth.reset_password_button') || 'Reset Password' )}' onClick='' type='submit'
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\billing\BillingPage.tsx
+--HANDLERS_WITH_API--
+handleDownloadInvoice: get subscriptions/invoices/${invoiceId}/download
+--BUTTONS--
+L171: text='icon-only' onClick='' type=''
+L232: text='icon-only' onClick='' type=''
+L285: text='handleDownloadInvoice(invoice.id, invoice.invoiceNumber)} >' onClick='() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)' type=''
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\calendar\CalendarPage.tsx
+--HANDLERS_WITH_API--
+updateVisitStatus: patch visits/${visitId}/status
+--BUTTONS--
+L121: text='setShowScheduleModal(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">' onClick='() => setShowScheduleModal(true)' type=''
+L130: text='navigate('prev')} className="p-2 hover:bg-gray-100 rounded-lg"> navigate('next')} className="p-2 hover:bg-gray-100 rounded-lg">' onClick='() => navigate('prev')' type=''
+L133: text='setCurrentDate(new Date())} className="ml-2 px-3 py-1 text-sm border rounded-lg hover:bg-gray-50"> className= `}> `)}' onClick='() => setCurrentDate(new Date())' type=''
+L264: text='setSelectedVisit(null)} className="p-1 hover:bg-gray-100 rounded"> Customer Phone Date & Time Duration min Property Agent Status } disabled= className= hover:opacity-80`}>' onClick='() => setSelectedVisit(null)' type=''
+L351: text='} Lead * Select lead ( ) )} Property (optional) Select property )} Agent * Select agent )} Date & Time * Duration (min) 30 min 60 min 90 min 120 min' onClick='onClose' type=''
+L394: text='icon-only' onClick='' type='submit'
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\companies\CompaniesPage.tsx
+--HANDLERS_WITH_API--
+handleSubmit: put companies/${editingCompany.id}
+handleToggleStatus: patch companies/${company.id}/deactivate | patch companies/${company.id}/activate
+--BUTTONS--
+L153: text='); setShowModal(true); }} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors" >' onClick='() => { setEditingCompany(null); setFormData({ name: '', slug: '', whatsapp_phone: '', plan_id: '' ' type=''
+L254: text='handleEdit(company)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title= >' onClick='() => handleEdit(company)' type=''
+L261: text='handleToggleStatus(company)} className= `} title= >' onClick='() => handleToggleStatus(company)' type=''
+L370: text='setShowModal(false)} className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors" >' onClick='() => setShowModal(false)' type=''
+L377: text='icon-only' onClick='' type='submit'
+--STATIC_CONSTS--
+L73: const submitData = {
+
+## FILE: D:\Investo\frontend\src\pages\conversations\ConversationsPage.tsx
+--HANDLERS_WITH_API--
+loadConversations: get conversations?${params.toString()}
+loadMessages: get conversations/${convId}
+takeOver: patch conversations/${convId}/takeover
+release: patch conversations/${convId}/release
+--BUTTONS--
+L198: text='setSelectedConv(null)} className="md:hidden p-1 hover:bg-gray-100 rounded" >' onClick='() => setSelectedConv(null)' type=''
+L218: text='takeOver(selectedConv.id)} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 flex items-center gap-1" >' onClick='() => takeOver(selectedConv.id)' type=''
+L226: text='release(selectedConv.id)} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center gap-1" >' onClick='() => release(selectedConv.id)' type=''
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\dashboard\DashboardPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L251: text='navigate('/leads')} className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1" > View all' onClick='() => navigate('/leads')' type=''
+L297: text='navigate('/calendar')} className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1" > View all' onClick='() => navigate('/calendar')' type=''
+--STATIC_CONSTS--
+L144: const statCards = [
+
+## FILE: D:\Investo\frontend\src\pages\leads\LeadDetailPage.tsx
+--HANDLERS_WITH_API--
+saveEdit: put leads/${id}
+changeStatus: patch leads/${id}/status
+--BUTTONS--
+L187: text='navigate('/leads')} className="mt-4 text-blue-600 hover:underline">Back to Leads ); } const allowedTransitions = LEAD_TRANSITIONS[lead.status] || []; const canEdit = user?.role === 'company_admin' || user?.role === 'super_admin' || (user?.role === 'sales_agent' && lead.assigned_agent_id === user?.id); return ( navigate('/leads')} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4"> Back to Leads' onClick='() => navigate('/leads')' type=''
+L213: text='Edit' onClick='startEditing' type=''
+L229: text='changeStatus(status)} disabled= className= hover:opacity-80`} >' onClick='() => changeStatus(status)' type=''
+L301: text='setEditing(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex items-center gap-1"> Cancel' onClick='() => setEditing(false)' type=''
+L304: text='Save' onClick='saveEdit' type=''
+--STATIC_CONSTS--
+L67: const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial', 'farmland'];
+
+## FILE: D:\Investo\frontend\src\pages\leads\LeadsPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L131: text='Export' onClick='handleExportCSV' type=''
+L138: text='setShowCreateModal(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors" >' onClick='() => setShowCreateModal(true)' type=''
+L244: text='setPage(p => p - 1)} className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed" >' onClick='() => setPage(p => p - 1)' type=''
+L251: text='= totalPages} onClick= className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed" >' onClick='() => setPage(p => p + 1)' type=''
+L302: text='setPage(p => p - 1)} className="px-4 py-2 border rounded-lg disabled:opacity-40">Previous / = totalPages} onClick= className="px-4 py-2 border rounded-lg disabled:opacity-40">Next' onClick='() => setPage(p => p - 1)' type=''
+L383: text='} Name Phone * Email Source )} Budget Min (₹) Budget Max (₹) Location Property Type Any )} )} )} Language English Hindi Kannada Telugu Tamil Malayalam Marathi Bengali Gujarati Punjabi Odia Notes' onClick='onClose' type=''
+L471: text='icon-only' onClick='' type='submit'
+--STATIC_CONSTS--
+L41: const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial', 'farmland'];
+L42: const LEAD_SOURCES = ['whatsapp', 'manual', 'website', 'referral', 'social_media', 'other'];
+
+## FILE: D:\Investo\frontend\src\pages\notifications\NotificationsPage.tsx
+--HANDLERS_WITH_API--
+handleMarkAsRead: put notifications/${id}/read
+--BUTTONS--
+L179: text='icon-only' onClick='handleMarkAllRead' type=''
+L197: text='setActiveTab(tab.key)} className= `} >' onClick='() => setActiveTab(tab.key)' type=''
+L256: text='icon-only' onClick='handleLoadMore' type=''
+--STATIC_CONSTS--
+
+## FILE: D:\Investo\frontend\src\pages\onboarding\OnboardingPage.tsx
+--HANDLERS_WITH_API--
+--BUTTONS--
+L500: text='removeRole(idx)} className="p-1 text-red-500 hover:bg-red-50 rounded">' onClick='() => removeRole(idx)' type=''
+L539: text='Add Custom Role' onClick='addCustomRole' type=''
+L556: text='setFeatures(prev => prev.map((f, i) => (i === idx ? : f)), ) } className= `} >' onClick='() => setFeatures(prev => prev.map((f, i) => (i === idx ? { ...f, enabled: !f.enabled ' type=''
+L734: text='removeInvite(idx)} className="p-2 text-red-500 hover:bg-red-50 rounded mt-0.5">' onClick='() => removeInvite(idx)' type=''
+L740: text='Add Another' onClick='addInviteRow' type=''
+L821: text='Back' onClick='handleBack' type=''
+L828: text='icon-only' onClick='handleNext' type=''
+--STATIC_CONSTS--
+L61: const STEP_LABELS = ['Setup', 'Roles', 'Features', 'AI Config', 'Team', 'Complete'];
+L63: const STEP_ICONS = [Building2, Shield, ToggleLeft, Bot, Users, CheckCircle2];
+L65: const RESOURCES = ['leads', 'properties', 'visits', 'analytics', 'settings'] as const;
+L66: const ACTIONS = ['read', 'create', 'update', 'delete'] as const;
+L86: const LANGUAGES = [
+L100: const TONES = [
+L251: const payload = {
+
+## FILE: D:\Investo\frontend\src\pages\properties\PropertiesPage.tsx
+--HANDLERS_WITH_API--
+handleDelete: delete properties/${id}
+handleSubmit: put properties/${property!.id}
+--BUTTONS--
+L103: text='} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">' onClick='() => { setEditingProperty(null); setShowModal(true); ' type=''
+L154: text='handleEdit(property)} className="p-1.5 hover:bg-gray-100 rounded"> handleDelete(property.id)} disabled= className="p-1.5 hover:bg-red-50 rounded">' onClick='() => handleEdit(property)' type=''
+L243: text='} Name * Builder Type Select )} City Area Pincode Bedrooms Price Min (₹) Price Max (₹) RERA Number Status )} Description' onClick='onClose' type=''
+L276: text='icon-only' onClick='' type='submit'
+L307: text=')} Builder Type Location Pincode Price Range - Bedrooms BHK` : '-'} RERA Status )} )} )} ); }; export default PropertiesPage;' onClick='onClose' type=''
+--STATIC_CONSTS--
+L28: const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial', 'farmland'];
+L29: const PROPERTY_STATUSES = ['available', 'sold', 'upcoming'];
+L215: const payload = {
+
+## FILE: D:\Investo\frontend\src\pages\settings\SettingsPage.tsx
+--HANDLERS_WITH_API--
+handleSubmit: put roles/${role.id}
+deleteRole: delete roles/${id}
+toggleFeature: put features/${key}
+--BUTTONS--
+L106: text='icon-only' onClick='onClose' type=''
+L170: text='icon-only' onClick='onClose' type=''
+L173: text='icon-only' onClick='' type='submit'
+L325: text='setActiveTab(tab.key)} className= `} >' onClick='() => setActiveTab(tab.key)' type=''
+L395: text='icon-only' onClick='' type='submit'
+L412: text='} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2" >' onClick='() => { setEditingRole(null); setShowRoleModal(true); ' type=''
+L446: text='} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title= >' onClick='() => { setEditingRole(role); setShowRoleModal(true); ' type=''
+L453: text='deleteRole(role.id)} className="p-2 hover:bg-red-50 rounded-lg text-red-500" title= >' onClick='() => deleteRole(role.id)' type=''
+L507: text='toggleFeature(feature.key, !feature.enabled)} disabled= className= $ `} >' onClick='() => toggleFeature(feature.key, !feature.enabled)' type=''
+--STATIC_CONSTS--
+L41: const TABS = ['company', 'roles', 'features'] as const;
+L44: const RESOURCES = ['leads', 'properties', 'visits', 'conversations', 'agents', 'analytics', 'settings'] as const;
+L45: const ACTIONS = ['read', 'create', 'update', 'delete'] as const;
+L87: const body = { ...form, permissions };
+L304: const allRoles = [...roles.systemRoles, ...roles.customRoles];
+L306: const tabConfig = [

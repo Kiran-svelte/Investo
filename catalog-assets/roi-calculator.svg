@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <defs>
+    <linearGradient id="bg4" x1="0" y1="0" x2="800" y2="500">
+      <stop offset="0%" style="stop-color:#0a0f1a"/>
+      <stop offset="100%" style="stop-color:#1a1a2e"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="url(#bg4)" rx="16"/>
+  
+  <text x="400" y="42" text-anchor="middle" fill="#ffffff" font-size="24" font-weight="bold" font-family="Segoe UI">💰 ROI — Cost Comparison</text>
+  <text x="400" y="65" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">Why 1 AI Agent = 10 Human Agents at 1/5th the Cost</text>
+  
+  <!-- Without Investo -->
+  <rect x="50" y="90" width="330" height="350" rx="12" fill="#1e1b2e" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="215" y="120" text-anchor="middle" fill="#fca5a5" font-size="18" font-weight="bold" font-family="Segoe UI">❌ Without Investo</text>
+  <text x="215" y="142" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">Traditional Sales Team Setup</text>
+  
+  <rect x="70" y="160" width="290" height="35" rx="6" fill="#2d1b1b"/>
+  <text x="80" y="183" fill="#fca5a5" font-size="12" font-family="Segoe UI">10 Junior Sales Agents</text>
+  <text x="350" y="183" text-anchor="end" fill="#ef4444" font-size="13" font-weight="bold" font-family="Segoe UI">₹2,50,000/mo</text>
+  
+  <rect x="70" y="202" width="290" height="35" rx="6" fill="#2d1b1b" opacity="0.7"/>
+  <text x="80" y="225" fill="#fca5a5" font-size="12" font-family="Segoe UI">CRM Software License</text>
+  <text x="350" y="225" text-anchor="end" fill="#ef4444" font-size="13" font-weight="bold" font-family="Segoe UI">₹15,000/mo</text>
+  
+  <rect x="70" y="244" width="290" height="35" rx="6" fill="#2d1b1b"/>
+  <text x="80" y="267" fill="#fca5a5" font-size="12" font-family="Segoe UI">WhatsApp Business API</text>
+  <text x="350" y="267" text-anchor="end" fill="#ef4444" font-size="13" font-weight="bold" font-family="Segoe UI">₹10,000/mo</text>
+  
+  <rect x="70" y="286" width="290" height="35" rx="6" fill="#2d1b1b" opacity="0.7"/>
+  <text x="80" y="309" fill="#fca5a5" font-size="12" font-family="Segoe UI">Training &amp; Onboarding</text>
+  <text x="350" y="309" text-anchor="end" fill="#ef4444" font-size="13" font-weight="bold" font-family="Segoe UI">₹25,000/mo</text>
+  
+  <rect x="70" y="328" width="290" height="35" rx="6" fill="#2d1b1b"/>
+  <text x="80" y="351" fill="#fca5a5" font-size="12" font-family="Segoe UI">Office Space &amp; Infra</text>
+  <text x="350" y="351" text-anchor="end" fill="#ef4444" font-size="13" font-weight="bold" font-family="Segoe UI">₹50,000/mo</text>
+  
+  <line x1="70" y1="375" x2="350" y2="375" stroke="#ef4444" stroke-width="1"/>
+  <text x="80" y="400" fill="#ffffff" font-size="14" font-weight="bold" font-family="Segoe UI">TOTAL</text>
+  <text x="350" y="400" text-anchor="end" fill="#ef4444" font-size="20" font-weight="bold" font-family="Segoe UI">₹3,50,000/mo</text>
+  <text x="215" y="425" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">Handles ~300 leads/month • 9am-6pm only</text>
+  
+  <!-- With Investo -->
+  <rect x="420" y="90" width="330" height="350" rx="12" fill="#0a2e1b" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="585" y="120" text-anchor="middle" fill="#86efac" font-size="18" font-weight="bold" font-family="Segoe UI">✅ With Investo</text>
+  <text x="585" y="142" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">AI-Powered Automation</text>
+  
+  <rect x="440" y="160" width="290" height="35" rx="6" fill="#0a2e1b"/>
+  <text x="450" y="183" fill="#86efac" font-size="12" font-family="Segoe UI">Investo Growth Plan</text>
+  <text x="720" y="183" text-anchor="end" fill="#22c55e" font-size="13" font-weight="bold" font-family="Segoe UI">₹14,999/mo</text>
+  
+  <rect x="440" y="202" width="290" height="35" rx="6" fill="#0a2e1b" opacity="0.7"/>
+  <text x="450" y="225" fill="#86efac" font-size="12" font-family="Segoe UI">2 Senior Agents (closers)</text>
+  <text x="720" y="225" text-anchor="end" fill="#22c55e" font-size="13" font-weight="bold" font-family="Segoe UI">₹60,000/mo</text>
+  
+  <rect x="440" y="244" width="290" height="35" rx="6" fill="#0a2e1b"/>
+  <text x="450" y="267" fill="#86efac" font-size="12" font-family="Segoe UI">WhatsApp API (included)</text>
+  <text x="720" y="267" text-anchor="end" fill="#22c55e" font-size="13" font-weight="bold" font-family="Segoe UI">₹0</text>
+  
+  <rect x="440" y="286" width="290" height="35" rx="6" fill="#0a2e1b" opacity="0.7"/>
+  <text x="450" y="309" fill="#86efac" font-size="12" font-family="Segoe UI">No training needed</text>
+  <text x="720" y="309" text-anchor="end" fill="#22c55e" font-size="13" font-weight="bold" font-family="Segoe UI">₹0</text>
+  
+  <rect x="440" y="328" width="290" height="35" rx="6" fill="#0a2e1b"/>
+  <text x="450" y="351" fill="#86efac" font-size="12" font-family="Segoe UI">Cloud-based (no infra)</text>
+  <text x="720" y="351" text-anchor="end" fill="#22c55e" font-size="13" font-weight="bold" font-family="Segoe UI">₹0</text>
+  
+  <line x1="440" y1="375" x2="720" y2="375" stroke="#22c55e" stroke-width="1"/>
+  <text x="450" y="400" fill="#ffffff" font-size="14" font-weight="bold" font-family="Segoe UI">TOTAL</text>
+  <text x="720" y="400" text-anchor="end" fill="#22c55e" font-size="20" font-weight="bold" font-family="Segoe UI">₹74,999/mo</text>
+  <text x="585" y="425" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">Handles 1000+ leads/month • 24/7/365</text>
+  
+  <!-- Savings bar -->
+  <rect x="50" y="455" width="700" height="35" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="400" y="478" text-anchor="middle" fill="#22c55e" font-size="16" font-weight="bold" font-family="Segoe UI">💸 SAVE ₹2,75,001/month (79% reduction) — 3x more leads handled</text>
+</svg>

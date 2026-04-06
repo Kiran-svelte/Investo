@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" fill="none">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="800" y2="600">
+      <stop offset="0%" style="stop-color:#0c0a1a"/>
+      <stop offset="100%" style="stop-color:#1a0f3a"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#bg2)" rx="16"/>
+  
+  <text x="400" y="45" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="bold" font-family="Segoe UI">🏆 Why Investo is Non-Optional</text>
+  <text x="400" y="72" text-anchor="middle" fill="#94a3b8" font-size="13" font-family="Segoe UI">The Only Platform Built Exclusively for Indian Real Estate</text>
+  
+  <!-- Comparison Table -->
+  <!-- Header -->
+  <rect x="50" y="95" width="700" height="40" rx="8" fill="#3b82f6"/>
+  <text x="200" y="120" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold" font-family="Segoe UI">Feature</text>
+  <text x="400" y="120" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold" font-family="Segoe UI">INVESTO ✨</text>
+  <text x="550" y="120" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold" font-family="Segoe UI">Generic CRM</text>
+  <text x="700" y="120" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold" font-family="Segoe UI">Other AI</text>
+  
+  <!-- Row 1 -->
+  <rect x="50" y="140" width="700" height="38" fill="#1e1b4b" opacity="0.5"/>
+  <text x="200" y="164" text-anchor="middle" fill="#e2e8f0" font-size="12" font-family="Segoe UI">Indian Languages</text>
+  <text x="400" y="164" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">11+ ✅</text>
+  <text x="550" y="164" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">1-2 ❌</text>
+  <text x="700" y="164" text-anchor="middle" fill="#f59e0b" font-size="12" font-family="Segoe UI">3-4 ⚠️</text>
+  
+  <!-- Row 2 -->
+  <rect x="50" y="182" width="700" height="38" fill="#1e1b4b" opacity="0.3"/>
+  <text x="200" y="206" text-anchor="middle" fill="#e2e8f0" font-size="12" font-family="Segoe UI">Real Estate Specific</text>
+  <text x="400" y="206" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">100% ✅</text>
+  <text x="550" y="206" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">No ❌</text>
+  <text x="700" y="206" text-anchor="middle" fill="#f59e0b" font-size="12" font-family="Segoe UI">Partial ⚠️</text>
+  
+  <!-- Row 3 -->
+  <rect x="50" y="224" width="700" height="38" fill="#1e1b4b" opacity="0.5"/>
+  <text x="200" y="248" text-anchor="middle" fill="#e2e8f0" font-size="12" font-family="Segoe UI">WhatsApp Native</text>
+  <text x="400" y="248" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">Built-in ✅</text>
+  <text x="550" y="248" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">Plugin ❌</text>
+  <text x="700" y="248" text-anchor="middle" fill="#f59e0b" font-size="12" font-family="Segoe UI">Limited ⚠️</text>
+  
+  <!-- Row 4 -->
+  <rect x="50" y="266" width="700" height="38" fill="#1e1b4b" opacity="0.3"/>
+  <text x="200" y="290" text-anchor="middle" fill="#e2e8f0" font-size="12" font-family="Segoe UI">Visit Booking AI</text>
+  <text x="400" y="290" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">Auto ✅</text>
+  <text x="550" y="290" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">No ❌</text>
+  <text x="700" y="290" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">No ❌</text>
+  
+  <!-- Row 5 -->
+  <rect x="50" y="308" width="700" height="38" fill="#1e1b4b" opacity="0.5"/>
+  <text x="200" y="332" text-anchor="middle" fill="#e2e8f0" font-size="12" font-family="Segoe UI">Persuasion Engine</text>
+  <text x="400" y="332" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">Advanced ✅</text>
+  <text x="550" y="332" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">No ❌</text>
+  <text x="700" y="332" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">No ❌</text>
+  
+  <!-- Row 6 -->
+  <rect x="50" y="350" width="700" height="38" fill="#1e1b4b" opacity="0.3"/>
+  <text x="200" y="374" text-anchor="middle" fill="#e2e8f0" font-size="12" font-family="Segoe UI">Multi-Tenant SaaS</text>
+  <text x="400" y="374" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">Full ✅</text>
+  <text x="550" y="374" text-anchor="middle" fill="#f59e0b" font-size="12" font-family="Segoe UI">Some ⚠️</text>
+  <text x="700" y="374" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">No ❌</text>
+  
+  <!-- Row 7 -->
+  <rect x="50" y="392" width="700" height="38" fill="#1e1b4b" opacity="0.5"/>
+  <text x="200" y="416" text-anchor="middle" fill="#e2e8f0" font-size="12" font-family="Segoe UI">Objection Handling</text>
+  <text x="400" y="416" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">Smart AI ✅</text>
+  <text x="550" y="416" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">Manual ❌</text>
+  <text x="700" y="416" text-anchor="middle" fill="#ef4444" font-size="12" font-family="Segoe UI">Basic ❌</text>
+  
+  <!-- Stats boxes at bottom -->
+  <rect x="50" y="455" width="165" height="120" rx="10" fill="#1e293b" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="132" y="488" text-anchor="middle" fill="#22c55e" font-size="32" font-weight="bold" font-family="Segoe UI">78%</text>
+  <text x="132" y="510" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">Real estate inquiries</text>
+  <text x="132" y="525" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">start on WhatsApp</text>
+  <text x="132" y="560" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI">Source: Industry Report 2024</text>
+  
+  <rect x="233" y="455" width="165" height="120" rx="10" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="315" y="488" text-anchor="middle" fill="#3b82f6" font-size="32" font-weight="bold" font-family="Segoe UI">1000+</text>
+  <text x="315" y="510" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">Leads handled</text>
+  <text x="315" y="525" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">simultaneously by AI</text>
+  <text x="315" y="560" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI">vs 30 leads per human agent</text>
+  
+  <rect x="416" y="455" width="165" height="120" rx="10" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="498" y="488" text-anchor="middle" fill="#f59e0b" font-size="32" font-weight="bold" font-family="Segoe UI">3x</text>
+  <text x="498" y="510" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">Higher visit booking</text>
+  <text x="498" y="525" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">rate with AI follow-up</text>
+  <text x="498" y="560" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI">vs manual follow-up</text>
+  
+  <rect x="599" y="455" width="151" height="120" rx="10" fill="#1e293b" stroke="#ec4899" stroke-width="1.5"/>
+  <text x="674" y="488" text-anchor="middle" fill="#ec4899" font-size="32" font-weight="bold" font-family="Segoe UI">1/5</text>
+  <text x="674" y="510" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">Cost compared to</text>
+  <text x="674" y="525" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI">10 junior agents</text>
+  <text x="674" y="560" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI">₹4,999/mo vs ₹2.5L/mo</text>
+</svg>

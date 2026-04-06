@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <defs>
+    <linearGradient id="bg8" x1="0" y1="0" x2="800" y2="500">
+      <stop offset="0%" style="stop-color:#0a0e1a"/>
+      <stop offset="100%" style="stop-color:#151d30"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="url(#bg8)" rx="16"/>
+  
+  <text x="400" y="42" text-anchor="middle" fill="#ffffff" font-size="24" font-weight="bold" font-family="Segoe UI">📊 Multi-Tenant CRM Dashboard</text>
+  <text x="400" y="65" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">Complete Lead-to-Close Pipeline for Real Estate</text>
+  
+  <!-- KPI Cards Row -->
+  <rect x="40" y="85" width="135" height="75" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1"/>
+  <text x="107" y="108" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="Segoe UI">Total Leads</text>
+  <text x="107" y="138" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="bold" font-family="Segoe UI">2,847</text>
+  <text x="107" y="152" text-anchor="middle" fill="#22c55e" font-size="9" font-family="Segoe UI">↑ 12% this month</text>
+  
+  <rect x="185" y="85" width="135" height="75" rx="8" fill="#1e293b" stroke="#22c55e" stroke-width="1"/>
+  <text x="252" y="108" text-anchor="middle" fill="#86efac" font-size="10" font-family="Segoe UI">Visits Booked</text>
+  <text x="252" y="138" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="bold" font-family="Segoe UI">342</text>
+  <text x="252" y="152" text-anchor="middle" fill="#22c55e" font-size="9" font-family="Segoe UI">↑ 23% vs last month</text>
+  
+  <rect x="330" y="85" width="135" height="75" rx="8" fill="#1e293b" stroke="#f59e0b" stroke-width="1"/>
+  <text x="397" y="108" text-anchor="middle" fill="#fcd34d" font-size="10" font-family="Segoe UI">Deals Closed</text>
+  <text x="397" y="138" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="bold" font-family="Segoe UI">67</text>
+  <text x="397" y="152" text-anchor="middle" fill="#22c55e" font-size="9" font-family="Segoe UI">↑ 8% conversion</text>
+  
+  <rect x="475" y="85" width="135" height="75" rx="8" fill="#1e293b" stroke="#a855f7" stroke-width="1"/>
+  <text x="542" y="108" text-anchor="middle" fill="#d8b4fe" font-size="10" font-family="Segoe UI">Revenue</text>
+  <text x="542" y="138" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="bold" font-family="Segoe UI">₹4.2Cr</text>
+  <text x="542" y="152" text-anchor="middle" fill="#22c55e" font-size="9" font-family="Segoe UI">↑ 15% growth</text>
+  
+  <rect x="620" y="85" width="140" height="75" rx="8" fill="#1e293b" stroke="#ec4899" stroke-width="1"/>
+  <text x="690" y="108" text-anchor="middle" fill="#f9a8d4" font-size="10" font-family="Segoe UI">AI Conversations</text>
+  <text x="690" y="138" text-anchor="middle" fill="#ffffff" font-size="26" font-weight="bold" font-family="Segoe UI">1,205</text>
+  <text x="690" y="152" text-anchor="middle" fill="#22c55e" font-size="9" font-family="Segoe UI">Active today</text>
+  
+  <!-- Lead Funnel -->
+  <rect x="40" y="175" width="350" height="310" rx="10" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="215" y="200" text-anchor="middle" fill="#f8fafc" font-size="14" font-weight="bold" font-family="Segoe UI">Lead Funnel</text>
+  
+  <!-- Funnel bars -->
+  <rect x="60" y="215" width="310" height="28" rx="4" fill="#3b82f6" opacity="0.8"/>
+  <text x="70" y="234" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">New  —  1,200</text>
+  
+  <rect x="80" y="250" width="270" height="28" rx="4" fill="#6366f1" opacity="0.8"/>
+  <text x="90" y="269" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">Contacted  —  890</text>
+  
+  <rect x="100" y="285" width="230" height="28" rx="4" fill="#8b5cf6" opacity="0.8"/>
+  <text x="110" y="304" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">Visit Scheduled  —  342</text>
+  
+  <rect x="120" y="320" width="190" height="28" rx="4" fill="#a855f7" opacity="0.8"/>
+  <text x="130" y="339" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">Visited  —  280</text>
+  
+  <rect x="140" y="355" width="150" height="28" rx="4" fill="#f59e0b" opacity="0.8"/>
+  <text x="150" y="374" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">Negotiation  —  135</text>
+  
+  <rect x="160" y="390" width="110" height="28" rx="4" fill="#22c55e" opacity="0.8"/>
+  <text x="170" y="409" fill="#ffffff" font-size="11" font-weight="bold" font-family="Segoe UI">Won  —  67</text>
+  
+  <text x="215" y="450" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI">5.6% overall conversion • AI-boosted funnel</text>
+  
+  <!-- Agent Leaderboard -->
+  <rect x="410" y="175" width="350" height="310" rx="10" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="585" y="200" text-anchor="middle" fill="#f8fafc" font-size="14" font-weight="bold" font-family="Segoe UI">Agent Leaderboard</text>
+  
+  <!-- Agent 1 -->
+  <rect x="430" y="215" width="310" height="45" rx="6" fill="#14532d" stroke="#22c55e" stroke-width="1"/>
+  <text x="445" y="237" fill="#fcd34d" font-size="14" font-weight="bold" font-family="Segoe UI">🥇</text>
+  <text x="470" y="234" fill="#ffffff" font-size="12" font-weight="bold" font-family="Segoe UI">Rahul Sharma</text>
+  <text x="470" y="250" fill="#86efac" font-size="10" font-family="Segoe UI">18 deals • 12% conversion</text>
+  <text x="720" y="240" text-anchor="end" fill="#22c55e" font-size="14" font-weight="bold" font-family="Segoe UI">₹1.2Cr</text>
+  
+  <!-- Agent 2 -->
+  <rect x="430" y="268" width="310" height="45" rx="6" fill="#1e293b"/>
+  <text x="445" y="290" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">🥈</text>
+  <text x="470" y="287" fill="#ffffff" font-size="12" font-weight="bold" font-family="Segoe UI">Priya Patel</text>
+  <text x="470" y="303" fill="#94a3b8" font-size="10" font-family="Segoe UI">15 deals • 10% conversion</text>
+  <text x="720" y="293" text-anchor="end" fill="#93c5fd" font-size="14" font-weight="bold" font-family="Segoe UI">₹98L</text>
+  
+  <!-- Agent 3 -->
+  <rect x="430" y="321" width="310" height="45" rx="6" fill="#1e293b"/>
+  <text x="445" y="343" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">🥉</text>
+  <text x="470" y="340" fill="#ffffff" font-size="12" font-weight="bold" font-family="Segoe UI">Kiran Kumar</text>
+  <text x="470" y="356" fill="#94a3b8" font-size="10" font-family="Segoe UI">12 deals • 9% conversion</text>
+  <text x="720" y="346" text-anchor="end" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">₹85L</text>
+  
+  <!-- Agent 4 -->
+  <rect x="430" y="374" width="310" height="45" rx="6" fill="#1e293b"/>
+  <text x="445" y="396" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">4.</text>
+  <text x="470" y="393" fill="#ffffff" font-size="12" font-weight="bold" font-family="Segoe UI">Ananya Singh</text>
+  <text x="470" y="409" fill="#94a3b8" font-size="10" font-family="Segoe UI">10 deals • 8% conversion</text>
+  <text x="720" y="399" text-anchor="end" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">₹72L</text>
+  
+  <!-- Agent 5 -->
+  <rect x="430" y="427" width="310" height="45" rx="6" fill="#1e293b"/>
+  <text x="445" y="449" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">5.</text>
+  <text x="470" y="446" fill="#ffffff" font-size="12" font-weight="bold" font-family="Segoe UI">Deepak Reddy</text>
+  <text x="470" y="462" fill="#94a3b8" font-size="10" font-family="Segoe UI">8 deals • 7% conversion</text>
+  <text x="720" y="452" text-anchor="end" fill="#94a3b8" font-size="14" font-weight="bold" font-family="Segoe UI">₹55L</text>
+</svg>

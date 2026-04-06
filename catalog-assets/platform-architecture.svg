@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 550" fill="none">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="800" y2="550">
+      <stop offset="0%" style="stop-color:#0a1628"/>
+      <stop offset="100%" style="stop-color:#162240"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="550" fill="url(#bg3)" rx="16"/>
+  
+  <text x="400" y="42" text-anchor="middle" fill="#ffffff" font-size="24" font-weight="bold" font-family="Segoe UI">⚙️ Platform Architecture</text>
+  <text x="400" y="65" text-anchor="middle" fill="#94a3b8" font-size="12" font-family="Segoe UI">Enterprise-grade Multi-Tenant SaaS Infrastructure</text>
+  
+  <!-- Customer Layer -->
+  <rect x="250" y="85" width="300" height="45" rx="8" fill="#065f46" stroke="#34d399" stroke-width="1.5"/>
+  <text x="400" y="113" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold" font-family="Segoe UI">📱 Customer WhatsApp (Any Language)</text>
+  
+  <!-- Arrow -->
+  <line x1="400" y1="130" x2="400" y2="155" stroke="#34d399" stroke-width="2" stroke-dasharray="4"/>
+  <polygon points="394,153 400,163 406,153" fill="#34d399"/>
+  
+  <!-- WhatsApp API -->
+  <rect x="250" y="165" width="300" height="40" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="1"/>
+  <text x="400" y="190" text-anchor="middle" fill="#bbf7d0" font-size="12" font-weight="bold" font-family="Segoe UI">WhatsApp Cloud API (Meta Business)</text>
+  
+  <!-- Arrow -->
+  <line x1="400" y1="205" x2="400" y2="225" stroke="#22c55e" stroke-width="2" stroke-dasharray="4"/>
+  <polygon points="394,223 400,233 406,223" fill="#22c55e"/>
+  
+  <!-- Backend Box -->
+  <rect x="80" y="235" width="640" height="180" rx="12" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="400" y="258" text-anchor="middle" fill="#f8fafc" font-size="15" font-weight="bold" font-family="Segoe UI">🖥️ Node.js + Express Backend</text>
+  
+  <!-- Inner modules -->
+  <rect x="100" y="270" width="140" height="55" rx="6" fill="#312e81" stroke="#6366f1" stroke-width="1"/>
+  <text x="170" y="293" text-anchor="middle" fill="#c7d2fe" font-size="11" font-weight="bold" font-family="Segoe UI">Webhook Handler</text>
+  <text x="170" y="310" text-anchor="middle" fill="#a5b4fc" font-size="9" font-family="Segoe UI">Signature Verify</text>
+  
+  <rect x="255" y="270" width="140" height="55" rx="6" fill="#7c2d12" stroke="#f97316" stroke-width="1"/>
+  <text x="325" y="293" text-anchor="middle" fill="#fed7aa" font-size="11" font-weight="bold" font-family="Segoe UI">AI Engine</text>
+  <text x="325" y="310" text-anchor="middle" fill="#fdba74" font-size="9" font-family="Segoe UI">Claude / OpenAI</text>
+  
+  <rect x="410" y="270" width="140" height="55" rx="6" fill="#713f12" stroke="#eab308" stroke-width="1"/>
+  <text x="480" y="293" text-anchor="middle" fill="#fef08a" font-size="11" font-weight="bold" font-family="Segoe UI">Auth + RBAC</text>
+  <text x="480" y="310" text-anchor="middle" fill="#fde047" font-size="9" font-family="Segoe UI">JWT + 5 Roles</text>
+  
+  <rect x="565" y="270" width="140" height="55" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="635" y="293" text-anchor="middle" fill="#a7f3d0" font-size="11" font-weight="bold" font-family="Segoe UI">Tenant Isolation</text>
+  <text x="635" y="310" text-anchor="middle" fill="#6ee7b7" font-size="9" font-family="Segoe UI">company_id filter</text>
+  
+  <rect x="100" y="340" width="140" height="55" rx="6" fill="#4a1d96" stroke="#a855f7" stroke-width="1"/>
+  <text x="170" y="363" text-anchor="middle" fill="#e9d5ff" font-size="11" font-weight="bold" font-family="Segoe UI">CRM Engine</text>
+  <text x="170" y="380" text-anchor="middle" fill="#d8b4fe" font-size="9" font-family="Segoe UI">Leads • Properties</text>
+  
+  <rect x="255" y="340" width="140" height="55" rx="6" fill="#831843" stroke="#ec4899" stroke-width="1"/>
+  <text x="325" y="363" text-anchor="middle" fill="#fbcfe8" font-size="11" font-weight="bold" font-family="Segoe UI">Visit Scheduler</text>
+  <text x="325" y="380" text-anchor="middle" fill="#f9a8d4" font-size="9" font-family="Segoe UI">Calendar • Reminders</text>
+  
+  <rect x="410" y="340" width="140" height="55" rx="6" fill="#1e3a5f" stroke="#0ea5e9" stroke-width="1"/>
+  <text x="480" y="363" text-anchor="middle" fill="#bae6fd" font-size="11" font-weight="bold" font-family="Segoe UI">Automation</text>
+  <text x="480" y="380" text-anchor="middle" fill="#7dd3fc" font-size="9" font-family="Segoe UI">Follow-ups • CRON</text>
+  
+  <rect x="565" y="340" width="140" height="55" rx="6" fill="#1c1917" stroke="#a8a29e" stroke-width="1"/>
+  <text x="635" y="363" text-anchor="middle" fill="#e7e5e4" font-size="11" font-weight="bold" font-family="Segoe UI">Audit Logger</text>
+  <text x="635" y="380" text-anchor="middle" fill="#d6d3d1" font-size="9" font-family="Segoe UI">All Write Ops</text>
+  
+  <!-- Arrow to DB layer -->
+  <line x1="300" y1="415" x2="300" y2="445" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4"/>
+  <polygon points="294,443 300,453 306,443" fill="#3b82f6"/>
+  <line x1="500" y1="415" x2="500" y2="445" stroke="#ef4444" stroke-width="2" stroke-dasharray="4"/>
+  <polygon points="494,443 500,453 506,443" fill="#ef4444"/>
+  
+  <!-- DB Layer -->
+  <rect x="110" y="455" width="280" height="70" rx="10" fill="#172554" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="250" y="480" text-anchor="middle" fill="#93c5fd" font-size="14" font-weight="bold" font-family="Segoe UI">🗄️ Neon PostgreSQL</text>
+  <text x="250" y="500" text-anchor="middle" fill="#60a5fa" font-size="10" font-family="Segoe UI">Prisma ORM • pgvector • 12 Tables</text>
+  <text x="250" y="515" text-anchor="middle" fill="#3b82f6" font-size="9" font-family="Segoe UI">UUIDs • DECIMAL • UTC Timestamps</text>
+  
+  <rect x="420" y="455" width="260" height="70" rx="10" fill="#450a0a" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="550" y="480" text-anchor="middle" fill="#fca5a5" font-size="14" font-weight="bold" font-family="Segoe UI">⚡ Upstash Redis</text>
+  <text x="550" y="500" text-anchor="middle" fill="#f87171" font-size="10" font-family="Segoe UI">Session Cache • Rate Limiting</text>
+  <text x="550" y="515" text-anchor="middle" fill="#ef4444" font-size="9" font-family="Segoe UI">Message Queue • Real-time</text>
+  
+  <!-- React frontend on the side -->
+  <rect x="15" y="85" width="210" height="45" rx="8" fill="#1e40af" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="120" y="113" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold" font-family="Segoe UI">⚛️ React Dashboard</text>
+  <line x1="225" y1="130" x2="250" y2="165" stroke="#60a5fa" stroke-width="1" stroke-dasharray="3"/>
+</svg>
