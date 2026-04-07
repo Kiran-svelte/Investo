@@ -2,6 +2,12 @@ import prisma from '../config/prisma';
 import config from '../config';
 import logger from '../config/logger';
 import { aiService } from './ai.service';
+import { 
+  ConversationState, 
+  conversationStateManager,
+  ConversationStage,
+  MicroCommitments,
+} from './conversationStateMachine';
 
 interface IncomingMessage {
   phoneNumberId: string;
@@ -179,6 +185,8 @@ export class WhatsAppService {
     });
 
     if (!conversation) {
+      // Create conversation with initial state machine state
+      const initialState = conversationStateManager.createInitialState();
       conversation = await prisma.conversation.create({
         data: {
           companyId,
@@ -187,9 +195,37 @@ export class WhatsAppService {
           status: 'ai_active',
           language: 'en',
           aiEnabled: true,
+          // State machine fields
+          stage: 'rapport',
+          stageEnteredAt: new Date(),
+          stageMessageCount: 0,
+          commitments: initialState.commitments as any,
+          objectionCount: 0,
+          consecutiveObjections: 0,
+          urgencyScore: 5,
+          valueScore: 5,
+          recommendedPropertyIds: [],
         },
       });
     }
+
+    // Reconstruct conversation state from DB
+    const conversationState: ConversationState = {
+      stage: (conversation.stage as ConversationStage) || 'rapport',
+      previousStage: null,
+      stageEnteredAt: conversation.stageEnteredAt || new Date(),
+      messageCount: conversation.stageMessageCount || 0,
+      commitments: (conversation.commitments as unknown as MicroCommitments) || conversationStateManager.createInitialState().commitments,
+      objectionCount: conversation.objectionCount || 0,
+      lastObjectionType: (conversation.lastObjectionType as any) || null,
+      consecutiveObjections: conversation.consecutiveObjections || 0,
+      urgencyScore: conversation.urgencyScore || 5,
+      valueScore: conversation.valueScore || 5,
+      escalationReason: conversation.escalationReason || null,
+      recommendedProperties: (conversation.recommendedPropertyIds as unknown as string[]) || [],
+      selectedPropertyId: conversation.selectedPropertyId || null,
+      proposedVisitTime: conversation.proposedVisitTime || null,
+    };
 
     // 3. Store incoming message
     await prisma.message.create({
@@ -208,7 +244,7 @@ export class WhatsAppService {
       data: { lastContactAt: new Date() },
     });
 
-    // 4. If conversation is ai_active, generate AI response
+    // 4. If conversation is ai_active, generate AI response with state machine
     if (conversation.status === 'ai_active' && conversation.aiEnabled) {
       try {
         // Get AI settings for this company
@@ -229,7 +265,7 @@ export class WhatsAppService {
           take: 20,
         });
 
-        // Generate AI response
+        // Generate AI response with state machine
         const aiResponse = await aiService.generateResponse({
           customerMessage: msg.messageText,
           conversationHistory: history,
@@ -237,6 +273,13 @@ export class WhatsAppService {
           properties,
           aiSettings: aiSettings || {},
           companyName: company.name,
+          conversationState, // Pass the state machine state
+        });
+
+        logger.info('AI response generated', {
+          conversationId: conversation.id,
+          stage: aiResponse.newState?.stage,
+          action: aiResponse.nextAction?.action,
         });
 
         // Store AI response
@@ -249,6 +292,54 @@ export class WhatsAppService {
             status: 'sent',
           },
         });
+
+        // Persist updated state machine state to conversation
+        if (aiResponse.newState) {
+          const newState = aiResponse.newState;
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              stage: newState.stage,
+              stageEnteredAt: newState.stageEnteredAt,
+              stageMessageCount: newState.messageCount,
+              commitments: newState.commitments as any,
+              objectionCount: newState.objectionCount,
+              lastObjectionType: newState.lastObjectionType,
+              consecutiveObjections: newState.consecutiveObjections,
+              urgencyScore: newState.urgencyScore,
+              valueScore: newState.valueScore,
+              escalationReason: newState.escalationReason,
+              recommendedPropertyIds: newState.recommendedProperties as any,
+              selectedPropertyId: newState.selectedPropertyId,
+              proposedVisitTime: newState.proposedVisitTime,
+              // Handle escalation
+              ...(newState.stage === 'human_escalated' && {
+                status: 'agent_active',
+                escalatedAt: new Date(),
+                aiEnabled: false,
+              }),
+            },
+          });
+
+          // Notify human agent if escalated
+          if (newState.stage === 'human_escalated' && lead.assignedAgentId) {
+            await prisma.notification.create({
+              data: {
+                companyId,
+                userId: lead.assignedAgentId,
+                type: 'agent_takeover',
+                title: '🚨 AI Escalation - Human Agent Needed',
+                message: `Lead ${lead.customerName || lead.phone} escalated: ${newState.escalationReason}`,
+                data: {
+                  leadId: lead.id,
+                  conversationId: conversation.id,
+                  reason: newState.escalationReason,
+                  valueScore: newState.valueScore,
+                },
+              },
+            });
+          }
+        }
 
         // Update lead language if detected
         if (aiResponse.detectedLanguage && aiResponse.detectedLanguage !== lead.language) {

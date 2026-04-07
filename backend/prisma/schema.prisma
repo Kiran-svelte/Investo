@@ -189,6 +189,33 @@ model Conversation {
   status         ConversationStatus @default(ai_active)
   language       String             @default("en") @db.VarChar(5)
   aiEnabled      Boolean            @default(true) @map("ai_enabled")
+  
+  // Goal-directed conversation state machine
+  stage          ConversationStage  @default(rapport)
+  stageEnteredAt DateTime           @default(now()) @map("stage_entered_at")
+  stageMessageCount Int             @default(0) @map("stage_message_count")
+  
+  // Micro-commitments tracking (JSON for flexibility)
+  commitments    Json               @default("{}") @map("commitments")
+  
+  // Objection tracking
+  objectionCount Int                @default(0) @map("objection_count")
+  lastObjectionType String?         @map("last_objection_type") @db.VarChar(50)
+  consecutiveObjections Int         @default(0) @map("consecutive_objections")
+  
+  // Scoring
+  urgencyScore   Int                @default(5) @map("urgency_score")
+  valueScore     Int                @default(5) @map("value_score")
+  
+  // Escalation
+  escalationReason String?          @map("escalation_reason") @db.Text
+  escalatedAt    DateTime?          @map("escalated_at")
+  
+  // Property tracking
+  recommendedPropertyIds Json       @default("[]") @map("recommended_property_ids")
+  selectedPropertyId String?        @map("selected_property_id") @db.Uuid
+  proposedVisitTime DateTime?       @map("proposed_visit_time")
+  
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
@@ -575,6 +602,20 @@ enum ConversationStatus {
   ai_active
   agent_active
   closed
+}
+
+// Goal-directed conversation stages
+enum ConversationStage {
+  rapport              // Initial greeting, build trust
+  qualify              // Understand needs: budget, location, type, timeline
+  shortlist            // Present 2-3 best matching properties
+  objection_handling   // Handle concerns: price, location, timing
+  commitment           // Get verbal commitment to visit
+  visit_booking        // Confirm date/time/property
+  confirmation         // Final confirmation, set expectations
+  human_escalated      // Handed off to human agent
+  closed_won           // Visit booked successfully
+  closed_lost          // Lead disqualified or lost
 }
 
 enum SenderType {

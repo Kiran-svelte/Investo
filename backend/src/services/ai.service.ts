@@ -1,5 +1,13 @@
 import config from '../config';
 import logger from '../config/logger';
+import {
+  ConversationState,
+  ConversationStage,
+  NextBestAction,
+  conversationStateManager,
+  classifyMessageIntent,
+  getStageConfig,
+} from './conversationStateMachine';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
 
@@ -10,6 +18,7 @@ interface AIRequest {
   properties: any[];
   aiSettings: any;
   companyName: string;
+  conversationState?: ConversationState; // NEW: State machine state
 }
 
 interface AIResponse {
@@ -22,6 +31,8 @@ interface AIResponse {
     property_type?: string;
     customer_name?: string;
   };
+  newState?: ConversationState; // NEW: Updated state after processing
+  nextAction?: NextBestAction;  // NEW: What the policy brain decided
 }
 
 const SUPPORTED_LANGUAGES: Record<string, string> = {
@@ -40,11 +51,32 @@ const SUPPORTED_LANGUAGES: Record<string, string> = {
 
 export class AIService {
   /**
-   * Generate an AI response for a customer conversation.
-   * Uses Kimi API as primary, with OpenAI and Claude fallbacks when configured.
+   * Generate an AI response using the goal-directed state machine.
+   * 
+   * DUAL BRAIN ARCHITECTURE:
+   * 1. Policy Brain: Decides WHAT to do (stage transitions, objection handling, etc.)
+   * 2. Language Brain (LLM): Generates HOW to say it (natural language)
    */
   async generateResponse(request: AIRequest): Promise<AIResponse> {
-    const systemPrompt = this.buildSystemPrompt(request);
+    // Initialize or use existing state
+    let state = request.conversationState || conversationStateManager.createInitialState();
+    
+    // POLICY BRAIN: Process message and decide next action
+    const { newState, nextAction } = conversationStateManager.processMessage(
+      state,
+      request.customerMessage,
+      undefined // extractedInfo will be populated after LLM response
+    );
+
+    logger.info('Policy brain decision', {
+      previousStage: state.stage,
+      newStage: newState.stage,
+      action: nextAction.action,
+      promptModifiers: nextAction.promptModifiers,
+    });
+
+    // LANGUAGE BRAIN: Generate response with policy-guided prompt
+    const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction);
     const messages = this.buildMessages(request);
     const providers = this.getProviderOrder();
     let lastError: Error | null = null;
@@ -55,7 +87,22 @@ export class AIService {
       }
 
       try {
-        return await this.callProvider(provider, systemPrompt, messages);
+        const response = await this.callProvider(provider, systemPrompt, messages);
+        
+        // Update state with extracted info from LLM response
+        if (response.extractedInfo) {
+          const { newState: finalState } = conversationStateManager.processMessage(
+            newState,
+            '', // Empty message since we just extracted info
+            response.extractedInfo
+          );
+          response.newState = finalState;
+        } else {
+          response.newState = newState;
+        }
+        
+        response.nextAction = nextAction;
+        return response;
       } catch (err: any) {
         lastError = err instanceof Error ? err : new Error(String(err));
         logger.warn('AI provider failed', {
@@ -70,7 +117,98 @@ export class AIService {
     }
 
     logger.warn('No AI provider configured, using smart mock response');
-    return this.mockResponse(request);
+    const mockResp = this.mockResponse(request);
+    mockResp.newState = newState;
+    mockResp.nextAction = nextAction;
+    return mockResp;
+  }
+
+  /**
+   * Build a goal-directed prompt using Policy Brain decisions.
+   * This is the LANGUAGE BRAIN - it crafts the actual message.
+   */
+  private buildGoalDirectedPrompt(
+    request: AIRequest,
+    state: ConversationState,
+    nextAction: NextBestAction
+  ): string {
+    const { aiSettings, companyName, properties, lead } = request;
+    const stageConfig = getStageConfig(state.stage);
+    const tone = aiSettings.responseTone || 'friendly';
+    
+    // Build property context
+    const propertyList = properties
+      .filter((p: any) => p.status === 'available')
+      .slice(0, 10)
+      .map((p: any) => {
+        const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
+        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}`;
+      })
+      .join('\n');
+
+    // Build commitment status
+    const commitmentStatus = [
+      state.commitments.budgetConfirmed ? '✅ Budget' : '❌ Budget',
+      state.commitments.locationConfirmed ? '✅ Location' : '❌ Location',
+      state.commitments.propertyTypeConfirmed ? '✅ Property Type' : '❌ Property Type',
+      state.commitments.visitSlotDiscussed ? '✅ Visit Discussed' : '❌ Visit Discussed',
+    ].join(' | ');
+
+    return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
+
+## YOUR MISSION
+You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.
+
+## CURRENT STATE
+- Stage: ${state.stage.toUpperCase()} (${stageConfig.goal})
+- Messages in stage: ${state.messageCount}
+- Commitments: ${commitmentStatus}
+- Value Score: ${state.valueScore}/10
+- Urgency Score: ${state.urgencyScore}/10
+
+## POLICY BRAIN DECISION
+Action: ${nextAction.action}
+${nextAction.promptModifiers.map(m => `- ${m}`).join('\n')}
+
+## STAGE FOCUS
+${stageConfig.promptFocus}
+
+## ABSOLUTE RULES
+1. RESPOND IN THE CUSTOMER'S LANGUAGE (detect automatically)
+2. NEVER discuss non-real-estate topics. Bridge back immediately.
+3. NEVER make promises about exact prices without property data below.
+4. ONE clear call-to-action per message.
+5. Keep responses under 200 words.
+6. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : 'Move toward booking'}
+
+## TONE: ${tone.toUpperCase()}
+- Persuasion Level: ${aiSettings.persuasionLevel || 7}/10
+- Be helpful, not pushy
+- Empathize before addressing objections
+
+## AVAILABLE PROPERTIES
+${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
+
+## CUSTOMER INFO
+- Name: ${lead.customerName || 'Unknown'}
+- Budget: ${lead.budgetMin ? `₹${formatPrice(lead.budgetMin)}-₹${formatPrice(lead.budgetMax)}` : 'Not shared yet'}
+- Location: ${lead.locationPreference || 'Not shared yet'}
+- Type: ${lead.propertyType || 'Not shared yet'}
+
+${nextAction.objectionPlaybook ? `
+## OBJECTION HANDLING (ACTIVE)
+Objection Type: ${nextAction.objectionPlaybook.objectionType}
+EMPATHY FIRST: "${nextAction.objectionPlaybook.empathyFirst}"
+REFRAME: "${nextAction.objectionPlaybook.reframe}"
+BRIDGE TO VALUE: "${nextAction.objectionPlaybook.bridgeToValue}"
+` : ''}
+
+## RESPONSE FORMAT
+Respond with the WhatsApp message to send. Use *bold* for emphasis.
+End your response with:
+###EXTRACT###
+{"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
+(Only include fields you're confident about)`;
   }
 
   private getProviderOrder(): AIProviderName[] {
