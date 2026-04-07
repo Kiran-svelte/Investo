@@ -136,6 +136,7 @@ function buildCorsOrigins(): string[] {
     'https://investo-frontend-v2.onrender.com',
     'https://investo-six.vercel.app',
     'https://investo.vercel.app',
+    'https://frontend-navy-eight-37.vercel.app',
   ];
 
   const envOrigins = (process.env.CORS_ORIGINS || '')
