@@ -134,6 +134,8 @@ function buildCorsOrigins(): string[] {
     'http://127.0.0.1:5181',
     'https://investo-frontend-in3m.onrender.com',
     'https://investo-frontend-v2.onrender.com',
+    'https://investo-six.vercel.app',
+    'https://investo.vercel.app',
   ];
 
   const envOrigins = (process.env.CORS_ORIGINS || '')
