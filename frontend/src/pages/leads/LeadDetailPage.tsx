@@ -67,6 +67,49 @@ const STATUS_COLORS: Record<string, string> = {
 
 const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial'];
 
+function stringifyDetails(details: unknown): string | null {
+  if (details === null || details === undefined) return null;
+  if (typeof details === 'string') return details;
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return String(details);
+  }
+}
+
+function normalizeLeadDetail(raw: any): LeadDetail {
+  const timelineRaw = Array.isArray(raw?.timeline) ? raw.timeline : [];
+
+  return {
+    id: String(raw?.id ?? ''),
+    customer_name: raw?.customer_name ?? raw?.customerName ?? null,
+    phone: String(raw?.phone ?? ''),
+    email: raw?.email ?? null,
+    budget_min: raw?.budget_min ?? raw?.budgetMin ?? null,
+    budget_max: raw?.budget_max ?? raw?.budgetMax ?? null,
+    location_preference: raw?.location_preference ?? raw?.locationPreference ?? null,
+    property_type: raw?.property_type ?? raw?.propertyType ?? null,
+    status: String(raw?.status ?? ''),
+    source: String(raw?.source ?? ''),
+    assigned_agent_id: raw?.assigned_agent_id ?? raw?.assignedAgentId ?? null,
+    agent_name: raw?.agent_name ?? raw?.agentName ?? null,
+    notes: raw?.notes ?? null,
+    language: String(raw?.language ?? 'en'),
+    created_at: String(raw?.created_at ?? raw?.createdAt ?? ''),
+    updated_at: String(raw?.updated_at ?? raw?.updatedAt ?? ''),
+    last_contact_at: raw?.last_contact_at ?? raw?.lastContactAt ?? null,
+    timeline: timelineRaw.map((entry: any) => ({
+      id: String(entry?.id ?? ''),
+      action: String(entry?.action ?? ''),
+      resource_type: String(entry?.resource_type ?? entry?.resourceType ?? ''),
+      details: stringifyDetails(entry?.details),
+      performed_by: String(entry?.performed_by ?? entry?.performedBy ?? entry?.userId ?? ''),
+      created_at: String(entry?.created_at ?? entry?.createdAt ?? ''),
+    })),
+    conversation_id: raw?.conversation_id ?? raw?.conversationId ?? null,
+  };
+}
+
 const LeadDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -94,10 +137,11 @@ const LeadDetailPage: React.FC = () => {
     try {
       setLoading(true);
       const res = await api.get(`/leads/${id}`);
-      setLead(res.data.data);
+      setLead(normalizeLeadDetail(res.data.data));
     } catch (err: any) {
       console.error('Failed to load lead', err);
-      setError(err.response?.data?.error || 'Failed to load lead details.');
+      const rawError = err?.response?.data?.error;
+      setError(typeof rawError === 'string' ? rawError : 'Failed to load lead details.');
     } finally {
       setLoading(false);
     }
@@ -169,9 +213,12 @@ const LeadDetailPage: React.FC = () => {
     return `₹${val.toLocaleString('en-IN')}`;
   };
 
-  const formatDate = (d: string) => new Date(d).toLocaleString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  });
+  const formatDate = (d?: string | null) => {
+    if (!d) return '-';
+    return new Date(d).toLocaleString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  };
 
   if (loading) {
     return (

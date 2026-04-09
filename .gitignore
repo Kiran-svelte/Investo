@@ -16,6 +16,9 @@ coverage/
 test-results/
 **/test-results/
 
+# Agent-generated evidence
+docs/plan/adhoc/
+
 # Environment secrets
 .env
 .env.*
