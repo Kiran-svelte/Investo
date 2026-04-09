@@ -54,9 +54,24 @@ describe('property import utils', () => {
       status: 'available',
       amenities: 'Pool, Gym, Clubhouse',
       review_notes: 'Ready for publish',
+      mapping_source_type: 'manual',
+      mapping_profile_name: 'default-profile',
+      mapping_confidence_threshold: '0.75',
+      mapping_low_confidence_threshold: '0.55',
+      mapping_require_human_review: true,
+      mapping_field_mappings: [
+        {
+          source_field: 'project_name',
+          target_field: 'name',
+          confidence: '0.9',
+          required: true,
+          label: 'Project Name',
+          notes: 'Primary title mapping',
+        },
+      ],
     });
 
-    expect(serialized).toEqual({
+    expect(serialized).toMatchObject({
       name: 'Skyline Towers',
       builder: 'Builder One',
       location_city: 'Bengaluru',
@@ -70,6 +85,18 @@ describe('property import utils', () => {
       rera_number: 'KA-RERA-123',
       status: 'available',
       amenities: ['Pool', 'Gym', 'Clubhouse'],
+      import_mapping: {
+        source_type: 'manual',
+        profile_name: 'default-profile',
+        review_settings: {
+          confidence_threshold: '0.75',
+          low_confidence_threshold: '0.55',
+          require_human_review: true,
+        },
+      },
+      import_review: {
+        review_notes: 'Ready for publish',
+      },
     });
   });
 

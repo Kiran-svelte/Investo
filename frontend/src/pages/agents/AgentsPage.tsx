@@ -47,6 +47,7 @@ const AgentsPage: React.FC = () => {
     phone: '',
     role: 'sales_agent',
     company_id: '',
+    must_change_password: true,
   });
 
   useEffect(() => {
@@ -100,9 +101,10 @@ const AgentsPage: React.FC = () => {
         password: formData.password,
         phone: formData.phone || null,
         role: formData.role,
+        must_change_password: formData.must_change_password,
       });
       setShowModal(false);
-      setFormData({ name: '', email: '', password: '', phone: '', role: 'sales_agent', company_id: '' });
+      setFormData({ name: '', email: '', password: '', phone: '', role: 'sales_agent', company_id: '', must_change_password: true });
       loadData();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create user');
@@ -292,6 +294,19 @@ const AgentsPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Min 8 characters"
                 />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  id="must-change-password"
+                  type="checkbox"
+                  checked={formData.must_change_password}
+                  onChange={(e) => setFormData({ ...formData, must_change_password: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="must-change-password" className="text-sm text-gray-700">
+                  Force password change on first login
+                </label>
               </div>
 
               <div>

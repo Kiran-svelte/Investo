@@ -34,7 +34,7 @@
 
 ### ❌ FAILING TEST: WhatsApp Webhook
 
-**Test**: `GET /api/webhook?hub.mode=subscribe&hub.verify_token=investo_whatsapp_2024&hub.challenge=test123`  
+**Test**: `GET /api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=test123`  
 **Result**: `403 Forbidden - "Request blocked: Invalid source IP for WhatsApp webhook"`
 
 **Why It Fails**:
@@ -133,7 +133,7 @@ Status legend: `Verified` = present in code and validated by build/tests or dire
 
 ## 6. Trust / Compliance
 - `Verified` Audit-log concepts, RBAC, and tenant isolation exist in [backend/src/routes/audit.routes.ts](backend/src/routes/audit.routes.ts), [backend/src/middleware/rbac.ts](backend/src/middleware/rbac.ts), and [backend/src/middleware/tenant.ts](backend/src/middleware/tenant.ts).
-- `Verified` Neon-only DB enforcement, Kimi primary AI config, and Cloudflare R2 storage wiring are implemented in [backend/src/config/index.ts](backend/src/config/index.ts), [backend/src/services/ai.service.ts](backend/src/services/ai.service.ts), and [backend/src/services/storage.service.ts](backend/src/services/storage.service.ts).
+- `Verified` Neon-only DB enforcement, Kimi primary AI config, and S3-compatible object storage wiring (Cloudflare R2 by default; Backblaze B2/MinIO via `R2_ENDPOINT`) are implemented in [backend/src/config/index.ts](backend/src/config/index.ts), [backend/src/services/ai.service.ts](backend/src/services/ai.service.ts), and [backend/src/services/storage.service.ts](backend/src/services/storage.service.ts).
 - `Partial` Compliance workflows for retention, export, and full production operational sign-off still need formalization.
 
 ## 7. First-Time Experience
@@ -163,12 +163,12 @@ Status legend: `Verified` = present in code and validated by build/tests or dire
 ## 12. Production Changes Already Made
 - `Verified` Neon-only database enforcement is in [backend/src/config/index.ts](backend/src/config/index.ts).
 - `Verified` Kimi is the primary AI provider with explicit Kimi 2.5 model config in [backend/src/config/index.ts](backend/src/config/index.ts) and [backend/src/services/ai.service.ts](backend/src/services/ai.service.ts).
-- `Verified` Cloudflare R2 signed upload URL support is in [backend/src/services/storage.service.ts](backend/src/services/storage.service.ts) and [backend/src/routes/property.routes.ts](backend/src/routes/property.routes.ts).
+- `Verified` S3-compatible signed upload URL support is in [backend/src/services/storage.service.ts](backend/src/services/storage.service.ts) and [backend/src/routes/property.routes.ts](backend/src/routes/property.routes.ts).
 - `Verified` Build and backend tests passed after these changes.
 
 ## 13. What Still Needs Production Work
 - `Missing` Full browser and E2E automation coverage for onboarding, notifications, and CRM flows.
-- `Missing` Live integration smoke tests against real Neon, Kimi, and R2 credentials.
+- `Missing` Live integration smoke tests against real Neon, AI, and object-storage credentials.
 - `Partial` Production-grade observability, alerting, and SLA measurement.
 - `Partial` Email delivery, invoice generation, and billing/payment integration are not complete enough for launch.
 - `Partial` Queue-backed automation exists, but production-scale resilience testing is still needed.

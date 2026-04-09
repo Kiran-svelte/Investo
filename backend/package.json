@@ -12,6 +12,7 @@
     "test": "jest --detectOpenHandles --forceExit",
     "test:unit": "jest --testPathPattern=tests/unit --detectOpenHandles --forceExit",
     "test:integration": "jest --testPathPattern=tests/integration --detectOpenHandles --forceExit",
+    "proof:webhook": "ts-node scripts/verify-meta-webhook-proof.ts",
     "migrate": "ts-node src/config/migrate.ts",
     "seed": "ts-node src/config/seed.ts"
   },
@@ -32,6 +33,7 @@
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^4.0.1",
     "knex": "^3.1.0",
+    "nodemailer": "^8.0.5",
     "pg": "^8.20.0",
     "prisma": "^7.5.0",
     "redis": "^4.6.12",
@@ -48,6 +50,7 @@
     "@types/jest": "^29.5.11",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.10.0",
+    "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.10.9",
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^9.0.7",

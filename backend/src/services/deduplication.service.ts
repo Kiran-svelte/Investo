@@ -40,38 +40,44 @@ export class DeduplicationService {
    * @returns Promise<boolean> - True if duplicate, false if new message
    */
   async isDuplicate(messageId: string, ttlSeconds = this.ttlSeconds): Promise<boolean> {
+    const claimed = await this.claimMessageProcessing(messageId, ttlSeconds);
+    return !claimed;
+  }
+
+  /**
+   * Atomically claim a message for processing.
+   *
+   * Returns true only for the first claimant inside TTL window.
+   */
+  async claimMessageProcessing(messageId: string, ttlSeconds = this.ttlSeconds): Promise<boolean> {
     const redis = getRedis();
     const key = `${DEDUP_KEY_PREFIX}${messageId}`;
 
     if (redis) {
       try {
-        // Use SET NX (only if not exists) with TTL
         const result = await redis.set(key, '1', {
-          nx: true, // Only set if not exists
+          nx: true,
           ex: ttlSeconds,
         });
-        
-        // If result is 'OK', this is a new message (not duplicate)
-        // If result is null, the key already exists (duplicate)
-        const isDuplicate = result === null;
-        
-        logger.debug('Deduplication check (Redis)', { 
-          messageId, 
-          isDuplicate,
-          ttlSeconds 
+
+        const claimed = result === 'OK';
+
+        logger.debug('Deduplication claim (Redis)', {
+          messageId,
+          claimed,
+          ttlSeconds,
         });
-        
-        return isDuplicate;
+
+        return claimed;
       } catch (err: any) {
-        logger.warn('Redis deduplication check failed, falling back to memory', {
+        logger.warn('Redis deduplication claim failed, falling back to memory', {
           messageId,
           error: err.message,
         });
       }
     }
 
-    // Fallback to in-memory deduplication
-    return this.memoryIsDuplicate(messageId, ttlSeconds);
+    return this.memoryClaimMessage(messageId, ttlSeconds);
   }
 
   /**
@@ -102,6 +108,30 @@ export class DeduplicationService {
 
     // Fallback to in-memory
     this.memoryMarkProcessed(messageId, ttlSeconds);
+  }
+
+  /**
+   * Release a message claim so a failed processing attempt can be retried.
+   */
+  async release(messageId: string): Promise<void> {
+    const redis = getRedis();
+    const key = `${DEDUP_KEY_PREFIX}${messageId}`;
+
+    if (redis) {
+      try {
+        await redis.del(key);
+        logger.debug('Released message claim (Redis)', { messageId });
+        return;
+      } catch (err: any) {
+        logger.warn('Redis release failed, falling back to memory', {
+          messageId,
+          error: err.message,
+        });
+      }
+    }
+
+    memoryDedup.delete(key);
+    logger.debug('Released message claim (memory)', { messageId });
   }
 
   /**
@@ -176,6 +206,25 @@ export class DeduplicationService {
     
     logger.debug('Memory deduplication: new message', { messageId });
     return false;
+  }
+
+  private memoryClaimMessage(messageId: string, ttlSeconds: number): boolean {
+    const key = `${DEDUP_KEY_PREFIX}${messageId}`;
+    const expiry = memoryDedup.get(key);
+
+    if (expiry && expiry > Date.now()) {
+      logger.debug('Memory deduplication claim rejected: duplicate found', { messageId });
+      return false;
+    }
+
+    memoryDedup.set(key, Date.now() + ttlSeconds * 1000);
+
+    if (memoryDedup.size > 1000) {
+      this.memoryCleanup();
+    }
+
+    logger.debug('Memory deduplication claim accepted: new message', { messageId });
+    return true;
   }
 
   private memoryMarkProcessed(messageId: string, ttlSeconds: number): void {

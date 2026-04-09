@@ -38,7 +38,15 @@ router.get('/', (req: Request, res: Response) => {
  * 
  * Applies webhook-specific size limit: 1mb (not the global 10mb)
  */
-router.post('/', express.json({ limit: '1mb' }), async (req: Request, res: Response) => {
+router.post(
+  '/',
+  express.json({
+    limit: '1mb',
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf;
+    },
+  }),
+  async (req: Request, res: Response) => {
   // Log all incoming webhook requests for debugging
   logger.info('Webhook POST received', {
     hasSignature: !!req.headers['x-hub-signature-256'],
@@ -47,73 +55,118 @@ router.post('/', express.json({ limit: '1mb' }), async (req: Request, res: Respo
     ip: req.ip || req.headers['x-forwarded-for'],
   });
 
-  // Must respond 200 within 5 seconds (Meta requirement)
-  res.status(200).json({ status: 'received' });
-
-  // Verify signature (skip in dev mode or if no app secret configured)
-  const signature = req.headers['x-hub-signature-256'] as string;
-  if (!verifyWebhookSignature(req.body, signature)) {
-    logger.warn('Invalid webhook signature - possible spoofing attempt', {
+  const signatureHeader = req.headers['x-hub-signature-256'];
+  const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+  const rawBody = (req as any).rawBody as Buffer | undefined;
+  const signatureCheck = verifyWebhookSignature(rawBody ?? req.body, signature);
+  if (!signatureCheck.allowed) {
+    logger.warn('Webhook signature verification failed', {
+      reason: signatureCheck.reason,
       hasSignature: !!signature,
       hasAppSecret: !!config.whatsapp.appSecret,
+      env: config.env,
     });
-    // In production without app secret, allow through with warning
-    if (config.env === 'production' && !config.whatsapp.appSecret) {
-      logger.warn('Allowing webhook without signature verification (no app secret configured)');
-    } else if (config.env !== 'development') {
-      return;
-    }
+    res.status(403).json({ status: 'rejected', reason: signatureCheck.reason });
+    return;
   }
 
-  // Check for duplicate messages
-  const messageId = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id;
-  if (messageId) {
-    const isDuplicate = await deduplicationService.isDuplicate(messageId);
-    if (isDuplicate) {
-      logger.info('Duplicate message ignored', { messageId });
-      return;
-    }
-    // Mark as processed immediately to prevent duplicates during processing
-    await deduplicationService.markProcessed(messageId);
-  }
+  // Must respond quickly to satisfy Meta retry behavior.
+  res.status(200).json({ status: 'received' });
 
-  // Process asynchronously
-  processWebhook(req.body).catch((err) => {
-    logger.error('Webhook processing failed', { error: err.message });
-  });
-});
+  processWebhook(req.body)
+    .then((summary) => {
+      logger.info('Webhook processing summary', { summary });
+    })
+    .catch((err) => {
+      logger.error('Webhook processing failed', { error: err.message });
+    });
+  },
+);
 
 /**
  * Verify the webhook payload signature from Meta.
  */
-function verifyWebhookSignature(body: any, signature: string): boolean {
-  // If no app secret configured, skip verification with warning
+function verifyWebhookSignature(
+  body: any,
+  signature: string | undefined,
+): { allowed: boolean; reason: string } {
   if (!config.whatsapp.appSecret) {
-    logger.warn('WHATSAPP_APP_SECRET not configured - skipping signature verification');
-    return true; // Allow through but log warning
+    if (config.env === 'production') {
+      return { allowed: false, reason: 'app_secret_missing' };
+    }
+
+    logger.warn('WHATSAPP_APP_SECRET not configured - allowing webhook only in non-production');
+    return { allowed: true, reason: 'non_prod_missing_app_secret' };
   }
-  
+
   if (!signature) {
-    // In dev, allow without signature
-    if (config.env === 'development') return true;
-    return false;
+    if (config.env !== 'production') {
+      return { allowed: true, reason: 'non_prod_missing_signature' };
+    }
+
+    return { allowed: false, reason: 'signature_missing' };
   }
+
+  const payload = Buffer.isBuffer(body)
+    ? body
+    : typeof body === 'string'
+      ? body
+      : JSON.stringify(body);
 
   const expectedSignature = 'sha256=' + crypto
     .createHmac('sha256', config.whatsapp.appSecret)
-    .update(JSON.stringify(body))
+    .update(payload)
     .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  );
+  const actual = Buffer.from(signature);
+  const expected = Buffer.from(expectedSignature);
+  if (actual.length !== expected.length) {
+    return { allowed: false, reason: 'signature_invalid_length' };
+  }
+
+  const isValid = crypto.timingSafeEqual(actual, expected);
+  return {
+    allowed: isValid,
+    reason: isValid ? 'signature_valid' : 'signature_mismatch',
+  };
+}
+
+type WebhookMessageStatus = 'processed' | 'skipped' | 'duplicate' | 'failed';
+
+interface WebhookMessageOutcome {
+  messageId: string | null;
+  type: string | null;
+  from: string | null;
+  status: WebhookMessageStatus;
+  reason: string;
+  propagationStatus: 'success' | 'failed' | 'not_attempted';
+  error?: string;
+}
+
+interface WebhookProcessSummary {
+  object: string | null;
+  totalMessages: number;
+  processed: number;
+  skipped: number;
+  duplicate: number;
+  failed: number;
+  outcomes: WebhookMessageOutcome[];
 }
 
 /**
  * Process incoming webhook payload from Meta.
  */
-async function processWebhook(body: any): Promise<void> {
+async function processWebhook(body: any): Promise<WebhookProcessSummary> {
+  const summary: WebhookProcessSummary = {
+    object: body?.object || null,
+    totalMessages: 0,
+    processed: 0,
+    skipped: 0,
+    duplicate: 0,
+    failed: 0,
+    outcomes: [],
+  };
+
   logger.info('=== PROCESS WEBHOOK START ===', {
     object: body.object,
     entryCount: body.entry?.length || 0,
@@ -122,7 +175,16 @@ async function processWebhook(body: any): Promise<void> {
 
   if (body.object !== 'whatsapp_business_account') {
     logger.warn('Ignoring non-WhatsApp webhook', { object: body.object });
-    return;
+    summary.skipped += 1;
+    summary.outcomes.push({
+      messageId: null,
+      type: null,
+      from: null,
+      status: 'skipped',
+      reason: 'unsupported_object',
+      propagationStatus: 'not_attempted',
+    });
+    return summary;
   }
   
   logger.info('Object check passed, processing entries...');
@@ -153,8 +215,19 @@ async function processWebhook(body: any): Promise<void> {
       });
 
       for (let i = 0; i < messages.length; i++) {
+        summary.totalMessages += 1;
+
         const message = messages[i];
         const contact = contacts[i];
+        const messageId = message?.id || null;
+        const outcome: WebhookMessageOutcome = {
+          messageId,
+          type: message?.type || null,
+          from: message?.from || null,
+          status: 'skipped',
+          reason: 'uninitialized',
+          propagationStatus: 'not_attempted',
+        };
 
         logger.info('=== PROCESSING MESSAGE ===', {
           index: i,
@@ -164,33 +237,95 @@ async function processWebhook(body: any): Promise<void> {
           hasContact: !!contact,
         });
 
-        if (message.type !== 'text') {
-          logger.info('Skipping non-text message', { type: message.type });
+        const extracted = extractCustomerMessage(message);
+        if (!extracted) {
+          outcome.status = 'skipped';
+          outcome.reason = 'unsupported_message_type';
+          summary.skipped += 1;
+          summary.outcomes.push(outcome);
+          logger.info('Skipping unsupported message type', { type: message.type, messageId });
+          continue;
+        }
+
+        if (!messageId) {
+          outcome.status = 'skipped';
+          outcome.reason = 'missing_message_id';
+          summary.skipped += 1;
+          summary.outcomes.push(outcome);
+          logger.warn('Skipping message without message.id');
           continue;
         }
 
         const customerPhone = message.from; // E.164 format without +
+        if (!customerPhone) {
+          outcome.status = 'skipped';
+          outcome.reason = 'missing_customer_phone';
+          summary.skipped += 1;
+          summary.outcomes.push(outcome);
+          logger.warn('Skipping message without sender phone', { messageId });
+          continue;
+        }
+
+        const isClaimed = await deduplicationService.claimMessageProcessing(messageId);
+        if (!isClaimed) {
+          outcome.status = 'duplicate';
+          outcome.reason = 'duplicate_message_id';
+          summary.duplicate += 1;
+          summary.outcomes.push(outcome);
+          logger.info('Duplicate message ignored', { messageId });
+          continue;
+        }
+
         const customerName = contact?.profile?.name || '';
-        const messageText = message.text?.body || '';
-        const messageId = message.id;
+        const { messageText, normalizedType } = extracted;
 
         logger.info('=== CALLING handleIncomingMessage ===', {
           phoneNumberId,
           customerPhone: customerPhone.substring(0, 6) + '****', // Mask phone in logs
           customerName,
           text: messageText.substring(0, 50),
+          normalizedType,
+          interactiveId: extracted.interactiveId,
+          interactiveType: extracted.interactiveType,
         });
 
         try {
-          await whatsappService.handleIncomingMessage({
+          const processingResult = await whatsappService.handleIncomingMessage({
             phoneNumberId,
             customerPhone: '+' + customerPhone,
             customerName,
             messageText,
             messageId,
+            interactiveId: extracted.interactiveId,
+            interactiveType: extracted.interactiveType,
           });
+
+          outcome.propagationStatus = processingResult.propagation.status;
+
+          if (processingResult.status === 'processed') {
+            outcome.status = 'processed';
+            outcome.reason = 'message_processed';
+            summary.processed += 1;
+          } else if (processingResult.status === 'skipped') {
+            outcome.status = 'skipped';
+            outcome.reason = processingResult.reason || 'service_skipped';
+            summary.skipped += 1;
+          } else {
+            outcome.status = 'failed';
+            outcome.reason = processingResult.reason || 'service_failed';
+            summary.failed += 1;
+            await deduplicationService.release(messageId);
+          }
+
+          summary.outcomes.push(outcome);
           logger.info('=== MESSAGE HANDLED SUCCESSFULLY ===', { messageId });
         } catch (err: any) {
+          await deduplicationService.release(messageId);
+          outcome.status = 'failed';
+          outcome.reason = 'exception';
+          outcome.error = err.message;
+          summary.failed += 1;
+          summary.outcomes.push(outcome);
           logger.error('=== MESSAGE HANDLING FAILED ===', { 
             messageId, 
             error: err.message,
@@ -200,7 +335,59 @@ async function processWebhook(body: any): Promise<void> {
       }
     }
   }
+
+  return summary;
 }
+
+function extractCustomerMessage(message: any): { 
+  messageText: string; 
+  normalizedType: 'text' | 'interactive';
+  interactiveId?: string;
+  interactiveType?: 'button_reply' | 'list_reply';
+} | null {
+  if (message.type === 'text' && typeof message.text?.body === 'string') {
+    return {
+      messageText: message.text.body,
+      normalizedType: 'text',
+    };
+  }
+
+  if (message.type === 'interactive') {
+    // Handle button replies (quick reply buttons)
+    if (message.interactive?.button_reply) {
+      const buttonReply = message.interactive.button_reply;
+      return {
+        messageText: buttonReply.title || '',
+        normalizedType: 'interactive',
+        interactiveId: buttonReply.id,
+        interactiveType: 'button_reply',
+      };
+    }
+
+    // Handle list replies (scrollable list selections)
+    if (message.interactive?.list_reply) {
+      const listReply = message.interactive.list_reply;
+      // Use description if title is too short, otherwise title
+      const text = listReply.description || listReply.title || '';
+      return {
+        messageText: text,
+        normalizedType: 'interactive',
+        interactiveId: listReply.id,
+        interactiveType: 'list_reply',
+      };
+    }
+
+    return null;
+  }
+
+  return null;
+}
+
+export const webhookRouteInternals = {
+  verifyWebhookSignature,
+  processWebhook,
+  extractCustomerMessage,
+};
 
 /**
  * GET /api/webhook/health
@@ -229,7 +416,7 @@ router.get('/health', async (req: Request, res: Response) => {
  * Simulate a WhatsApp message for testing (dev mode only).
  * Body: { phone, name, message }
  */
-router.post('/test', async (req: Request, res: Response) => {
+router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: Response) => {
   if (config.env !== 'development') {
     res.status(403).json({ error: 'Test endpoint only available in development' });
     return;

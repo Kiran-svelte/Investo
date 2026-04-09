@@ -157,7 +157,7 @@ Status: 200 OK
 
 ## 🔧 Render API Usage
 
-**API Key**: rnd_M9OmIvcNYUUcEcdBRRr1lEdZNoXj
+**API Key**: REDACTED (do not commit API keys; rotate if this key was ever active)
 
 **Deployment Triggered**:
 - Service: srv-d79itik50q8c73fjqi7g

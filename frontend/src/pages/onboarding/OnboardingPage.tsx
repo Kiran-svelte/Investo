@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api, { ApiResponse } from '../../services/api';
+import { setOnboardingCompletionCache } from '../../utils/onboardingCompletionCache';
 import {
   Building2, Shield, ToggleLeft, Bot, Users, CheckCircle2,
   Plus, Trash2, Loader2, ChevronLeft, ChevronRight, Check,
@@ -50,6 +51,15 @@ interface AIConfig {
   greeting_template: string;
 }
 
+type ApiLikeError = {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+};
+
 interface Invite {
   name: string;
   email: string;
@@ -63,8 +73,20 @@ const STEP_LABELS = ['Setup', 'Roles', 'Features', 'AI Config', 'Team', 'Complet
 
 const STEP_ICONS = [Building2, Shield, ToggleLeft, Bot, Users, CheckCircle2];
 
-const RESOURCES = ['leads', 'properties', 'visits', 'analytics', 'settings'] as const;
+const PERMISSION_RESOURCES = {
+  leads: 'leads',
+  properties: 'properties',
+  visits: 'visits',
+  analytics: 'analytics',
+  settings: 'platform_settings',
+} as const;
+
+const RESOURCES = Object.keys(PERMISSION_RESOURCES) as Array<keyof typeof PERMISSION_RESOURCES>;
+const SUPPORTED_PERMISSION_RESOURCES = new Set<string>(Object.values(PERMISSION_RESOURCES));
 const ACTIONS = ['read', 'create', 'update', 'delete'] as const;
+const ONBOARDING_SYSTEM_CONFIGURABLE_ROLES = new Set(['sales_agent', 'operations', 'viewer']);
+const SYSTEM_RESERVED_ROLES = new Set(['super_admin', 'company_admin', 'sales_agent', 'operations', 'viewer']);
+const ROLE_SLUG_REGEX = /^[a-z][a-z0-9_]{1,63}$/;
 
 const DEFAULT_ROLES: RoleConfig[] = [
   { role_name: 'company_admin', display_name: 'Company Admin', permissions: {}, enabled: true },
@@ -109,11 +131,88 @@ const TONES = [
 const DEFAULT_GREETING =
   'Hello! Welcome to {business_name}. How can I help you find your dream property today?';
 
+export function getApiErrorMessage(err: unknown, fallback: string): string {
+  const maybeErr = err as ApiLikeError;
+  return maybeErr?.response?.data?.error || maybeErr?.response?.data?.message || fallback;
+}
+
+export function buildOnboardingAiPayload(aiConfig: AIConfig, locationsInput: string) {
+  return {
+    business_name: aiConfig.business_name,
+    business_description: aiConfig.business_description,
+    operating_locations: locationsInput
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean),
+    budget_ranges: {
+      min: aiConfig.budget_range_min,
+      max: aiConfig.budget_range_max,
+    },
+    response_tone: aiConfig.response_tone,
+    persuasion_level: aiConfig.persuasion_level,
+    working_hours: {
+      start: aiConfig.working_hours_start,
+      end: aiConfig.working_hours_end,
+    },
+    greeting_template: aiConfig.greeting_template,
+    default_language: aiConfig.default_language,
+  };
+}
+
+export function buildSafeOnboardingRolesPayload(roles: RoleConfig[]) {
+  const payload: Array<string | { role_name: string; display_name: string; permissions: Record<string, string[]> }> = [];
+
+  for (const role of roles) {
+    if (!role.enabled) {
+      continue;
+    }
+
+    const roleName = role.role_name.trim().toLowerCase();
+    if (!roleName) {
+      continue;
+    }
+
+    if (!role.isCustom) {
+      if (ONBOARDING_SYSTEM_CONFIGURABLE_ROLES.has(roleName)) {
+        payload.push(roleName);
+      }
+      continue;
+    }
+
+    if (!ROLE_SLUG_REGEX.test(roleName) || SYSTEM_RESERVED_ROLES.has(roleName)) {
+      continue;
+    }
+
+    const sanitizedPermissions: Record<string, string[]> = {};
+    for (const [resource, actions] of Object.entries(role.permissions || {})) {
+      const normalizedResource = (PERMISSION_RESOURCES as Record<string, string>)[resource] || resource;
+      if (!SUPPORTED_PERMISSION_RESOURCES.has(normalizedResource)) {
+        continue;
+      }
+      if (!Array.isArray(actions)) {
+        continue;
+      }
+      const uniqueActions = Array.from(new Set(actions.filter((action) => ACTIONS.includes(action as any))));
+      if (uniqueActions.length > 0) {
+        sanitizedPermissions[normalizedResource] = uniqueActions;
+      }
+    }
+
+    payload.push({
+      role_name: roleName,
+      display_name: role.display_name?.trim() || roleName,
+      permissions: sanitizedPermissions,
+    });
+  }
+
+  return payload;
+}
+
 // ── Component ──────────────────────────────────
 
 const OnboardingPage: React.FC = () => {
   const { t } = useTranslation();
-  useAuth(); // Ensure user is authenticated
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -211,7 +310,7 @@ const OnboardingPage: React.FC = () => {
       markStepComplete(1);
       setCurrentStep(2);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save company setup');
+      setError(getApiErrorMessage(err, 'Failed to save company setup'));
     } finally {
       setSaving(false);
     }
@@ -221,11 +320,16 @@ const OnboardingPage: React.FC = () => {
     setSaving(true);
     setError('');
     try {
-      await api.post('/onboarding/roles', { roles });
+      const safeRolesPayload = buildSafeOnboardingRolesPayload(roles);
+      if (safeRolesPayload.length === 0) {
+        setError('Select at least one valid role before continuing');
+        return;
+      }
+      await api.post('/onboarding/roles', { roles: safeRolesPayload });
       markStepComplete(2);
       setCurrentStep(3);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save roles');
+      setError(getApiErrorMessage(err, 'Failed to save roles'));
     } finally {
       setSaving(false);
     }
@@ -241,7 +345,7 @@ const OnboardingPage: React.FC = () => {
       markStepComplete(3);
       setCurrentStep(4);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save features');
+      setError(getApiErrorMessage(err, 'Failed to save features'));
     } finally {
       setSaving(false);
     }
@@ -251,18 +355,12 @@ const OnboardingPage: React.FC = () => {
     setSaving(true);
     setError('');
     try {
-      const payload = {
-        ...aiConfig,
-        operating_locations: locationsInput
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean),
-      };
+      const payload = buildOnboardingAiPayload(aiConfig, locationsInput);
       await api.post('/onboarding/ai', payload);
       markStepComplete(4);
       setCurrentStep(5);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save AI configuration');
+      setError(getApiErrorMessage(err, 'Failed to save AI configuration'));
     } finally {
       setSaving(false);
     }
@@ -284,7 +382,7 @@ const OnboardingPage: React.FC = () => {
       markStepComplete(5);
       setCurrentStep(6);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to send invites');
+      setError(getApiErrorMessage(err, 'Failed to send invites'));
     } finally {
       setSaving(false);
     }
@@ -295,10 +393,15 @@ const OnboardingPage: React.FC = () => {
     setError('');
     try {
       await api.post('/onboarding/complete');
+
+      if (user?.company_id) {
+        setOnboardingCompletionCache(user.company_id, true);
+      }
+
       setCompleted(true);
       setTimeout(() => navigate('/'), 2000);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to complete onboarding');
+      setError(getApiErrorMessage(err, 'Failed to complete onboarding'));
     } finally {
       setSaving(false);
     }

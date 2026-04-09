@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
+import { SOCKET_EVENTS, useSocketEvent } from '../../context/SocketContext';
 import api from '../../services/api';
 import {
   Search, MessageSquare, User, Bot, UserCheck,
@@ -31,14 +32,29 @@ interface Message {
   created_at: string;
 }
 
+type ComposerMode = 'text' | 'document' | 'quick_reply';
+
 const ConversationsPage: React.FC = () => {
   const { t } = useTranslation();
-  const { user: _user } = useAuth();
+  const { user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [composerMode, setComposerMode] = useState<ComposerMode>('text');
+  const [textMessage, setTextMessage] = useState('');
+  const [documentUrl, setDocumentUrl] = useState('');
+  const [documentFilename, setDocumentFilename] = useState('');
+  const [documentCaption, setDocumentCaption] = useState('');
+  const [quickReplyBody, setQuickReplyBody] = useState('');
+  const [quickReplyHeader, setQuickReplyHeader] = useState('');
+  const [quickReplyFooter, setQuickReplyFooter] = useState('');
+  const [quickReplyButtons, setQuickReplyButtons] = useState<Array<{ id: string; title: string }>>([
+    { id: '', title: '' },
+  ]);
+  const [sendLoading, setSendLoading] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     loadConversations();
@@ -47,8 +63,27 @@ const ConversationsPage: React.FC = () => {
   useEffect(() => {
     if (selectedConv) {
       loadMessages(selectedConv.id);
+      setSendError(null);
     }
   }, [selectedConv]);
+
+  useSocketEvent(
+    SOCKET_EVENTS.CONVERSATION_UPDATED,
+    (event: { conversationId?: string }) => {
+      loadConversations();
+      if (event?.conversationId && event.conversationId === selectedConv?.id) {
+        loadMessages(event.conversationId);
+      }
+    }
+  );
+
+  const normalizeMessage = (raw: any): Message => ({
+    id: raw.id,
+    sender_type: (raw.sender_type || raw.senderType) as Message['sender_type'],
+    content: raw.content,
+    language: raw.language || 'en',
+    created_at: raw.created_at || raw.createdAt || new Date().toISOString(),
+  });
 
   const loadConversations = async () => {
     try {
@@ -67,7 +102,8 @@ const ConversationsPage: React.FC = () => {
   const loadMessages = async (convId: string) => {
     try {
       const res = await api.get(`/conversations/${convId}`);
-      setMessages(res.data.data.messages || []);
+      const apiMessages = (res.data.data.messages || []).map((msg: any) => normalizeMessage(msg));
+      setMessages(apiMessages);
     } catch (err) {
       console.error('Failed to load messages', err);
     }
@@ -91,8 +127,138 @@ const ConversationsPage: React.FC = () => {
     }
   };
 
+  const updateQuickReplyButton = (index: number, key: 'id' | 'title', value: string) => {
+    setQuickReplyButtons((prev) => prev.map((button, idx) => {
+      if (idx !== index) return button;
+      return { ...button, [key]: value };
+    }));
+  };
+
+  const addQuickReplyButton = () => {
+    setQuickReplyButtons((prev) => {
+      if (prev.length >= 3) return prev;
+      return [...prev, { id: '', title: '' }];
+    });
+  };
+
+  const removeQuickReplyButton = (index: number) => {
+    setQuickReplyButtons((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, idx) => idx !== index);
+    });
+  };
+
+  const sendMessage = async () => {
+    if (!selectedConv || sendLoading) {
+      return;
+    }
+
+    setSendError(null);
+
+    let payload: any;
+
+    if (composerMode === 'text') {
+      const text = textMessage.trim();
+      if (!text) {
+        setSendError('Text message is required');
+        return;
+      }
+      payload = { mode: 'text', text };
+    } else if (composerMode === 'document') {
+      const url = documentUrl.trim();
+      if (!url) {
+        setSendError('Document URL is required');
+        return;
+      }
+      payload = {
+        mode: 'document',
+        document_url: url,
+        filename: documentFilename.trim() || undefined,
+        caption: documentCaption.trim() || undefined,
+      };
+    } else {
+      const bodyText = quickReplyBody.trim();
+      if (!bodyText) {
+        setSendError('Quick-reply body text is required');
+        return;
+      }
+
+      const buttons = quickReplyButtons
+        .map((button) => ({ id: button.id.trim(), title: button.title.trim() }))
+        .filter((button) => button.id && button.title);
+
+      if (buttons.length === 0) {
+        setSendError('At least one quick-reply button is required');
+        return;
+      }
+
+      payload = {
+        mode: 'quick_reply',
+        body_text: bodyText,
+        header_text: quickReplyHeader.trim() || undefined,
+        footer_text: quickReplyFooter.trim() || undefined,
+        buttons,
+      };
+    }
+
+    try {
+      setSendLoading(true);
+      const res = await api.post(`/conversations/${selectedConv.id}/messages`, payload);
+      const sentMessage = normalizeMessage(res.data.data);
+
+      setMessages((prev) => [...prev, sentMessage]);
+      setConversations((prev) => prev.map((conv) => {
+        if (conv.id !== selectedConv.id) {
+          return conv;
+        }
+        return {
+          ...conv,
+          status: res.data.conversation_status || conv.status,
+          updated_at: sentMessage.created_at,
+          last_message: {
+            content: sentMessage.content,
+            sender_type: sentMessage.sender_type,
+            created_at: sentMessage.created_at,
+          },
+        };
+      }));
+      setSelectedConv((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: res.data.conversation_status || prev.status,
+          updated_at: sentMessage.created_at,
+          last_message: {
+            content: sentMessage.content,
+            sender_type: sentMessage.sender_type,
+            created_at: sentMessage.created_at,
+          },
+        };
+      });
+
+      if (composerMode === 'text') {
+        setTextMessage('');
+      } else if (composerMode === 'document') {
+        setDocumentUrl('');
+        setDocumentFilename('');
+        setDocumentCaption('');
+      } else {
+        setQuickReplyBody('');
+        setQuickReplyHeader('');
+        setQuickReplyFooter('');
+        setQuickReplyButtons([{ id: '', title: '' }]);
+      }
+    } catch (err: any) {
+      setSendError(err.response?.data?.error || 'Failed to send message');
+    } finally {
+      setSendLoading(false);
+    }
+  };
+
   const formatTime = (dateStr: string) => {
+    if (!dateStr) return '';
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     if (diff < 60000) return 'Just now';
@@ -197,6 +363,7 @@ const ConversationsPage: React.FC = () => {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSelectedConv(null)}
+                  aria-label="Back to conversation list"
                   className="md:hidden p-1 hover:bg-gray-100 rounded"
                 >
                   <ArrowRight className="h-5 w-5 text-gray-600 rotate-180" />
@@ -280,11 +447,156 @@ const ConversationsPage: React.FC = () => {
               })}
             </div>
 
-            {/* Input - Disabled for now (agent actions via WhatsApp) */}
+            {/* Composer */}
             <div className="bg-white border-t border-gray-200 p-4">
-              <div className="flex items-center gap-3 text-gray-500 text-sm">
-                <MessageSquare className="h-5 w-5" />
-                <span>Agent replies are sent via WhatsApp Business app</span>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setComposerMode('text')}
+                    className={`px-3 py-1.5 rounded-lg text-sm border ${
+                      composerMode === 'text'
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300'
+                    }`}
+                  >
+                    Text
+                  </button>
+                  <button
+                    onClick={() => setComposerMode('document')}
+                    className={`px-3 py-1.5 rounded-lg text-sm border ${
+                      composerMode === 'document'
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300'
+                    }`}
+                  >
+                    Document
+                  </button>
+                  <button
+                    onClick={() => setComposerMode('quick_reply')}
+                    className={`px-3 py-1.5 rounded-lg text-sm border ${
+                      composerMode === 'quick_reply'
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300'
+                    }`}
+                  >
+                    Quick Reply
+                  </button>
+                </div>
+
+                {composerMode === 'text' && (
+                  <textarea
+                    value={textMessage}
+                    onChange={(e) => setTextMessage(e.target.value)}
+                    placeholder="Type a message"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                )}
+
+                {composerMode === 'document' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <input
+                      type="url"
+                      value={documentUrl}
+                      onChange={(e) => setDocumentUrl(e.target.value)}
+                      placeholder="Document URL (https://...)"
+                      className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={documentFilename}
+                      onChange={(e) => setDocumentFilename(e.target.value)}
+                      placeholder="Filename (optional)"
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={documentCaption}
+                      onChange={(e) => setDocumentCaption(e.target.value)}
+                      placeholder="Caption (optional)"
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                  </div>
+                )}
+
+                {composerMode === 'quick_reply' && (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={quickReplyBody}
+                      onChange={(e) => setQuickReplyBody(e.target.value)}
+                      placeholder="Quick-reply message body"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={quickReplyHeader}
+                        onChange={(e) => setQuickReplyHeader(e.target.value)}
+                        placeholder="Header (optional)"
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={quickReplyFooter}
+                        onChange={(e) => setQuickReplyFooter(e.target.value)}
+                        placeholder="Footer (optional)"
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      />
+                    </div>
+
+                    {quickReplyButtons.map((button, index) => (
+                      <div key={`button-${index}`} className="grid grid-cols-12 gap-2 items-center">
+                        <input
+                          type="text"
+                          value={button.id}
+                          onChange={(e) => updateQuickReplyButton(index, 'id', e.target.value)}
+                          placeholder={`Button ${index + 1} ID`}
+                          className="col-span-5 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={button.title}
+                          onChange={(e) => updateQuickReplyButton(index, 'title', e.target.value)}
+                          placeholder={`Button ${index + 1} Title`}
+                          className="col-span-5 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        />
+                        <button
+                          onClick={() => removeQuickReplyButton(index)}
+                          disabled={quickReplyButtons.length <= 1}
+                          className="col-span-2 px-2 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+
+                    <button
+                      onClick={addQuickReplyButton}
+                      disabled={quickReplyButtons.length >= 3}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 disabled:opacity-50"
+                    >
+                      Add Button
+                    </button>
+                  </div>
+                )}
+
+                {sendError && (
+                  <p className="text-sm text-red-600">{sendError}</p>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">
+                    Sending as {user?.name || 'Agent'}
+                  </p>
+                  <button
+                    onClick={sendMessage}
+                    disabled={sendLoading}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {sendLoading ? 'Sending...' : 'Send'}
+                  </button>
+                </div>
               </div>
             </div>
           </>

@@ -28,6 +28,7 @@ interface LeadDetail {
   updated_at: string;
   last_contact_at: string | null;
   timeline: TimelineEntry[];
+  conversation_id: string | null;
 }
 
 interface TimelineEntry {
@@ -64,7 +65,7 @@ const STATUS_COLORS: Record<string, string> = {
   closed_lost: 'bg-red-100 text-red-700 border-red-300',
 };
 
-const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial', 'farmland'];
+const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial'];
 
 const LeadDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -94,9 +95,9 @@ const LeadDetailPage: React.FC = () => {
       setLoading(true);
       const res = await api.get(`/leads/${id}`);
       setLead(res.data.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load lead', err);
-      setError('Lead not found');
+      setError(err.response?.data?.error || 'Failed to load lead details.');
     } finally {
       setLoading(false);
     }
@@ -189,9 +190,14 @@ const LeadDetailPage: React.FC = () => {
     );
   }
 
-  const allowedTransitions = LEAD_TRANSITIONS[lead.status] || [];
   const canEdit = user?.role === 'company_admin' || user?.role === 'super_admin' ||
     (user?.role === 'sales_agent' && lead.assigned_agent_id === user?.id);
+
+  const allowedTransitions = LEAD_TRANSITIONS[lead.status] ?? [];
+
+  const canChangeStatus = canEdit && (allowedTransitions.length > 0 || (lead.status === 'closed_lost' && (user?.role === 'company_admin' || user?.role === 'super_admin')));
+  const reopenTransition = lead.status === 'closed_lost' ? ['contacted'] : [];
+  const displayTransitions = [...new Set([...allowedTransitions, ...reopenTransition])];
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
@@ -206,6 +212,14 @@ const LeadDetailPage: React.FC = () => {
             <p className="text-sm text-gray-500">Created {formatDate(lead.created_at)}</p>
           </div>
           <div className="flex items-center gap-3">
+            {lead.conversation_id && (
+              <button 
+                onClick={() => navigate(`/conversations/${lead.conversation_id}`)}
+                className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm font-medium"
+              >
+                <MessageSquare className="h-4 w-4" /> Go to Conversation
+              </button>
+            )}
             <span className={`px-3 py-1.5 text-sm font-semibold rounded-full border ${STATUS_COLORS[lead.status]}`}>
               {lead.status.replace(/_/g, ' ')}
             </span>
@@ -218,14 +232,14 @@ const LeadDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+      {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm" role="alert">{error}</div>}
 
       {/* Status Transitions */}
-      {allowedTransitions.length > 0 && canEdit && (
+      {canChangeStatus && (
         <div className="bg-white rounded-xl shadow-sm border p-4">
           <p className="text-sm font-medium text-gray-700 mb-3">Move to:</p>
           <div className="flex flex-wrap gap-2">
-            {allowedTransitions.map(status => (
+            {displayTransitions.map(status => (
               <button
                 key={status}
                 onClick={() => changeStatus(status)}

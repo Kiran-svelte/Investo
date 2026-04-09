@@ -6,6 +6,7 @@ import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
 import { exportRateLimiter } from '../middleware/rateLimiter';
+import { enforcePlanLimit, requireActivePaidSubscription } from '../middleware/subscriptionEnforcement';
 import { createLeadSchema, updateLeadStatusSchema, isValidTransition, LEAD_TRANSITIONS, LeadStatus } from '../models/validation';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
@@ -13,6 +14,98 @@ import { notificationEngine } from '../services/notification.engine';
 import { socketService, SOCKET_EVENTS } from '../services/socket.service';
 
 const router = Router();
+
+type LeadWithAgent = {
+  id: string;
+  customerName: string | null;
+  phone: string;
+  email: string | null;
+  budgetMin: any;
+  budgetMax: any;
+  locationPreference: string | null;
+  propertyType: string | null;
+  status: string;
+  source: string;
+  assignedAgentId: string | null;
+  notes: string | null;
+  language: string | null;
+  companyId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastContactAt: Date | null;
+  assignedAgent?: { name: string } | null;
+};
+
+type LeadTimelineRow = {
+  id: string;
+  action: string;
+  resourceType: string | null;
+  details: unknown;
+  userId: string | null;
+  createdAt: Date;
+};
+
+function toIsoString(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function toNullableNumber(value: any): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  if (typeof value?.toNumber === 'function') {
+    return value.toNumber();
+  }
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function stringifyDetails(details: unknown): string | null {
+  if (details === null || details === undefined) return null;
+  if (typeof details === 'string') return details;
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return String(details);
+  }
+}
+
+export function mapLeadToSnakeCaseDTO(lead: any) {
+  return {
+    id: lead.id,
+    customer_name: lead.customerName,
+    phone: lead.phone,
+    email: lead.email,
+    budget_min: toNullableNumber(lead.budgetMin),
+    budget_max: toNullableNumber(lead.budgetMax),
+    location_preference: lead.locationPreference,
+    property_type: lead.propertyType,
+    status: lead.status,
+    source: lead.source,
+    assigned_agent_id: lead.assignedAgentId,
+    agent_name: lead.assignedAgent?.name || null,
+    notes: lead.notes,
+    language: lead.language || 'en',
+    created_at: toIsoString(lead.createdAt),
+    updated_at: toIsoString(lead.updatedAt),
+    last_contact_at: toIsoString(lead.lastContactAt),
+    conversation_id: lead.conversations?.[0]?.id || null,
+  };
+}
+
+function mapLeadTimelineToSnakeCaseDTO(entry: LeadTimelineRow) {
+  return {
+    id: entry.id,
+    action: entry.action,
+    resource_type: entry.resourceType,
+    details: stringifyDetails(entry.details),
+    performed_by: entry.userId,
+    created_at: toIsoString(entry.createdAt),
+  };
+}
 
 router.use(authenticate);
 router.use(tenantIsolation);
@@ -68,7 +161,10 @@ router.get(
       const [leads, total] = await Promise.all([
         prisma.lead.findMany({
           where,
-          include: { assignedAgent: { select: { name: true } } },
+          include: { 
+            assignedAgent: { select: { name: true } },
+            conversations: { select: { id: true }, take: 1 }
+          },
           orderBy: { [sortField]: sortDir },
           skip: offset,
           take: limit,
@@ -76,10 +172,7 @@ router.get(
         prisma.lead.count({ where }),
       ]);
 
-      const data = leads.map(({ assignedAgent, ...l }) => ({
-        ...l,
-        agent_name: assignedAgent?.name || null,
-      }));
+      const data = leads.map((lead) => mapLeadToSnakeCaseDTO(lead));
 
       res.json({
         data,
@@ -117,7 +210,10 @@ router.get(
 
       const lead = await prisma.lead.findFirst({
         where,
-        include: { assignedAgent: { select: { name: true } } },
+        include: { 
+          assignedAgent: { select: { name: true } },
+          conversations: { select: { id: true }, take: 1 }
+        },
       });
 
       if (!lead) {
@@ -132,8 +228,12 @@ router.get(
         take: 50,
       });
 
-      const { assignedAgent, ...leadData } = lead;
-      res.json({ data: { ...leadData, agent_name: assignedAgent?.name || null, timeline } });
+      res.json({
+        data: {
+          ...mapLeadToSnakeCaseDTO(lead),
+          timeline: timeline.map((entry) => mapLeadTimelineToSnakeCaseDTO(entry as LeadTimelineRow)),
+        },
+      });
     } catch (err: any) {
       logger.error('Failed to fetch lead', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch lead' });
@@ -148,6 +248,8 @@ router.get(
 router.post(
   '/',
   authorize('leads', 'create'),
+  requireActivePaidSubscription,
+  enforcePlanLimit('leads'),
   validate(createLeadSchema),
   auditLog('create', 'leads'),
   async (req: AuthRequest, res: Response) => {
@@ -187,7 +289,7 @@ router.post(
         lead: { ...lead, companyId: undefined }, // Don't expose companyId to frontend
       });
 
-      res.status(201).json({ data: lead, id: lead.id });
+      res.status(201).json({ data: mapLeadToSnakeCaseDTO(lead), id: lead.id });
     } catch (err: any) {
       logger.error('Failed to create lead', { error: err.message });
       res.status(500).json({ error: 'Failed to create lead' });
@@ -256,7 +358,12 @@ router.put(
         lead: { ...updated, companyId: undefined },
       });
 
-      res.json({ data: updated });
+      const updatedWithAgent = await prisma.lead.findUnique({
+        where: { id: updated.id },
+        include: { assignedAgent: { select: { name: true } } },
+      });
+
+      res.json({ data: mapLeadToSnakeCaseDTO(updatedWithAgent || updated) });
     } catch (err: any) {
       logger.error('Failed to update lead', { error: err.message });
       res.status(500).json({ error: 'Failed to update lead' });
@@ -320,7 +427,7 @@ router.patch(
 
       await notificationEngine.onLeadStatusChange(lead, currentStatus, targetStatus);
 
-      res.json({ data: updated });
+      res.json({ data: mapLeadToSnakeCaseDTO(updated) });
     } catch (err: any) {
       logger.error('Failed to update lead status', { error: err.message });
       res.status(500).json({ error: 'Failed to update lead status' });

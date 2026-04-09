@@ -2,7 +2,7 @@
 
 **Production Webhook URL**: `https://investo-backend-v2.onrender.com/api/webhook`  
 **Localhost Webhook URL**: `http://localhost:3000/api/webhook`  
-**Webhook Verify Token**: `investo_whatsapp_2024`
+**Webhook Verify Token**: `investo_webhook_verify_token`
 
 ---
 
@@ -23,14 +23,14 @@ https://business.facebook.com/
 
 ```
 Callback URL: https://investo-backend-v2.onrender.com/api/webhook
-Verify Token: investo_whatsapp_2024
+Verify Token: investo_webhook_verify_token
 ```
 
 4. Click **"Verify and Save"**
 
 Meta will send a GET request to verify:
 ```
-GET https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_whatsapp_2024&hub.challenge=RANDOM_STRING
+GET https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=RANDOM_STRING
 ```
 
 Your backend will respond with the challenge value.
@@ -45,10 +45,11 @@ Select these webhook fields:
 Go to Render Dashboard → `investo-backend-v2` → Environment:
 
 ```bash
-WHATSAPP_VERIFY_TOKEN=investo_whatsapp_2024
+WHATSAPP_VERIFY_TOKEN=investo_webhook_verify_token
 WHATSAPP_ACCESS_TOKEN=<YOUR_META_ACCESS_TOKEN>
 WHATSAPP_PHONE_NUMBER_ID=<YOUR_PHONE_NUMBER_ID>
-WHATSAPP_APP_SECRET=<YOUR_APP_SECRET>  # Optional for production
+WHATSAPP_APP_SECRET=<YOUR_APP_SECRET>  # Required in production (signature verification)
+WHATSAPP_IP_WHITELIST_ENABLED=true     # Recommended in production
 ```
 
 ### Step 6: Redeploy Backend
@@ -86,7 +87,7 @@ ngrok http 3000
 # Copy the HTTPS URL (e.g., https://abc123.ngrok.io)
 # Use in Meta webhook config:
 Callback URL: https://abc123.ngrok.io/api/webhook
-Verify Token: investo_whatsapp_2024
+Verify Token: investo_webhook_verify_token
 ```
 
 ---
@@ -96,13 +97,16 @@ Verify Token: investo_whatsapp_2024
 ### Backend (.env file)
 ```bash
 # Required for WhatsApp Integration
-WHATSAPP_VERIFY_TOKEN=investo_whatsapp_2024
+WHATSAPP_VERIFY_TOKEN=investo_webhook_verify_token
 WHATSAPP_ACCESS_TOKEN=<from Meta>
 WHATSAPP_PHONE_NUMBER_ID=<from Meta>
 
-# Optional
-WHATSAPP_APP_SECRET=<from Meta>  # For webhook signature verification
-SKIP_IP_WHITELIST=true  # Only for development - disables Meta IP check
+# Required for production webhook security
+WHATSAPP_APP_SECRET=<from Meta>  # Required in production for webhook signature verification
+
+# Optional hardening
+WHATSAPP_IP_WHITELIST_ENABLED=true  # Recommended in production - allows only Meta IP ranges
+SKIP_IP_WHITELIST=true  # Development ONLY - disables Meta IP check
 ```
 
 ### Frontend (.env or Render/Vercel)
@@ -113,7 +117,7 @@ No WhatsApp env vars needed in frontend.
 ## SECURITY NOTES
 
 ### IP Whitelist Protection
-The webhook endpoint has IP whitelist middleware that only allows:
+When enabled (`WHATSAPP_IP_WHITELIST_ENABLED=true`), the webhook endpoint has IP whitelist middleware that only allows:
 - **Meta/Facebook IP ranges** (173.252.96.0/19, 66.220.144.0/20, etc.)
 - **Development mode** with `SKIP_IP_WHITELIST=true`
 
@@ -136,7 +140,7 @@ X-Hub-Signature-256: sha256=<HMAC>
 - [ ] Phone Number ID obtained
 - [ ] Access Token obtained
 - [ ] Webhook URL verified in Meta: `https://investo-backend-v2.onrender.com/api/webhook`
-- [ ] Webhook verify token set: `investo_whatsapp_2024`
+- [ ] Webhook verify token set: `investo_webhook_verify_token`
 - [ ] Environment variables set in Render
 - [ ] Backend redeployed
 - [ ] Send test message from WhatsApp
@@ -156,14 +160,14 @@ X-Hub-Signature-256: sha256=<HMAC>
 
 ### Production:
 - ✅ Webhook URL: Correct (`https://investo-backend-v2.onrender.com/api/webhook`)
-- ✅ Verify Token: Set (`investo_whatsapp_2024`)
+- ✅ Verify Token: Set (`investo_webhook_verify_token`)
 - ❌ Access Token: **NOT SET** (need from Meta)
 - ❌ Phone Number ID: **NOT SET** (need from Meta)
 - ⚠️ Status: **Not Configured** - Meta account setup required
 
 ### Localhost:
 - ✅ Webhook URL: `http://localhost:3000/api/webhook`
-- ✅ Verify Token: `investo_whatsapp_2024`
+- ✅ Verify Token: `investo_webhook_verify_token`
 - ✅ Test Endpoint: `/api/webhook/test` available
 - ✅ IP Whitelist: Bypassed in dev mode
 - ✅ Status: **Ready for Testing** (use test endpoint)
@@ -185,7 +189,7 @@ Webhook URL (Read-only): https://investo-backend-v2.onrender.com/api/webhook
 
 1. **Phone Number ID**: Get from Meta → **WhatsApp** → **API Setup** → **Phone Numbers**
 2. **Access Token**: Get from Meta → **WhatsApp** → **API Setup** → **Temporary access token** (or generate permanent token)
-3. **Webhook Verify Token**: Use `investo_whatsapp_2024` (already configured)
+3. **Webhook Verify Token**: Use `investo_webhook_verify_token` (already configured)
 4. **Webhook URL**: Already set correctly (read-only field)
 
 ### Then click:
@@ -238,6 +242,6 @@ Authorization: Bearer <token>
 
 **Generated**: 2026-04-06  
 **Webhook URL**: ✅ Correct  
-**Verify Token**: ✅ Correct (`investo_whatsapp_2024`)  
+**Verify Token**: ✅ Correct (`investo_webhook_verify_token`)  
 **Production Status**: ⚠️ Needs Meta configuration  
 **Localhost Status**: ✅ Ready to test

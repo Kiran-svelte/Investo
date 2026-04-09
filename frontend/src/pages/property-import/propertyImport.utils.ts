@@ -19,6 +19,48 @@ export interface PropertyImportFormValues {
   status: 'available' | 'sold' | 'upcoming';
   amenities: string;
   review_notes: string;
+  mapping_source_type: string;
+  mapping_profile_name: string;
+  mapping_confidence_threshold: string;
+  mapping_low_confidence_threshold: string;
+  mapping_require_human_review: boolean;
+  mapping_field_mappings: PropertyImportFieldMappingFormValue[];
+}
+
+export interface PropertyImportFieldMappingFormValue {
+  source_field: string;
+  target_field: string;
+  confidence: string;
+  required: boolean;
+  label: string;
+  notes: string;
+}
+
+export interface PropertyImportReviewHint {
+  field: string;
+  confidence: number;
+  source_field: string | null;
+  note: string | null;
+}
+
+export interface PropertyImportMappingMetadata {
+  source_type: string;
+  profile_name: string | null;
+  field_mappings: PropertyImportFieldMappingFormValue[];
+  review_settings: {
+    confidence_threshold: string;
+    low_confidence_threshold: string;
+    require_human_review: boolean;
+  };
+}
+
+export interface PropertyImportReviewMetadata {
+  status: 'not_required' | 'needs_review' | 'approved';
+  confidence_hints: PropertyImportReviewHint[];
+  review_notes: string | null;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  approved_at: string | null;
 }
 
 export type PropertyImportStageKey =
@@ -56,6 +98,12 @@ export const PROPERTY_IMPORT_DEFAULT_FORM_VALUES: PropertyImportFormValues = {
   status: 'available',
   amenities: '',
   review_notes: '',
+  mapping_source_type: 'manual',
+  mapping_profile_name: '',
+  mapping_confidence_threshold: '0.75',
+  mapping_low_confidence_threshold: '0.55',
+  mapping_require_human_review: true,
+  mapping_field_mappings: [],
 };
 
 export const PROPERTY_IMPORT_STAGE_ORDER: PropertyImportStageKey[] = [
@@ -106,10 +154,131 @@ function asAmenitiesString(value: unknown): string {
   return '';
 }
 
+function asBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') {
+      return true;
+    }
+
+    if (normalized === 'false') {
+      return false;
+    }
+  }
+
+  return fallback;
+}
+
+function asConfidenceString(value: unknown, fallback = '0.75'): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const normalized = value > 1 ? value / 100 : value;
+    return String(Math.min(1, Math.max(0, normalized)));
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      const normalized = parsed > 1 ? parsed / 100 : parsed;
+      return String(Math.min(1, Math.max(0, normalized)));
+    }
+  }
+
+  return fallback;
+}
+
+function asFieldMappings(value: unknown): PropertyImportFieldMappingFormValue[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item): PropertyImportFieldMappingFormValue | null => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const sourceField = asTrimmedString(record.source_field ?? record.sourceField);
+      const targetField = asTrimmedString(record.target_field ?? record.targetField);
+
+      if (!sourceField && !targetField) {
+        return null;
+      }
+
+      return {
+        source_field: sourceField,
+        target_field: targetField,
+        confidence: asConfidenceString(record.confidence, ''),
+        required: asBoolean(record.required, false),
+        label: asTrimmedString(record.label),
+        notes: asTrimmedString(record.notes),
+      };
+    })
+    .filter((item): item is PropertyImportFieldMappingFormValue => Boolean(item));
+}
+
+export function getPropertyImportMappingMetadata(draftData?: Record<string, unknown> | null): PropertyImportMappingMetadata {
+  const mapping = draftData && typeof draftData === 'object'
+    ? (draftData.import_mapping ?? draftData.importMapping) as Record<string, unknown> | undefined
+    : undefined;
+
+  return {
+    source_type: asTrimmedString(mapping?.source_type ?? mapping?.sourceType) || 'manual',
+    profile_name: asTrimmedString(mapping?.profile_name ?? mapping?.profileName),
+    field_mappings: asFieldMappings(mapping?.field_mappings ?? mapping?.fieldMappings),
+    review_settings: {
+      confidence_threshold: asConfidenceString(mapping?.review_settings && typeof mapping.review_settings === 'object' && !Array.isArray(mapping.review_settings)
+        ? (mapping.review_settings as Record<string, unknown>).confidence_threshold ?? (mapping.review_settings as Record<string, unknown>).confidenceThreshold
+        : undefined),
+      low_confidence_threshold: asConfidenceString(mapping?.review_settings && typeof mapping.review_settings === 'object' && !Array.isArray(mapping.review_settings)
+        ? (mapping.review_settings as Record<string, unknown>).low_confidence_threshold ?? (mapping.review_settings as Record<string, unknown>).lowConfidenceThreshold
+        : undefined,
+      '0.55'),
+      require_human_review: asBoolean(mapping?.review_settings && typeof mapping.review_settings === 'object' && !Array.isArray(mapping.review_settings)
+        ? (mapping.review_settings as Record<string, unknown>).require_human_review ?? (mapping.review_settings as Record<string, unknown>).requireHumanReview
+        : undefined,
+      true),
+    },
+  };
+}
+
+export function getPropertyImportReviewMetadata(draftData?: Record<string, unknown> | null): PropertyImportReviewMetadata {
+  const review = draftData && typeof draftData === 'object'
+    ? (draftData.import_review ?? draftData.importReview) as Record<string, unknown> | undefined
+    : undefined;
+
+  const hints = Array.isArray(review?.confidence_hints ?? review?.confidenceHints)
+    ? (review?.confidence_hints ?? review?.confidenceHints) as Array<Record<string, unknown>>
+    : [];
+
+  return {
+    status: ((review?.status as PropertyImportReviewMetadata['status']) || 'not_required'),
+    confidence_hints: hints
+      .map((hint) => ({
+        field: asTrimmedString(hint.field) || asTrimmedString(hint.field_name) || '',
+        confidence: typeof hint.confidence === 'number' ? hint.confidence : Number(hint.confidence) || 0,
+        source_field: asTrimmedString(hint.source_field ?? hint.sourceField),
+        note: asTrimmedString(hint.note ?? hint.reason),
+      }))
+      .filter((hint) => Boolean(hint.field)),
+    review_notes: asTrimmedString(review?.review_notes ?? review?.reviewNotes),
+    reviewed_by_user_id: asTrimmedString(review?.reviewed_by_user_id ?? review?.reviewedByUserId),
+    reviewed_at: asTrimmedString(review?.reviewed_at ?? review?.reviewedAt),
+    approved_at: asTrimmedString(review?.approved_at ?? review?.approvedAt),
+  };
+}
+
 export function createPropertyImportFormValues(draftData?: Record<string, unknown> | null): PropertyImportFormValues {
   if (!draftData) {
     return { ...PROPERTY_IMPORT_DEFAULT_FORM_VALUES };
   }
+
+  const mapping = getPropertyImportMappingMetadata(draftData);
+  const review = getPropertyImportReviewMetadata(draftData);
 
   const status = asTrimmedString(draftData.status);
 
@@ -129,17 +298,51 @@ export function createPropertyImportFormValues(draftData?: Record<string, unknow
       ? (status as PropertyImportFormValues['status'])
       : 'available',
     amenities: asAmenitiesString(draftData.amenities),
-    review_notes: asTrimmedString(draftData.review_notes ?? draftData.reviewNotes),
+    review_notes: review.review_notes || asTrimmedString(draftData.review_notes ?? draftData.reviewNotes),
+    mapping_source_type: mapping.source_type,
+    mapping_profile_name: mapping.profile_name || '',
+    mapping_confidence_threshold: mapping.review_settings.confidence_threshold,
+    mapping_low_confidence_threshold: mapping.review_settings.low_confidence_threshold,
+    mapping_require_human_review: mapping.review_settings.require_human_review,
+    mapping_field_mappings: mapping.field_mappings.length > 0 ? mapping.field_mappings : [{
+      source_field: '',
+      target_field: '',
+      confidence: '',
+      required: false,
+      label: '',
+      notes: '',
+    }],
   };
 }
 
-export function serializePropertyImportFormValues(values: PropertyImportFormValues): Record<string, unknown> {
+export function serializePropertyImportFormValues(
+  values: PropertyImportFormValues,
+  existingDraftData?: Record<string, unknown> | null,
+): Record<string, unknown> {
   const amenities = values.amenities
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
 
+  const nextFieldMappings = values.mapping_field_mappings
+    .map((item) => ({
+      source_field: item.source_field.trim(),
+      target_field: item.target_field.trim(),
+      confidence: (() => {
+        const parsed = Number(item.confidence);
+        return item.confidence.trim() && Number.isFinite(parsed) ? parsed : null;
+      })(),
+      required: item.required,
+      label: item.label.trim() || null,
+      notes: item.notes.trim() || null,
+    }))
+    .filter((item) => item.source_field || item.target_field);
+
+  const existingMapping = getPropertyImportMappingMetadata(existingDraftData);
+  const existingReview = getPropertyImportReviewMetadata(existingDraftData);
+
   return {
+    ...(existingDraftData && typeof existingDraftData === 'object' ? existingDraftData : {}),
     name: values.name.trim(),
     builder: values.builder.trim() || null,
     location_city: values.location_city.trim() || null,
@@ -153,6 +356,23 @@ export function serializePropertyImportFormValues(values: PropertyImportFormValu
     rera_number: values.rera_number.trim() || null,
     status: values.status,
     amenities,
+    import_mapping: {
+      source_type: values.mapping_source_type.trim() || existingMapping.source_type || 'manual',
+      profile_name: values.mapping_profile_name.trim() || null,
+      field_mappings: nextFieldMappings,
+      review_settings: {
+        confidence_threshold: values.mapping_confidence_threshold.trim() || existingMapping.review_settings.confidence_threshold,
+        low_confidence_threshold: values.mapping_low_confidence_threshold.trim() || existingMapping.review_settings.low_confidence_threshold,
+        require_human_review: values.mapping_require_human_review,
+      },
+      source_record: (existingDraftData && typeof existingDraftData === 'object'
+        ? ((existingDraftData.import_mapping ?? existingDraftData.importMapping) as Record<string, unknown> | undefined)?.source_record
+        : undefined) ?? null,
+    },
+    import_review: {
+      ...existingReview,
+      review_notes: values.review_notes.trim() || null,
+    },
   };
 }
 

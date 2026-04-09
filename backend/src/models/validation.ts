@@ -171,6 +171,13 @@ export const createPropertySchema = z.object({
   description: z.string().optional().nullable(),
   rera_number: z.string().max(50).optional().nullable(),
   status: z.enum(['available', 'sold', 'upcoming']).optional(),
+  // Rich media fields for WhatsApp integration
+  images: z.array(z.string().url().max(500)).max(10).optional(), // Max 10 images
+  brochure_url: z.string().url().max(500).optional().nullable(),
+  floor_plan_urls: z.array(z.string().url().max(500)).max(10).optional(), // Max 10 floor plans
+  price_list_url: z.string().url().max(500).optional().nullable(),
+  latitude: z.number().min(-90).max(90).optional().nullable(), // Valid latitude range
+  longitude: z.number().min(-180).max(180).optional().nullable(), // Valid longitude range
 });
 
 export const createPropertyAssetUploadSchema = z.object({
@@ -184,6 +191,13 @@ export const createPropertyAssetUploadSchema = z.object({
 export const createPropertyImportDraftSchema = z.object({
   draft_data: z.record(z.any()).optional(),
   max_retries: z.number().int().min(1).max(10).optional(),
+});
+
+export const calculateEmiSchema = z.object({
+  principal: z.number().positive(),
+  down_payment: z.number().min(0).optional().default(0),
+  interest_rate: z.number().min(0).max(100),
+  tenure_months: z.number().int().positive().max(600),
 });
 
 export const registerPropertyImportUploadSchema = z.object({
@@ -235,6 +249,7 @@ export const createUserSchema = z.object({
   phone: optionalPhone,
   role: z.enum(ROLES),
   target_company_id: z.string().uuid().optional(), // For super_admin to create users in any company
+  must_change_password: z.boolean().optional(),
 });
 
 export const aiSettingsSchema = z.object({
@@ -250,6 +265,36 @@ export const aiSettingsSchema = z.object({
   auto_detect_language: z.boolean().optional(),
   default_language: z.string().max(5).optional(),
 });
+
+export const sendConversationMessageSchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('text'),
+    text: z.string().trim().min(1, 'text is required').max(4096, 'text is too long'),
+  }),
+  z.object({
+    mode: z.literal('document'),
+    document_url: z.string().url('document_url must be a valid URL'),
+    filename: z.string().trim().max(255).optional(),
+    caption: z.string().trim().max(1024).optional().nullable(),
+  }),
+  z.object({
+    mode: z.literal('quick_reply'),
+    body_text: z.string().trim().min(1, 'body_text is required').max(1024, 'body_text is too long'),
+    header_text: z.string().trim().max(60).optional().nullable(),
+    footer_text: z.string().trim().max(60).optional().nullable(),
+    buttons: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1, 'button id is required').max(256, 'button id is too long'),
+          title: z.string().trim().min(1, 'button title is required').max(20, 'button title is too long'),
+        })
+      )
+      .min(1, 'at least 1 button is required')
+      .max(3, 'at most 3 buttons are allowed'),
+  }),
+]);
+
+export type SendConversationMessagePayload = z.infer<typeof sendConversationMessageSchema>;
 
 // Helper to validate state transitions
 export function isValidTransition<T extends string>(

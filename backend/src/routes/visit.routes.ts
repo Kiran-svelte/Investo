@@ -258,7 +258,7 @@ router.patch(
       });
       const company = await prisma.company.findFirst({
         where: { id: companyId },
-        select: { whatsappPhone: true },
+        select: { whatsappPhone: true, settings: true },
       });
       await notificationEngine.onVisitStatusChange(
         updated,
@@ -382,7 +382,7 @@ router.put(
         });
         const company = await prisma.company.findFirst({
           where: { id: companyId },
-          select: { whatsappPhone: true },
+          select: { whatsappPhone: true, settings: true },
         });
         await notificationEngine.onVisitRescheduled(
           updated,

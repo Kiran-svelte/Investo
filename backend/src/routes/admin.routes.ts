@@ -107,6 +107,73 @@ router.get('/system', async (req: AuthRequest, res: Response) => {
 });
 
 /**
+ * GET /api/admin/sla
+ * SLA/SLI summary for ops review and alerting integrations.
+ */
+router.get('/sla', async (_req: AuthRequest, res: Response) => {
+  try {
+    const now = new Date();
+    const hours = 24;
+    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+    const dbStart = Date.now();
+    await prisma.$queryRaw`SELECT 1`;
+    const dbLatency = Date.now() - dbStart;
+
+    const [messageTotal, messageFailed, overdueInvoices, activeCompanies, stalledImports] = await Promise.all([
+      prisma.message.count({ where: { createdAt: { gte: start } } }),
+      prisma.message.count({ where: { createdAt: { gte: start }, status: 'failed' } }),
+      prisma.invoice.count({ where: { status: 'overdue' } }),
+      prisma.company.count({ where: { status: 'active' } }),
+      prisma.propertyImportJob.count({
+        where: {
+          status: { in: ['queued', 'processing'] },
+          updatedAt: { lt: new Date(now.getTime() - 30 * 60 * 1000) },
+        },
+      }),
+    ]);
+
+    const deliverySuccessRate = messageTotal === 0 ? 1 : (messageTotal - messageFailed) / messageTotal;
+    const errorBudgetBurn = 1 - deliverySuccessRate;
+
+    const targets = {
+      db_latency_ms_p95: 300,
+      message_delivery_success_rate: 0.995,
+      overdue_invoice_ratio: 0.02,
+      stalled_import_jobs: 0,
+    };
+
+    const overdueInvoiceRatio = activeCompanies === 0 ? 0 : overdueInvoices / activeCompanies;
+
+    const breaches = {
+      db_latency: dbLatency > targets.db_latency_ms_p95,
+      message_delivery: deliverySuccessRate < targets.message_delivery_success_rate,
+      billing_overdue_ratio: overdueInvoiceRatio > targets.overdue_invoice_ratio,
+      import_stalls: stalledImports > targets.stalled_import_jobs,
+    };
+
+    res.json({
+      data: {
+        window_hours: hours,
+        generated_at: now.toISOString(),
+        sli: {
+          db_latency_ms_p95_estimate: dbLatency,
+          message_delivery_success_rate: Number(deliverySuccessRate.toFixed(4)),
+          error_budget_burn_rate: Number(errorBudgetBurn.toFixed(4)),
+          overdue_invoice_ratio: Number(overdueInvoiceRatio.toFixed(4)),
+          stalled_import_jobs: stalledImports,
+        },
+        targets,
+        breaches,
+      },
+    });
+  } catch (err: any) {
+    logger.error('Failed to compute SLA summary', { error: err.message });
+    res.status(500).json({ error: 'Failed to compute SLA summary' });
+  }
+});
+
+/**
  * GET /api/admin/companies
  * List all companies with detailed stats.
  */

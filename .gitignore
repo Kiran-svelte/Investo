@@ -12,10 +12,18 @@ coverage/
 **/coverage/
 *.tsbuildinfo
 
+# Test artifacts
+test-results/
+**/test-results/
+
 # Environment secrets
 .env
 .env.*
 !.env.example
+
+# Temporary/debug scripts
+_tmp_*
+**/_tmp_*
 
 # Logs
 npm-debug.log*

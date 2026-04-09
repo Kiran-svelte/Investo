@@ -38,8 +38,8 @@ const STATUS_COLORS: Record<string, string> = {
   closed_lost: 'bg-red-100 text-red-700',
 };
 
-const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial', 'farmland'];
-const LEAD_SOURCES = ['whatsapp', 'manual', 'website', 'referral', 'social_media', 'other'];
+const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial'];
+const LEAD_SOURCES = ['whatsapp', 'manual', 'website', 'referral'];
 
 const LeadsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -113,9 +113,14 @@ const LeadsPage: React.FC = () => {
     return `Up to ₹${formatNum(max!)}`;
   };
 
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric'
-  });
+  const formatDate = (d: string) => {
+    if (!d) return '-';
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    });
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-4">

@@ -1,5 +1,6 @@
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import config from '../config';
 import { whatsappService } from './whatsapp.service';
 import { NotificationType as PrismaNotificationType } from '@prisma/client';
 
@@ -15,6 +16,22 @@ interface NotifyOptions {
   title: string;
   message: string;
   data?: Record<string, any>;
+}
+
+function getCompanyWhatsAppConfig(company: any): { phoneNumberId: string; accessToken: string; verifyToken: string; isCompanyConfigured: boolean } {
+  const settings = (company?.settings as any) || {};
+  const whatsapp = settings.whatsapp || {};
+
+  const phoneNumberId = whatsapp.phoneNumberId || config.whatsapp.phoneNumberId;
+  const accessToken = whatsapp.accessToken || config.whatsapp.accessToken;
+  const verifyToken = whatsapp.verifyToken || config.whatsapp.verifyToken;
+
+  return {
+    phoneNumberId,
+    accessToken,
+    verifyToken,
+    isCompanyConfigured: Boolean(whatsapp.phoneNumberId && whatsapp.accessToken),
+  };
 }
 
 class NotificationEngine {
@@ -203,7 +220,17 @@ class NotificationEngine {
     });
 
     // Send WhatsApp to customer
-    if (company?.whatsappPhone && lead?.phone) {
+    if (lead?.phone) {
+      const whatsappConfig = getCompanyWhatsAppConfig(company);
+      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+        logger.debug('Skipping WhatsApp visit notification (company not configured)', {
+          companyId: visit.companyId,
+          visitId: visit.id,
+          status: newStatus,
+        });
+        return;
+      }
+
       const customerName = lead.customerName || 'there';
       let whatsappMsg = '';
 
@@ -217,7 +244,18 @@ class NotificationEngine {
 
       if (whatsappMsg) {
         try {
-          await whatsappService.sendMessage(lead.phone, whatsappMsg, company.whatsappPhone);
+          const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
+            phoneNumberId: whatsappConfig.phoneNumberId,
+            accessToken: whatsappConfig.accessToken,
+            verifyToken: whatsappConfig.verifyToken,
+          });
+          if (!sent) {
+            logger.warn('Failed to send WhatsApp visit notification', {
+              companyId: visit.companyId,
+              visitId: visit.id,
+              status: newStatus,
+            });
+          }
         } catch (err: any) {
           logger.warn('Failed to send WhatsApp notification', { error: err.message });
         }
@@ -261,12 +299,31 @@ class NotificationEngine {
     });
 
     // Send WhatsApp to customer
-    if (company?.whatsappPhone && lead?.phone) {
+    if (lead?.phone) {
+      const whatsappConfig = getCompanyWhatsAppConfig(company);
+      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+        logger.debug('Skipping WhatsApp reschedule notification (company not configured)', {
+          companyId: visit.companyId,
+          visitId: visit.id,
+        });
+        return;
+      }
+
       const customerName = lead.customerName || 'there';
       const whatsappMsg = `Hi ${customerName}! 📅\n\nYour property visit has been *rescheduled*.\n\n❌ Old: ${oldTimeStr}\n✅ New: ${newTimeStr}\n\nPlease reply YES to confirm the new time.`;
 
       try {
-        await whatsappService.sendMessage(lead.phone, whatsappMsg, company.whatsappPhone);
+        const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
+          phoneNumberId: whatsappConfig.phoneNumberId,
+          accessToken: whatsappConfig.accessToken,
+          verifyToken: whatsappConfig.verifyToken,
+        });
+        if (!sent) {
+          logger.warn('Failed to send WhatsApp reschedule notification', {
+            companyId: visit.companyId,
+            visitId: visit.id,
+          });
+        }
       } catch (err: any) {
         logger.warn('Failed to send reschedule WhatsApp', { error: err.message });
       }

@@ -64,6 +64,39 @@ CORS_ORIGINS=https://frontend-navy-eight-37.vercel.app,https://investo-frontend-
 FRONTEND_BASE_URL=https://frontend-navy-eight-37.vercel.app
 DB_AUTO_MIGRATE=true
 DB_AUTO_SEED=true
+
+# Storage (S3-compatible: Cloudflare R2 by default) - REQUIRED for Property Import uploads/extraction
+# Set these in BOTH services: backend API + worker
+#
+# Option A (Cloudflare R2)
+R2_ACCOUNT_ID=<your-r2-account-id>
+R2_ACCESS_KEY_ID=<your-r2-access-key-id>
+R2_SECRET_ACCESS_KEY=<your-r2-secret-access-key>
+R2_BUCKET=<your-r2-bucket-name>
+R2_REGION=auto
+
+# Option B (Any S3-compatible storage: Backblaze B2 / MinIO / other providers)
+# If you set R2_ENDPOINT, R2_ACCOUNT_ID is not required.
+R2_ENDPOINT=<https://your-s3-compatible-endpoint>
+R2_ACCESS_KEY_ID=<your-s3-access-key-id>
+R2_SECRET_ACCESS_KEY=<your-s3-secret-access-key>
+R2_BUCKET=<your-bucket-name>
+R2_REGION=<your-region>
+
+# Backblaze B2 (S3-compatible) notes:
+# - R2_ACCESS_KEY_ID = Backblaze Application Key ID
+# - R2_SECRET_ACCESS_KEY = Backblaze Application Key
+# - Do NOT use the Master Application Key in production. Create a bucket-restricted Application Key with only read/write/list file permissions.
+# - R2_ENDPOINT should look like: https://s3.<bucket-region>.backblazeb2.com
+# - R2_REGION must match your bucket region (example: us-west-002). Do NOT leave it as "auto" for B2.
+
+# Optional but recommended: a PUBLIC HTTPS base URL used to build stable file links.
+# This is important for WhatsApp document sending which requires a reachable HTTPS URL.
+R2_PUBLIC_BASE_URL=<https://your-public-bucket-base-url>
+
+# Backblaze B2 public download URL (recommended for WhatsApp) often looks like:
+#   https://fxxxx.backblazeb2.com/file/<your-bucket-name>/
+# Ensure the bucket (or required prefix) is publicly readable if you want stable public links.
 ```
 
 ---
@@ -158,7 +191,4 @@ curl "https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub
 ---
 
 ## Render API Key Used
-`rnd_M9OmIvcNYUUcEcdBRRr1lEdZNoXj`
-
-Deployment ID: `dep-d79ovhggjchc73fom0d0`
-Status: Build in progress
+REDACTED (do not commit API keys; rotate if this key was ever active)

@@ -124,17 +124,23 @@ class SocketService {
   }
 
   // Emit to specific user (all their connected devices)
-  emitToUser(userId: string, event: string, data: any): void {
-    if (this.io) {
-      this.io.to(`user:${userId}`).emit(event, data);
+  emitToUser(userId: string, event: string, data: any): boolean {
+    if (!this.io) {
+      return false;
     }
+
+    this.io.to(`user:${userId}`).emit(event, data);
+    return true;
   }
 
   // Emit to all users in a company
-  emitToCompany(companyId: string, event: string, data: any): void {
-    if (this.io) {
-      this.io.to(`company:${companyId}`).emit(event, data);
+  emitToCompany(companyId: string, event: string, data: any): boolean {
+    if (!this.io) {
+      return false;
     }
+
+    this.io.to(`company:${companyId}`).emit(event, data);
+    return true;
   }
 
   // Emit to all connected clients (super admin broadcasts)

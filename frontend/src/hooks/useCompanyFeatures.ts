@@ -11,6 +11,7 @@ export const useCompanyFeatures = () => {
   const { user, isAuthenticated } = useAuth();
   const [features, setFeatures] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -19,6 +20,7 @@ export const useCompanyFeatures = () => {
       if (!isAuthenticated || !user) {
         if (active) {
           setFeatures({});
+          setError(null);
           setLoading(false);
         }
         return;
@@ -27,6 +29,7 @@ export const useCompanyFeatures = () => {
       if (user.role === 'super_admin') {
         if (active) {
           setFeatures({});
+          setError(null);
           setLoading(false);
         }
         return;
@@ -42,10 +45,12 @@ export const useCompanyFeatures = () => {
 
         if (active) {
           setFeatures(map);
+          setError(null);
         }
       } catch {
         if (active) {
           setFeatures({});
+          setError('Failed to load company features');
         }
       } finally {
         if (active) {
@@ -65,7 +70,7 @@ export const useCompanyFeatures = () => {
   const isFeatureEnabled = useMemo(() => {
     return (featureKey?: string): boolean => {
       if (!featureKey) {
-        return true;
+        return false;
       }
       if (user?.role === 'super_admin') {
         return true;
@@ -73,7 +78,7 @@ export const useCompanyFeatures = () => {
       if (Object.prototype.hasOwnProperty.call(features, featureKey)) {
         return features[featureKey];
       }
-      return true;
+      return false;
     };
   }, [features, user?.role]);
 
@@ -81,6 +86,7 @@ export const useCompanyFeatures = () => {
     features,
     isFeatureEnabled,
     loading,
+    error,
   };
 };
 

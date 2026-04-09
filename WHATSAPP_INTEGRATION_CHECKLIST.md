@@ -12,7 +12,7 @@
 - [ ] **A1. Dynamic webhook URL per company** - Webhook URL should be configurable per company (e.g., `/api/webhook/:companyId`) instead of single static endpoint `/api/webhook`
 - [ ] **A2. Webhook verification token handling** - Each company should have own `verifyToken` in `company.settings.whatsapp.verifyToken` for webhook verification
 - [ ] **A3. Webhook signature verification (HMAC-SHA256)** - Implement `x-hub-signature-256` header verification using company-specific `appSecret`
-- [ ] **A4. IP whitelist for Meta webhook servers** - Add IP whitelist validation for known Meta/Facebook IP ranges (currently missing)
+- [x] **A4. IP whitelist for Meta webhook servers** - Implemented via `whatsappIpWhitelist` middleware (enable with `WHATSAPP_IP_WHITELIST_ENABLED=true`)
 - [ ] **A5. Dynamic webhook URL generation per company** - Company configuration should include dynamic webhook callback URL
 - [ ] **A6. Multi-webhook support** - Support multiple WhatsApp phone numbers per company with separate webhooks
 
@@ -51,7 +51,7 @@
 ### E. Security & Reliability
 
 - [ ] **E1. Webhook signature verification** - Implemented in [`webhook.routes.ts:53-68`](backend/src/routes/webhook.routes.ts:53)
-- [ ] **E2. IP whitelist enforcement** - NOT implemented - no IP validation for incoming requests
+- [x] **E2. IP whitelist enforcement** - Implemented via `whatsappIpWhitelist` middleware (enable with `WHATSAPP_IP_WHITELIST_ENABLED=true`)
 - [ ] **E3. Request size limits on webhook endpoints** - Need to add body-parser limits
 - [ ] **E4. Phone number masking in logs** - Partially implemented in [`webhook.routes.ts:101`](backend/src/routes/webhook.routes.ts:101)
 - [ ] **E5. Health check endpoints for WhatsApp connection** - [`testConnection()`](backend/src/services/whatsapp.service.ts:303) exists but not exposed as API
@@ -90,7 +90,7 @@
 | A1. Dynamic webhook URL per company | [-] | Single static `/api/webhook` endpoint | Per-company webhook URL `/api/webhook/:companyId` |
 | A2. Webhook verification token | [-] | Single `config.whatsapp.verifyToken` | Company-specific verifyToken from settings |
 | A3. Webhook signature verification | [x] | HMAC-SHA256 implemented | Fully implemented |
-| A4. IP whitelist | [ ] | Not implemented | Whitelist Meta IPs |
+| A4. IP whitelist | [x] | Middleware exists (env-gated) | Whitelist Meta IPs |
 | A5. Dynamic webhook URL generation | [ ] | Not implemented | Company config stores callback URL |
 | A6. Multi-webhook support | [ ] | Not implemented | Multiple phones per company |
 
@@ -137,7 +137,7 @@
 | Item | Status | Current Behavior | Expected Behavior |
 |------|--------|------------------|-------------------|
 | E1. Signature verification | [x] | Implemented | Fully implemented |
-| E2. IP whitelist | [ ] | Not implemented | Meta IP validation |
+| E2. IP whitelist | [x] | Middleware exists (env-gated) | Meta IP validation |
 | E3. Request size limits | [ ] | Not implemented | Add body limits |
 | E4. Phone masking in logs | [x] | Partial masking | Fully masked |
 | E5. Health checks | [-] | Method exists | Expose as API |

@@ -262,6 +262,10 @@ model Property {
   description     String?        @db.Text
   images          Json           @default("[]")
   brochureUrl     String?        @map("brochure_url") @db.VarChar(500)
+  floorPlanUrls   Json           @default("[]") @map("floor_plan_urls")  // Array of floor plan URLs (images or PDFs)
+  priceListUrl    String?        @map("price_list_url") @db.VarChar(500) // Price list PDF URL
+  latitude        Decimal?       @db.Decimal(10, 8)   // For WhatsApp location sharing
+  longitude       Decimal?       @db.Decimal(11, 8)   // For WhatsApp location sharing
   reraNumber      String?        @map("rera_number") @db.VarChar(50)
   status          PropertyStatus @default(available)
   createdAt       DateTime       @default(now()) @map("created_at")

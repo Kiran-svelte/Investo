@@ -16,6 +16,12 @@
 8. [Database Structure](#8-database-structure)
 9. [State Machine Rules](#9-state-machine-rules)
 10. [Automation Features](#10-automation-features)
+    - 10.1 Lead Auto-Creation
+    - 10.2 Visit Reminder System
+    - 10.3 Follow-Up Automation
+    - 10.4 Lead Assignment
+    - 10.5 Analytics Aggregation
+    - **10.6 WhatsApp Rich Media & Dynamic Property Ingestion** ⭐ NEW
 11. [Hard Decisions](#11-hard-decisions)
 12. [What Is Forbidden](#12-what-is-forbidden)
 13. [Data Ownership Rules](#13-data-ownership-rules)
@@ -676,6 +682,203 @@ Reply YES to confirm or RESCHEDULE to change.
 - Count deals closed
 - Calculate revenue
 - Store in analytics table
+
+---
+
+## 10.6 WhatsApp Rich Media & Dynamic Property Ingestion
+
+### Reality Check
+This is not perfectly implemented end to end yet.
+
+The codebase already has the beginning of the media model and import pipeline:
+- `properties.images` already exists and is used by the property import flow.
+- `properties.brochure_url` already exists and is persisted by imports and property CRUD.
+- `floor_plan_urls`, `price_list_url`, `latitude`, and `longitude` are already present in the schema and validation layer.
+- The property import service can persist drafted images and brochure URLs.
+
+What is still missing or only partially designed:
+- WhatsApp send methods for images, documents, location pins, quick replies, and CTA buttons.
+- Webhook handling for interactive button/list replies.
+- EMI calculator endpoint and UI flow.
+- Company-specific Excel/brochure mapping profiles.
+- OCR/table extraction from uploaded soft copies.
+- Human-review queue with confidence scoring before publish.
+
+### 10.6.1 What Real Estate Actually Needs on WhatsApp
+
+| Sales action | What Investo needs | Current state |
+|---|---|---|
+| Sends brochure PDF | Brochure URL, WhatsApp document delivery | Partial: stored, not fully sent end to end |
+| Sends floor plans | Floor plan URLs or uploaded pages | Partial: schema exists, delivery not wired |
+| Sends property photos | Media asset storage + image delivery | Partial: stored, not sent end to end |
+| Sends price list PDF | Versioned price book + document delivery | Partial: URL field exists, live pricing sync missing |
+| Sends location map | Latitude/longitude + location pin send | Partial: fields exist, delivery missing |
+| EMI calculator | EMI endpoint + formatted breakdown | Missing |
+| Quick reply buttons | Interactive WhatsApp message support | Missing |
+| Call me / Book visit buttons | Interactive CTA webhook handling | Missing |
+
+### 10.6.2 Understanding
+
+What we are actually solving is not “how to let users manually enter properties.” The real problem is this:
+- Every company has a different source format.
+- Pricing changes by offer, festival, stock, and tower/flat type.
+- Brochures, Excel sheets, WhatsApp text, and soft copies are all source-of-truth candidates.
+- The AI must answer from approved inventory, not from memory.
+
+The wrong assumption is that one universal UI will solve all companies. It will not. The system needs a company-specific ingestion layer plus a canonical internal model.
+
+### 10.6.3 Questions and Clarifications
+
+Before building more features, these points must be fixed in the product rules:
+1. Is Excel the pricing source of truth for each company, or only one of several inputs?
+2. Are brochures authoritative for floor plans and amenities, or only for presentation?
+3. Which source wins when brochure, Excel, and admin edits disagree?
+4. How long can a price stay active before it is considered stale?
+5. Which fields can auto-publish, and which fields must always be reviewed by a human?
+
+### 10.6.4 Solution Architecture
+
+The right architecture is a hybrid ingestion and delivery pipeline:
+
+1. Company onboarding
+- Company admin selects a source style: brochure-first, Excel-first, or mixed.
+- The system stores a reusable import profile for that company.
+- Field mapping is configured once, then reused.
+
+2. Input channels
+- PDF brochure upload.
+- Excel/CSV price sheet upload.
+- Property image upload.
+- Optional API/CRM sync for advanced companies.
+- Manual edits for exceptions only.
+
+3. Extraction and normalization
+- OCR/table extraction parses brochures and soft copies.
+- Spreadsheet parser reads price changes, inventory, and unit availability.
+- AI normalizes raw input into one internal schema.
+- Duplicate and inconsistent records are flagged.
+
+4. Human-in-the-loop review
+- High-confidence fields auto-accept.
+- Medium- and low-confidence fields go to review.
+- Reviewer can accept, edit, reject, or defer.
+- Nothing becomes customer-facing until it is approved or explicitly allowed by policy.
+
+5. WhatsApp delivery
+- Approved images, brochure PDFs, floor plans, price lists, maps, and CTAs are sent through WhatsApp Cloud API.
+- The AI chooses media based on conversation stage and lead intent.
+- Button/list clicks come back through the webhook and move the conversation forward.
+
+### 10.6.5 Data Model
+
+The current schema already covers the first layer of this model. For scale, the internal design should center on:
+- `properties` for the canonical listing.
+- `property_units` for flat-level inventory, floor, tower, facing, and availability.
+- `price_books` or `price_versions` for offer/festival-driven changes.
+- `source_documents` for brochures, Excel sheets, and uploads.
+- `media_assets` for images, PDFs, and maps.
+- `import_drafts` for AI-extracted drafts before publish.
+
+Important design rule:
+- Never overwrite price history.
+- Store new pricing as a version with effective dates.
+- Show only the active approved version to the AI and customers.
+
+### 10.6.6 User Impact
+
+Different users need different behavior:
+- Sales teams should not retype the same flat details every time.
+- Company admins should map a template once and then only fix exceptions.
+- Customers should see rich, stage-appropriate media instead of plain text walls.
+- Operations staff should review uncertain data, not manually maintain everything.
+
+The experience should feel like this:
+1. Upload brochure or Excel.
+2. System extracts draft inventory.
+3. Human reviews only flagged items.
+4. Approved data becomes searchable and WhatsApp-ready.
+5. AI uses that data to keep the conversation moving toward visit booking.
+
+### 10.6.7 Scalability and Future
+
+The design must survive company differences without rebuilding the app every time:
+- Per-company field mapping profiles.
+- Reusable document parsers with company-specific rules.
+- Async background processing for OCR and spreadsheet jobs.
+- Source priority rules that can be changed in config, not code.
+- Versioned pricing so festival offers do not destroy history.
+
+This creates some technical debt, but it is the right debt:
+- More metadata.
+- More validation.
+- More review states.
+- Less manual chaos.
+
+### 10.6.8 Risks and Mitigations
+
+- OCR mistakes: require confidence scores and human approval.
+- Stale price lists: use effective dates and freshness checks.
+- Duplicate flats across imports: dedupe by tower, unit number, and source version.
+- Wrong WhatsApp promises: only answer from approved active inventory.
+- Broken media links: use signed HTTPS URLs and fallback text.
+- Cross-company leakage: enforce company_id filtering everywhere.
+
+### 10.6.9 Implementation Phases
+
+**MVP**
+- Store brochure, image, floor plan, and price list URLs.
+- Support manual property import and editing.
+- Keep human review before publish.
+
+**Phase 2**
+- Add Excel/CSV mapping per company.
+- Add OCR/table extraction for uploaded soft copies.
+- Add draft confidence scoring and review queue.
+
+**Phase 3**
+- Add WhatsApp image/document/location/button delivery.
+- Add webhook handling for interactive replies.
+- Add stage-aware media selection in the AI engine.
+
+**Phase 4**
+- Add EMI calculator.
+- Add price versioning and active-offer windows.
+- Add advanced analytics for conversion by media type.
+
+### 10.6.10 End-to-End Flow
+
+```
+Brochure / Excel / Images / Manual edit
+  ↓
+Upload or sync to company import profile
+  ↓
+OCR / table extraction / normalization
+  ↓
+Confidence scoring and dedupe
+  ↓
+Human review for uncertain fields
+  ↓
+Publish approved inventory and price versions
+  ↓
+AI fetches active approved data during chat
+  ↓
+WhatsApp sends text + media + location + buttons
+  ↓
+Webhook captures replies and CTA clicks
+  ↓
+Lead status, visit booking, and follow-up are updated
+```
+
+### 10.6.11 What Should NOT Be Claimed Yet
+
+Do not claim the platform is fully complete for these items until the delivery path exists end to end:
+- WhatsApp image/document/button sending.
+- Interactive button/list webhook handling.
+- EMI calculation API.
+- Automatic brochure-to-inventory extraction with zero review.
+- Fully live Excel price syncing for all companies.
+
+The current code is a solid base, but it is not yet a perfect real-estate WhatsApp operating system.
 
 ---
 

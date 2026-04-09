@@ -10,6 +10,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  ListFilter,
   RefreshCw,
   Save,
   Send,
@@ -41,10 +42,13 @@ import {
   PROPERTY_IMPORT_PROPERTY_TYPES,
   PROPERTY_IMPORT_STAGE_ORDER,
   createPropertyImportFormValues,
+  getPropertyImportMappingMetadata,
   getPropertyImportMediaLabel,
   getPropertyImportStage,
+  getPropertyImportReviewMetadata,
   isPropertyImportTerminalStatus,
   serializePropertyImportFormValues,
+  type PropertyImportFieldMappingFormValue,
   type PropertyImportFormValues,
 } from './propertyImport.utils';
 
@@ -63,6 +67,12 @@ interface DraftUploadItem {
 }
 
 const SUPPORTED_FILE_LABELS = ['JPEG', 'PNG', 'WebP', 'PDF', 'MP4'];
+const DEFAULT_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+const MAX_FILE_SIZE_BYTES = (() => {
+  const raw = (import.meta as any).env?.VITE_PROPERTY_UPLOAD_MAX_BYTES as string | undefined;
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_FILE_SIZE_BYTES;
+})();
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) {
@@ -172,10 +182,35 @@ export default function PropertyImportPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const [markPublishReady, setMarkPublishReady] = useState(true);
+  const [markPublishReady, setMarkPublishReady] = useState(false);
   const [retryReason, setRetryReason] = useState('');
 
   const stage = useMemo(() => getPropertyImportStage(draft), [draft]);
+  const mappingMetadata = useMemo(() => getPropertyImportMappingMetadata(draft?.draftData), [draft?.draftData]);
+  const reviewMetadata = useMemo(() => getPropertyImportReviewMetadata(draft?.draftData), [draft?.draftData]);
+  const lowConfidenceHints = useMemo(() => {
+    const threshold = Number(mappingMetadata.review_settings.confidence_threshold || 0.75);
+    return reviewMetadata.confidence_hints.filter((hint) => Number.isFinite(threshold) ? hint.confidence < threshold : true);
+  }, [mappingMetadata.review_settings.confidence_threshold, reviewMetadata.confidence_hints]);
+
+  const syncApprovalState = useCallback((nextDraft: PropertyImportDraft | null, forceReset = false) => {
+    if (!nextDraft) {
+      setMarkPublishReady(false);
+      return;
+    }
+
+    const nextReview = getPropertyImportReviewMetadata(nextDraft.draftData);
+    const shouldApprove = nextDraft.status === 'publish_ready' || nextDraft.status === 'published' || nextReview.status === 'approved';
+
+    if (shouldApprove) {
+      setMarkPublishReady(true);
+      return;
+    }
+
+    if (forceReset) {
+      setMarkPublishReady(false);
+    }
+  }, []);
 
   const currentStageIndex = useMemo(() => {
     if (!draft) {
@@ -223,6 +258,7 @@ export default function PropertyImportPage() {
       try {
         const nextDraft = await getPropertyImportDraft(draftToLoad);
         setDraft(nextDraft);
+        syncApprovalState(nextDraft, !silent);
         if (!isDirty) {
           syncFormFromDraft(nextDraft.draftData);
         }
@@ -235,12 +271,13 @@ export default function PropertyImportPage() {
         }
       }
     },
-    [isDirty, syncFormFromDraft],
+    [isDirty, syncApprovalState, syncFormFromDraft],
   );
 
   useEffect(() => {
     if (!routeDraftId) {
       setDraft(null);
+      setMarkPublishReady(false);
       setPageError('');
       setLoadingDraft(false);
       syncFormFromDraft(null);
@@ -273,8 +310,49 @@ export default function PropertyImportPage() {
     setIsDirty(true);
   };
 
+  const updateMappingField = (
+    index: number,
+    name: keyof PropertyImportFieldMappingFormValue,
+    value: string | boolean,
+  ) => {
+    setFormValues((current) => ({
+      ...current,
+      mapping_field_mappings: current.mapping_field_mappings.map((item, itemIndex) => (
+        itemIndex === index ? { ...item, [name]: value } as PropertyImportFieldMappingFormValue : item
+      )),
+    }));
+    setIsDirty(true);
+  };
+
+  const addMappingRow = () => {
+    setFormValues((current) => ({
+      ...current,
+      mapping_field_mappings: [
+        ...current.mapping_field_mappings,
+        {
+          source_field: '',
+          target_field: '',
+          confidence: '',
+          required: false,
+          label: '',
+          notes: '',
+        },
+      ],
+    }));
+    setIsDirty(true);
+  };
+
+  const removeMappingRow = (index: number) => {
+    setFormValues((current) => ({
+      ...current,
+      mapping_field_mappings: current.mapping_field_mappings.filter((_, itemIndex) => itemIndex !== index),
+    }));
+    setIsDirty(true);
+  };
+
   const applyDraftUpdate = (nextDraft: PropertyImportDraft) => {
     setDraft(nextDraft);
+    syncApprovalState(nextDraft, true);
     syncFormFromDraft(nextDraft.draftData);
   };
 
@@ -287,7 +365,7 @@ export default function PropertyImportPage() {
       setIsSaving(true);
       try {
         const saved = await savePropertyImportDraft(draft.id, {
-          draft_data: serializePropertyImportFormValues(formValues),
+          draft_data: serializePropertyImportFormValues(formValues, draft.draftData),
           review_notes: formValues.review_notes.trim() || null,
           mark_publish_ready: nextMarkPublishReady,
         });
@@ -364,6 +442,16 @@ export default function PropertyImportPage() {
       }
 
       for (const { id, file } of queue) {
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          setUploadItems((items) => items.map((entry) => (
+            entry.id === id
+              ? { ...entry, status: 'failed', error: `File exceeds the ${formatFileSize(MAX_FILE_SIZE_BYTES)} limit.` }
+              : entry
+          )));
+          setPageError(`File "${file.name}" is too large. The maximum file size is ${formatFileSize(MAX_FILE_SIZE_BYTES)}.`);
+          continue;
+        }
+
         setUploadItems((items) => items.map((entry) => {
           if (entry.id !== id) {
             return entry;
@@ -460,10 +548,17 @@ export default function PropertyImportPage() {
 
     setIsPublishing(true);
     try {
-      if (isDirty) {
+      const persistedReview = getPropertyImportReviewMetadata(draft.draftData);
+      const isDraftMarkedReady =
+        draft.status === 'publish_ready' ||
+        draft.status === 'published' ||
+        persistedReview.status === 'approved';
+
+      if (isDirty || markPublishReady !== isDraftMarkedReady) {
         const saved = await savePropertyImportDraft(draft.id, {
-          draft_data: serializePropertyImportFormValues(formValues),
+          draft_data: serializePropertyImportFormValues(formValues, draft.draftData),
           review_notes: formValues.review_notes.trim() || null,
+          mark_publish_ready: markPublishReady,
         });
         applyDraftUpdate(saved);
         setPageError('');
@@ -839,6 +934,31 @@ export default function PropertyImportPage() {
               )}
             </div>
 
+            {(lowConfidenceHints.length > 0 || reviewMetadata.status === 'needs_review') && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">
+                      Review required before publishing
+                    </p>
+                    <p className="text-sm text-amber-800">
+                      Low-confidence mapping fields are still present. Confirm the mapping profile, then approve publishing explicitly.
+                    </p>
+                    {lowConfidenceHints.length > 0 && (
+                      <ul className="space-y-1 text-sm text-amber-800">
+                        {lowConfidenceHints.map((hint) => (
+                          <li key={`${hint.field}-${hint.source_field || 'source'}`}>
+                            <span className="font-medium">{hint.field}</span> is at {Math.round(hint.confidence * 100)}% confidence{hint.source_field ? ` from ${hint.source_field}` : ''}.
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field
                 label="Property name"
@@ -945,6 +1065,159 @@ export default function PropertyImportPage() {
               />
             </div>
 
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+                    <ListFilter className="h-3.5 w-3.5" />
+                    Mapping profile
+                  </div>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Save company-specific source mappings and review thresholds with the draft so future imports can reuse the same structure.
+                  </p>
+                </div>
+                <div className="text-xs text-slate-500">
+                  Source type: <span className="font-medium text-slate-700">{mappingMetadata.source_type}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field
+                  label="Mapping source type"
+                  value={formValues.mapping_source_type}
+                  onChange={(value) => updateField('mapping_source_type', value)}
+                  placeholder="brochure, ocr, manual"
+                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                />
+                <Field
+                  label="Profile name"
+                  value={formValues.mapping_profile_name}
+                  onChange={(value) => updateField('mapping_profile_name', value)}
+                  placeholder="Default brochure import"
+                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                />
+                <Field
+                  label="Confidence threshold"
+                  value={formValues.mapping_confidence_threshold}
+                  onChange={(value) => updateField('mapping_confidence_threshold', value)}
+                  placeholder="0.75"
+                  inputMode="decimal"
+                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                />
+                <Field
+                  label="Low-confidence threshold"
+                  value={formValues.mapping_low_confidence_threshold}
+                  onChange={(value) => updateField('mapping_low_confidence_threshold', value)}
+                  placeholder="0.55"
+                  inputMode="decimal"
+                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                />
+                <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={formValues.mapping_require_human_review}
+                    onChange={(event) => {
+                      setFormValues((current) => ({
+                        ...current,
+                        mapping_require_human_review: event.target.checked,
+                      }));
+                      setIsDirty(true);
+                    }}
+                    disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Require human review for this mapping profile
+                </label>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {formValues.mapping_field_mappings.map((mappingRow, index) => (
+                  <div key={`${mappingRow.source_field || 'mapping'}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-900">Field mapping {index + 1}</p>
+                      <button
+                        type="button"
+                        onClick={() => removeMappingRow(index)}
+                        disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                        className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field
+                        label="Source field"
+                        value={mappingRow.source_field}
+                        onChange={(value) => updateMappingField(index, 'source_field', value)}
+                        placeholder="title"
+                        disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                      />
+                      <Field
+                        label="Target field"
+                        value={mappingRow.target_field}
+                        onChange={(value) => updateMappingField(index, 'target_field', value)}
+                        placeholder="name"
+                        disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                      />
+                      <Field
+                        label="Confidence"
+                        value={mappingRow.confidence}
+                        onChange={(value) => updateMappingField(index, 'confidence', value)}
+                        placeholder="0.82"
+                        inputMode="decimal"
+                        disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                      />
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={mappingRow.required}
+                          onChange={(event) => updateMappingField(index, 'required', event.target.checked)}
+                          disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Required
+                      </label>
+                      <Field
+                        label="Label"
+                        value={mappingRow.label}
+                        onChange={(value) => updateMappingField(index, 'label', value)}
+                        placeholder="Property title"
+                        disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                      />
+                      <Field
+                        label="Notes"
+                        value={mappingRow.notes}
+                        onChange={(value) => updateMappingField(index, 'notes', value)}
+                        placeholder="Optional hint or rule"
+                        disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addMappingRow}
+                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                >
+                  <ListFilter className="h-4 w-4" />
+                  Add mapping row
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">Review status</p>
+                <p className="mt-1 text-slate-600">
+                  {reviewMetadata.status === 'approved'
+                    ? 'This draft is approved for publishing.'
+                    : reviewMetadata.status === 'needs_review'
+                      ? 'This draft still needs human review before it can be published.'
+                      : 'No review is currently required for this mapping profile.'}
+                </p>
+              </div>
+            </div>
+
             <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-4">
               <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <input
@@ -954,10 +1227,10 @@ export default function PropertyImportPage() {
                   disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                Mark this draft as ready to publish after saving
+                Approve this review and mark the draft ready to publish
               </label>
               <p className="mt-2 text-xs text-gray-500">
-                This keeps the review step explicit while still letting you publish immediately after approval.
+                Publishing stays blocked until you explicitly approve the review.
               </p>
             </div>
 
@@ -988,7 +1261,7 @@ export default function PropertyImportPage() {
               <button
                 type="button"
                 onClick={() => void handlePublish()}
-                disabled={!draft?.id || isPublishing || (!draft || isPropertyImportTerminalStatus(draft.status))}
+                disabled={!draft?.id || isPublishing || !markPublishReady || (!draft || isPropertyImportTerminalStatus(draft.status))}
                 className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
               >
                 {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

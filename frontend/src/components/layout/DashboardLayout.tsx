@@ -18,6 +18,7 @@ import {
   CreditCard,
   ClipboardList,
   Bell,
+  Calculator,
   LogOut,
   Menu,
   X,
@@ -31,6 +32,7 @@ import type { LucideIcon } from 'lucide-react';
 
 interface NavItem {
   label: string; // i18n key under "nav"
+  labelText?: string;
   path: string;
   icon: LucideIcon;
   roles: UserRole[]; // which roles can see this item
@@ -106,6 +108,13 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['super_admin', 'company_admin'],
   },
   {
+    label: 'emi_calculator',
+    labelText: 'EMI Calculator',
+    path: '/emi-calculator',
+    icon: Calculator,
+    roles: ['super_admin', 'company_admin', 'sales_agent'],
+  },
+  {
     label: 'audit_logs',
     path: '/audit-logs',
     icon: ClipboardList,
@@ -179,7 +188,7 @@ const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
             className={({ isActive }) => linkClasses(isActive)}
           >
             <item.icon className="h-5 w-5 flex-shrink-0" />
-            {t(`nav.${item.label}`)}
+            {t(`nav.${item.label}`, { defaultValue: item.labelText || item.label })}
           </NavLink>
         ))}
       </nav>

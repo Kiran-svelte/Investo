@@ -1,8 +1,30 @@
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import config from '../config';
 import { whatsappService } from './whatsapp.service';
 import { automationQueueService, AutomationJobType } from './automationQueue.service';
+
+function getCompanyWhatsAppConfig(company: any): {
+  phoneNumberId: string;
+  accessToken: string;
+  verifyToken: string;
+  isCompanyConfigured: boolean;
+} {
+  const settings = (company?.settings as any) || {};
+  const whatsapp = settings.whatsapp || {};
+
+  const phoneNumberId = whatsapp.phoneNumberId || config.whatsapp.phoneNumberId;
+  const accessToken = whatsapp.accessToken || config.whatsapp.accessToken;
+  const verifyToken = whatsapp.verifyToken || config.whatsapp.verifyToken;
+
+  return {
+    phoneNumberId,
+    accessToken,
+    verifyToken,
+    isCompanyConfigured: Boolean(whatsapp.phoneNumberId && whatsapp.accessToken),
+  };
+}
 
 /**
  * Automation Service - handles scheduled tasks through a durable queue-backed workflow:
@@ -84,7 +106,7 @@ export class AutomationService {
         include: {
           lead: { select: { customerName: true, phone: true, language: true } },
           property: { select: { name: true, locationArea: true } },
-          company: { select: { whatsappPhone: true } },
+          company: { select: { whatsappPhone: true, settings: true } },
         },
       });
 
@@ -107,7 +129,7 @@ export class AutomationService {
         include: {
           lead: { select: { customerName: true, phone: true, language: true } },
           property: { select: { name: true, locationArea: true } },
-          company: { select: { whatsappPhone: true } },
+          company: { select: { whatsappPhone: true, settings: true } },
         },
       });
 
@@ -182,15 +204,31 @@ export class AutomationService {
       const msgTemplates = messages[lang] || messages.en;
       const message = msgTemplates[timing];
 
-      const whatsappPhone = visit.company?.whatsappPhone;
       const customerPhone = visit.lead?.phone;
 
-      if (whatsappPhone && customerPhone) {
-        await whatsappService.sendMessage(
-          customerPhone,
-          message,
-          whatsappPhone
-        );
+      if (!customerPhone) {
+        logger.debug('Visit reminder skipped because customer phone is missing', { visitId: visit.id, timing });
+        return;
+      }
+
+      const whatsappConfig = getCompanyWhatsAppConfig(visit.company);
+      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+        logger.debug('Visit reminder skipped because company WhatsApp is not configured', {
+          visitId: visit.id,
+          timing,
+        });
+        return;
+      }
+
+      const sent = await whatsappService.sendMessage(customerPhone, message, {
+        phoneNumberId: whatsappConfig.phoneNumberId,
+        accessToken: whatsappConfig.accessToken,
+        verifyToken: whatsappConfig.verifyToken,
+      });
+
+      if (!sent) {
+        logger.warn('Visit reminder WhatsApp send failed', { visitId: visit.id, timing });
+        return;
       }
 
       // Mark reminder as sent (only for 24h to avoid duplicate 1h reminders)
@@ -257,7 +295,7 @@ export class AutomationService {
           lastContactAt: { lt: threshold48h },
         },
         include: {
-          company: { select: { whatsappPhone: true } },
+          company: { select: { whatsappPhone: true, settings: true } },
         },
       });
 
@@ -302,9 +340,29 @@ export class AutomationService {
       const lang = lead.language || 'en';
       const message = messages[lang] || messages.en;
 
-      const whatsappPhone = lead.company?.whatsappPhone;
-      if (whatsappPhone && lead.phone) {
-        await whatsappService.sendMessage(lead.phone, message, whatsappPhone);
+      if (!lead.phone) {
+        logger.debug('Follow-up skipped because lead phone is missing', { leadId: lead.id, reason });
+        return;
+      }
+
+      const whatsappConfig = getCompanyWhatsAppConfig(lead.company);
+      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+        logger.debug('Follow-up skipped because company WhatsApp is not configured', {
+          leadId: lead.id,
+          reason,
+        });
+        return;
+      }
+
+      const sent = await whatsappService.sendMessage(lead.phone, message, {
+        phoneNumberId: whatsappConfig.phoneNumberId,
+        accessToken: whatsappConfig.accessToken,
+        verifyToken: whatsappConfig.verifyToken,
+      });
+
+      if (!sent) {
+        logger.warn('Follow-up WhatsApp send failed', { leadId: lead.id, reason });
+        return;
       }
 
       // Update last contact
@@ -420,7 +478,7 @@ export class AutomationService {
       include: {
         lead: { select: { customerName: true, phone: true, language: true } },
         property: { select: { name: true, locationArea: true } },
-        company: { select: { whatsappPhone: true } },
+        company: { select: { whatsappPhone: true, settings: true } },
       },
     });
 
@@ -452,7 +510,7 @@ export class AutomationService {
     const lead = await prisma.lead.findUnique({
       where: { id: leadId },
       include: {
-        company: { select: { whatsappPhone: true } },
+        company: { select: { whatsappPhone: true, settings: true } },
       },
     });
 
@@ -468,7 +526,7 @@ export class AutomationService {
     const lead = await prisma.lead.findUnique({
       where: { id: leadId },
       include: {
-        company: { select: { whatsappPhone: true } },
+        company: { select: { whatsappPhone: true, settings: true } },
       },
     });
 

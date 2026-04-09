@@ -83,7 +83,16 @@ export class PropertyImportQueueService {
           return false;
         }
 
-        logger.debug('Property import job enqueued in Redis', { queueKey, draftId: payload.draftId, mediaId: payload.mediaId });
+        logger.info('Property import queue transition', {
+          queue: 'property_import',
+          transition: 'queued',
+          storage: 'redis',
+          queueKey,
+          draftId: payload.draftId,
+          mediaId: payload.mediaId,
+          attempt: payload.attempt,
+          maxAttempts: payload.maxAttempts,
+        });
         return true;
       } catch (err: any) {
         if (isProductionRuntime()) {
@@ -104,7 +113,16 @@ export class PropertyImportQueueService {
     }
 
     memoryJobs.set(queueKey, job);
-    logger.debug('Property import job enqueued in memory', { queueKey, draftId: payload.draftId, mediaId: payload.mediaId });
+    logger.info('Property import queue transition', {
+      queue: 'property_import',
+      transition: 'queued',
+      storage: 'memory',
+      queueKey,
+      draftId: payload.draftId,
+      mediaId: payload.mediaId,
+      attempt: payload.attempt,
+      maxAttempts: payload.maxAttempts,
+    });
     return true;
   }
 
@@ -147,25 +165,67 @@ export class PropertyImportQueueService {
     for (const { key, job } of jobs.slice(0, 25)) {
       const claimed = await this.claimJob(key);
       if (!claimed) {
+        logger.debug('Property import queue transition', {
+          queue: 'property_import',
+          transition: 'claim_skipped',
+          reason: 'already_processing',
+          queueKey: key,
+          draftId: job.payload.draftId,
+          mediaId: job.payload.mediaId,
+          attempt: job.payload.attempt,
+          maxAttempts: job.payload.maxAttempts,
+        });
         continue;
       }
+
+      logger.info('Property import queue transition', {
+        queue: 'property_import',
+        transition: 'processing',
+        queueKey: key,
+        draftId: job.payload.draftId,
+        mediaId: job.payload.mediaId,
+        attempt: job.payload.attempt,
+        maxAttempts: job.payload.maxAttempts,
+      });
 
       try {
         const result = await processor(job);
 
         if (result === 'retry') {
+          logger.warn('Property import queue transition', {
+            queue: 'property_import',
+            transition: 'retry_scheduled',
+            queueKey: key,
+            draftId: job.payload.draftId,
+            mediaId: job.payload.mediaId,
+            attempt: job.payload.attempt,
+            maxAttempts: job.payload.maxAttempts,
+          });
           await this.releaseJob(key);
           continue;
         }
 
         await this.deleteJob(key);
+        logger.info('Property import queue transition', {
+          queue: 'property_import',
+          transition: 'succeeded',
+          queueKey: key,
+          draftId: job.payload.draftId,
+          mediaId: job.payload.mediaId,
+          attempt: job.payload.attempt,
+          maxAttempts: job.payload.maxAttempts,
+        });
         processed += 1;
       } catch (err: any) {
-        logger.error('Property import queued job processing failed', {
+        logger.error('Property import queue transition', {
+          queue: 'property_import',
+          transition: 'processing_error_released',
           queueKey: key,
           error: err.message,
           draftId: job.payload.draftId,
           mediaId: job.payload.mediaId,
+          attempt: job.payload.attempt,
+          maxAttempts: job.payload.maxAttempts,
         });
         await this.releaseJob(key);
       }

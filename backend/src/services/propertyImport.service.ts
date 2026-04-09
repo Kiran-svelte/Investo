@@ -4,6 +4,11 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { storageService } from './storage.service';
 import { propertyImportQueueService } from './propertyImportQueue.service';
+import {
+  isPropertyImportReviewPending,
+  normalizePropertyImportDraftData,
+  normalizePropertyImportMappingProfile,
+} from './propertyImport.metadata';
 
 interface CreateDraftInput {
   draftData?: Record<string, unknown>;
@@ -45,7 +50,7 @@ function isTerminalStatus(status: string): boolean {
 }
 
 function normalizeDraftData(input: Record<string, unknown>): Prisma.InputJsonValue {
-  return { ...input } as Prisma.InputJsonValue;
+  return normalizePropertyImportDraftData(input) as Prisma.InputJsonValue;
 }
 
 function asNullableString(value: unknown): string | null {
@@ -83,30 +88,58 @@ function pickAllowed(value: string | null, allowed: string[], fallback: string):
   return allowed.includes(value) ? value : fallback;
 }
 
+function readDraftValue(
+  draftData: Record<string, unknown>,
+  mappingProfile: ReturnType<typeof normalizePropertyImportMappingProfile>,
+  targetFieldNames: string[],
+): unknown {
+  if (mappingProfile?.source_record) {
+    const mappedField = mappingProfile.field_mappings.find((item) => targetFieldNames.includes(item.target_field));
+    if (mappedField) {
+      const sourceValue = mappingProfile.source_record[mappedField.source_field];
+      if (sourceValue !== undefined && sourceValue !== null && sourceValue !== '') {
+        return sourceValue;
+      }
+    }
+  }
+
+  for (const fieldName of targetFieldNames) {
+    const value = draftData[fieldName];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 function mapDraftToPropertyData(
   draftData: Record<string, unknown>,
   mediaUrls: { images: string[]; brochureUrl: string | null },
 ): Record<string, unknown> {
+  const mappingProfile = normalizePropertyImportMappingProfile(draftData.import_mapping || draftData.importMapping);
   const propertyType = pickAllowed(
-    asNullableString(draftData.property_type) || asNullableString(draftData.propertyType),
+    asNullableString(readDraftValue(draftData, mappingProfile, ['property_type', 'propertyType'])),
     ['villa', 'apartment', 'plot', 'commercial', 'other'],
     'apartment',
   );
-  const status = pickAllowed(asNullableString(draftData.status), ['available', 'sold', 'upcoming'], 'available');
+  const status = pickAllowed(asNullableString(readDraftValue(draftData, mappingProfile, ['status'])), ['available', 'sold', 'upcoming'], 'available');
 
   return {
-    name: asNullableString(draftData.name) || 'Untitled property',
-    builder: asNullableString(draftData.builder),
-    locationCity: asNullableString(draftData.location_city) || asNullableString(draftData.locationCity),
-    locationArea: asNullableString(draftData.location_area) || asNullableString(draftData.locationArea),
-    locationPincode: asNullableString(draftData.location_pincode) || asNullableString(draftData.locationPincode),
-    priceMin: asNullableNumber(draftData.price_min) || asNullableNumber(draftData.priceMin),
-    priceMax: asNullableNumber(draftData.price_max) || asNullableNumber(draftData.priceMax),
-    bedrooms: asNullableInt(draftData.bedrooms),
+    name: asNullableString(readDraftValue(draftData, mappingProfile, ['name'])) || 'Untitled property',
+    builder: asNullableString(readDraftValue(draftData, mappingProfile, ['builder'])),
+    locationCity: asNullableString(readDraftValue(draftData, mappingProfile, ['location_city', 'locationCity'])),
+    locationArea: asNullableString(readDraftValue(draftData, mappingProfile, ['location_area', 'locationArea'])),
+    locationPincode: asNullableString(readDraftValue(draftData, mappingProfile, ['location_pincode', 'locationPincode'])),
+    priceMin: asNullableNumber(readDraftValue(draftData, mappingProfile, ['price_min', 'priceMin'])),
+    priceMax: asNullableNumber(readDraftValue(draftData, mappingProfile, ['price_max', 'priceMax'])),
+    bedrooms: asNullableInt(readDraftValue(draftData, mappingProfile, ['bedrooms'])),
     propertyType,
-    amenities: Array.isArray(draftData.amenities) ? draftData.amenities : [],
-    description: asNullableString(draftData.description),
-    reraNumber: asNullableString(draftData.rera_number) || asNullableString(draftData.reraNumber),
+    amenities: Array.isArray(readDraftValue(draftData, mappingProfile, ['amenities']))
+      ? readDraftValue(draftData, mappingProfile, ['amenities']) as unknown[]
+      : [],
+    description: asNullableString(readDraftValue(draftData, mappingProfile, ['description'])),
+    reraNumber: asNullableString(readDraftValue(draftData, mappingProfile, ['rera_number', 'reraNumber'])),
     status,
     images: mediaUrls.images,
     brochureUrl: mediaUrls.brochureUrl,
@@ -338,7 +371,7 @@ export class PropertyImportService {
   async saveDraft(companyId: string, draftId: string, userId: string, input: SaveDraftInput) {
     const draft = await prisma.propertyImportDraft.findFirst({
       where: { id: draftId, companyId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, draftData: true },
     });
 
     if (!draft) {
@@ -349,16 +382,51 @@ export class PropertyImportService {
       throw new PropertyImportError(`Draft is ${draft.status} and cannot be modified`, 409);
     }
 
-    const status = input.markPublishReady ? 'publish_ready' : undefined;
+    const mergedDraftData = normalizePropertyImportDraftData(
+      input.draftData,
+      (draft.draftData as Record<string, unknown>) || {},
+    );
+
+    if (input.markPublishReady) {
+      mergedDraftData.import_review = {
+        ...(mergedDraftData.import_review || {
+          status: 'approved',
+          confidence_hints: [],
+          review_notes: null,
+          reviewed_by_user_id: null,
+          reviewed_at: null,
+          approved_at: null,
+        }),
+        status: 'approved',
+        reviewed_by_user_id: userId,
+        reviewed_at: new Date().toISOString(),
+        approved_at: new Date().toISOString(),
+      };
+    } else if (draft.status === 'publish_ready') {
+      mergedDraftData.import_review = {
+        ...(mergedDraftData.import_review || {
+          status: 'needs_review',
+          confidence_hints: [],
+          review_notes: null,
+          reviewed_by_user_id: null,
+          reviewed_at: null,
+          approved_at: null,
+        }),
+        status: 'needs_review',
+        reviewed_by_user_id: userId,
+        reviewed_at: new Date().toISOString(),
+        approved_at: null,
+      };
+    }
 
     return prisma.propertyImportDraft.update({
       where: { id: draftId },
       data: {
-        draftData: normalizeDraftData(input.draftData),
+        draftData: normalizeDraftData(mergedDraftData),
         reviewNotes: input.reviewNotes ?? null,
         reviewedByUserId: userId,
         reviewedAt: new Date(),
-        ...(status ? { status } : {}),
+        ...(input.markPublishReady ? { status: 'publish_ready' } : draft.status === 'publish_ready' ? { status: 'review_ready' } : {}),
       },
       include: {
         mediaAssets: {
@@ -382,6 +450,10 @@ export class PropertyImportService {
 
     if (draft.status === 'cancelled') {
       throw new PropertyImportError('Cancelled drafts cannot be published', 409);
+    }
+
+    if (isPropertyImportReviewPending(draft.draftData as Record<string, unknown>)) {
+      throw new PropertyImportError('Draft requires review before publishing', 409);
     }
 
     const isExtractionComplete = draft.extractionStatus === 'extracted';

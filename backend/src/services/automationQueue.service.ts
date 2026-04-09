@@ -18,14 +18,25 @@ export interface AutomationJobPayload {
 
 interface StoredAutomationJob extends AutomationJobPayload {
   createdAt: string;
+  attempt: number;
+  maxAttempts: number;
+  lastError?: string | null;
+}
+
+interface DeadLetterAutomationJob extends StoredAutomationJob {
+  failedAt: string;
+  failureReason: string;
 }
 
 const JOB_PREFIX = 'automation:job:';
 const PROCESSING_PREFIX = 'automation:processing:';
+const DEAD_LETTER_PREFIX = 'automation:dead-letter:';
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
+const DEFAULT_MAX_ATTEMPTS = 3;
 
 const memoryJobs = new Map<string, StoredAutomationJob>();
 const memoryProcessing = new Set<string>();
+const memoryDeadLetters = new Map<string, DeadLetterAutomationJob>();
 
 function buildJobKey(type: AutomationJobType, uniqueKey: string): string {
   return `${JOB_PREFIX}${type}:${uniqueKey}`;
@@ -37,6 +48,15 @@ function buildProcessingKey(jobKey: string): string {
 
 function parseStoredJob(raw: string | StoredAutomationJob): StoredAutomationJob {
   return typeof raw === 'string' ? JSON.parse(raw) as StoredAutomationJob : raw;
+}
+
+function buildDeadLetterKey(jobKey: string): string {
+  return `${DEAD_LETTER_PREFIX}${jobKey}`;
+}
+
+function calculateRetryDelayMs(nextAttempt: number): number {
+  const backoffSeconds = Math.min(300, Math.pow(2, nextAttempt) * 10);
+  return backoffSeconds * 1000;
 }
 
 export class AutomationQueueService {
@@ -54,6 +74,9 @@ export class AutomationQueueService {
       executeAt: executeAt.toISOString(),
       data,
       createdAt: new Date().toISOString(),
+      attempt: 0,
+      maxAttempts: DEFAULT_MAX_ATTEMPTS,
+      lastError: null,
     };
 
     const redis = getRedis();
@@ -68,7 +91,16 @@ export class AutomationQueueService {
           return false;
         }
 
-        logger.debug('Automation job scheduled', { jobKey, executeAt: payload.executeAt });
+        logger.info('Automation queue transition', {
+          queue: 'automation',
+          transition: 'queued',
+          jobKey,
+          type: payload.type,
+          uniqueKey: payload.uniqueKey,
+          attempt: payload.attempt,
+          maxAttempts: payload.maxAttempts,
+          executeAt: payload.executeAt,
+        });
         return true;
       } catch (err: any) {
         logger.warn('Failed to schedule automation job in Redis, falling back to memory', {
@@ -83,7 +115,17 @@ export class AutomationQueueService {
     }
 
     memoryJobs.set(jobKey, payload);
-    logger.debug('Automation job scheduled in memory', { jobKey, executeAt: payload.executeAt });
+    logger.info('Automation queue transition', {
+      queue: 'automation',
+      transition: 'queued',
+      storage: 'memory',
+      jobKey,
+      type: payload.type,
+      uniqueKey: payload.uniqueKey,
+      attempt: payload.attempt,
+      maxAttempts: payload.maxAttempts,
+      executeAt: payload.executeAt,
+    });
     return true;
   }
 
@@ -100,20 +142,44 @@ export class AutomationQueueService {
     for (const { key, job } of dueJobs) {
       const claimed = await this.claimJob(key);
       if (!claimed) {
+        logger.debug('Automation queue transition', {
+          queue: 'automation',
+          transition: 'claim_skipped',
+          reason: 'already_processing',
+          jobKey: key,
+          type: job.type,
+          uniqueKey: job.uniqueKey,
+          attempt: job.attempt,
+          maxAttempts: job.maxAttempts,
+        });
         continue;
       }
+
+      logger.info('Automation queue transition', {
+        queue: 'automation',
+        transition: 'processing',
+        jobKey: key,
+        type: job.type,
+        uniqueKey: job.uniqueKey,
+        attempt: job.attempt,
+        maxAttempts: job.maxAttempts,
+      });
 
       try {
         await processor(job);
         await this.deleteJob(key);
-        processed += 1;
-      } catch (err: any) {
-        logger.error('Automation job failed', {
+        logger.info('Automation queue transition', {
+          queue: 'automation',
+          transition: 'succeeded',
           jobKey: key,
           type: job.type,
-          error: err.message,
+          uniqueKey: job.uniqueKey,
+          attempt: job.attempt,
+          maxAttempts: job.maxAttempts,
         });
-        await this.releaseJob(key);
+        processed += 1;
+      } catch (err: any) {
+        await this.handleProcessingFailure(key, job, err);
       }
     }
 
@@ -132,6 +198,10 @@ export class AutomationQueueService {
         if (processingKeys.length > 0) {
           await redis.del(...processingKeys);
         }
+        const deadLetterKeys = await redis.keys(`${DEAD_LETTER_PREFIX}*`);
+        if (deadLetterKeys.length > 0) {
+          await redis.del(...deadLetterKeys);
+        }
         return;
       } catch (err: any) {
         logger.warn('Failed to clear automation jobs in Redis', { error: err.message });
@@ -140,6 +210,7 @@ export class AutomationQueueService {
 
     memoryJobs.clear();
     memoryProcessing.clear();
+    memoryDeadLetters.clear();
   }
 
   private async getAllJobs(): Promise<Array<{ key: string; job: StoredAutomationJob }>> {
@@ -227,6 +298,96 @@ export class AutomationQueueService {
 
     memoryJobs.delete(jobKey);
     memoryProcessing.delete(jobKey);
+  }
+
+  private async handleProcessingFailure(jobKey: string, job: StoredAutomationJob, error: Error): Promise<void> {
+    const failureReason = error.message || 'Automation job processor failed';
+    const nextAttempt = job.attempt + 1;
+    const canRetry = nextAttempt < job.maxAttempts;
+
+    if (canRetry) {
+      const nextExecuteAt = new Date(Date.now() + calculateRetryDelayMs(nextAttempt)).toISOString();
+      const updatedJob: StoredAutomationJob = {
+        ...job,
+        attempt: nextAttempt,
+        executeAt: nextExecuteAt,
+        lastError: failureReason,
+      };
+
+      await this.upsertJob(jobKey, updatedJob);
+      await this.releaseJob(jobKey);
+
+      logger.warn('Automation queue transition', {
+        queue: 'automation',
+        transition: 'retry_scheduled',
+        jobKey,
+        type: job.type,
+        uniqueKey: job.uniqueKey,
+        attempt: nextAttempt,
+        maxAttempts: job.maxAttempts,
+        nextExecuteAt,
+        failureReason,
+      });
+      return;
+    }
+
+    const deadLetter: DeadLetterAutomationJob = {
+      ...job,
+      attempt: nextAttempt,
+      lastError: failureReason,
+      failedAt: new Date().toISOString(),
+      failureReason,
+    };
+
+    await this.saveDeadLetter(jobKey, deadLetter);
+    await this.deleteJob(jobKey);
+
+    logger.error('Automation queue transition', {
+      queue: 'automation',
+      transition: 'dead_lettered',
+      jobKey,
+      deadLetterKey: buildDeadLetterKey(jobKey),
+      type: job.type,
+      uniqueKey: job.uniqueKey,
+      attempt: deadLetter.attempt,
+      maxAttempts: deadLetter.maxAttempts,
+      failureReason,
+    });
+  }
+
+  private async upsertJob(jobKey: string, job: StoredAutomationJob): Promise<void> {
+    const redis = getRedis();
+    if (redis) {
+      try {
+        await redis.set(jobKey, JSON.stringify(job), { ex: DEFAULT_TTL_SECONDS });
+        return;
+      } catch (err: any) {
+        logger.warn('Failed to update automation job in Redis, falling back to memory', {
+          jobKey,
+          error: err.message,
+        });
+      }
+    }
+
+    memoryJobs.set(jobKey, job);
+  }
+
+  private async saveDeadLetter(jobKey: string, job: DeadLetterAutomationJob): Promise<void> {
+    const deadLetterKey = buildDeadLetterKey(jobKey);
+    const redis = getRedis();
+    if (redis) {
+      try {
+        await redis.set(deadLetterKey, JSON.stringify(job), { ex: DEFAULT_TTL_SECONDS });
+        return;
+      } catch (err: any) {
+        logger.warn('Failed to store automation dead-letter job in Redis, falling back to memory', {
+          deadLetterKey,
+          error: err.message,
+        });
+      }
+    }
+
+    memoryDeadLetters.set(deadLetterKey, job);
   }
 }
 

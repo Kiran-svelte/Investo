@@ -4,6 +4,9 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
   testMatch: ['**/tests/**/*.test.ts'],
+  moduleNameMapper: {
+    '^jwks-rsa$': '<rootDir>/src/tests/mocks/jwks-rsa.mock.ts',
+  },
   moduleFileExtensions: ['ts', 'js', 'json'],
   collectCoverageFrom: [
     'src/**/*.ts',

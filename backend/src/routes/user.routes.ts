@@ -5,6 +5,7 @@ import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
+import { requireActivePaidSubscription } from '../middleware/subscriptionEnforcement';
 import { createUserSchema } from '../models/validation';
 import { authService } from '../services/auth.service';
 import prisma from '../config/prisma';
@@ -159,11 +160,12 @@ router.get(
 router.post(
   '/',
   authorize('users', 'create'),
+  requireActivePaidSubscription,
   validate(createUserSchema),
   auditLog('create', 'users'),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, email, password, phone, role, target_company_id } = req.body;
+      const { name, email, password, phone, role, target_company_id, must_change_password } = req.body;
       
       // Determine which company to create user in
       // Super admin can specify target_company_id, others use their own company
@@ -187,15 +189,18 @@ router.post(
           include: { plan: { select: { maxAgents: true } } },
         });
 
-        if (company?.plan?.maxAgents) {
-          const currentAgents = await prisma.user.count({
-            where: { companyId, role: 'sales_agent', status: 'active' },
-          });
+        if (!company?.plan) {
+          res.status(402).json({ error: 'Active subscription plan required' });
+          return;
+        }
 
-          if (currentAgents >= company.plan.maxAgents) {
-            res.status(403).json({ error: `Agent limit reached. Max agents: ${company.plan.maxAgents}` });
-            return;
-          }
+        const currentAgents = await prisma.user.count({
+          where: { companyId, role: 'sales_agent', status: 'active' },
+        });
+
+        if (currentAgents >= company.plan.maxAgents) {
+          res.status(403).json({ error: `Agent limit reached. Max agents: ${company.plan.maxAgents}` });
+          return;
         }
       }
 
@@ -206,6 +211,7 @@ router.post(
         phone,
         role,
         company_id: companyId,
+        must_change_password,
       });
 
       res.status(201).json({ data: result, id: result.id });

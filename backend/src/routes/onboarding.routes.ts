@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { hasRole } from '../middleware/rbac';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { ROLES, normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
@@ -17,6 +18,144 @@ const DEFAULT_FEATURES = [
   'property_management', 'audit_logs', 'csv_export',
 ];
 const SYSTEM_ROLES = new Set<string>(ROLES as readonly string[]);
+const ONBOARDING_MUTATION_ROLES = ['company_admin', 'super_admin'] as const;
+const ALLOWED_DEFAULT_ONBOARDING_ROLES = new Set<string>(['sales_agent', 'operations', 'viewer']);
+const ALLOWED_PERMISSION_ACTIONS = new Set<string>(['create', 'read', 'update', 'delete']);
+const ALLOWED_PERMISSION_RESOURCES = new Set<string>([
+  'platform_settings', 'companies', 'subscriptions', 'users', 'leads',
+  'properties', 'conversations', 'visits', 'analytics', 'ai_settings',
+  'audit_logs', 'notifications',
+]);
+
+const PERMISSION_RESOURCE_ALIASES: Record<string, string> = {
+  settings: 'platform_settings',
+};
+
+type SanitizedCustomRole = {
+  roleName: string;
+  displayName: string;
+  permissions: Record<string, string[]>;
+};
+
+type SanitizedRolePermissions = {
+  permissions: Record<string, string[]>;
+  invalidResources: string[];
+};
+
+function sanitizeRolePermissions(permissions: unknown): SanitizedRolePermissions {
+  if (!permissions || typeof permissions !== 'object') {
+    return { permissions: {}, invalidResources: [] };
+  }
+
+  const sanitized: Record<string, string[]> = {};
+  const invalidResources = new Set<string>();
+  for (const [resource, actions] of Object.entries(permissions as Record<string, unknown>)) {
+    const normalizedResource = PERMISSION_RESOURCE_ALIASES[resource] || resource;
+    if (!ALLOWED_PERMISSION_RESOURCES.has(normalizedResource)) {
+      invalidResources.add(resource);
+      continue;
+    }
+
+    if (!Array.isArray(actions)) {
+      continue;
+    }
+
+    const normalizedActions = actions
+      .filter((action): action is string => typeof action === 'string' && ALLOWED_PERMISSION_ACTIONS.has(action));
+
+    if (normalizedActions.length > 0) {
+      sanitized[normalizedResource] = Array.from(new Set(normalizedActions));
+    }
+  }
+
+  return {
+    permissions: sanitized,
+    invalidResources: Array.from(invalidResources),
+  };
+}
+
+function validateRolesPayload(rawRoles: unknown): { defaults: string[]; custom: SanitizedCustomRole[] } {
+  if (!Array.isArray(rawRoles) || rawRoles.length === 0) {
+    throw new Error('roles must be a non-empty array');
+  }
+
+  const defaults = new Set<string>();
+  const custom = new Map<string, SanitizedCustomRole>();
+
+  for (const role of rawRoles) {
+    if (typeof role === 'string') {
+      const normalizedRole = role.trim();
+      if (!ALLOWED_DEFAULT_ONBOARDING_ROLES.has(normalizedRole)) {
+        throw new Error(`Unsupported default role: ${normalizedRole}`);
+      }
+      defaults.add(normalizedRole);
+      continue;
+    }
+
+    if (!role || typeof role !== 'object') {
+      throw new Error('Each role must be a role name string or role object');
+    }
+
+    const rawRoleName = (role as any).role_name;
+    const roleName = typeof rawRoleName === 'string' ? rawRoleName.trim().toLowerCase() : '';
+    if (!roleName || !/^[a-z][a-z0-9_]{1,63}$/.test(roleName)) {
+      throw new Error('Custom role_name must be snake_case and 2-64 chars');
+    }
+
+    if (SYSTEM_ROLES.has(roleName)) {
+      throw new Error(`Custom roles cannot override system role: ${roleName}`);
+    }
+
+    const rawDisplayName = (role as any).display_name;
+    const displayName = typeof rawDisplayName === 'string' && rawDisplayName.trim().length > 0
+      ? rawDisplayName.trim()
+      : roleName;
+
+    const sanitizedPermissions = sanitizeRolePermissions((role as any).permissions);
+    if (sanitizedPermissions.invalidResources.length > 0) {
+      throw new Error(
+        `Unsupported permission resources for role ${roleName}: ${sanitizedPermissions.invalidResources.join(', ')}`,
+      );
+    }
+
+    custom.set(roleName, {
+      roleName,
+      displayName,
+      permissions: sanitizedPermissions.permissions,
+    });
+  }
+
+  return {
+    defaults: Array.from(defaults),
+    custom: Array.from(custom.values()),
+  };
+}
+
+async function assertStepPrerequisites(companyId: string, targetStep: number) {
+  if (targetStep <= 1) {
+    return;
+  }
+
+  const onboarding = await prisma.companyOnboarding.findUnique({
+    where: { companyId },
+  });
+
+  if (!onboarding?.companyProfile) {
+    throw new Error('Step 1 (company profile) must be completed first');
+  }
+  if (targetStep >= 3 && !onboarding.rolesConfigured) {
+    throw new Error('Step 2 (roles) must be completed first');
+  }
+  if (targetStep >= 4 && !onboarding.featuresSelected) {
+    throw new Error('Step 3 (features) must be completed first');
+  }
+  if (targetStep >= 5 && !onboarding.aiConfigured) {
+    throw new Error('Step 4 (AI configuration) must be completed first');
+  }
+  if (targetStep >= 6 && !onboarding.teamInvited) {
+    throw new Error('Step 5 (team invitation) must be completed first');
+  }
+}
 
 async function updateCompanySetup(companyId: string, body: any) {
   const { name, whatsapp_phone, logo_url, primary_color, description } = body;
@@ -155,6 +294,7 @@ router.get(
  */
 router.post(
   '/setup',
+  hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
@@ -178,6 +318,7 @@ router.post(
  */
 router.put(
   '/setup',
+  hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
@@ -239,63 +380,60 @@ router.get(
  */
 router.post(
   '/roles',
+  hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
       const { roles } = req.body;
+      await assertStepPrerequisites(companyId, 2);
 
-      // roles: array of role names to enable, e.g. ["sales_agent", "operations"]
-      // or custom: [{ role_name: "marketing_head", display_name: "Marketing Head", permissions: {...} }]
-      if (!Array.isArray(roles) || roles.length === 0) {
-        res.status(400).json({
-          error: 'roles must be an array',
-          example: '["sales_agent", "viewer"] or [{ "role_name": "custom_role", "display_name": "Custom", "permissions": {} }]',
-        });
+      const parsedRoles = validateRolesPayload(roles);
+      if (parsedRoles.defaults.length === 0 && parsedRoles.custom.length === 0) {
+        res.status(400).json({ error: 'At least one valid role must be selected' });
         return;
       }
 
       const created = [];
-      for (const role of roles) {
-        if (typeof role === 'string') {
-          // System default role
-          const def = DEFAULT_ROLES.find(r => r.roleName === role);
-          if (!def) continue;
-          const existing = await prisma.companyRole.findUnique({
-            where: { companyId_roleName: { companyId, roleName: def.roleName } },
+      for (const roleName of parsedRoles.defaults) {
+        const def = DEFAULT_ROLES.find(r => r.roleName === roleName);
+        if (!def) continue;
+
+        const existing = await prisma.companyRole.findUnique({
+          where: { companyId_roleName: { companyId, roleName: def.roleName } },
+        });
+        if (!existing) {
+          const r = await prisma.companyRole.create({
+            data: {
+              companyId,
+              roleName: def.roleName,
+              displayName: def.displayName,
+              permissions: def.permissions,
+              isDefault: true,
+            },
           });
-          if (!existing) {
-            const r = await prisma.companyRole.create({
-              data: {
-                companyId,
-                roleName: def.roleName,
-                displayName: def.displayName,
-                permissions: def.permissions,
-                isDefault: true,
-              },
-            });
-            created.push(r);
-          } else {
-            created.push(existing);
-          }
-        } else if (typeof role === 'object' && role.role_name) {
-          // Custom role
-          const existing = await prisma.companyRole.findUnique({
-            where: { companyId_roleName: { companyId, roleName: role.role_name } },
+          created.push(r);
+        } else {
+          created.push(existing);
+        }
+      }
+
+      for (const role of parsedRoles.custom) {
+        const existing = await prisma.companyRole.findUnique({
+          where: { companyId_roleName: { companyId, roleName: role.roleName } },
+        });
+        if (!existing) {
+          const r = await prisma.companyRole.create({
+            data: {
+              companyId,
+              roleName: role.roleName,
+              displayName: role.displayName,
+              permissions: role.permissions,
+              isDefault: false,
+            },
           });
-          if (!existing) {
-            const r = await prisma.companyRole.create({
-              data: {
-                companyId,
-                roleName: role.role_name,
-                displayName: role.display_name || role.role_name,
-                permissions: role.permissions || {},
-                isDefault: false,
-              },
-            });
-            created.push(r);
-          } else {
-            created.push(existing);
-          }
+          created.push(r);
+        } else {
+          created.push(existing);
         }
       }
 
@@ -308,6 +446,14 @@ router.post(
       res.json({ data: created, step: 2, message: `${created.length} roles configured` });
     } catch (err: any) {
       logger.error('Failed to configure roles', { error: err.message });
+      if (err.message.includes('must be') || err.message.includes('Unsupported') || err.message.includes('cannot override') || err.message.includes('selected')) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      if (err.message.includes('completed first')) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: 'Failed to configure roles' });
     }
   }
@@ -319,9 +465,11 @@ router.post(
  */
 router.post(
   '/features',
+  hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
+      await assertStepPrerequisites(companyId, 3);
       const { features } = req.body;
       let featureEntries: Array<{ key: string; enabled: boolean }> = [];
       if (Array.isArray(features)) {
@@ -366,6 +514,10 @@ router.post(
       });
     } catch (err: any) {
       logger.error('Failed to configure features', { error: err.message });
+      if (err.message.includes('completed first')) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: 'Failed to configure features' });
     }
   }
@@ -377,9 +529,11 @@ router.post(
  */
 router.post(
   '/ai',
+  hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
+      await assertStepPrerequisites(companyId, 4);
       const {
         business_name, business_description, operating_locations, budget_ranges,
         response_tone, persuasion_level, working_hours,
@@ -429,6 +583,10 @@ router.post(
       res.json({ data: aiSettings, step: 4, message: 'AI settings configured' });
     } catch (err: any) {
       logger.error('Failed to configure AI', { error: err.message });
+      if (err.message.includes('completed first')) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: 'Failed to configure AI settings' });
     }
   }
@@ -440,9 +598,11 @@ router.post(
  */
 router.post(
   '/invite',
+  hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
+      await assertStepPrerequisites(companyId, 5);
       const members = req.body.members || req.body.invites;
 
       // members/invites: [{ name, email, role, password }]
@@ -523,6 +683,10 @@ router.post(
       res.json({ data: created, step: 5, message: `${created.filter(c => c.status === 'created').length} team members added` });
     } catch (err: any) {
       logger.error('Failed to invite team', { error: err.message });
+      if (err.message.includes('completed first')) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: 'Failed to invite team members' });
     }
   }
@@ -534,9 +698,11 @@ router.post(
  */
 router.post(
   '/complete',
+  hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
+      await assertStepPrerequisites(companyId, 6);
 
       const onboarding = await prisma.companyOnboarding.upsert({
         where: { companyId },
@@ -559,6 +725,10 @@ router.post(
       res.json({ data: onboarding, step: 6, message: 'Onboarding complete! Welcome to Investo.' });
     } catch (err: any) {
       logger.error('Failed to complete onboarding', { error: err.message });
+      if (err.message.includes('completed first')) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: 'Failed to complete onboarding' });
     }
   }

@@ -9,6 +9,7 @@ import config from '../config';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { normalizeAuthEmail } from '../services/auth.service';
+import { emailService } from '../services/email.service';
 
 const router = Router();
 
@@ -240,10 +241,21 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
       },
     });
 
-    // TODO: Send email with reset link
-    // For now, log the token (in production, send email)
     const resetUrl = `${config.frontend.baseUrl}/reset-password?token=${token}&email=${encodeURIComponent(user.email)}`;
-    logger.info('Password reset token generated', { userId: user.id, resetUrl });
+    logger.info('Password reset token generated', { userId: user.id });
+
+    try {
+      await emailService.sendPasswordResetEmail({
+        toEmail: user.email,
+        toName: user.name,
+        resetUrl,
+      });
+    } catch (sendErr: any) {
+      logger.error('Password reset email send failed', {
+        userId: user.id,
+        error: sendErr?.message || String(sendErr),
+      });
+    }
 
     // In development, include token in response for testing
     if (process.env.NODE_ENV === 'development') {

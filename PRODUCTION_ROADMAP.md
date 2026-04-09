@@ -88,7 +88,7 @@ Status key: `Done Now` = already implemented and working, `Partial` = present bu
 ## 12. Infrastructure and Performance
 - `Done Now` Neon-only database configuration is enforced in backend config.
 - `Done Now` Kimi is the primary AI provider with fallback support in the service layer.
-- `Done Now` Cloudflare R2 storage integration is implemented for property assets.
+- `Done Now` S3-compatible object storage integration (Cloudflare R2 by default; Backblaze B2/MinIO supported via `R2_ENDPOINT`) is implemented for property assets.
 - `Partial` API p95, webhook latency, and AI response SLAs are not yet instrumented end to end.
 - `Partial` Database pool sizing, UTC handling, E.164 checks, and decimal money rules need a final data-quality audit.
 - `Not Started` Production monitoring and alert thresholds.
@@ -104,14 +104,14 @@ Status key: `Done Now` = already implemented and working, `Partial` = present bu
 ## Implemented In This Pass
 - `backend/src/config/index.ts`: locked `DATABASE_URL` to Neon-only connection strings, defaulted AI provider config to Kimi with an explicit Kimi 2.5 model, and added R2 storage environment wiring.
 - `backend/src/services/ai.service.ts`: kept Kimi as the primary provider path and sends chat/completions requests with the configured Kimi 2.5 model.
-- `backend/src/services/storage.service.ts`: added Cloudflare R2 client setup, signed upload URL generation, and public asset URL construction for property media.
+- `backend/src/services/storage.service.ts`: added S3-compatible client setup, signed upload URL generation, and public asset URL construction for property media.
 - `backend/src/services/automationQueue.service.ts` and `backend/src/services/automation.service.ts`: added durable queued processing for visit reminders, follow-ups, and conversation timeout closures.
 - `backend/src/tests/unit/config.test.ts`: added coverage for Neon URL validation and config defaults that support the new backend baseline.
 
 ## Next 3 Execution Waves
 ### Wave 1 - Platform hardening
 Priority: P0.
-Acceptance criteria: Neon-only DB guard holds in all environments; Kimi primary provider works with fallback; R2 uploads and public URLs are verified with a real property asset.
+Acceptance criteria: Neon-only DB guard holds in all environments; Kimi primary provider works with fallback; S3-compatible uploads and public URLs are verified with a real property asset.
 
 ### Wave 2 - Core product reliability
 Priority: P0.

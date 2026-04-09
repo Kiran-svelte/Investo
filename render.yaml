@@ -64,6 +64,24 @@ services:
         value: true
       - key: DB_AUTO_SEED
         value: true
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+      - key: R2_REGION
+        value: auto
+      - key: PROPERTY_UPLOAD_MAX_BYTES
+        value: 52428800
+      - key: PROPERTY_ALLOWED_MIME_TYPES
+        value: image/jpeg,image/png,image/webp,application/pdf,video/mp4
     healthCheckPath: /api/health
 
   # Background Worker for queued tasks
@@ -97,3 +115,21 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4o
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+      - key: R2_REGION
+        value: auto
+      - key: PROPERTY_UPLOAD_MAX_BYTES
+        value: 52428800
+      - key: PROPERTY_ALLOWED_MIME_TYPES
+        value: image/jpeg,image/png,image/webp,application/pdf,video/mp4

@@ -142,7 +142,7 @@ export class AIService {
       .slice(0, 10)
       .map((p: any) => {
         const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}`;
+        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}${p.brochureUrl ? ` | Brochure: ${p.brochureUrl}` : ''}`;
       })
       .join('\n');
 
@@ -262,7 +262,7 @@ End your response with:
       .slice(0, 10)
       .map((p: any) => {
         const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}`;
+        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}${p.brochureUrl ? ` | Brochure: ${p.brochureUrl}` : ''}`;
       })
       .join('\n');
 

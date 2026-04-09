@@ -31,16 +31,26 @@ function handleRouteError(err: unknown, res: Response, fallbackMessage: string):
 
   if (err instanceof Error) {
     const message = err.message || fallbackMessage;
+
+    if (message.startsWith('R2 storage is not configured')) {
+      res.status(503).json({ error: message });
+      return;
+    }
+
     const shouldUseBadRequest =
       message.startsWith('Unsupported mime type')
       || message.startsWith('File size')
-      || message.startsWith('Uploaded object mime type mismatch')
-      || message.startsWith('Uploaded object size mismatch');
+      || message.toLowerCase().includes('validation')
+      || message.toLowerCase().includes('not found');
 
     if (shouldUseBadRequest) {
       res.status(400).json({ error: message });
       return;
     }
+
+    // Surface the actual error message even if it's a 500, to help diagnose environment issues.
+    res.status(500).json({ error: message });
+    return;
   }
 
   logger.error('Property import route failure', {

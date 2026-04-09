@@ -20,6 +20,10 @@ type MockLogger = {
   debug: jest.Mock;
 };
 
+type MockEmailService = {
+  sendPasswordResetEmail: jest.Mock;
+};
+
 const ORIGINAL_ENV = { ...process.env };
 
 function restoreEnv(): void {
@@ -38,15 +42,16 @@ function restoreEnv(): void {
   }
 }
 
-function createAuthTestApp(frontendBaseUrl?: string): {
+function createAuthTestApp(frontendBaseUrl?: string, nodeEnv: string = 'development'): {
   app: Express;
   mockPrisma: MockPrisma;
   mockLogger: MockLogger;
+  mockEmailService: MockEmailService;
 } {
   jest.resetModules();
   restoreEnv();
 
-  process.env.NODE_ENV = 'development';
+  process.env.NODE_ENV = nodeEnv;
   if (frontendBaseUrl === undefined) {
     delete process.env.FRONTEND_BASE_URL;
   } else {
@@ -70,6 +75,10 @@ function createAuthTestApp(frontendBaseUrl?: string): {
     debug: jest.fn(),
   };
 
+  const mockEmailService: MockEmailService = {
+    sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+  };
+
   jest.doMock('../../config/prisma', () => ({
     __esModule: true,
     default: mockPrisma,
@@ -78,6 +87,11 @@ function createAuthTestApp(frontendBaseUrl?: string): {
   jest.doMock('../../config/logger', () => ({
     __esModule: true,
     default: mockLogger,
+  }));
+
+  jest.doMock('../../services/email.service', () => ({
+    __esModule: true,
+    emailService: mockEmailService,
   }));
 
   jest.doMock('../../services/auth.service', () => ({
@@ -107,7 +121,7 @@ function createAuthTestApp(frontendBaseUrl?: string): {
   app.use(express.json());
   app.use('/api/auth', router);
 
-  return { app, mockPrisma, mockLogger };
+  return { app, mockPrisma, mockLogger, mockEmailService };
 }
 
 describe('Auth forgot-password reset URL generation', () => {
@@ -118,7 +132,7 @@ describe('Auth forgot-password reset URL generation', () => {
   });
 
   test('uses FRONTEND_BASE_URL and ignores request Origin header', async () => {
-    const { app, mockPrisma } = createAuthTestApp('https://app.investo.ai/');
+    const { app, mockPrisma, mockEmailService } = createAuthTestApp('https://app.investo.ai/', 'development');
 
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'user-1',
@@ -146,6 +160,8 @@ describe('Auth forgot-password reset URL generation', () => {
     expect(parsed.searchParams.get('email')).toBe('user@example.com');
     expect(resetUrl).not.toContain('evil.example');
 
+    expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+
     expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
       where: { email: 'user@example.com' },
       select: { id: true, email: true, name: true, status: true },
@@ -153,7 +169,7 @@ describe('Auth forgot-password reset URL generation', () => {
   });
 
   test('falls back to localhost frontend URL when FRONTEND_BASE_URL is absent', async () => {
-    const { app, mockPrisma } = createAuthTestApp(undefined);
+    const { app, mockPrisma, mockEmailService } = createAuthTestApp(undefined, 'development');
 
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'user-2',
@@ -178,5 +194,35 @@ describe('Auth forgot-password reset URL generation', () => {
     expect(parsed.pathname).toBe('/reset-password');
     expect(parsed.searchParams.get('email')).toBe('fallback@example.com');
     expect(resetUrl).not.toContain('attacker.example');
+
+    expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test('in production, does not return resetUrl but attempts to send email', async () => {
+    const { app, mockPrisma, mockEmailService } = createAuthTestApp('https://app.investo.ai', 'production');
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'user-3',
+      email: 'produser@example.com',
+      name: 'Prod User',
+      status: 'active',
+    });
+    mockPrisma.passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.passwordResetToken.create.mockResolvedValue({ id: 'prt-3' });
+
+    const response = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'produser@example.com' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toBeUndefined();
+
+    expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+    const args = mockEmailService.sendPasswordResetEmail.mock.calls[0]?.[0];
+    expect(args.toEmail).toBe('produser@example.com');
+    expect(args.toName).toBe('Prod User');
+    expect(typeof args.resetUrl).toBe('string');
+    expect(args.resetUrl).toContain('https://app.investo.ai/reset-password');
   });
 });
