@@ -1,0 +1,107 @@
+prd_id: whatsapp-dual-track-providers
+title: Dual-track WhatsApp providers (Meta production, GreenAPI dev/testing)
+version: "1.0.0"
+status: draft
+created_at: "2026-04-12"
+updated_at: "2026-04-12"
+
+overview: |
+  Enable developers/admins to use GreenAPI for dev/testing while enforcing Meta WhatsApp Cloud API in production.
+  This dual-track model reduces integration friction in non-production without weakening multi-tenant safety guarantees.
+
+user_stories:
+  - id: WA-PROV-001
+    persona: "Company admin"
+    story: |
+      As a company admin, I want to test WhatsApp inbound/outbound flows in dev/staging using GreenAPI,
+      so I can validate onboarding and message handling without waiting on Meta approvals, while production remains Meta.
+
+  - id: WA-PROV-002
+    persona: "Developer / QA"
+    story: |
+      As a developer/QA, I want outbound messaging and connection checks to route to the selected provider,
+      so I can run reliable end-to-end tests against both provider tracks.
+
+  - id: WA-PROV-003
+    persona: "Platform ops (SRE)"
+    story: |
+      As platform ops, I want production to fail fast if GreenAPI is configured,
+      so misconfiguration cannot silently route production traffic to a non-approved provider.
+
+scope:
+  in:
+    - "Provider selection via WHATSAPP_PROVIDER with allowed values: meta (default) and greenapi (non-production only)."
+    - "Provider abstraction for outbound operations (sendMessage, testConnection)."
+    - "GreenAPI inbound webhook endpoint for dev/testing."
+    - "Deterministic, fail-closed tenant routing for GreenAPI inbound by instance identifier → company mapping."
+    - "Deduplication key namespacing by provider + identifier + messageId."
+    - "Phone-number masking/redaction in logs and webhook processing summaries."
+
+  out:
+    - "GreenAPI support in production environments."
+    - "Runtime automatic fallback between providers."
+    - "GreenAPI rich media / interactive message feature parity with Meta."
+    - "Multi-phone-number-per-company architecture changes."
+
+features:
+  - name: provider_abstraction
+    description: "Outbound WhatsApp operations route through a provider interface supporting Meta and GreenAPI."
+
+  - name: greenapi_dev_webhook
+    description: "A non-production GreenAPI webhook endpoint accepts inbound text notifications with token-based auth."
+
+acceptance_criteria:
+  - "Production boot fails on greenapi: when NODE_ENV=production and WHATSAPP_PROVIDER is not 'meta', the backend fails during startup (fail-fast)."
+  - "Non-production GreenAPI webhook is available only when explicitly enabled: when NODE_ENV!=production and WHATSAPP_PROVIDER='greenapi', POST /api/greenapi/webhook is mounted; otherwise it is not mounted."
+  - "Outbound send routes by provider: WHATSAPP_PROVIDER='meta' uses Meta WhatsApp Cloud API; WHATSAPP_PROVIDER='greenapi' (non-prod) uses GreenAPI."
+  - "Tenant mapping is fail-closed: provider identifier must map to exactly one active tenant; missing/unmapped/ambiguous mapping rejects processing."
+  - "Deduplication is namespaced: keys include provider + identifier + messageId to prevent cross-provider/instance collisions."
+  - "Logs mask phone numbers: phone numbers are not emitted in cleartext in request logs or processing summaries."
+
+decisions:
+  - adr_id: ADR-WA-001
+    title: "Provider selection"
+    status: accepted
+    context: |
+      Investo needs a low-friction dev/testing WhatsApp integration while keeping production on Meta.
+      Provider payloads and security models differ, so the selection must be explicit.
+    decision: |
+      Introduce WHATSAPP_PROVIDER with allowed values 'meta' (default) and 'greenapi'.
+      The selected provider controls outbound provider behavior and whether the GreenAPI webhook route is mounted.
+    consequences:
+      - "Single deployable artifact supports both tracks without branching the codebase."
+      - "Tests can exercise provider-specific behavior in non-production."
+
+  - adr_id: ADR-WA-002
+    title: "Production enforcement (Meta-only)"
+    status: accepted
+    context: |
+      GreenAPI is intended only for dev/testing and should not receive production traffic.
+      Silent runtime fallback would hide misconfiguration and complicate incident response.
+    decision: |
+      Enforce Meta-only operation in production: if NODE_ENV=production and WHATSAPP_PROVIDER!='meta',
+      the server must crash during boot (fail-fast). No runtime auto-fallback is permitted.
+    consequences:
+      - "Misconfiguration is immediately visible and cannot silently degrade security/reliability."
+      - "Production behavior remains aligned with the platform PRD assumption of Meta WhatsApp Cloud API."
+
+  - adr_id: ADR-WA-003
+    title: "Tenant isolation rules for inbound routing"
+    status: accepted
+    context: |
+      The platform is multi-tenant; inbound webhooks must deterministically map to exactly one active company.
+      Meta identifies the destination via phoneNumberId, while GreenAPI uses an instance identifier.
+    decision: |
+      Apply fail-closed, deterministic routing rules for all inbound processing:
+      - Meta: resolve by phoneNumberId mapping; unmapped or ambiguous mappings are rejected in production.
+      - GreenAPI: resolve by instance identifier; missing/ambiguous identifiers are rejected; unmapped identifiers are rejected.
+      Additionally, deduplication keys are namespaced by provider+identifier+messageId and logs must mask phone numbers.
+    consequences:
+      - "Prevents cross-tenant routing mistakes and accidental data creation in the wrong tenant."
+      - "Avoids dedup collisions across providers/instances."
+      - "Reduces PII exposure risk in shared log aggregation."
+
+references:
+  - "prd.md"
+  - "WEBHOOK_CONFIGURATION.md"
+  - "docs/plan/whatsapp-dual-provider-2026-04-12/plan.yaml"

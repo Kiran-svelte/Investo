@@ -1,8 +1,14 @@
 import prisma from '../config/prisma';
 import config from '../config';
 import logger from '../config/logger';
+import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { aiService } from './ai.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
+import {
+  GreenApiWhatsAppProvider,
+  MetaWhatsAppProvider,
+  type WhatsAppOutboundProvider,
+} from './whatsapp/providers';
 import { 
   ConversationState, 
   conversationStateManager,
@@ -44,9 +50,43 @@ export interface IncomingMessageProcessingResult {
 }
 
 export class WhatsAppService {
+  private outboundProvider: WhatsAppOutboundProvider | null = null;
+  private outboundProviderName: 'meta' | 'greenapi' | null = null;
+
+  private resolveOutboundProviderName(): 'meta' | 'greenapi' {
+    // Defense-in-depth: production must never instantiate GreenApi provider.
+    if (config.env === 'production') {
+      return 'meta';
+    }
+
+    // Some unit tests mock config with partial whatsapp object; default to meta.
+    const configured = (config as any)?.whatsapp?.provider;
+    return configured === 'greenapi' ? 'greenapi' : 'meta';
+  }
+
+  private getOutboundProvider(): WhatsAppOutboundProvider {
+    const providerName = this.resolveOutboundProviderName();
+
+    if (this.outboundProvider && this.outboundProviderName === providerName) {
+      return this.outboundProvider;
+    }
+
+    this.outboundProviderName = providerName;
+    this.outboundProvider =
+      providerName === 'greenapi'
+        ? new GreenApiWhatsAppProvider({
+            apiUrl: (config as any)?.greenapi?.apiUrl || 'https://api.green-api.com',
+            idInstance: (config as any)?.greenapi?.idInstance || '',
+            apiTokenInstance: (config as any)?.greenapi?.apiTokenInstance || '',
+          })
+        : new MetaWhatsAppProvider({ apiUrl: config.whatsapp.apiUrl });
+
+    return this.outboundProvider;
+  }
+
   /**
    * Get company by WhatsApp phone number ID.
-   * First checks company.settings.whatsapp.phoneNumberId, then falls back to whatsappPhone field.
+    * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
    */
   async getCompanyByPhoneNumberId(phoneNumberId: string): Promise<{ company: any; config: CompanyWhatsAppConfig | null } | null> {
     // Find all active companies
@@ -55,80 +95,134 @@ export class WhatsAppService {
       select: { id: true, name: true, settings: true, whatsappPhone: true },
     });
 
-    // Check each company's settings.whatsapp.phoneNumberId
+    const providerName = this.resolveOutboundProviderName();
+
+    // GreenAPI inbound MUST be deterministically routed by instance identifier.
+    // Fail closed if no company is explicitly mapped.
+    if (providerName === 'greenapi') {
+      const normalizedPhoneNumberId =
+        typeof phoneNumberId === 'string' ? phoneNumberId.trim() : String(phoneNumberId ?? '').trim();
+
+      if (!normalizedPhoneNumberId) {
+        logger.error('GreenAPI company resolution failed: missing instance identifier (phoneNumberId)');
+        return null;
+      }
+
+      for (const company of companies) {
+        const settings = (company.settings as any) || {};
+        const configuredId = typeof settings.whatsapp?.phoneNumberId === 'string' ? settings.whatsapp.phoneNumberId.trim() : '';
+
+        if (configuredId && configuredId === normalizedPhoneNumberId) {
+          return {
+            company,
+            config: {
+              phoneNumberId: settings.whatsapp.phoneNumberId,
+              accessToken: settings.whatsapp.accessToken || config.whatsapp.accessToken,
+              verifyToken: settings.whatsapp.verifyToken || config.whatsapp.verifyToken,
+            },
+          };
+        }
+      }
+
+      logger.error('No company found for GreenAPI instance', {
+        phoneNumberId: normalizedPhoneNumberId,
+        totalCompanies: companies.length,
+      });
+      return null;
+    }
+
+    const normalizedPhoneNumberId =
+      typeof phoneNumberId === 'string' ? phoneNumberId.trim() : String(phoneNumberId ?? '').trim();
+
+    if (!normalizedPhoneNumberId) {
+      logger.error('Meta company resolution failed: missing phoneNumberId');
+      return null;
+    }
+
+    const matches: any[] = [];
     for (const company of companies) {
-      const settings = company.settings as any || {};
-      if (settings.whatsapp?.phoneNumberId === phoneNumberId) {
-        return {
-          company,
-          config: {
-            phoneNumberId: settings.whatsapp.phoneNumberId,
-            accessToken: settings.whatsapp.accessToken || config.whatsapp.accessToken,
-            verifyToken: settings.whatsapp.verifyToken || config.whatsapp.verifyToken,
-          },
-        };
+      const settings = (company.settings as any) || {};
+      const whatsappSettings = (settings.whatsapp as any) || {};
+
+      const configuredId =
+        typeof whatsappSettings.phoneNumberId === 'string' ? whatsappSettings.phoneNumberId.trim() : '';
+      const legacyConfiguredId =
+        typeof whatsappSettings.phone_number_id === 'string' ? whatsappSettings.phone_number_id.trim() : '';
+
+      if (
+        (configuredId && configuredId === normalizedPhoneNumberId) ||
+        (legacyConfiguredId && legacyConfiguredId === normalizedPhoneNumberId)
+      ) {
+        matches.push(company);
       }
     }
 
-    // Fallback: Check whatsappPhone field (legacy)
-    const legacyCompany = companies.find(c => c.whatsappPhone === phoneNumberId);
-    if (legacyCompany) {
-      return {
-        company: legacyCompany,
-        config: {
-          phoneNumberId,
-          accessToken: config.whatsapp.accessToken,
-          verifyToken: config.whatsapp.verifyToken,
-        },
-      };
-    }
+    if (matches.length === 1) {
+      const company = matches[0];
+      const settings = (company.settings as any) || {};
+      const whatsappSettings = (settings.whatsapp as any) || {};
+      const configuredId =
+        typeof whatsappSettings.phoneNumberId === 'string' ? whatsappSettings.phoneNumberId.trim() : '';
+      const legacyConfiguredId =
+        typeof whatsappSettings.phone_number_id === 'string' ? whatsappSettings.phone_number_id.trim() : '';
 
-    // Fallback: If only one company has WhatsApp configured, use it
-    // This handles test webhooks where Meta sends fake phone_number_id
-    const companiesWithWhatsApp = companies.filter(c => {
-      const settings = c.settings as any || {};
-      return settings.whatsapp?.phoneNumberId || settings.whatsapp?.accessToken;
-    });
-
-    if (companiesWithWhatsApp.length === 1) {
-      const company = companiesWithWhatsApp[0];
-      const settings = company.settings as any || {};
-      logger.info('Using company with WhatsApp config (fallback)', { 
-        companyId: company.id, 
-        companyName: company.name,
-        requestedPhoneNumberId: phoneNumberId,
-      });
       return {
         company,
         config: {
-          phoneNumberId: settings.whatsapp?.phoneNumberId || phoneNumberId,
-          accessToken: settings.whatsapp?.accessToken || config.whatsapp.accessToken,
-          verifyToken: settings.whatsapp?.verifyToken || config.whatsapp.verifyToken,
+          phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
+          accessToken: whatsappSettings.accessToken || config.whatsapp.accessToken,
+          verifyToken: whatsappSettings.verifyToken || config.whatsapp.verifyToken,
         },
       };
     }
 
-    // Last resort fallback: Use first active company if env var has access token
-    if (companies.length > 0 && config.whatsapp.accessToken) {
+    if (matches.length > 1) {
+      logger.error('Meta company resolution failed: duplicate phoneNumberId mapping', {
+        phoneNumberId: normalizedPhoneNumberId,
+        matchingCompanyIds: matches.map((company) => company.id),
+        totalCompanies: companies.length,
+      });
+      return null;
+    }
+
+    // No explicit mapping found.
+    // Production must fail closed; non-prod may fall back only when exactly one active company exists.
+    if (config.env === 'production') {
+      logger.error('Meta company resolution failed: phoneNumberId is unmapped (production fail closed)', {
+        phoneNumberId: normalizedPhoneNumberId,
+        totalCompanies: companies.length,
+      });
+      return null;
+    }
+
+    if (companies.length === 1) {
       const company = companies[0];
-      logger.warn('Using first active company as fallback', { 
+      const settings = (company.settings as any) || {};
+      const whatsappSettings = (settings.whatsapp as any) || {};
+      const configuredId =
+        typeof whatsappSettings.phoneNumberId === 'string' ? whatsappSettings.phoneNumberId.trim() : '';
+      const legacyConfiguredId =
+        typeof whatsappSettings.phone_number_id === 'string' ? whatsappSettings.phone_number_id.trim() : '';
+
+      logger.warn('Meta company resolution fallback: single active company (non-production)', {
         companyId: company.id,
         companyName: company.name,
+        requestedPhoneNumberId: normalizedPhoneNumberId,
       });
+
       return {
         company,
         config: {
-          phoneNumberId: config.whatsapp.phoneNumberId || phoneNumberId,
-          accessToken: config.whatsapp.accessToken,
-          verifyToken: config.whatsapp.verifyToken,
+          phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
+          accessToken: whatsappSettings.accessToken || config.whatsapp.accessToken,
+          verifyToken: whatsappSettings.verifyToken || config.whatsapp.verifyToken,
         },
       };
     }
 
-    logger.error('No company found for WhatsApp', { 
-      phoneNumberId,
+    logger.error('Meta company resolution failed: phoneNumberId is unmapped (non-production fail closed)', {
+      phoneNumberId: normalizedPhoneNumberId,
       totalCompanies: companies.length,
-      companiesWithWhatsApp: companiesWithWhatsApp.length,
     });
     return null;
   }
@@ -147,7 +241,7 @@ export class WhatsAppService {
 
     logger.info('=== WHATSAPP SERVICE: handleIncomingMessage START ===', {
       phoneNumberId: msg.phoneNumberId,
-      customerPhone: msg.customerPhone,
+      customerPhone: maskPhoneNumberForLogs(msg.customerPhone),
     });
 
     // 1. Find company by WhatsApp phone number ID
@@ -550,36 +644,26 @@ export class WhatsAppService {
    * Uses company-specific config for multi-tenant support.
    */
   async sendMessage(to: string, text: string, whatsappConfig: CompanyWhatsAppConfig): Promise<boolean> {
-    const { phoneNumberId, accessToken } = whatsappConfig;
+    const providerName = this.resolveOutboundProviderName();
 
-    if (!phoneNumberId || !accessToken) {
-      logger.error('WhatsApp config missing phoneNumberId or accessToken');
-      return false;
+    if (providerName === 'meta') {
+      const { phoneNumberId, accessToken } = whatsappConfig;
+
+      if (!phoneNumberId || !accessToken) {
+        logger.error('WhatsApp config missing phoneNumberId or accessToken');
+        return false;
+      }
     }
 
     try {
-      const response = await fetch(`${config.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: to.replace('+', ''),
-          type: 'text',
-          text: { body: text },
-        }),
-      });
+      const result = await this.getOutboundProvider().sendTextMessage(to, text, whatsappConfig);
 
-      if (!response.ok) {
-        const error = await response.text();
-        logger.error('WhatsApp API error', { status: response.status, error });
+      if (!result.success) {
+        logger.error('WhatsApp API error', { status: result.status, error: result.errorText });
         return false;
       }
 
-      const result = await response.json() as { messages?: Array<{ id: string }> };
-      logger.info('WhatsApp message sent', { messageId: result.messages?.[0]?.id });
+      logger.info('WhatsApp message sent', { messageId: result.messageId });
       return true;
     } catch (err: any) {
       logger.error('Failed to send WhatsApp message', { error: err.message });
@@ -591,33 +675,7 @@ export class WhatsAppService {
    * Test WhatsApp connection by calling the phone number endpoint.
    */
   async testConnection(whatsappConfig: CompanyWhatsAppConfig): Promise<{ success: boolean; error?: string }> {
-    const { phoneNumberId, accessToken } = whatsappConfig;
-
-    if (!phoneNumberId || !accessToken) {
-      return { success: false, error: 'Missing phoneNumberId or accessToken' };
-    }
-
-    try {
-      const response = await fetch(`${config.whatsapp.apiUrl}/${phoneNumberId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        return { success: false, error: `API Error: ${response.status} - ${error}` };
-      }
-
-      const data = await response.json();
-      return { 
-        success: true, 
-        error: undefined,
-      };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
+    return this.getOutboundProvider().testConnection(whatsappConfig);
   }
 
   /**
@@ -673,6 +731,13 @@ export class WhatsAppService {
     caption: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (this.resolveOutboundProviderName() !== 'meta') {
+      return {
+        success: false,
+        error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
+      };
+    }
+
     const { phoneNumberId, accessToken } = whatsappConfig;
 
     if (!phoneNumberId || !accessToken) {
@@ -740,6 +805,13 @@ export class WhatsAppService {
     caption: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (this.resolveOutboundProviderName() !== 'meta') {
+      return {
+        success: false,
+        error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
+      };
+    }
+
     const { phoneNumberId, accessToken } = whatsappConfig;
 
     if (!phoneNumberId || !accessToken) {
@@ -810,6 +882,13 @@ export class WhatsAppService {
     address: string,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (this.resolveOutboundProviderName() !== 'meta') {
+      return {
+        success: false,
+        error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
+      };
+    }
+
     const { phoneNumberId, accessToken } = whatsappConfig;
 
     if (!phoneNumberId || !accessToken) {
@@ -878,6 +957,13 @@ export class WhatsAppService {
     footerText: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (this.resolveOutboundProviderName() !== 'meta') {
+      return {
+        success: false,
+        error: "Not supported: interactive sends require WHATSAPP_PROVIDER='meta'",
+      };
+    }
+
     const { phoneNumberId, accessToken } = whatsappConfig;
 
     if (!phoneNumberId || !accessToken) {
@@ -970,6 +1056,13 @@ export class WhatsAppService {
     footerText: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (this.resolveOutboundProviderName() !== 'meta') {
+      return {
+        success: false,
+        error: "Not supported: interactive sends require WHATSAPP_PROVIDER='meta'",
+      };
+    }
+
     const { phoneNumberId, accessToken } = whatsappConfig;
 
     if (!phoneNumberId || !accessToken) {

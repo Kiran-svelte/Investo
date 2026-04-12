@@ -172,6 +172,34 @@ async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+function safeStringify(value: any): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function expectNoRawPhoneInLoggerMetadata(logger: LoggerMock): void {
+  const forbidden = ['919999999999', '+919999999999'];
+  const calls = [
+    ...logger.info.mock.calls,
+    ...logger.warn.mock.calls,
+    ...logger.error.mock.calls,
+    ...logger.debug.mock.calls,
+  ];
+
+  for (const call of calls) {
+    const metaArgs = call.slice(1);
+    for (const meta of metaArgs) {
+      const serialized = safeStringify(meta);
+      for (const raw of forbidden) {
+        expect(serialized).not.toContain(raw);
+      }
+    }
+  }
+}
+
 describe('Webhook reliability (Chunk 1)', () => {
   afterEach(() => {
     restoreEnv();
@@ -193,7 +221,7 @@ describe('Webhook reliability (Chunk 1)', () => {
   });
 
   test('accepts unsigned webhook in development and processes normally', async () => {
-    const { app, whatsappService } = createTestApp({ env: 'development', appSecret: 'dev-secret' });
+    const { app, logger, whatsappService } = createTestApp({ env: 'development', appSecret: 'dev-secret' });
     const payload = buildPayload();
 
     const response = await request(app)
@@ -205,6 +233,7 @@ describe('Webhook reliability (Chunk 1)', () => {
 
     await flushAsyncWork();
     expect(whatsappService.handleIncomingMessage).toHaveBeenCalledTimes(1);
+    expectNoRawPhoneInLoggerMetadata(logger);
   });
 
   test('short-circuits duplicate inbound message deterministically', async () => {
@@ -224,13 +253,14 @@ describe('Webhook reliability (Chunk 1)', () => {
 
     await flushAsyncWork();
 
-    expect(dedup.claimMessageProcessing).toHaveBeenCalledWith('wamid-1');
+    expect(dedup.claimMessageProcessing).toHaveBeenCalledWith('meta:pnid-1:wamid-1');
     expect(whatsappService.handleIncomingMessage).not.toHaveBeenCalled();
 
     const summaryCall = logger.info.mock.calls.find(([message]) => message === 'Webhook processing summary');
     expect(summaryCall).toBeDefined();
     expect(summaryCall?.[1]?.summary?.outcomes?.[0]?.status).toBe('duplicate');
     expect(summaryCall?.[1]?.summary?.outcomes?.[0]?.reason).toBe('duplicate_message_id');
+    expectNoRawPhoneInLoggerMetadata(logger);
   });
 
   test('records unsupported payload variants as skipped with clear reason', async () => {
@@ -277,10 +307,11 @@ describe('Webhook reliability (Chunk 1)', () => {
     const summaryCall = logger.info.mock.calls.find(([message]) => message === 'Webhook processing summary');
     expect(summaryCall?.[1]?.summary?.outcomes?.[0]?.status).toBe('skipped');
     expect(summaryCall?.[1]?.summary?.outcomes?.[0]?.reason).toBe('unsupported_message_type');
+    expectNoRawPhoneInLoggerMetadata(logger);
   });
 
   test('extracts and dispatches interactive button_reply payloads', async () => {
-    const { app, whatsappService } = createTestApp({
+    const { app, logger, whatsappService } = createTestApp({
       env: 'production',
       appSecret: 'prod-secret',
     });
@@ -336,10 +367,11 @@ describe('Webhook reliability (Chunk 1)', () => {
         interactiveType: 'button_reply',
       }),
     );
+    expectNoRawPhoneInLoggerMetadata(logger);
   });
 
   test('extracts and dispatches interactive list_reply payloads using description text', async () => {
-    const { app, whatsappService } = createTestApp({
+    const { app, logger, whatsappService } = createTestApp({
       env: 'production',
       appSecret: 'prod-secret',
     });
@@ -396,6 +428,7 @@ describe('Webhook reliability (Chunk 1)', () => {
         interactiveType: 'list_reply',
       }),
     );
+    expectNoRawPhoneInLoggerMetadata(logger);
   });
 
   test('releases dedup claim when downstream processing fails', async () => {
@@ -416,11 +449,12 @@ describe('Webhook reliability (Chunk 1)', () => {
 
     await flushAsyncWork();
 
-    expect(dedup.release).toHaveBeenCalledWith('wamid-1');
+    expect(dedup.release).toHaveBeenCalledWith('meta:pnid-1:wamid-1');
 
     const summaryCall = logger.info.mock.calls.find(([message]) => message === 'Webhook processing summary');
     expect(summaryCall?.[1]?.summary?.outcomes?.[0]?.status).toBe('failed');
     expect(summaryCall?.[1]?.summary?.outcomes?.[0]?.propagationStatus).toBe('failed');
+    expectNoRawPhoneInLoggerMetadata(logger);
   });
 
   test('blocks /api/webhook/test in production', async () => {

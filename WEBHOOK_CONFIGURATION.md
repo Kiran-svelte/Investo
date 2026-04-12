@@ -1,71 +1,70 @@
-# WEBHOOK CONFIGURATION GUIDE
+# Webhook Configuration (Meta + GreenAPI)
 
-**Production Webhook URL**: `https://investo-backend-v2.onrender.com/api/webhook`  
-**Localhost Webhook URL**: `http://localhost:3000/api/webhook`  
-**Webhook Verify Token**: `investo_webhook_verify_token`
+This backend supports two WhatsApp integration tracks:
 
----
+- **Meta (WhatsApp Cloud API)** — supported in production.
+- **GreenAPI** — **non-production only** (dev/testing).
 
-## FOR PRODUCTION (Meta Business Manager Setup)
+## Dual-track provider policy
 
-### Step 1: Go to Meta Business Suite
-https://business.facebook.com/
+- **Production** (`NODE_ENV=production`): **Meta only**. Setting `WHATSAPP_PROVIDER=greenapi` **fails server boot**.
+- **Non-production**: `WHATSAPP_PROVIDER` may be `meta` (default) or `greenapi`.
 
-### Step 2: Create WhatsApp Business App
-1. Navigate to **WhatsApp** > **API Setup**
-2. Create a new app or select existing app
-3. Get your **Phone Number ID** and **Access Token**
+## Meta webhook (WhatsApp Cloud API)
 
-### Step 3: Configure Webhook in Meta
-1. Go to **Configuration** > **Webhook**
-2. Click **"Edit"**
-3. Enter these values:
+**Endpoints**
+
+- `GET /api/webhook` — verification (echoes `hub.challenge`)
+- `POST /api/webhook` — inbound webhook events
+
+**Callback URLs (examples)**
+
+- Production: `https://investo-backend-v2.onrender.com/api/webhook`
+- Local dev: `http://localhost:3001/api/webhook` (default backend port is `3001`; use your `PORT` if different)
+
+**Verification**
+
+Configure these values in Meta:
 
 ```
-Callback URL: https://investo-backend-v2.onrender.com/api/webhook
-Verify Token: investo_webhook_verify_token
+Callback URL: <YOUR_BACKEND_BASE_URL>/api/webhook
+Verify Token: <WHATSAPP_VERIFY_TOKEN>
 ```
 
-4. Click **"Verify and Save"**
+Meta will call:
 
-Meta will send a GET request to verify:
 ```
-GET https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=RANDOM_STRING
+GET /api/webhook?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...
 ```
 
-Your backend will respond with the challenge value.
+**Signature security (Meta)**
 
-### Step 4: Subscribe to Webhook Events
-Select these webhook fields:
-- ✅ messages
-- ✅ message_status (optional)
+- Production requires a valid `X-Hub-Signature-256` header computed with `WHATSAPP_APP_SECRET`.
+- In non-production, the server allows missing `WHATSAPP_APP_SECRET` and/or missing signature header for local testing.
 
-### Step 5: Set Environment Variables in Render
+**Optional hardening (Meta)**
 
-Go to Render Dashboard → `investo-backend-v2` → Environment:
+- `WHATSAPP_IP_WHITELIST_ENABLED=true` — allow only Meta IP ranges.
+- `SKIP_IP_WHITELIST=true` — development-only bypass.
+
+**Meta env vars (typical)**
 
 ```bash
 WHATSAPP_VERIFY_TOKEN=investo_webhook_verify_token
-WHATSAPP_ACCESS_TOKEN=<YOUR_META_ACCESS_TOKEN>
-WHATSAPP_PHONE_NUMBER_ID=<YOUR_PHONE_NUMBER_ID>
-WHATSAPP_APP_SECRET=<YOUR_APP_SECRET>  # Required in production (signature verification)
-WHATSAPP_IP_WHITELIST_ENABLED=true     # Recommended in production
+WHATSAPP_APP_SECRET=<META_APP_SECRET>          # required in production
+WHATSAPP_ACCESS_TOKEN=<META_ACCESS_TOKEN>
+WHATSAPP_PHONE_NUMBER_ID=<META_PHONE_NUMBER_ID>
+
+WHATSAPP_IP_WHITELIST_ENABLED=true             # optional hardening
+SKIP_IP_WHITELIST=true                         # dev-only
 ```
 
-### Step 6: Redeploy Backend
-After adding env vars, trigger a redeploy in Render.
+**Local dev helper (Meta)**
 
----
-
-## FOR LOCALHOST TESTING
-
-### Option 1: Use Test Endpoint (Dev Mode)
-
-No Meta setup needed! Use the built-in test endpoint:
+`POST /api/webhook/test` is available only when `NODE_ENV=development`.
 
 ```bash
-POST http://localhost:3000/api/webhook/test
-Authorization: Bearer <YOUR_JWT_TOKEN>
+POST http://localhost:3001/api/webhook/test
 Content-Type: application/json
 
 {
@@ -75,128 +74,76 @@ Content-Type: application/json
 }
 ```
 
-This bypasses IP whitelist and simulates a WhatsApp message.
+## GreenAPI webhook (non-production only)
 
-### Option 2: Use ngrok for Real Webhook
-If you want Meta to send real webhooks to localhost:
+**When it exists**
+
+The GreenAPI route is mounted only when both conditions are true:
+
+- `NODE_ENV != production`
+- `WHATSAPP_PROVIDER=greenapi`
+
+**Endpoint**
+
+- `POST /api/greenapi/webhook`
+
+**Authorization (required)**
+
+Requests must include an `Authorization` header whose token matches `GREENAPI_WEBHOOK_URL_TOKEN`.
+
+Accepted header formats:
+
+- `Authorization: Bearer <token>`
+- `Authorization: Basic <token>`
+- `Authorization: <token>`
+
+**Required env vars (GreenAPI mode)**
 
 ```bash
-# Install ngrok
-ngrok http 3000
+WHATSAPP_PROVIDER=greenapi
 
-# Copy the HTTPS URL (e.g., https://abc123.ngrok.io)
-# Use in Meta webhook config:
-Callback URL: https://abc123.ngrok.io/api/webhook
-Verify Token: investo_webhook_verify_token
+GREENAPI_API_URL=https://api.green-api.com     # optional (defaults to this)
+GREENAPI_ID_INSTANCE=<YOUR_ID_INSTANCE>
+GREENAPI_API_TOKEN_INSTANCE=<YOUR_API_TOKEN_INSTANCE>
+GREENAPI_WEBHOOK_URL_TOKEN=<YOUR_WEBHOOK_SHARED_SECRET>
 ```
 
----
+## Critical mapping requirement (GreenAPI inbound routing)
 
-## ENVIRONMENT VARIABLES NEEDED
+GreenAPI inbound webhooks are **multi-tenant routed** by instance identifier:
 
-### Backend (.env file)
-```bash
-# Required for WhatsApp Integration
-WHATSAPP_VERIFY_TOKEN=investo_webhook_verify_token
-WHATSAPP_ACCESS_TOKEN=<from Meta>
-WHATSAPP_PHONE_NUMBER_ID=<from Meta>
-
-# Required for production webhook security
-WHATSAPP_APP_SECRET=<from Meta>  # Required in production for webhook signature verification
-
-# Optional hardening
-WHATSAPP_IP_WHITELIST_ENABLED=true  # Recommended in production - allows only Meta IP ranges
-SKIP_IP_WHITELIST=true  # Development ONLY - disables Meta IP check
-```
-
-### Frontend (.env or Render/Vercel)
-No WhatsApp env vars needed in frontend.
-
----
-
-## SECURITY NOTES
-
-### IP Whitelist Protection
-When enabled (`WHATSAPP_IP_WHITELIST_ENABLED=true`), the webhook endpoint has IP whitelist middleware that only allows:
-- **Meta/Facebook IP ranges** (173.252.96.0/19, 66.220.144.0/20, etc.)
-- **Development mode** with `SKIP_IP_WHITELIST=true`
-
-This prevents spoofing attacks where malicious actors try to fake WhatsApp webhooks.
-
-### Signature Verification
-For production, set `WHATSAPP_APP_SECRET` to enable webhook signature verification:
-```typescript
-// Backend validates:
-X-Hub-Signature-256: sha256=<HMAC>
-```
-
----
-
-## TESTING CHECKLIST
-
-### Production:
-- [ ] Meta Business Manager account created
-- [ ] WhatsApp Business API app created
-- [ ] Phone Number ID obtained
-- [ ] Access Token obtained
-- [ ] Webhook URL verified in Meta: `https://investo-backend-v2.onrender.com/api/webhook`
-- [ ] Webhook verify token set: `investo_webhook_verify_token`
-- [ ] Environment variables set in Render
-- [ ] Backend redeployed
-- [ ] Send test message from WhatsApp
-- [ ] Check lead created in dashboard
-
-### Localhost:
-- [ ] Backend running on port 3000
-- [ ] Login to get JWT token
-- [ ] Test POST /api/webhook/test endpoint
-- [ ] Verify lead created
-- [ ] Verify conversation created
-- [ ] Check AI response generated (if OPENAI_API_KEY set)
-
----
-
-## CURRENT STATUS
-
-### Production:
-- ✅ Webhook URL: Correct (`https://investo-backend-v2.onrender.com/api/webhook`)
-- ✅ Verify Token: Set (`investo_webhook_verify_token`)
-- ❌ Access Token: **NOT SET** (need from Meta)
-- ❌ Phone Number ID: **NOT SET** (need from Meta)
-- ⚠️ Status: **Not Configured** - Meta account setup required
-
-### Localhost:
-- ✅ Webhook URL: `http://localhost:3000/api/webhook`
-- ✅ Verify Token: `investo_webhook_verify_token`
-- ✅ Test Endpoint: `/api/webhook/test` available
-- ✅ IP Whitelist: Bypassed in dev mode
-- ✅ Status: **Ready for Testing** (use test endpoint)
-
----
-
-## SHOWN IN FRONTEND (AI Settings Page)
-
-Based on the screenshot you provided, the frontend displays:
+- The backend extracts the instance identifier from the webhook payload (`instanceData.idInstance`, falling back to `wid`).
+- It routes the inbound message to a company by matching:
 
 ```
-Phone Number ID: 109052801080770
-Access Token: ••••••••••••••••••••••••••••••••••••
-Webhook Verify Token: [Your custom verification token]
-Webhook URL (Read-only): https://investo-backend-v2.onrender.com/api/webhook
+payload.instanceData.idInstance  ==  company.settings.whatsapp.phoneNumberId
 ```
 
-### What to Enter:
+**Fail-closed behavior**
 
-1. **Phone Number ID**: Get from Meta → **WhatsApp** → **API Setup** → **Phone Numbers**
-2. **Access Token**: Get from Meta → **WhatsApp** → **API Setup** → **Temporary access token** (or generate permanent token)
-3. **Webhook Verify Token**: Use `investo_webhook_verify_token` (already configured)
-4. **Webhook URL**: Already set correctly (read-only field)
+- If the webhook has **no** instance identifier (or multiple different instance identifiers in the same request), the endpoint responds `422` and the message is **not processed**.
+- If **no company** is mapped for the instance identifier, the endpoint responds `404` and the message is **not processed**.
 
-### Then click:
-1. **"ai_settings.test_connection"** button → Tests if WhatsApp API is reachable
-2. **"Save WhatsApp Configuration"** button → Saves to database
+Keep this mapping **unique per active company**.
 
----
+### How to set `company.settings.whatsapp.phoneNumberId`
+
+- **Preferred (UI)**: In the frontend **AI Settings** page, set **Phone Number ID** to your GreenAPI `GREENAPI_ID_INSTANCE` for that company, then save.
+- **Fallback (DB JSON)**: Update the company `settings` JSON to include:
+
+```json
+{
+  "whatsapp": {
+    "phoneNumberId": "<YOUR_GREENAPI_ID_INSTANCE>"
+  }
+}
+```
+
+## Limitations
+
+- GreenAPI is **dev/testing only** (enforced: cannot run when `NODE_ENV=production`).
+- GreenAPI inbound processing is **text-only** (non-text message types are skipped).
+- GreenAPI outbound sending supports **text messages only**; Meta-only rich media/interactive features are not supported in GreenAPI mode.
 
 ## QUICK START GUIDE
 

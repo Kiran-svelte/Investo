@@ -1,0 +1,457 @@
+plan_id: gem-debugger-ad-hoc
+objective: "Summarize concrete fix steps from gem-debugger output (call_WJTqDjARLG85ECoOJHdM34Pj) for PII-safe logging + Meta-mode tenant isolation; map to exact repo files/tests."
+focus_area: "backend Meta webhook logging + WhatsAppService meta company resolution"
+created_at: "2026-04-12"
+created_by: "GitHub Copilot (GPT-5.2)"
+status: completed
+
+tldr: |
+  - Meta webhook logs include raw sender identifiers in multiple places: `fullBody` dump, per-message `from`, and the summary object that contains `outcomes[].from` (backend/src/routes/webhook.routes.ts:78,170-175,226,232-239).
+  - WhatsAppService logs `customerPhone` raw at inbound start (backend/src/services/whatsapp.service.ts:223-226).
+  - Meta-mode tenant selection is unsafe because `getCompanyByPhoneNumberId` can fall back to the first active company (`companies[0]`) when a global access token is configured; Prisma `findMany()` has no ordering, so this fallback is nondeterministic (backend/src/services/whatsapp.service.ts:91-203).
+  - GreenAPI webhook already demonstrates a working precedent: redact summary objects at log time using a phone-masking helper (backend/src/routes/greenapi-webhook.routes.ts:82,152-179).
+  - Existing unit tests already assert webhook summary outcomes; they can be extended to assert that raw phone digits never appear in logged metadata (backend/src/tests/unit/webhook.routes.reliability.test.ts:230,277,421).
+
+requested_fix_steps: # Concrete steps requested by user; grounded in gem-debugger content.json + current code
+  sources:
+    gem_debugger_resource: "C:/Users/kiran/AppData/Roaming/Code - Insiders/User/workspaceStorage/b4bf5f007cf49cac903b3f45cbc487bb/GitHub.copilot-chat/chat-session-resources/7dbbcf1a-e0e3-45a4-8d9d-0a5383151a6f/call_WJTqDjARLG85ECoOJHdM34Pj__vscode-1775916460963/content.json"
+    repo_precedent_masking: "backend/src/routes/greenapi-webhook.routes.ts:152-179"
+
+  pii_masking:
+    masking_format:
+      description: |
+        Use the existing GreenAPI masking shape as the canonical phone masking format:
+        - Normalize to digits, then render as `+{prefix}{stars}{last4}`.
+        - KeepPrefixLen = up to 2 digits (country code hint), keepLast = 4 digits, mask the rest with `*`.
+        - Examples: `919999999999` → `+91******9999`; `+14155552671` → `+14*****2671`.
+        Source: `maskPhoneNumberForLogs` implementation (backend/src/routes/greenapi-webhook.routes.ts:152-170).
+      exact_function_currently_in_repo:
+        name: maskPhoneNumberForLogs
+        location: backend/src/routes/greenapi-webhook.routes.ts:152-170
+
+    log_lines_to_change:
+      - location: backend/src/routes/webhook.routes.ts:170-175
+        current_log: "logger.info('=== PROCESS WEBHOOK START ===', { ..., fullBody: JSON.stringify(body).substring(0, 500) })"
+        issue: "`fullBody` contains raw webhook payload fragments including `messages[].from`." 
+        change: "Remove `fullBody` from logs or replace with non-PII correlation fields (counts + payload hash)."
+        source: "gem-debugger content.json extra.root_cause.causal_chain[0] + repo code"
+
+      - location: backend/src/routes/webhook.routes.ts:232-239
+        current_log: "logger.info('=== PROCESSING MESSAGE ===', { ..., from: message.from, ... })"
+        issue: "Logs raw sender phone number (`message.from`)."
+        change: "Log masked phone using the masking format above (or omit the field entirely)."
+        source: "gem-debugger content.json extra.root_cause.causal_chain[1] + repo code"
+
+      - location: backend/src/routes/webhook.routes.ts:226
+        current_data: "outcome.from: message?.from || null"
+        issue: "The summary object later logs `outcomes[].from` via the unredacted summary log." 
+        change: "Either (a) store masked `outcome.from`, OR (b) keep raw in-memory but redact when logging the summary (preferred, matching GreenAPI pattern)."
+        source: "gem-debugger content.json extra.root_cause.causal_chain[2] + repo code"
+
+      - location: backend/src/routes/webhook.routes.ts:78
+        current_log: "logger.info('Webhook processing summary', { summary })"
+        issue: "Logs the entire summary object including `outcomes[].from` (raw)."
+        change: "Log a redacted summary object (e.g., `summary: redactMetaSummaryForLogs(summary)`), analogous to GreenAPI redaction." 
+        source: "gem-debugger content.json extra.root_cause.causal_chain[2] + repo code; precedent: backend/src/routes/greenapi-webhook.routes.ts:82,174-179"
+
+      - location: backend/src/routes/webhook.routes.ts:284-292
+        current_log: "logger.info('=== CALLING handleIncomingMessage ===', { customerPhone: customerPhone.substring(0, 6) + '****', ... })"
+        issue: "Ad-hoc masking is inconsistent with other routes and does not preserve last-4 correlation." 
+        change: "Replace ad-hoc substring masking with the canonical masking format used for all phone logs."
+        source: "repo code (backend/src/routes/webhook.routes.ts:284-292) + masking precedent (backend/src/routes/greenapi-webhook.routes.ts:152-170)"
+
+      - location: backend/src/services/whatsapp.service.ts:223-226
+        current_log: "logger.info('=== WHATSAPP SERVICE: handleIncomingMessage START ===', { phoneNumberId: msg.phoneNumberId, customerPhone: msg.customerPhone })"
+        issue: "Logs raw `msg.customerPhone` (E.164 with `+`)."
+        change: "Log masked phone using the canonical masking format (or omit the field)."
+        source: "gem-debugger content.json extra.root_cause.causal_chain[3] + repo code"
+
+  meta_mode_company_resolution:
+    current_fallbacks_to_remove_or_adjust:
+      - location: backend/src/services/whatsapp.service.ts:163-181
+        current_behavior: "If exactly one active company has WhatsApp configured, route to it (even if `phoneNumberId` does not match)."
+        risk: "Implicit cross-tenant fallback when inbound `phone_number_id` is missing/unmapped."
+        source: "repo code + gem-debugger content.json extra.root_cause.causal_chain[4]"
+
+      - location: backend/src/services/whatsapp.service.ts:186-203
+        current_behavior: "If any active company exists and `config.whatsapp.accessToken` is set, route to `companies[0]` (unordered)."
+        risk: "Nondeterministic and unsafe tenant routing; Prisma `findMany()` has no `orderBy` so `companies[0]` can vary."
+        source: "repo code + gem-debugger content.json extra.root_cause.causal_chain[5]"
+
+    new_decision_tree_prod_vs_non_prod: |
+      Decision tree described in gem-debugger output (fail-closed in production) and aligned to current code structure:
+
+      1) Normalize `phoneNumberId` (trim) and require non-empty.
+         - Source: gem-debugger recommendation (content.json extra.fix_recommendations[1].approach).
+
+      2) Deterministic mapping only:
+         - Find active companies with `settings.whatsapp.phoneNumberId === normalizedPhoneNumberId` (and optionally legacy `whatsappPhone === normalizedPhoneNumberId`).
+         - If exactly 1 match: return it.
+         - If >1 matches: treat as configuration conflict; do NOT pick first.
+         - Source: gem-debugger recommendation (content.json extra.fix_recommendations[1].approach) + current mapping loop (backend/src/services/whatsapp.service.ts:132-145).
+
+      3) No implicit fallback in production:
+         - If no match and `config.env === 'production'`: fail closed (return null or throw typed error) and do not route.
+         - Source: gem-debugger recommendation (content.json extra.fix_recommendations[1].approach) + env definition (backend/src/config/index.ts:238-246).
+
+      4) Limited non-prod fallback (deterministic):
+         - If `config.env !== 'production'` and there is exactly 1 active company total: allow fallback to that company (optionally only if it has WhatsApp configured).
+         - Else: fail closed.
+         - Source: gem-debugger recommendation (content.json extra.fix_recommendations[1].approach).
+
+      5) Remove `companies[0]` fallback entirely.
+         - Source: gem-debugger recommendation (content.json extra.fix_recommendations[1].approach) + current unsafe block (backend/src/services/whatsapp.service.ts:186-203).
+
+  files_to_change:
+    - backend/src/routes/webhook.routes.ts
+    - backend/src/services/whatsapp.service.ts
+    - backend/src/routes/greenapi-webhook.routes.ts # only if extracting `maskPhoneNumberForLogs` into shared util
+    - backend/src/config/logger.ts # optional defense-in-depth redaction layer; gem-debugger listed as optional
+
+  tests_to_update_or_add:
+    update:
+      - file: backend/src/tests/unit/webhook.routes.reliability.test.ts
+        change: "Add assertions that raw phone digits from fixtures (e.g., `919999999999`) never appear in any `logger.*.mock.calls` metadata; keep existing outcome assertions intact."
+        anchors: "Existing summary assertions at lines 230, 277, 421; fixture phone numbers at 152, 255, 301, 360."
+        source: "gem-debugger content.json extra.fix_recommendations[2].approach + repo test file"
+
+      - file: backend/src/tests/unit/whatsapp.inbound-processing.test.ts
+        change: "Add a unit test that asserts the initial `logger.info` call for `handleIncomingMessage` logs a masked phone (not raw `+919999999999`)."
+        anchors: "Logger mock defined at lines 56-66; inbound calls in tests begin at line 145."
+        source: "gem-debugger content.json extra.fix_recommendations[2].approach + repo test file"
+
+    add:
+      - file: backend/src/tests/unit/whatsapp.meta-company-resolution.test.ts
+        cases:
+          - "Production (`config.env='production'`): multiple active companies, no phoneNumberId match → must fail closed (return null/throw)."
+          - "Non-prod: exactly 1 active company, no match → allowed deterministic fallback."
+          - "Non-prod: >1 active companies, no match → fail closed."
+          - "Duplicate mappings (2 companies share the same phoneNumberId) → fail closed (configuration conflict)."
+        source: "gem-debugger content.json extra.fix_recommendations[2].approach"
+
+research_metadata:
+  methodology: "Primary: read gem-debugger resource JSON (call_WJTq…/content.json). Verification: grep_search for exact log statements and fallbacks + targeted read_file on referenced source/tests + relationship discovery via symbol search. Line counts verified via PowerShell `(Get-Content file).Count` because `Measure-Object -Line` undercounted for some files."
+  scope: "Backend only: Meta webhook route logging + WhatsAppService company resolution + logger config + unit tests directly covering these paths."
+  confidence: high
+  coverage: 85
+  decision_blockers: 1
+  research_blockers: 0
+
+files_analyzed:
+  - file: content.json
+    path: "C:/Users/kiran/AppData/Roaming/Code - Insiders/User/workspaceStorage/b4bf5f007cf49cac903b3f45cbc487bb/GitHub.copilot-chat/chat-session-resources/7dbbcf1a-e0e3-45a4-8d9d-0a5383151a6f/call_WJTqDjARLG85ECoOJHdM34Pj__vscode-1775916460963/content.json"
+    purpose: "gem-debugger output describing root cause, reproduction, and fix recommendations for PII logging + tenant isolation in Meta mode."
+    key_elements:
+      - element: extra.root_cause.location
+        type: variable
+        location: "content.json (extra.root_cause.location)"
+        description: "Points to webhook + WhatsApp service file:line locations for PII leaks and unsafe tenant fallback."
+      - element: extra.fix_recommendations[0..2]
+        type: pattern
+        location: "content.json (extra.fix_recommendations)"
+        description: "Recommends canonical phone masking, summary redaction, and prod fail-closed meta company resolution; suggests unit tests to lock behavior."
+    language: JSON
+    lines: 66
+
+  - file: webhook.routes.ts
+    path: backend/src/routes/webhook.routes.ts
+    purpose: "Meta webhook verification + ingestion; processes inbound messages asynchronously and logs a processing summary."
+    key_elements:
+      - element: logger.info('=== PROCESS WEBHOOK START ===', { fullBody: ... })
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:170-175
+        description: "Start-of-processing log includes `fullBody` truncation that can contain raw `messages[].from`."
+      - element: outcome.from = message?.from
+        type: variable
+        location: backend/src/routes/webhook.routes.ts:226
+        description: "Outcome stores raw sender; later emitted in summary logging."
+      - element: logger.info('=== PROCESSING MESSAGE ===', { from: message.from })
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:232-239
+        description: "Per-message log includes raw sender phone."
+      - element: logger.info('Webhook processing summary', { summary })
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:78
+        description: "Logs unredacted summary object; contains `outcomes[].from`."
+      - element: logger.info('=== CALLING handleIncomingMessage ===', { customerPhone: ...'****' })
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:284-292
+        description: "Uses ad-hoc masking on `customerPhone` in one log, but other logs still emit raw phones."
+    language: TypeScript
+    lines: 596
+
+  - file: whatsapp.service.ts
+    path: backend/src/services/whatsapp.service.ts
+    purpose: "Inbound WhatsApp message processing + company routing + outbound provider abstraction."
+    key_elements:
+      - element: resolveOutboundProviderName
+        type: function
+        location: backend/src/services/whatsapp.service.ts:55-63
+        description: "Forces Meta provider in production (`config.env === 'production'`)."
+      - element: getCompanyByPhoneNumberId
+        type: function
+        location: backend/src/services/whatsapp.service.ts:90-208
+        description: "Resolves company by phoneNumberId with unsafe Meta fallbacks (`companiesWithWhatsApp[0]` and `companies[0]`)."
+      - element: prisma.company.findMany({ where: { status: 'active' } })
+        type: pattern
+        location: backend/src/services/whatsapp.service.ts:91-95
+        description: "Fetches active companies without `orderBy`; makes `companies[0]` nondeterministic when used for fallback."
+      - element: logger.info('=== WHATSAPP SERVICE: handleIncomingMessage START ===', { customerPhone: msg.customerPhone })
+        type: pattern
+        location: backend/src/services/whatsapp.service.ts:223-226
+        description: "Logs raw `customerPhone` on inbound start."
+    language: TypeScript
+    lines: 2186
+
+  - file: greenapi-webhook.routes.ts
+    path: backend/src/routes/greenapi-webhook.routes.ts
+    purpose: "GreenAPI inbound webhook handler; includes explicit summary redaction for logged outcomes."
+    key_elements:
+      - element: maskPhoneNumberForLogs
+        type: function
+        location: backend/src/routes/greenapi-webhook.routes.ts:152-170
+        description: "Canonical phone masking helper returning `+{prefix}{stars}{last4}`."
+      - element: redactGreenApiSummaryForLogs
+        type: function
+        location: backend/src/routes/greenapi-webhook.routes.ts:174-179
+        description: "Applies phone masking to `summary.outcomes[].from` before logging summary."
+      - element: logger.info('GreenAPI webhook processing summary', { summary: redactGreenApiSummaryForLogs(summary) })
+        type: pattern
+        location: backend/src/routes/greenapi-webhook.routes.ts:82
+        description: "Summary log uses redaction at log time (precedent for Meta)."
+    language: TypeScript
+    lines: 397
+
+  - file: index.ts
+    path: backend/src/config/index.ts
+    purpose: "Runtime configuration including `config.env` and WhatsApp provider restrictions."
+    key_elements:
+      - element: config.env
+        type: variable
+        location: backend/src/config/index.ts:238-246
+        description: "Defines env from NODE_ENV; production forbids non-meta provider."
+    language: TypeScript
+    lines: 379
+
+  - file: logger.ts
+    path: backend/src/config/logger.ts
+    purpose: "Winston logger configuration + minimal top-level redaction."
+    key_elements:
+      - element: logger.on('data', ... delete info.password/token/secret)
+        type: pattern
+        location: backend/src/config/logger.ts:26-30
+        description: "Only deletes shallow `password|token|secret` fields; does not mask nested PII keys like `customerPhone`/`from`."
+    language: TypeScript
+    lines: 34
+
+  - file: webhook.routes.reliability.test.ts
+    path: backend/src/tests/unit/webhook.routes.reliability.test.ts
+    purpose: "Unit tests for Meta webhook ingestion reliability and summary outcomes; mocks logger/dedup/service."
+    key_elements:
+      - element: buildPayload() fixture with messages[0].from
+        type: function
+        location: backend/src/tests/unit/webhook.routes.reliability.test.ts:140-175
+        description: "Uses raw phone digits like `919999999999` in fixtures; useful for log-redaction assertions."
+      - element: summaryCall = logger.info.mock.calls.find(... 'Webhook processing summary')
+        type: pattern
+        location: backend/src/tests/unit/webhook.routes.reliability.test.ts:230,277,421
+        description: "Existing summary assertions can be extended to assert no raw phone digits appear in logged metadata."
+    language: TypeScript
+    lines: 447
+
+  - file: whatsapp.inbound-processing.test.ts
+    path: backend/src/tests/unit/whatsapp.inbound-processing.test.ts
+    purpose: "Unit tests for WhatsAppService inbound message persistence and propagation behavior."
+    key_elements:
+      - element: jest.mock('../../config/logger', ... info: jest.fn())
+        type: pattern
+        location: backend/src/tests/unit/whatsapp.inbound-processing.test.ts:56-66
+        description: "Logger is mocked but not currently asserted; can be asserted for masked customerPhone."
+    language: TypeScript
+    lines: 221
+
+  - file: whatsapp.greenapi-company-resolution.test.ts
+    path: backend/src/tests/unit/whatsapp.greenapi-company-resolution.test.ts
+    purpose: "Unit tests demonstrating provider-specific company resolution behavior (GreenAPI fail-closed)."
+    key_elements:
+      - element: getCompanyByPhoneNumberId() returns null when unmapped (greenapi)
+        type: pattern
+        location: backend/src/tests/unit/whatsapp.greenapi-company-resolution.test.ts:55-109
+        description: "Precedent for adding a Meta-mode company resolution suite with prod vs non-prod behavior."
+    language: TypeScript
+    lines: 109
+
+  - file: package.json
+    path: backend/package.json
+    purpose: "Backend dependencies and test tooling versions (Express, Winston, Jest, TypeScript)."
+    key_elements:
+      - element: dependencies/devDependencies
+        type: variable
+        location: backend/package.json:1-65
+        description: "Confirms stack for this domain: express, winston, jest, supertest, typescript, prisma."
+    language: JSON
+    lines: 65
+
+patterns_found:
+  - category: structure
+    pattern: "Structured logs emit full meta objects without PII redaction"
+    description: "Logger calls pass rich objects (payload fragments, sender IDs, summaries). Without a shared redaction layer, PII leaks occur when raw phones are stored in objects that are later logged wholesale."
+    examples:
+      - file: backend/src/routes/webhook.routes.ts
+        location: "170-175"
+        snippet: "fullBody: JSON.stringify(body).substring(0, 500)"
+      - file: backend/src/routes/webhook.routes.ts
+        location: "78"
+        snippet: "logger.info('Webhook processing summary', { summary });"
+    prevalence: common
+
+  - category: architecture
+    pattern: "Summary redaction-at-log-time exists for GreenAPI but not Meta"
+    description: "GreenAPI logs `summary: redactGreenApiSummaryForLogs(summary)` (masking outcomes.from). Meta route logs `summary` directly."
+    examples:
+      - file: backend/src/routes/greenapi-webhook.routes.ts
+        location: "82,174-179"
+        snippet: "logger.info('GreenAPI webhook processing summary', { summary: redactGreenApiSummaryForLogs(summary) });"
+      - file: backend/src/routes/webhook.routes.ts
+        location: "78"
+        snippet: "logger.info('Webhook processing summary', { summary });"
+    prevalence: occasional
+
+  - category: architecture
+    pattern: "Meta-mode tenant routing has implicit fallback paths"
+    description: "After failing to match configured phoneNumberId, the service can route to a single WhatsApp-configured company or to the first active company when a global token is set."
+    examples:
+      - file: backend/src/services/whatsapp.service.ts
+        location: "163-203"
+        snippet: "if (companiesWithWhatsApp.length === 1) { ... } ... if (companies.length > 0 && config.whatsapp.accessToken) { const company = companies[0]; ... }"
+    prevalence: occasional
+
+  - category: testing
+    pattern: "Route unit tests use `jest.doMock` + `jest.isolateModules` to inject config/logger/service mocks"
+    description: "Webhook route tests set NODE_ENV, mock config/logger/services, and use supertest to exercise routes, then inspect `logger.*.mock.calls`."
+    examples:
+      - file: backend/src/tests/unit/webhook.routes.reliability.test.ts
+        location: "55-120"
+        snippet: "jest.doMock('../../config/logger', () => ({ default: logger }))"
+      - file: backend/src/tests/unit/webhook.routes.reliability.test.ts
+        location: "223-246"
+        snippet: "const summaryCall = logger.info.mock.calls.find(([message]) => message === 'Webhook processing summary');"
+    prevalence: common
+
+related_architecture:
+  components_relevant_to_domain:
+    - component: "Meta webhook router"
+      responsibility: "Accepts Meta webhook POSTs, verifies signature, ACKs quickly, then processes messages async."
+      location: backend/src/routes/webhook.routes.ts
+      relationship_to_domain: "domain is implemented here"
+    - component: "WhatsAppService"
+      responsibility: "Resolves company/tenant, persists inbound messages, and triggers propagation/A.I. flows."
+      location: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: "webhook processing depends on this"
+    - component: "GreenAPI webhook router"
+      responsibility: "Inbound webhook processing with explicit summary redaction (masking precedent)."
+      location: backend/src/routes/greenapi-webhook.routes.ts
+      relationship_to_domain: "provides masking precedent"
+
+  interfaces_used_by_domain:
+    - interface: "Winston logger (logger.info/warn/error)"
+      location: backend/src/config/logger.ts
+      usage_pattern: "`logger.<level>(message, metaObject)` structured logging"
+
+  data_flow_involving_domain: |
+    Meta sends payload containing `messages[].from` and `metadata.phone_number_id` → `processWebhook` logs start/per-message details (currently raw) → builds `summary.outcomes[]` (contains raw `from`) → summary is logged after async processing → calls `whatsappService.handleIncomingMessage`, which logs `customerPhone` raw and calls `getCompanyByPhoneNumberId` to select tenant.
+
+  key_relationships_to_domain:
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/services/whatsapp.service.ts
+      to: backend/src/config/prisma
+      relationship: imports
+    - from: backend/src/services/whatsapp.service.ts
+      to: backend/src/config/index.ts
+      relationship: imports
+
+related_technology_stack:
+  languages_used_in_domain:
+    - TypeScript
+    - JSON
+  frameworks_used_in_domain:
+    - name: Express
+      usage_in_domain: "Webhook routing and JSON parsing"
+  libraries_used_in_domain:
+    - name: winston
+      purpose_in_domain: "Structured logging"
+    - name: prisma
+      purpose_in_domain: "Company/lead/conversation persistence and tenant lookup"
+    - name: jest
+      purpose_in_domain: "Unit tests for routes/services"
+    - name: supertest
+      purpose_in_domain: "HTTP testing of Express routes"
+  external_apis_used_in_domain:
+    - name: Meta WhatsApp Cloud API / Webhooks
+      integration_point: backend/src/routes/webhook.routes.ts
+
+related_conventions:
+  naming_patterns_in_domain: "Route files under `backend/src/routes/*`, service logic under `backend/src/services/*`, tests under `backend/src/tests/unit/*` using `*.test.ts` naming."
+  structure_of_domain: "Webhook routers ACK quickly then process async and emit a summary log; WhatsAppService encapsulates company resolution and inbound persistence."
+  error_handling_in_domain: "Webhook signature verification is strict in production; non-prod allows missing secret/signature. Company resolution currently returns null on failure and callers log + skip."
+  testing_in_domain: "Jest module isolation + mocks for config/logger; supertest for route tests; direct class invocation for service tests."
+  documentation_in_domain: "No dedicated doc for masking/tenant routing found in repo; behavior currently encoded in code + gem-debugger resource."
+
+related_dependencies:
+  internal:
+    - component: backend/src/config/index.ts
+      relationship_to_domain: "Supplies env + WhatsApp credentials/provider selection"
+      direction: outbound
+    - component: backend/src/config/logger.ts
+      relationship_to_domain: "Logging sink for webhook + service logs"
+      direction: outbound
+    - component: backend/src/config/prisma
+      relationship_to_domain: "Company/lead storage and tenant resolution"
+      direction: outbound
+  external:
+    - name: winston
+      purpose_for_domain: "Logging"
+    - name: express
+      purpose_for_domain: "Webhook routing"
+
+domain_security_considerations:
+  sensitive_areas:
+    - area: "Phone number PII in logs"
+      location: "backend/src/routes/webhook.routes.ts:78,170-175,226,232-239; backend/src/services/whatsapp.service.ts:223-226"
+      concern: "Raw phone numbers can be persisted to log storage and leak PII."
+    - area: "Multi-tenant routing safety"
+      location: backend/src/services/whatsapp.service.ts:163-203
+      concern: "Fallback routing can attach inbound messages to the wrong tenant (data isolation breach)."
+  authentication_patterns_in_domain: "Webhook signature verification via HMAC-SHA256 (`x-hub-signature-256`) and optional IP allowlisting (not assessed in-depth for this task)."
+  authorization_patterns_in_domain: "Tenant selection is implicit in `getCompanyByPhoneNumberId`; unsafe fallbacks effectively bypass tenant isolation."
+  data_validation_in_domain: "Meta payload parsing assumes expected shapes; unsupported message types are skipped; masking/PII redaction is currently ad-hoc."
+
+testing_patterns:
+  framework: jest
+  coverage_areas:
+    - "Webhook route reliability outcomes + summary log shape"
+    - "WhatsAppService inbound persistence + propagation"
+    - "GreenAPI company resolution fail-closed"
+  test_organization: "`backend/src/tests/unit/*` with module mocks for config/logger/prisma; router tests via supertest."
+  mock_patterns:
+    - "`jest.doMock` + `jest.isolateModules` for router imports"
+    - "`jest.mock` for service class dependencies (prisma/logger/socket)"
+
+open_questions:
+  - question: "Should Meta-mode company resolution failures surface as typed errors (vs null) so webhook handlers can emit explicit error codes internally?"
+    context: "gem-debugger suggests returning null or throwing typed error; current callers handle null by logging + skipping (backend/src/services/whatsapp.service.ts:223-240)."
+    type: decision_blocker
+    affects: ["pii-logging-and-tenant-isolation"]
+
+  - question: "Is `POST /api/webhook/debug` deployed/enabled outside development? It logs raw sender identifiers (`from` / `phone=`) and bypasses signature verification."
+    context: "Related PII logs appear in debug route (backend/src/routes/webhook.routes.ts:547,558) and the endpoint lacks an env gate in current code."
+    type: research
+    affects: ["pii-logging-and-tenant-isolation"]
+
+gaps:
+  - area: "Centralized PII redaction"
+    description: "Logger-level redaction only deletes shallow `password/token/secret` keys and does not cover nested PII like `from`/`customerPhone` (backend/src/config/logger.ts:26-30)."
+    impact: nice_to_know
+    affects: ["pii-logging-and-tenant-isolation"]

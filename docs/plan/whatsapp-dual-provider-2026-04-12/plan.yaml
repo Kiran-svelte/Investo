@@ -1,0 +1,538 @@
+plan_id: whatsapp-dual-provider-2026-04-12
+objective: |
+  Dual-track WhatsApp providers: allow Green-API only in dev/testing while enforcing Meta in production.
+  Preserve existing Meta webhook security + `/api/webhook` mount order.
+  Introduce provider abstraction for outbound `sendMessage` + `testConnection`, add tests, and update docs.
+created_at: "2026-04-12T00:00:00Z"
+created_by: GitHub Copilot (GPT-5.2)
+status: pending
+research_confidence: high
+
+plan_metrics:
+  wave_1_task_count: 2
+  total_dependencies: 12
+  risk_score: medium
+
+tldr: |
+  Sources:
+  - Current backend Meta-only behavior and webhook ordering/security: backend/src/app.ts, backend/src/routes/webhook.routes.ts, backend/src/config/index.ts
+  - Meta webhook tests/mocking patterns: backend/src/tests/unit/webhook.routes.security.test.ts, backend/src/tests/unit/config.test.ts
+  - PRD production provider expectation (WhatsApp Cloud API): prd.md
+  - Green-API official docs:
+    - Send text: https://green-api.com/en/docs/api/sending/SendMessage/
+    - Get instance state: https://green-api.com/en/docs/api/account/GetStateInstance/
+    - Get instance connection status (socket): https://green-api.com/en/docs/api/account/GetStatusInstance/
+    - Incoming message envelope: https://green-api.com/en/docs/api/receiving/notifications-format/incoming-message/Webhook-IncomingMessageReceived/
+    - Incoming text message payload: https://green-api.com/en/docs/api/receiving/notifications-format/incoming-message/TextMessage/
+    - Webhook endpoint auth header behavior (`webhookUrlToken` → `Authorization`): https://green-api.com/en/docs/api/receiving/technology-webhook-endpoint/
+
+  Plan outcome:
+  - Add `WHATSAPP_PROVIDER` with strict production guard: when `NODE_ENV=production`, any value other than `meta` MUST crash startup (fail-fast).
+  - Allow `WHATSAPP_PROVIDER=greenapi` only in non-production to use Green-API for outbound `sendMessage` + `testConnection`.
+  - Preserve `/api/webhook` behavior/mount order and its HMAC raw-body signature verification + IP allowlist.
+  - Add separate Green-API webhook endpoint (non-production only) with token-based `Authorization` verification and minimal parsing for incoming text messages.
+  - Add Jest/Supertest tests: provider gating, Green-API webhook auth/parsing, and Meta regression coverage.
+  - Update WEBHOOK_CONFIGURATION.md to document provider selection and Green-API setup.
+
+decisions:
+  production_enforcement:
+    - "Fail fast: enforce provider gating during config module load so app boot fails when misconfigured (backend/src/app.ts imports backend/src/config/index.ts)."
+    - "Production allowed providers: meta only (prd.md expects WhatsApp Cloud API for inbound/outbound messaging and webhook verification)."
+    - "No production fallback: do not auto-switch providers at runtime; misconfiguration must be noisy and immediate."
+
+  non_prod_enabling:
+    - "Non-production (NODE_ENV != production): allow WHATSAPP_PROVIDER=greenapi; default remains meta when unset."
+    - "Green-API webhook route is mounted only when provider=greenapi AND non-production (reduces attack surface vs always-mount)."
+
+  webhook_invariants:
+    - "Keep Meta webhook mounted at /api/webhook before global JSON parsing to preserve raw-body signature verification (backend/src/app.ts, backend/src/routes/webhook.routes.ts)."
+    - "Do not change Meta IP allowlist behavior; it remains Meta-specific (backend/src/middleware/whatsappSecurity.ts)."
+
+  ai_settings_test_endpoint:
+    - "Make /api/ai-settings/whatsapp/test provider-aware: meta mode keeps requiring phone_number_id/access_token (backend/src/routes/ai-settings.routes.ts); greenapi mode tests the Green-API instance configured via env (backend/src/config/index.ts)."
+
+  greenapi_webhook_security:
+    - "MVP webhook hardening relies on Authorization token validation (if configured) and non-production-only mounting; do not add Green-API IP allowlisting in this scope."
+
+  scope_limits:
+    - "Provider abstraction only covers outbound text send (WhatsAppService.sendMessage) and connectivity check (WhatsAppService.testConnection) as currently implemented (backend/src/services/whatsapp.service.ts)."
+    - "Rich media methods remain Meta-only and are out-of-scope for Green-API (backend/src/services/whatsapp.service.ts)."
+    - "Green-API inbound support is MVP: accept only incoming text messages; ignore other webhook types."
+
+verification:
+  checklist:
+    - "Unit tests pass (backend/package.json: test:unit)."
+    - "TypeScript build passes (backend/package.json: build)."
+    - "Meta webhook security regression tests pass (backend/src/tests/unit/webhook.routes.security.test.ts)."
+    - "Provider gating regression test exists and passes (backend/src/tests/unit/config.test.ts)."
+    - "Docs updated with provider selection + env vars (WEBHOOK_CONFIGURATION.md)."
+
+  commands:
+    pwsh:
+      - "Set-Location backend"
+      - "npm ci"
+      - "npm run test:unit"
+      - "npm run build"
+      - "npm run test:unit -- webhook.routes.security.test.ts"
+      - "npm run test:unit -- config.test.ts"
+    bash:
+      - "cd backend"
+      - "npm ci"
+      - "npm run test:unit"
+      - "npm run build"
+      - "npm run test:unit -- webhook.routes.security.test.ts"
+      - "npm run test:unit -- config.test.ts"
+
+waves:
+  - wave: 1
+    tasks:
+      - wa01_config_provider_guard
+      - wa02_provider_abstraction_meta
+  - wave: 2
+    tasks:
+      - wa03_provider_greenapi
+  - wave: 3
+    tasks:
+      - wa04_refactor_whatsapp_service
+  - wave: 4
+    tasks:
+      - wa05_greenapi_webhook_route
+  - wave: 5
+    tasks:
+      - wa06_tests
+  - wave: 6
+    tasks:
+      - wa07_docs_update
+
+open_questions: []
+
+pre_mortem:
+  overall_risk_level: medium
+  critical_failure_modes:
+    - scenario: "Accidentally breaks Meta webhook signature verification by changing mount order or parsing behavior"
+      likelihood: medium
+      impact: critical
+      mitigation: |
+        Keep `/api/webhook` mounted before global JSON parsing as-is (backend/src/app.ts).
+        Add/keep regression tests that validate raw-body signature verification (backend/src/tests/unit/webhook.routes.security.test.ts).
+        Mount any new Green-API route without modifying the existing `/api/webhook` router.
+
+    - scenario: "Production starts with Green-API provider enabled (misconfiguration slips through)"
+      likelihood: low
+      impact: critical
+      mitigation: |
+        Validate `WHATSAPP_PROVIDER` inside the config module so any import of `config` fails fast.
+        Add config unit tests asserting `NODE_ENV=production` + `WHATSAPP_PROVIDER=greenapi` throws.
+
+    - scenario: "Green-API webhook auth token mismatch causes silent 403s and missed inbound leads"
+      likelihood: medium
+      impact: high
+      mitigation: |
+        Compare the full `Authorization` header to an expected value derived from `GREENAPI_WEBHOOK_URL_TOKEN`.
+        Document exact token/header rules (Basic vs Bearer vs default) and add tests for common variants.
+        Log rejection reasons without leaking tokens.
+
+  assumptions:
+    - "`NODE_ENV=production` is the sole signal for 'production' gating (backend/src/config/index.ts uses `process.env.NODE_ENV`)."
+    - "Green-API will be used only in non-production; production will continue to use Meta WhatsApp Cloud API."
+    - "A separate webhook endpoint is acceptable for Green-API so Meta `/api/webhook` route stays untouched."
+
+implementation_specification:
+  code_structure: |
+    - Keep the existing Meta webhook router and its security invariants unchanged (backend/src/app.ts, backend/src/routes/webhook.routes.ts).
+    - Add a small provider layer for outbound messaging:
+      - `WhatsAppProvider` interface: `sendMessage()` + `testConnection()`.
+      - `MetaWhatsAppProvider` implements current Graph API logic.
+      - `GreenApiWhatsAppProvider` implements Green-API HTTP API.
+      - A factory (or resolver) selects the provider based on `config.whatsapp.provider`.
+    - Add a new router for Green-API inbound webhooks under a distinct path (e.g. `/api/greenapi/webhook`) that:
+      - Enforces token-based `Authorization` checks (if configured).
+      - Parses `incomingMessageReceived` text messages and maps them into the existing `WhatsAppService.handleIncomingMessage` input shape.
+
+  affected_areas:
+    - backend/src/config/index.ts
+    - backend/src/services/whatsapp.service.ts
+    - backend/src/routes/ai-settings.routes.ts
+    - backend/src/app.ts
+    - backend/src/routes (new Green-API webhook router)
+    - backend/src/tests/unit
+    - WEBHOOK_CONFIGURATION.md
+
+  component_details:
+    - component: config.whatsapp.provider + config.greenapi
+      responsibility: |
+        Provide env-backed provider selection and configuration.
+        Enforce production guard: in production, `WHATSAPP_PROVIDER` must be `meta` (any other value throws on startup).
+      interfaces:
+        - "config.whatsapp.provider: 'meta' | 'greenapi' (default: meta)"
+        - "config.greenapi: { apiUrl, idInstance, apiTokenInstance, webhookUrlToken }"
+
+    - component: WhatsAppProvider
+      responsibility: |
+        Define the minimum outbound contract shared across providers.
+      interfaces:
+        - "sendMessage(to: string, text: string, companyConfig: CompanyWhatsAppConfig): Promise<boolean>"
+        - "testConnection(companyConfig: CompanyWhatsAppConfig): Promise<{ success: boolean; error?: string }>"
+
+    - component: MetaWhatsAppProvider
+      responsibility: |
+        Preserve current behavior of `WhatsAppService.sendMessage()` and `WhatsAppService.testConnection()` using Meta Graph API.
+      interfaces:
+        - "Implements WhatsAppProvider"
+
+    - component: GreenApiWhatsAppProvider
+      responsibility: |
+        Provide non-production outbound messaging using Green-API.
+        - `sendMessage`: POST `{{apiUrl}}/waInstance{{idInstance}}/sendMessage/{{apiTokenInstance}}` with `{ chatId, message }` (https://green-api.com/en/docs/api/sending/SendMessage/).
+        - `testConnection`: check instance authorization via GetStateInstance (https://green-api.com/en/docs/api/account/GetStateInstance/) and optionally socket status via GetStatusInstance (https://green-api.com/en/docs/api/account/GetStatusInstance/).
+      interfaces:
+        - "Implements WhatsAppProvider"
+
+    - component: GreenApiWebhookRouter
+      responsibility: |
+        Accept inbound Green-API webhooks and adapt them into the existing inbound processing pipeline.
+        Validate `Authorization` header if `GREENAPI_WEBHOOK_URL_TOKEN` configured (https://green-api.com/en/docs/api/receiving/technology-webhook-endpoint/).
+        Parse `incomingMessageReceived` + `textMessage` payloads (https://green-api.com/en/docs/api/receiving/notifications-format/incoming-message/TextMessage/).
+      interfaces:
+        - "POST /api/greenapi/webhook"
+
+  dependencies:
+    - component: WhatsAppService
+      relationship: "Calls provider factory for outbound sends and connection checks; inbound processing remains in WhatsAppService.handleIncomingMessage"
+    - component: webhook.routes.ts (Meta)
+      relationship: "Must remain unchanged; continues calling WhatsAppService.handleIncomingMessage"
+
+  integration_points:
+    - "Express wiring in backend/src/app.ts (mount Green-API webhook route without changing Meta webhook ordering)."
+    - "Outbound messaging in backend/src/services/whatsapp.service.ts (delegate send/test to selected provider)."
+    - "Admin test endpoint in backend/src/routes/ai-settings.routes.ts (optional provider-aware behavior in Green-API mode)."
+    - "Unit tests under backend/src/tests/unit using Jest module isolation patterns."
+
+contracts:
+  - from_task: wa01_config_provider_guard
+    to_task: wa04_refactor_whatsapp_service
+    interface: "Provider selection + env-derived config values"
+    format: "TypeScript runtime config object"
+
+  - from_task: wa02_provider_abstraction_meta
+    to_task: wa03_provider_greenapi
+    interface: "WhatsAppProvider interface + provider factory extension point"
+    format: "TypeScript interface + factory function"
+
+  - from_task: wa04_refactor_whatsapp_service
+    to_task: wa05_greenapi_webhook_route
+    interface: "Inbound message DTO shape accepted by whatsappService.handleIncomingMessage"
+    format: "{ phoneNumberId, customerPhone, customerName, messageText, messageId, interactiveId?, interactiveType? }"
+
+tasks:
+  - id: wa01_config_provider_guard
+    task_id: wa01_config_provider_guard
+    title: Add WhatsApp provider selection + production guard
+    description: |
+      Implement env-driven WhatsApp provider selection:
+      - Add `WHATSAPP_PROVIDER` with allowed values: `meta` (default) and `greenapi`.
+      - Enforce: when `NODE_ENV=production`, `WHATSAPP_PROVIDER` MUST be `meta` (any other value throws during config load; fail-fast).
+      - In non-production, allow `greenapi` to be selected.
+      - Add a `config.greenapi` block with required env vars used by the Green-API provider and webhook auth:
+        - `GREENAPI_API_URL`
+        - `GREENAPI_ID_INSTANCE`
+        - `GREENAPI_API_TOKEN_INSTANCE`
+        - optional: `GREENAPI_WEBHOOK_URL_TOKEN`
+      - Add unit tests validating the gating behavior and unknown provider values.
+
+      Verification:
+      - `cd backend && npm run test:unit` (backend/package.json)
+      - Ensure existing Meta webhook security tests still pass.
+    wave: 1
+    agent: gem-implementer
+    files_touched:
+      - backend/src/config/index.ts
+      - backend/src/tests/unit/config.test.ts
+    prototype: false
+    covers:
+      - prod_fail_fast_greenapi
+      - nonprod_allows_greenapi
+      - config_exposes_provider
+    priority: high
+    status: pending
+    dependencies: []
+    context_files:
+      - path: backend/src/config/index.ts
+        description: Current Meta-only WhatsApp config and production/non-production validation patterns.
+      - path: backend/src/tests/unit/config.test.ts
+        description: Existing pattern for config tests via module reload and env mutation.
+
+  - id: wa02_provider_abstraction_meta
+    task_id: wa02_provider_abstraction_meta
+    title: Introduce WhatsAppProvider interface + Meta provider implementation
+    description: |
+      Add a provider abstraction for outbound WhatsApp operations:
+      - Define a `WhatsAppProvider` interface that covers:
+        - `sendMessage(to, text, companyConfig)`
+        - `testConnection(companyConfig)`
+      - Implement `MetaWhatsAppProvider` by extracting the existing logic from `WhatsAppService.sendMessage` and `WhatsAppService.testConnection` (backend/src/services/whatsapp.service.ts).
+      - Add a small factory/resolver that can return the Meta provider (and will later include Green-API).
+
+      Acceptance notes:
+      - This task MUST NOT change Meta webhook behavior.
+      - Keep method signatures stable for existing call sites.
+
+      Verification:
+      - Typecheck via `cd backend && npm run build`
+    wave: 1
+    agent: gem-implementer
+    files_touched:
+      - backend/src/services/whatsappProvider.ts
+      - backend/src/services/metaWhatsAppProvider.ts
+      - backend/src/services/whatsappProviderFactory.ts
+    prototype: false
+    covers:
+      - provider_abstraction_sendMessage
+      - provider_abstraction_testConnection
+      - meta_behavior_preserved
+    priority: high
+    status: pending
+    dependencies: []
+    context_files:
+      - path: backend/src/services/whatsapp.service.ts
+        description: Existing Meta outbound logic to be extracted into a provider.
+
+  - id: wa03_provider_greenapi
+    task_id: wa03_provider_greenapi
+    title: Add Green-API provider (non-production only)
+    description: |
+      Implement `GreenApiWhatsAppProvider` with the same outbound interface:
+      - `sendMessage`:
+        - Build `chatId` in WhatsApp format. For phone numbers, convert `+<digits>` or `<digits>` into `<digits>@c.us`.
+        - Call Green-API send endpoint:
+          - POST `{{apiUrl}}/waInstance{{idInstance}}/sendMessage/{{apiTokenInstance}}`
+          - Body: `{ "chatId": "...@c.us", "message": "..." }`
+          - Response: `{ "idMessage": "..." }`
+          (Source: https://green-api.com/en/docs/api/sending/SendMessage/)
+      - `testConnection`:
+        - Call GetStateInstance to verify authorization state (`authorized` vs `notAuthorized`/`blocked`/etc.) (https://green-api.com/en/docs/api/account/GetStateInstance/).
+        - Optionally call GetStatusInstance for `online|offline`, but treat it as secondary because the docs warn it may return an invalid response (https://green-api.com/en/docs/api/account/GetStatusInstance/).
+
+      Wire provider into the factory/resolver behind `config.whatsapp.provider === 'greenapi'`.
+
+      Verification:
+      - `cd backend && npm run build`
+      - Add/extend unit tests for provider selection (mock global fetch).
+    wave: 2
+    agent: gem-implementer
+    files_touched:
+      - backend/src/services/greenApiWhatsAppProvider.ts
+      - backend/src/services/whatsappProviderFactory.ts
+    prototype: false
+    covers:
+      - greenapi_outbound_send
+      - greenapi_testConnection
+    priority: medium
+    status: pending
+    dependencies:
+      - wa01_config_provider_guard
+      - wa02_provider_abstraction_meta
+    context_files:
+      - path: backend/src/config/index.ts
+        description: Will provide GREENAPI_* config values for the provider.
+      - path: https://green-api.com/en/docs/api/sending/SendMessage/
+        description: Green-API sendMessage endpoint/shape.
+      - path: https://green-api.com/en/docs/api/account/GetStateInstance/
+        description: Green-API instance authorization state endpoint (`stateInstance`).
+      - path: https://green-api.com/en/docs/api/account/GetStatusInstance/
+        description: Green-API instance socket connection status endpoint (`statusInstance`) and its reliability warning.
+
+  - id: wa04_refactor_whatsapp_service
+    task_id: wa04_refactor_whatsapp_service
+    title: Refactor WhatsAppService outbound methods to delegate to provider
+    description: |
+      Update `WhatsAppService` to select a provider and delegate:
+      - `WhatsAppService.sendMessage(...)` delegates to the selected provider.
+      - `WhatsAppService.testConnection(...)` delegates to the selected provider.
+      - Preserve public method signatures and return shapes to avoid breaking call sites.
+
+      Important consumer:
+      - `/api/ai-settings/whatsapp/test` currently enforces Meta credentials in request body (backend/src/routes/ai-settings.routes.ts).
+        Implement provider-aware behavior:
+        - Meta mode: keep requiring `phone_number_id` + `access_token` and test Meta connectivity.
+        - Green-API mode: do not require Meta fields; test Green-API instance connectivity using env-backed config.
+
+      Verification:
+      - `cd backend && npm run test:unit`
+    wave: 3
+    agent: gem-implementer
+    files_touched:
+      - backend/src/services/whatsapp.service.ts
+      - backend/src/routes/ai-settings.routes.ts
+    prototype: false
+    covers:
+      - outbound_abstraction_wired
+      - ai_settings_test_endpoint_consistent
+    priority: high
+    status: pending
+    dependencies:
+      - wa01_config_provider_guard
+      - wa02_provider_abstraction_meta
+      - wa03_provider_greenapi
+    context_files:
+      - path: backend/src/services/whatsapp.service.ts
+        description: Contains outbound send/test methods and many call sites that must remain stable.
+      - path: backend/src/routes/ai-settings.routes.ts
+        description: Calls whatsappService.testConnection and may need provider-aware behavior.
+
+  - id: wa05_greenapi_webhook_route
+    task_id: wa05_greenapi_webhook_route
+    title: Add Green-API webhook endpoint with auth + text parsing
+    description: |
+      Add a new Express router for Green-API inbound webhooks (separate from Meta `/api/webhook`):
+      - Path: `/api/greenapi/webhook` (or similar; must not replace `/api/webhook`).
+      - Mount it without changing the existing `/api/webhook` ordering/security invariants (backend/src/app.ts).
+      - Mount only when `WHATSAPP_PROVIDER=greenapi` AND `NODE_ENV != production`.
+      - Authentication:
+        - If `GREENAPI_WEBHOOK_URL_TOKEN` is configured, require incoming `Authorization` header.
+        - Support the documented behavior:
+          - When `webhookUrlToken` is set, Green-API sends an `Authorization` header (https://green-api.com/en/docs/api/receiving/technology-webhook-endpoint/).
+          - Header can be `Basic <token>`, `Bearer <token>`, or default Bearer.
+        - Reject invalid/missing auth with 403 and a non-sensitive reason.
+      - Parsing:
+        - Accept only `typeWebhook = incomingMessageReceived` and `messageData.typeMessage = textMessage` for MVP.
+        - Extract text from `messageData.textMessageData.textMessage` (https://green-api.com/en/docs/api/receiving/notifications-format/incoming-message/TextMessage/).
+        - Map sender into existing inbound DTO (backend/src/services/whatsapp.service.ts `IncomingMessage`):
+          - `messageId`: `idMessage`
+          - `phoneNumberId`: derive from `instanceData.wid` or `instanceData.idInstance` (document mapping expectation)
+          - `customerPhone`: normalize `senderData.sender` (strip `@c.us`, keep digits)
+          - `customerName`: `senderData.senderName` or `senderData.chatName` fallback
+      - Response behavior:
+        - Respond 200 quickly (within seconds) then process asynchronously, matching the Meta webhook pattern (backend/src/routes/webhook.routes.ts).
+
+      Verification:
+      - Add unit tests for auth + parsing (Supertest).
+    wave: 4
+    agent: gem-implementer
+    files_touched:
+      - backend/src/routes/greenapi-webhook.routes.ts
+      - backend/src/app.ts
+    prototype: false
+    covers:
+      - greenapi_webhook_auth
+      - greenapi_webhook_parsing
+      - preserve_meta_webhook_mount_order
+    priority: high
+    status: pending
+    dependencies:
+      - wa01_config_provider_guard
+      - wa04_refactor_whatsapp_service
+    context_files:
+      - path: backend/src/app.ts
+        description: Shows `/api/webhook` mount ordering requirements.
+      - path: backend/src/routes/webhook.routes.ts
+        description: Meta webhook processing model to mirror (fast ACK + async processing).
+      - path: https://green-api.com/en/docs/api/receiving/technology-webhook-endpoint/
+        description: Green-API webhook auth header behavior.
+      - path: https://green-api.com/en/docs/api/receiving/notifications-format/incoming-message/TextMessage/
+        description: Green-API incoming text message payload fields.
+
+  - id: wa06_tests
+    task_id: wa06_tests
+    title: Add Jest/Supertest tests for provider gating + Green-API webhook + Meta regressions
+    description: |
+      Extend unit test coverage to prevent regressions:
+      - Provider gating:
+        - Assert production fails fast when `WHATSAPP_PROVIDER` is not `meta` (including `greenapi` and unknown values).
+        - Assert non-production allows `WHATSAPP_PROVIDER=greenapi`.
+      - Green-API webhook:
+        - 403 when `Authorization` missing/mismatched and token configured.
+        - 200 when token matches and payload is an `incomingMessageReceived` text message.
+        - Ensure handler passes normalized DTO into `whatsappService.handleIncomingMessage`.
+      - Meta regressions:
+        - Keep existing Meta webhook security tests passing (raw-body signature verification and IP allowlist).
+        - Add a minimal outbound test that `MetaWhatsAppProvider`/delegated send still builds the expected Graph API request (mock `fetch`).
+
+      Verification:
+      - `cd backend && npm run test:unit`
+    wave: 5
+    agent: gem-implementer
+    files_touched:
+      - backend/src/tests/unit/config.test.ts
+      - backend/src/tests/unit/greenapi-webhook.routes.test.ts
+      - backend/src/tests/unit/whatsapp-provider-selection.test.ts
+    prototype: false
+    covers:
+      - tests_provider_gating
+      - tests_greenapi_webhook
+      - tests_meta_regression
+    priority: high
+    status: pending
+    dependencies:
+      - wa01_config_provider_guard
+      - wa04_refactor_whatsapp_service
+      - wa05_greenapi_webhook_route
+    context_files:
+      - path: backend/src/tests/unit/webhook.routes.security.test.ts
+        description: Existing webhook security regression suite.
+      - path: backend/src/tests/unit/config.test.ts
+        description: Config gating tests belong here.
+      - path: backend/package.json
+        description: Jest/Supertest test scripts.
+
+  - id: wa07_docs_update
+    task_id: wa07_docs_update
+    title: Update WEBHOOK_CONFIGURATION.md for dual-track provider setup
+    description: |
+      Update `WEBHOOK_CONFIGURATION.md` to reflect dual-track behavior:
+      - Document `WHATSAPP_PROVIDER` defaults and the production rule:
+        - Production must use Meta; `WHATSAPP_PROVIDER=greenapi` will crash startup.
+      - Add Green-API setup (non-production only):
+        - Required env vars: `GREENAPI_API_URL`, `GREENAPI_ID_INSTANCE`, `GREENAPI_API_TOKEN_INSTANCE`.
+        - Optional: `GREENAPI_WEBHOOK_URL_TOKEN` and how it maps to `Authorization` header (Basic/Bearer/default) per Green-API docs.
+        - Webhook URL to configure (e.g. `/api/greenapi/webhook`).
+      - Preserve and keep Meta webhook instructions intact.
+
+      Verification:
+      - Ensure docs match the implemented route paths and env var names.
+    wave: 6
+    agent: gem-documentation-writer
+    files_touched:
+      - WEBHOOK_CONFIGURATION.md
+    prototype: false
+    covers:
+      - docs_updated
+    priority: medium
+    status: pending
+    dependencies:
+      - wa01_config_provider_guard
+      - wa05_greenapi_webhook_route
+    context_files:
+      - path: WEBHOOK_CONFIGURATION.md
+        description: Existing Meta-only documentation to be updated.
+      - path: https://green-api.com/en/docs/api/receiving/technology-webhook-endpoint/
+        description: Authorization header behavior from webhookUrlToken.
+
+planning_pass: 1
+planning_history:
+  - pass: 1
+    reason: "Initial plan creation from codebase + official docs; split into small DAG tasks with explicit security/regression constraints."
+    timestamp: "2026-04-12T00:00:00Z"
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 300
+    focus_area: "Backend WhatsApp integration: provider abstraction + webhook security"
+    verification:
+      - "backend: npm run test:unit"
+      - "backend: npm run build"
+    acceptance_criteria:
+      - "Production fails fast if WHATSAPP_PROVIDER is not meta"
+      - "Non-production may enable Green-API via WHATSAPP_PROVIDER=greenapi"
+      - "Meta webhook security preserved (raw-body signature verification + IP allowlist)"
+      - "Provider abstraction covers outbound sendMessage + testConnection"
+      - "Add Jest/Supertest tests for gating, Green-API webhook auth/parsing, and Meta regressions"
+      - "Update WEBHOOK_CONFIGURATION.md"
+    failure_modes:
+      - scenario: "Webhook mount order changes and signature verification breaks"
+        likelihood: medium
+        impact: high
+        mitigation: "Do not change /api/webhook route; rely on existing security regression tests."
+      - scenario: "Green-API mode triggers Meta-only rich media sends and produces noisy failures"
+        likelihood: medium
+        impact: medium
+        mitigation: "Document limitation; optionally guard rich media sends behind provider=meta in a follow-up task if needed."

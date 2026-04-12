@@ -74,9 +74,10 @@ export class WhatsAppHealthService {
 
       // Make a lightweight API call to check connectivity
       // Using the phone number endpoint is a good health check
-      const response = await fetch(`${this.apiUrl}/me?access_token=${accessToken}`, {
+      const response = await fetch(`${this.apiUrl}/me`, {
         method: 'GET',
         headers: {
+          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
       });
@@ -164,10 +165,11 @@ export class WhatsAppHealthService {
 
     try {
       const response = await fetch(
-        `${this.apiUrl}/${phoneNumberId}?access_token=${token}`,
+        `${this.apiUrl}/${phoneNumberId}`,
         {
           method: 'GET',
           headers: {
+            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
         }

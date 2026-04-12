@@ -81,6 +81,36 @@ jest.mock('../../services/socket.service', () => ({
 }));
 
 import { WhatsAppService } from '../../services/whatsapp.service';
+import logger from '../../config/logger';
+
+function safeStringify(value: any): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function expectNoRawPhoneInLoggerMetadata(): void {
+  const forbidden = ['919999999999', '+919999999999'];
+  const log = logger as any;
+  const calls: any[][] = [
+    ...(log.info?.mock?.calls ?? []),
+    ...(log.warn?.mock?.calls ?? []),
+    ...(log.error?.mock?.calls ?? []),
+    ...(log.debug?.mock?.calls ?? []),
+  ];
+
+  for (const call of calls) {
+    const metaArgs = call.slice(1);
+    for (const meta of metaArgs) {
+      const serialized = safeStringify(meta);
+      for (const raw of forbidden) {
+        expect(serialized).not.toContain(raw);
+      }
+    }
+  }
+}
 
 describe('WhatsAppService inbound operational behavior', () => {
   let service: WhatsAppService;
@@ -140,6 +170,10 @@ describe('WhatsAppService inbound operational behavior', () => {
     mockPrisma.lead.update.mockResolvedValue({ id: lead.id });
     mockPrisma.notification.create.mockResolvedValue({ id: 'notif-1' });
     mockEmitToCompany.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    expectNoRawPhoneInLoggerMetadata();
   });
 
   it('persists inbound message and updates lead contact details', async () => {

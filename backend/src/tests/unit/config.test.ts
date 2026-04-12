@@ -119,3 +119,68 @@ describe('Database configuration guard', () => {
     expect(config.db.keepAliveIntervalMs).toBe(240000);
   });
 });
+
+describe('WhatsApp provider configuration guard', () => {
+  afterEach(() => {
+    restoreEnv();
+    jest.resetModules();
+  });
+
+  test('defaults to meta provider when WHATSAPP_PROVIDER is unset', () => {
+    const config = loadConfigWithEnv({
+      ...ORIGINAL_ENV,
+      NODE_ENV: 'test',
+      DATABASE_URL: '',
+      JWT_SECRET: '',
+      JWT_REFRESH_SECRET: '',
+      WHATSAPP_PROVIDER: undefined,
+      GREENAPI_API_URL: undefined,
+      GREENAPI_ID_INSTANCE: undefined,
+      GREENAPI_API_TOKEN_INSTANCE: undefined,
+      GREENAPI_WEBHOOK_URL_TOKEN: undefined,
+    });
+
+    expect((config as any).whatsapp.provider).toBe('meta');
+    expect((config as any).greenapi.apiUrl).toBe('https://api.green-api.com');
+  });
+
+  test('allows greenapi provider in non-production', () => {
+    const config = loadConfigWithEnv({
+      ...ORIGINAL_ENV,
+      NODE_ENV: 'test',
+      DATABASE_URL: '',
+      JWT_SECRET: '',
+      JWT_REFRESH_SECRET: '',
+      WHATSAPP_PROVIDER: 'greenapi',
+    });
+
+    expect((config as any).whatsapp.provider).toBe('greenapi');
+  });
+
+  test('fails fast when greenapi is selected in production', () => {
+    expect(() =>
+      loadConfigWithEnv({
+        ...ORIGINAL_ENV,
+        NODE_ENV: 'production',
+        JEST_WORKER_ID: '',
+        DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
+        JWT_SECRET: 'present',
+        JWT_REFRESH_SECRET: 'present',
+        WHATSAPP_PROVIDER: 'greenapi',
+      }),
+    ).toThrow("WHATSAPP_PROVIDER='greenapi' is not allowed when NODE_ENV='production'");
+  });
+
+  test('rejects unknown provider values', () => {
+    expect(() =>
+      loadConfigWithEnv({
+        ...ORIGINAL_ENV,
+        NODE_ENV: 'test',
+        DATABASE_URL: '',
+        JWT_SECRET: '',
+        JWT_REFRESH_SECRET: '',
+        WHATSAPP_PROVIDER: 'invalid-provider',
+      }),
+    ).toThrow("WHATSAPP_PROVIDER must be one of: 'meta', 'greenapi'");
+  });
+});

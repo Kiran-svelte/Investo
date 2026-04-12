@@ -1,0 +1,454 @@
+plan_id: whatsapp-dual-provider-2026-04-12
+objective: Summarize gem-debugger output for GreenAPI inbound webhook critical issues (tenant routing, dedup namespacing, auth normalization, logging) and map to exact repo files/tests.
+focus_area: backend_greenapi_webhook_critical_issues
+created_at: "2026-04-12"
+created_by: GitHub Copilot (GPT-5.2)
+status: completed
+
+tldr: |
+  - Root cause (per gem-debugger): GreenAPI inbound forces a sentinel `phoneNumberId` and `WhatsAppService.getCompanyByPhoneNumberId()` can fall back to `companies[0]` when an env access token is present, making tenant selection nondeterministic and unsafe in multi-tenant DBs.
+  - Root cause (per gem-debugger): Deduplication keys are global by raw `messageId` (`whatsapp:msg:${messageId}`), so collisions across provider/instance (or replay) can suppress legitimate processing.
+  - Root cause (per gem-debugger): GreenAPI auth normalizes only the provided Authorization header but compares against a non-normalized configured expected token, causing false 401 for expected values containing scheme/whitespace.
+  - Root cause (per gem-debugger): Logs contain unmasked phone numbers (GreenAPI processing summary outcomes + WhatsAppService inbound logs).
+  - Files/tests implicated are all in backend route/service layer + existing Jest/Supertest unit tests; no frontend impact identified in the debugger output.
+
+research_metadata:
+  methodology: "Primary source: VS Code chat-session gem-debugger resource JSON. Verification: targeted read_file of referenced backend routes/services/tests + grep_search relationship discovery + PowerShell Select-String anchors for file:line locations. Stack versions taken from backend/package.json."
+  scope: "GreenAPI inbound route + WhatsAppService tenant resolution + deduplication keying + Meta webhook dedup call site + unit tests mentioned by the debugger output."
+  confidence: medium
+  coverage: 90
+  decision_blockers: 2
+  research_blockers: 1
+
+requested_summary:
+  root_cause_statements:
+    - statement: "Cross-tenant leakage risk: GreenAPI inbound discards instance identity by hardcoding `phoneNumberId` (sentinel), and tenant lookup can select an arbitrary active company via a `companies[0]` fallback when `WHATSAPP_ACCESS_TOKEN` is set."
+      source: "gem-debugger content.json (extra.root_cause.description)"
+    - statement: "Dedup collisions: dedup keys are global and only include raw `messageId`, so duplicates can collide across provider/instance (or malicious replay), suppressing valid processing."
+      source: "gem-debugger content.json (extra.root_cause.description)"
+    - statement: "Auth normalization mismatch: only the provided Authorization value is normalized; expected configured token is not normalized, so `Bearer ...` / whitespace in expected config yields false 401."
+      source: "gem-debugger content.json (extra.root_cause.description)"
+    - statement: "PII in logs: unmasked phone numbers are logged in WhatsAppService and GreenAPI webhook summary logging."
+      source: "gem-debugger content.json (extra.root_cause.description)"
+
+  minimal_safe_fix_recommendations_from_debugger:
+    tenant_routing:
+      - "Fail-closed deterministic instance→tenant resolution: derive instance identifier from payload (prefer `notification.instanceData.idInstance`), then map to exactly one company; 0 matches → 404/422; >1 matches → 409; do not process in ambiguous cases; validate before returning 200 ack."
+      - "Tighten `getCompanyByPhoneNumberId()` fallbacks: remove or strictly gate `companies[0]` fallback; add deterministic ordering if any fallback remains; ensure GreenAPI-specific selection cannot be bypassed by earlier fallbacks."
+    dedup_namespacing:
+      - "Namespace dedup keys by provider + instance (e.g., `meta:<phoneNumberId>:<messageId>` and `greenapi:<idInstance>:<messageId>`) by passing a namespaced key string into existing `claimMessageProcessing()` / `release()` call sites (no service API change required)."
+    auth_normalization:
+      - "Normalize both provided and expected Authorization tokens using the same logic (trim; strip Bearer/Basic prefix; compare normalized values using timing-safe compare)."
+    logging:
+      - "Mask phone numbers in logs (e.g., `+91******1234`), avoid logging per-message `from` values inside webhook summaries; prefer aggregates. Optionally centralize redaction in logger config."
+    source: "gem-debugger content.json (extra.fix_recommendations)"
+
+  exact_files_to_change_from_debugger:
+    tenant_routing:
+      - backend/src/routes/greenapi-webhook.routes.ts
+      - backend/src/services/whatsapp.service.ts
+    dedup_namespacing:
+      - backend/src/routes/greenapi-webhook.routes.ts
+      - backend/src/routes/webhook.routes.ts
+      - backend/src/services/deduplication.service.ts # optional per debugger
+    auth_normalization:
+      - backend/src/routes/greenapi-webhook.routes.ts
+    logging:
+      - backend/src/services/whatsapp.service.ts
+      - backend/src/routes/greenapi-webhook.routes.ts
+      - backend/src/config/logger.ts # optional per debugger
+    mounting_context:
+      - backend/src/app.ts
+    source: "gem-debugger content.json (extra.root_cause.location + extra.fix_recommendations[].location)"
+
+  tests_to_add_or_update_from_debugger:
+    - backend/src/tests/unit/greenapi-webhook.routes.test.ts
+    - backend/src/tests/unit/webhook.routes.reliability.test.ts
+    - backend/src/tests/unit/whatsapp.greenapi-company-resolution.test.ts
+    source: "gem-debugger content.json (extra.prevention.suggested_tests)"
+
+files_analyzed:
+  - file: content.json
+    path: "c:/Users/kiran/AppData/Roaming/Code - Insiders/User/workspaceStorage/b4bf5f007cf49cac903b3f45cbc487bb/GitHub.copilot-chat/chat-session-resources/7dbbcf1a-e0e3-45a4-8d9d-0a5383151a6f/call_TNmKbNtCxFgyx4FsPdv9fpRE__vscode-1775916460699/content.json"
+    purpose: gem-debugger output describing root causes, reproduction, fix recommendations, and test updates for GreenAPI webhook critical issues.
+    key_elements:
+      - element: extra.root_cause
+        type: variable
+        location: content.json:1
+        description: "Root-cause narrative and causal chain with file/line locations."
+      - element: extra.fix_recommendations
+        type: variable
+        location: content.json:1
+        description: "Recommended minimal-safe fixes with target file locations, complexity, and trade-offs."
+      - element: extra.prevention.suggested_tests
+        type: variable
+        location: content.json:1
+        description: "Suggested unit test additions/updates aligned to the fixes."
+    language: JSON
+    lines: 79
+
+  - file: greenapi-webhook.routes.ts
+    path: backend/src/routes/greenapi-webhook.routes.ts
+    purpose: GreenAPI inbound webhook endpoint with Authorization check, payload parsing for incoming text notifications, dedup claim, and async processing summary logging.
+    key_elements:
+      - element: Authorization compare (providedToken vs expectedToken)
+        type: pattern
+        location: backend/src/routes/greenapi-webhook.routes.ts:37-45
+        description: "Normalizes only the provided token via extractAuthorizationToken(), but compares to raw configured expected token."
+      - element: processGreenApiWebhook async + summary log
+        type: pattern
+        location: backend/src/routes/greenapi-webhook.routes.ts:53-55
+        description: "Returns 200 immediately, then logs full `summary` (includes outcomes with `from` phone numbers)."
+      - element: Sentinel phoneNumberId for inbound
+        type: variable
+        location: backend/src/routes/greenapi-webhook.routes.ts:203
+        description: "Sets inbound `phoneNumberId` from config or sentinel `'greenapi'`."
+      - element: Dedup claim uses raw messageId
+        type: pattern
+        location: backend/src/routes/greenapi-webhook.routes.ts:244
+        description: "Calls deduplicationService.claimMessageProcessing(msg.messageId) without provider/instance namespacing."
+    language: TypeScript
+    lines: 250
+
+  - file: whatsapp.service.ts
+    path: backend/src/services/whatsapp.service.ts
+    purpose: Central WhatsApp service for inbound processing and outbound sending; includes multi-tenant company resolution by phoneNumberId with multiple fallbacks.
+    key_elements:
+      - element: getCompanyByPhoneNumberId
+        type: function
+        location: backend/src/services/whatsapp.service.ts:90
+        description: "Looks up company via settings.whatsapp.phoneNumberId, then legacy whatsappPhone, then fallback logic including companies[0] when env access token exists."
+      - element: Unsafe fallback: companies[0]
+        type: pattern
+        location: backend/src/services/whatsapp.service.ts:152-153
+        description: "If any active company exists and env access token is set, selects the first company in an unordered array."
+      - element: Deterministic GreenAPI fallback branch
+        type: pattern
+        location: backend/src/services/whatsapp.service.ts:176
+        description: "GreenAPI-specific deterministic selection exists later, but can be bypassed by earlier fallbacks."
+      - element: Unmasked phone logged at inbound start
+        type: pattern
+        location: backend/src/services/whatsapp.service.ts:213
+        description: "Logs customer phone number in handleIncomingMessage START metadata."
+    language: TypeScript
+    lines: 1944
+
+  - file: deduplication.service.ts
+    path: backend/src/services/deduplication.service.ts
+    purpose: Redis-backed message deduplication with in-memory fallback, using a fixed key prefix and raw messageId as suffix.
+    key_elements:
+      - element: DEDUP_KEY_PREFIX
+        type: variable
+        location: backend/src/services/deduplication.service.ts:8
+        description: "Dedup keys are `whatsapp:msg:${messageId}` (global namespace)."
+      - element: claimMessageProcessing
+        type: function
+        location: backend/src/services/deduplication.service.ts:52
+        description: "Claims processing by SET NX on the dedup key; callers provide messageId."
+    language: TypeScript
+    lines: 230
+
+  - file: webhook.routes.ts
+    path: backend/src/routes/webhook.routes.ts
+    purpose: Meta webhook route for inbound messages; extracts messageId and uses deduplicationService before calling WhatsAppService.
+    key_elements:
+      - element: Dedup claim uses raw messageId
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:269
+        description: "Calls deduplicationService.claimMessageProcessing(messageId) without provider/instance namespacing."
+    language: TypeScript
+    lines: 520
+
+  - file: app.ts
+    path: backend/src/app.ts
+    purpose: Express app wiring and conditional mounting of GreenAPI inbound route.
+    key_elements:
+      - element: Conditional mount of /api/greenapi/webhook
+        type: pattern
+        location: backend/src/app.ts:59-61
+        description: "Mounts GreenAPI webhook only when non-production AND WHATSAPP_PROVIDER=greenapi."
+    language: TypeScript
+    lines: 91
+
+  - file: index.ts
+    path: backend/src/config/index.ts
+    purpose: Runtime configuration including WhatsApp provider selection and GreenAPI tokens.
+    key_elements:
+      - element: Production guard for WHATSAPP_PROVIDER
+        type: pattern
+        location: backend/src/config/index.ts:244-248
+        description: "Throws if NODE_ENV=production and provider != meta."
+      - element: config.greenapi.webhookUrlToken
+        type: variable
+        location: backend/src/config/index.ts:317-321
+        description: "GREENAPI_WEBHOOK_URL_TOKEN loaded into config.greenapi.webhookUrlToken."
+    language: TypeScript
+    lines: 321
+
+  - file: logger.ts
+    path: backend/src/config/logger.ts
+    purpose: Winston logger configuration for JSON console logs.
+    key_elements:
+      - element: winston logger setup
+        type: pattern
+        location: backend/src/config/logger.ts:1-31
+        description: "Defines JSON logging; includes an event handler attempting to delete password/token/secret fields from log info."
+    language: TypeScript
+    lines: 31
+
+  - file: greenapi-webhook.routes.test.ts
+    path: backend/src/tests/unit/greenapi-webhook.routes.test.ts
+    purpose: Jest/Supertest unit tests for GreenAPI inbound route auth and message parsing behavior.
+    key_elements:
+      - element: Dedup expectation uses raw messageId
+        type: pattern
+        location: backend/src/tests/unit/greenapi-webhook.routes.test.ts:233
+        description: "Asserts claimMessageProcessing called with raw messageId (will change if namespacing applied)."
+      - element: Inbound phoneNumberId expected as sentinel
+        type: pattern
+        location: backend/src/tests/unit/greenapi-webhook.routes.test.ts:235
+        description: "Asserts WhatsAppService called with phoneNumberId 'greenapi' (will change if instance-based routing is introduced)."
+    language: TypeScript
+    lines: 262
+
+  - file: webhook.routes.reliability.test.ts
+    path: backend/src/tests/unit/webhook.routes.reliability.test.ts
+    purpose: Jest/Supertest reliability tests for Meta webhook (signature handling, dedup short-circuiting, outcome summaries).
+    key_elements:
+      - element: Dedup expectation uses raw messageId
+        type: pattern
+        location: backend/src/tests/unit/webhook.routes.reliability.test.ts:227
+        description: "Asserts claimMessageProcessing called with raw messageId (will change if namespacing applied for Meta too)."
+    language: TypeScript
+    lines: 377
+
+  - file: whatsapp.greenapi-company-resolution.test.ts
+    path: backend/src/tests/unit/whatsapp.greenapi-company-resolution.test.ts
+    purpose: Unit test asserting deterministic GreenAPI company fallback when phoneNumberId is sentinel 'greenapi'.
+    key_elements:
+      - element: getCompanyByPhoneNumberId('greenapi')
+        type: pattern
+        location: backend/src/tests/unit/whatsapp.greenapi-company-resolution.test.ts:66
+        description: "Covers the deterministic fallback branch; does not exercise the earlier companies[0] fallback when config.whatsapp.accessToken is set."
+    language: TypeScript
+    lines: 77
+
+  - file: package.json
+    path: backend/package.json
+    purpose: Backend dependency and tooling versions.
+    key_elements:
+      - element: express
+        type: variable
+        location: backend/package.json:23
+        description: "Express 4.x web framework."
+      - element: jest + ts-jest + supertest
+        type: variable
+        location: backend/package.json:46-55
+        description: "Unit testing stack used by webhook route tests."
+      - element: prisma
+        type: variable
+        location: backend/package.json:34
+        description: "ORM used for tenant/company resolution and message persistence."
+    language: JSON
+    lines: 65
+
+  - file: schema.prisma
+    path: backend/prisma/schema.prisma
+    purpose: Prisma schema showing Company.settings as Json (enables storing provider-specific instance mapping).
+    key_elements:
+      - element: Company.settings Json
+        type: variable
+        location: backend/prisma/schema.prisma:27
+        description: "Company model includes `settings Json @default(\"{}\")` which is used for WhatsApp settings in code."
+    language: Prisma
+    lines: 646
+
+patterns_found:
+  - category: architecture
+    pattern: "Webhook routes acknowledge quickly then process asynchronously"
+    description: "Both Meta and GreenAPI webhook routes send 200 response quickly and process body asynchronously (reduces retries but complicates fail-closed validation)."
+    examples:
+      - file: backend/src/routes/greenapi-webhook.routes.ts
+        location: backend/src/routes/greenapi-webhook.routes.ts:50-60
+        snippet: "res.status(200).json({ status: 'received' });\nprocessGreenApiWebhook(req.body).then(...)"
+      - file: backend/src/routes/webhook.routes.ts
+        location: backend/src/routes/webhook.routes.ts:60-90
+        snippet: "res.status(200).json({ status: 'received' });\nprocessWebhook(req.body, ...).then(...)"
+    prevalence: common
+
+  - category: error_handling
+    pattern: "Tenant resolution uses multiple fallbacks beyond explicit mapping"
+    description: "WhatsAppService resolves company by settings/legacy fields, then falls back to heuristic selection (including an unordered first-company fallback under certain env conditions)."
+    examples:
+      - file: backend/src/services/whatsapp.service.ts
+        location: backend/src/services/whatsapp.service.ts:90-200
+        snippet: "if (companies.length > 0 && config.whatsapp.accessToken) { const company = companies[0]; ... }"
+    prevalence: occasional
+
+  - category: security
+    pattern: "Timing-safe compare is present but normalization is asymmetric"
+    description: "GreenAPI auth uses crypto.timingSafeEqual, but only normalizes the provided token; configured expected token is compared raw."
+    examples:
+      - file: backend/src/routes/greenapi-webhook.routes.ts
+        location: backend/src/routes/greenapi-webhook.routes.ts:37-78
+        snippet: "const providedToken = extractAuthorizationToken(...);\nif (!providedToken || !timingSafeEquals(providedToken, expectedToken))"
+    prevalence: occasional
+
+  - category: structure
+    pattern: "Deduplication service expects callers to provide message identifiers"
+    description: "DeduplicationService builds Redis keys by prefix + messageId; routes pass raw provider message IDs directly."
+    examples:
+      - file: backend/src/services/deduplication.service.ts
+        location: backend/src/services/deduplication.service.ts:52-63
+        snippet: "const key = `${DEDUP_KEY_PREFIX}${messageId}`;"
+      - file: backend/src/routes/webhook.routes.ts
+        location: backend/src/routes/webhook.routes.ts:260-300
+        snippet: "await deduplicationService.claimMessageProcessing(messageId);"
+    prevalence: common
+
+  - category: error_handling
+    pattern: "GreenAPI webhook summary logging captures per-message outcomes"
+    description: "GreenAPI route logs a summary containing outcomes that include `from` phone numbers."
+    examples:
+      - file: backend/src/routes/greenapi-webhook.routes.ts
+        location: backend/src/routes/greenapi-webhook.routes.ts:55
+        snippet: "logger.info('GreenAPI webhook processing summary', { summary });"
+    prevalence: rare
+
+related_architecture:
+  components_relevant_to_domain:
+    - component: GreenAPI webhook router
+      responsibility: "Accept GreenAPI inbound notifications, auth-check via webhookUrlToken, parse incoming text messages, dedup claim, and dispatch to WhatsAppService."
+      location: backend/src/routes/greenapi-webhook.routes.ts
+      relationship_to_domain: "core"
+    - component: Meta webhook router
+      responsibility: "Accept Meta inbound messages, signature verification, dedup claim, dispatch to WhatsAppService."
+      location: backend/src/routes/webhook.routes.ts
+      relationship_to_domain: "dedup parity + shared WhatsAppService entrypoint"
+    - component: WhatsAppService
+      responsibility: "Resolve tenant/company, persist lead/conversation/messages, optionally generate AI response and send outbound messages."
+      location: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: "receives inbound dispatch from both webhook routes"
+    - component: DeduplicationService
+      responsibility: "Prevent duplicate processing using Redis SET NX (or memory fallback)."
+      location: backend/src/services/deduplication.service.ts
+      relationship_to_domain: "shared by both webhook routes"
+
+  interfaces_used_by_domain:
+    - interface: "IncomingMessage"
+      location: backend/src/services/whatsapp.service.ts
+      usage_pattern: "Webhook routes map provider payloads into the IncomingMessage shape and call WhatsAppService.handleIncomingMessage()."
+
+  data_flow_involving_domain: |
+    GreenAPI/Meta webhook POST → route-level auth checks → extract messageId + sender → dedup claim → WhatsAppService.getCompanyByPhoneNumberId() → Prisma writes (Lead/Conversation/Message) → optional AI response → outbound send (provider-specific).
+
+  key_relationships_to_domain:
+    - from: backend/src/routes/greenapi-webhook.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/routes/greenapi-webhook.routes.ts
+      to: backend/src/services/deduplication.service.ts
+      relationship: calls
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/services/deduplication.service.ts
+      relationship: calls
+
+related_technology_stack:
+  languages_used_in_domain:
+    - TypeScript
+  frameworks_used_in_domain:
+    - name: Express
+      usage_in_domain: "HTTP routing for webhook endpoints (Meta + GreenAPI)."
+  libraries_used_in_domain:
+    - name: jest@^29.7.0
+      purpose_in_domain: "Unit testing for webhook routes and service behaviors."
+    - name: supertest@^6.3.3
+      purpose_in_domain: "HTTP-level route testing for Express routers."
+    - name: prisma@^7.5.0
+      purpose_in_domain: "Tenant/company lookup and message persistence."
+    - name: redis@^4.6.12 / @upstash/redis@^1.37.0
+      purpose_in_domain: "Dedup claim storage backend."
+    - name: winston@^3.11.0
+      purpose_in_domain: "Structured logging for webhook processing summaries and errors."
+  external_apis_used_in_domain:
+    - name: Meta WhatsApp Cloud API
+      integration_point: backend/src/services/whatsapp/providers (outbound) and backend/src/routes/webhook.routes.ts (inbound webhook).
+    - name: GreenAPI
+      integration_point: backend/src/routes/greenapi-webhook.routes.ts (inbound webhook) and backend/src/services/whatsapp/providers (outbound in non-prod).
+
+related_conventions:
+  naming_patterns_in_domain: "Routes in backend/src/routes/*.routes.ts; services in backend/src/services/*.service.ts; unit tests in backend/src/tests/unit/*.test.ts."
+  structure_of_domain: "Webhook routers validate/authenticate, then delegate to services; shared deduplication service is injected via module import singleton."
+  error_handling_in_domain: "Routes frequently return 200 quickly then log summary; failures release dedup claim and record outcome status." 
+  testing_in_domain: "Jest with jest.doMock + jest.isolateModules; Supertest for Express route testing."
+  documentation_in_domain: "Plan docs exist under docs/plan/whatsapp-dual-provider-2026-04-12/; no docs/PRD.yaml file present in repo."
+
+related_dependencies:
+  internal:
+    - component: backend/src/config/index.ts
+      relationship_to_domain: "Provides provider config and webhook tokens"
+      direction: outbound
+    - component: backend/src/config/logger.ts
+      relationship_to_domain: "Shared logging"
+      direction: outbound
+    - component: backend/src/config/prisma.ts
+      relationship_to_domain: "DB access for tenant routing"
+      direction: outbound
+  external:
+    - name: express
+      purpose_for_domain: "Routing/middleware"
+    - name: crypto (Node)
+      purpose_for_domain: "Timing-safe comparisons and webhook signature verification"
+
+domain_security_considerations:
+  sensitive_areas:
+    - area: "Tenant routing / company resolution"
+      location: backend/src/services/whatsapp.service.ts
+      concern: "Multi-tenant correctness; nondeterministic fallback can route inbound messages to wrong tenant (cross-tenant data creation/visibility)."
+    - area: "Webhook Authorization handling (GreenAPI)"
+      location: backend/src/routes/greenapi-webhook.routes.ts
+      concern: "Auth mismatch can cause false rejections; must avoid logging secrets while providing actionable error responses."
+    - area: "Deduplication namespace"
+      location: backend/src/services/deduplication.service.ts
+      concern: "Global messageId-only keys can allow collision-based suppression across tenants/instances."
+    - area: "PII logging"
+      location: backend/src/services/whatsapp.service.ts and backend/src/routes/greenapi-webhook.routes.ts
+      concern: "Phone numbers appear in logs and webhook summaries; risk increases in shared log aggregators."
+  authentication_patterns_in_domain: "GreenAPI uses token in Authorization header; Meta inbound uses HMAC signature verification + optional IP whitelist."
+  authorization_patterns_in_domain: "Not applicable (webhook endpoints are unauthenticated but verified by token/signature)."
+  data_validation_in_domain: "Routes perform minimal payload shape checks and skip unsupported message types; tenant resolution is the critical validation step for safety."
+
+testing_patterns:
+  framework: Jest (ts-jest) + Supertest
+  coverage_areas:
+    - "Route auth rejection/acceptance"
+    - "Inbound payload parsing"
+    - "Dedup short-circuiting"
+    - "Company resolution fallback behavior"
+  test_organization: "backend/src/tests/unit"
+  mock_patterns:
+    - "jest.doMock on config/logger/services and jest.isolateModules to load router with mocks"
+
+open_questions:
+  - question: "Where is the authoritative GreenAPI instance→company mapping stored (Company.settings JSON vs env mapping), and what exact schema/key name is expected?"
+    context: "Debugger recommends instance-based tenant routing (idInstance) but current code has no mapping lookup and relies on sentinel phoneNumberId + fallbacks."
+    type: decision_blocker
+    affects: ["greenapi-webhook-critical-issues"]
+
+  - question: "Should the GreenAPI route change from immediate 200+async processing to synchronous validation that can return 4xx/409 before acknowledging?"
+    context: "Debugger fix guidance explicitly calls for fail-closed 4xx/409 when mapping is missing/ambiguous, which conflicts with the current quick-ack pattern."
+    type: decision_blocker
+    affects: ["greenapi-webhook-critical-issues"]
+
+gaps:
+  - area: docs/PRD.yaml
+    description: "Repository contains prd.md but no docs/PRD.yaml as referenced by the researcher workflow; scope context was taken from existing plan.yaml instead."
+    impact: nice_to_know
+    affects: ["greenapi-webhook-critical-issues"]
+  - area: Runtime reproduction evidence
+    description: "Debugger output includes reproduction steps, but this research pass did not execute them against a live environment."
+    impact: research_blocker
+    affects: ["greenapi-webhook-critical-issues"]

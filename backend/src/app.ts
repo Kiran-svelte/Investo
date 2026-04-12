@@ -26,6 +26,7 @@ import propertyImportRoutes from './routes/property-import.routes';
 import propertyImportUploadRoutes from './routes/property-import-upload.routes';
 import financeRoutes from './routes/finance.routes';
 import { isAllowedCorsOrigin } from './config';
+import greenApiWebhookRoutes from './routes/greenapi-webhook.routes';
 
 const app = express();
 
@@ -53,6 +54,11 @@ app.use('/api/health', healthRoutes);
 // Webhook routes (no rate limiting - verified by signature)
 // IMPORTANT: This must run before global JSON parsing so we can verify signatures against raw request bytes.
 app.use('/api/webhook', webhookRoutes);
+
+// GreenAPI webhook route (non-production only, and only when configured as the active provider)
+if (config.env !== 'production' && config.whatsapp.provider === 'greenapi') {
+  app.use('/api/greenapi/webhook', greenApiWebhookRoutes);
+}
 
 // Body parsing (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));

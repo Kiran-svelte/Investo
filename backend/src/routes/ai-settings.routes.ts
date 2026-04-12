@@ -6,6 +6,7 @@ import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
 import { aiSettingsSchema } from '../models/validation';
+import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 
@@ -101,6 +102,40 @@ router.post(
   authorize('ai_settings', 'update'),
   async (req: AuthRequest, res: Response) => {
     try {
+      const effectiveProvider =
+        config.env === 'production'
+          ? 'meta'
+          : (config as any)?.whatsapp?.provider === 'greenapi'
+            ? 'greenapi'
+            : 'meta';
+
+      if (effectiveProvider === 'greenapi') {
+        const idInstance = (config as any)?.greenapi?.idInstance;
+        const apiTokenInstance = (config as any)?.greenapi?.apiTokenInstance;
+
+        if (!idInstance || !apiTokenInstance) {
+          res.status(400).json({
+            error:
+              'GREENAPI_ID_INSTANCE and GREENAPI_API_TOKEN_INSTANCE are required when WHATSAPP_PROVIDER=greenapi',
+          });
+          return;
+        }
+
+        const { whatsappService } = await import('../services/whatsapp.service');
+        const result = await whatsappService.testConnection({
+          phoneNumberId: '',
+          accessToken: '',
+          verifyToken: '',
+        });
+
+        if (result.success) {
+          res.json(result);
+        } else {
+          res.status(400).json(result);
+        }
+        return;
+      }
+
       const { phone_number_id, access_token } = req.body;
 
       if (!phone_number_id || !access_token) {

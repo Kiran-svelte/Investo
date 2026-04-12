@@ -1,0 +1,40 @@
+plan_id: whatsapp-dual-provider-2026-04-12
+review_scope: wave
+task_id: wa05_greenapi_webhook_route
+timestamp: 20260412-140122
+status: failed
+findings:
+  - severity: critical
+    category: broken_access_control
+    description: >-
+      Cross-tenant leakage risk: inbound WhatsApp messages can be attributed to the wrong company when
+      phoneNumberId cannot be resolved. In GreenAPI mode this is very likely because the webhook route
+      defaults phoneNumberId to "greenapi".
+      The fallback path selects companies[0] without ordering (non-deterministic) when WHATSAPP_ACCESS_TOKEN
+      is set, and can therefore route messages to an arbitrary active tenant.
+    locations:
+      - backend/src/routes/greenapi-webhook.routes.ts (processGreenApiWebhook: phoneNumberId default "greenapi")
+      - backend/src/services/whatsapp.service.ts (getCompanyByPhoneNumberId: companies[0] fallback)
+  - severity: high
+    category: multi_tenant_dedup
+    description: >-
+      Deduplication keys are global and keyed only by messageId (no tenant/provider/instance namespacing).
+      If message IDs can collide across tenants or GreenAPI instances, distinct messages may be dropped.
+    locations:
+      - backend/src/services/deduplication.service.ts (DEDUP_KEY_PREFIX + messageId)
+      - backend/src/routes/greenapi-webhook.routes.ts (claimMessageProcessing(msg.messageId))
+  - severity: medium
+    category: auth_config_footgun
+    description: >-
+      Auth compares the extracted token from the Authorization header to the raw configured token.
+      If GREENAPI_WEBHOOK_URL_TOKEN is configured with a scheme prefix ("Bearer ..."/"Basic ..."),
+      as suggested by Green-API documentation, requests will be rejected.
+    locations:
+      - backend/src/routes/greenapi-webhook.routes.ts (extractAuthorizationToken + expectedToken compare)
+  - severity: low
+    category: privacy_logging
+    description: >-
+      GreenAPI webhook logs a full processing summary including sender phone numbers (unmasked).
+      Consider masking like the Meta webhook route.
+    locations:
+      - backend/src/routes/greenapi-webhook.routes.ts (logger.info("GreenAPI webhook processing summary", { summary }))

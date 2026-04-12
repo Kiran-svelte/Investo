@@ -6,6 +6,7 @@ import { whatsappService } from '../services/whatsapp.service';
 import { whatsappIpWhitelist } from '../middleware/whatsappSecurity';
 import { deduplicationService } from '../services/deduplication.service';
 import { whatsappHealthService } from '../services/whatsappHealth.service';
+import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 
 const router = Router();
 
@@ -75,7 +76,7 @@ router.post(
 
   processWebhook(req.body)
     .then((summary) => {
-      logger.info('Webhook processing summary', { summary });
+      logger.info('Webhook processing summary', { summary: redactWebhookSummaryForLogs(summary) });
     })
     .catch((err) => {
       logger.error('Webhook processing failed', { error: err.message });
@@ -153,6 +154,16 @@ interface WebhookProcessSummary {
   outcomes: WebhookMessageOutcome[];
 }
 
+function redactWebhookSummaryForLogs(summary: WebhookProcessSummary): WebhookProcessSummary {
+  return {
+    ...summary,
+    outcomes: summary.outcomes.map((outcome) => ({
+      ...outcome,
+      from: maskPhoneNumberForLogs(outcome.from),
+    })),
+  };
+}
+
 /**
  * Process incoming webhook payload from Meta.
  */
@@ -170,7 +181,6 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
   logger.info('=== PROCESS WEBHOOK START ===', {
     object: body.object,
     entryCount: body.entry?.length || 0,
-    fullBody: JSON.stringify(body).substring(0, 500),
   });
 
   if (body.object !== 'whatsapp_business_account') {
@@ -233,7 +243,7 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
           index: i,
           type: message.type,
           id: message.id,
-          from: message.from,
+          from: maskPhoneNumberForLogs(message.from),
           hasContact: !!contact,
         });
 
@@ -266,7 +276,9 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
           continue;
         }
 
-        const isClaimed = await deduplicationService.claimMessageProcessing(messageId);
+        const dedupKey = `meta:${phoneNumberId}:${messageId}`;
+
+        const isClaimed = await deduplicationService.claimMessageProcessing(dedupKey);
         if (!isClaimed) {
           outcome.status = 'duplicate';
           outcome.reason = 'duplicate_message_id';
@@ -281,7 +293,7 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
 
         logger.info('=== CALLING handleIncomingMessage ===', {
           phoneNumberId,
-          customerPhone: customerPhone.substring(0, 6) + '****', // Mask phone in logs
+          customerPhone: maskPhoneNumberForLogs(customerPhone),
           customerName,
           text: messageText.substring(0, 50),
           normalizedType,
@@ -314,13 +326,13 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
             outcome.status = 'failed';
             outcome.reason = processingResult.reason || 'service_failed';
             summary.failed += 1;
-            await deduplicationService.release(messageId);
+            await deduplicationService.release(dedupKey);
           }
 
           summary.outcomes.push(outcome);
           logger.info('=== MESSAGE HANDLED SUCCESSFULLY ===', { messageId });
         } catch (err: any) {
-          await deduplicationService.release(messageId);
+          await deduplicationService.release(dedupKey);
           outcome.status = 'failed';
           outcome.reason = 'exception';
           outcome.error = err.message;
@@ -542,7 +554,7 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
           const message = messages[i];
           const contact = contacts[i];
 
-          log(`Message ${i}: type=${message.type}, from=${message.from}`);
+          log(`Message ${i}: type=${message.type}, from=${maskPhoneNumberForLogs(message.from) ?? '****'}`);
           
           if (message.type !== 'text') {
             log('Skipping non-text message');
@@ -553,7 +565,7 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
           const customerName = contact?.profile?.name || '';
           const messageText = message.text?.body || '';
 
-          log(`Processing: phone=${customerPhone}, name=${customerName}, text=${messageText}`);
+          log(`Processing: phone=${maskPhoneNumberForLogs(customerPhone) ?? '****'}, name=${customerName}, text=${messageText}`);
 
           // Call handleIncomingMessage
           log('Calling whatsappService.handleIncomingMessage...');
@@ -580,10 +592,18 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
 
     log(`Recent leads in DB: ${recentLeads.length}`);
     recentLeads.forEach((l: any, i: number) => {
-      log(`Lead ${i}: ${l.phone} - ${l.customerName} - ${l.createdAt}`);
+      log(`Lead ${i}: ${maskPhoneNumberForLogs(l.phone) ?? '****'} - ${l.customerName} - ${l.createdAt}`);
     });
 
-    res.json({ success: true, debugLog, recentLeads: recentLeads.map((l: any) => ({ id: l.id, phone: l.phone, name: l.customerName })) });
+    res.json({
+      success: true,
+      debugLog,
+      recentLeads: recentLeads.map((l: any) => ({
+        id: l.id,
+        phone: maskPhoneNumberForLogs(l.phone) ?? '****',
+        name: l.customerName,
+      })),
+    });
   } catch (err: any) {
     log(`EXCEPTION: ${err.message}`);
     log(`Stack: ${err.stack?.substring(0, 500)}`);
