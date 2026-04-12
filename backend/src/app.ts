@@ -23,6 +23,7 @@ import featureRoutes from './routes/feature.routes';
 import onboardingRoutes from './routes/onboarding.routes';
 import auditRoutes from './routes/audit.routes';
 import propertyImportRoutes from './routes/property-import.routes';
+import propertyImportUploadRoutes from './routes/property-import-upload.routes';
 import financeRoutes from './routes/finance.routes';
 import { isAllowedCorsOrigin } from './config';
 
@@ -68,6 +69,8 @@ app.use('/api/companies', companyRateLimiter, companyRoutes);
 app.use('/api/users', companyRateLimiter, userRoutes);
 app.use('/api/leads', companyRateLimiter, leadRoutes);
 app.use('/api/properties', companyRateLimiter, propertyRoutes);
+// Public upload endpoint (no auth headers) must be mounted before the authenticated router.
+app.use('/api/property-imports/uploads', propertyImportUploadRoutes);
 app.use('/api/property-imports', companyRateLimiter, propertyImportRoutes);
 app.use('/api/visits', companyRateLimiter, visitRoutes);
 app.use('/api/conversations', companyRateLimiter, conversationRoutes);

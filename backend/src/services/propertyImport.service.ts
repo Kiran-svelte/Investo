@@ -187,7 +187,7 @@ export class PropertyImportService {
     return draft;
   }
 
-  async registerUpload(companyId: string, draftId: string, input: RegisterUploadInput) {
+  async registerUpload(companyId: string, draftId: string, input: RegisterUploadInput, options?: { baseUrl?: string }) {
     const draft = await prisma.propertyImportDraft.findFirst({
       where: { id: draftId, companyId },
       select: { id: true, status: true },
@@ -201,19 +201,53 @@ export class PropertyImportService {
       throw new PropertyImportError(`Draft is ${draft.status} and cannot accept new uploads`, 409);
     }
 
-    const upload = await storageService.createPropertyUploadUrl({
-      companyId,
-      propertyId: `draft-${draftId}`,
-      fileName: input.fileName,
-      mimeType: input.mimeType,
-      fileSize: input.fileSize,
-      assetType: input.assetType === 'video' ? 'image' : input.assetType,
-    });
-
     const uploadToken = crypto.randomBytes(24).toString('hex');
+
+    let mediaId: string | undefined;
+    let upload: {
+      key: string;
+      uploadUrl: string;
+      publicUrl: string;
+      expiresInSeconds: number;
+      contentType: string;
+    };
+
+    try {
+      upload = await storageService.createPropertyUploadUrl({
+        companyId,
+        propertyId: `draft-${draftId}`,
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+        fileSize: input.fileSize,
+        assetType: input.assetType === 'video' ? 'image' : input.assetType,
+      });
+    } catch (err: any) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.startsWith('R2 storage is not configured')) {
+        const baseUrl = options?.baseUrl;
+        if (!baseUrl) {
+          throw err;
+        }
+
+        mediaId = crypto.randomUUID();
+        const storageKey = `db/property-import-media/${mediaId}`;
+        const endpointUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, baseUrl).toString();
+
+        upload = {
+          key: storageKey,
+          uploadUrl: endpointUrl,
+          publicUrl: endpointUrl,
+          expiresInSeconds: 15 * 60,
+          contentType: input.mimeType,
+        };
+      } else {
+        throw err;
+      }
+    }
 
     const media = await prisma.propertyImportMedia.create({
       data: {
+        ...(mediaId ? { id: mediaId } : {}),
         companyId,
         draftId,
         assetType: input.assetType,

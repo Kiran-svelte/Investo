@@ -28,6 +28,35 @@ export interface UploadedObjectVerification {
   eTag?: string;
 }
 
+class StorageObjectVerificationError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+const DB_PROPERTY_IMPORT_MEDIA_PREFIX = 'db/property-import-media/';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isDbPropertyImportMediaKey(key: string): boolean {
+  return typeof key === 'string' && key.startsWith(DB_PROPERTY_IMPORT_MEDIA_PREFIX);
+}
+
+function parseDbPropertyImportMediaId(key: string): string {
+  if (!isDbPropertyImportMediaKey(key)) {
+    throw new StorageObjectVerificationError('Invalid storage key', 400);
+  }
+
+  const mediaId = key.slice(DB_PROPERTY_IMPORT_MEDIA_PREFIX.length).trim();
+  if (!UUID_RE.test(mediaId)) {
+    throw new StorageObjectVerificationError('Invalid storage key', 400);
+  }
+
+  return mediaId;
+}
+
 function ensureR2Config(options: { requirePublicBaseUrl?: boolean } = {}): void {
   const hasExplicitEndpoint = Boolean(config.storage.r2Endpoint);
 
@@ -241,6 +270,21 @@ class StorageService {
   }
 
   async getObjectBuffer(key: string): Promise<Buffer> {
+    if (isDbPropertyImportMediaKey(key)) {
+      const mediaId = parseDbPropertyImportMediaId(key);
+      const prisma = (await import('../config/prisma')).default;
+      const blob = await prisma.propertyImportMediaBlob.findUnique({
+        where: { mediaId },
+        select: { bytes: true },
+      });
+
+      if (!blob?.bytes) {
+        throw new Error('Uploaded object was not found in storage');
+      }
+
+      return Buffer.isBuffer(blob.bytes) ? blob.bytes : Buffer.from(blob.bytes);
+    }
+
     ensureR2Config();
 
     const response = await this.getClient().send(
@@ -261,6 +305,46 @@ class StorageService {
     key: string,
     expected: { mimeType?: string; fileSize?: number },
   ): Promise<UploadedObjectVerification> {
+    if (isDbPropertyImportMediaKey(key)) {
+      const mediaId = parseDbPropertyImportMediaId(key);
+      const prisma = (await import('../config/prisma')).default;
+      const blob = await prisma.propertyImportMediaBlob.findUnique({
+        where: { mediaId },
+        select: {
+          mimeType: true,
+          fileSize: true,
+        },
+      });
+
+      if (!blob) {
+        return { exists: false };
+      }
+
+      const contentType = blob.mimeType || undefined;
+      const contentLength = typeof blob.fileSize === 'number' ? blob.fileSize : undefined;
+
+      if (expected.mimeType && contentType && expected.mimeType !== contentType) {
+        throw new StorageObjectVerificationError(
+          `Uploaded object mime type mismatch. Expected ${expected.mimeType}, got ${contentType}`,
+          409,
+        );
+      }
+
+      if (typeof expected.fileSize === 'number' && typeof contentLength === 'number' && expected.fileSize !== contentLength) {
+        throw new StorageObjectVerificationError(
+          `Uploaded object size mismatch. Expected ${expected.fileSize} bytes, got ${contentLength} bytes`,
+          409,
+        );
+      }
+
+      return {
+        exists: true,
+        contentType,
+        contentLength,
+        eTag: undefined,
+      };
+    }
+
     ensureR2Config();
 
     try {

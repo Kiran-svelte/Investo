@@ -55,6 +55,7 @@ model Company {
   propertyImportDrafts PropertyImportDraft[]
   propertyImportMedia  PropertyImportMedia[]
   propertyImportJobs   PropertyImportJob[]
+  propertyImportMediaBlobs PropertyImportMediaBlob[]
 
   @@map("companies")
 }
@@ -338,11 +339,28 @@ model PropertyImportMedia {
   draft             PropertyImportDraft      @relation(fields: [draftId], references: [id], onDelete: Cascade)
   company           Company                  @relation(fields: [companyId], references: [id])
   jobs              PropertyImportJob[]
+  blob              PropertyImportMediaBlob?
 
   @@unique([companyId, storageKey])
   @@index([draftId, status])
   @@index([companyId, status])
   @@map("property_import_media")
+}
+
+model PropertyImportMediaBlob {
+  mediaId   String   @id @map("media_id") @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  mimeType  String   @map("mime_type") @db.VarChar(120)
+  fileSize  Int      @map("file_size")
+  bytes     Bytes    @map("bytes")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  media     PropertyImportMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  company   Company             @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("property_import_media_blobs")
 }
 
 // ─── Property Import Jobs ───────────────────────────────────────────

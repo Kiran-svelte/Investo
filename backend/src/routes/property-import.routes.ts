@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
@@ -23,8 +23,27 @@ router.use(authenticate);
 router.use(tenantIsolation);
 router.use(requireFeature('property_management'));
 
+type StatusCodedError = { statusCode: number; message: string };
+
+function isStatusCodedError(err: unknown): err is StatusCodedError {
+  return Boolean(err)
+    && typeof err === 'object'
+    && 'statusCode' in err
+    && typeof (err as any).statusCode === 'number'
+    && typeof (err as any).message === 'string';
+}
+
+function getRequestBaseUrl(req: Request): string {
+  const forwardedProto = (req.header('x-forwarded-proto') || '').split(',')[0]?.trim();
+  const host = (req.header('x-forwarded-host') || req.header('host') || '').trim();
+
+  const isLocalhost = host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]');
+  const proto = forwardedProto || (isLocalhost ? 'http' : 'https');
+  return `${proto}://${host}`;
+}
+
 function handleRouteError(err: unknown, res: Response, fallbackMessage: string): void {
-  if (err instanceof PropertyImportError) {
+  if (isStatusCodedError(err)) {
     res.status(err.statusCode).json({ error: err.message });
     return;
   }
@@ -116,12 +135,13 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
+      const baseUrl = getRequestBaseUrl(req);
       const result = await propertyImportService.registerUpload(companyId, req.params.id, {
         fileName: req.body.file_name,
         mimeType: req.body.mime_type,
         fileSize: req.body.file_size,
         assetType: req.body.asset_type,
-      });
+      }, { baseUrl });
 
       res.status(201).json({ data: result });
     } catch (err) {

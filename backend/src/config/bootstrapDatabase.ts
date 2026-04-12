@@ -76,6 +76,29 @@ async function applyCompatibilityPatches(): Promise<void> {
     )
   `);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS password_reset_tokens_user_id_idx ON password_reset_tokens(user_id)`);
+
+  // Property import media blobs (DB-backed upload fallback).
+  // Must be safe to run even when property_import_media does not exist yet.
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF to_regclass('public.property_import_media') IS NOT NULL THEN
+        EXECUTE '
+          CREATE TABLE IF NOT EXISTS property_import_media_blobs (
+            media_id UUID PRIMARY KEY REFERENCES property_import_media(id) ON DELETE CASCADE,
+            company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            mime_type VARCHAR(120) NOT NULL,
+            file_size INTEGER NOT NULL,
+            bytes BYTEA NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP NOT NULL DEFAULT now()
+          )
+        ';
+
+        EXECUTE 'CREATE INDEX IF NOT EXISTS property_import_media_blobs_company_id_idx ON property_import_media_blobs(company_id)';
+      END IF;
+    END $$;
+  `);
 }
 
 export async function bootstrapDatabase(options: BootstrapOptions): Promise<void> {
