@@ -55,10 +55,8 @@ app.use('/api/health', healthRoutes);
 // IMPORTANT: This must run before global JSON parsing so we can verify signatures against raw request bytes.
 app.use('/api/webhook', webhookRoutes);
 
-// GreenAPI webhook route (non-production only, and only when configured as the active provider)
-if (config.env !== 'production' && config.whatsapp.provider === 'greenapi') {
-  app.use('/api/greenapi/webhook', greenApiWebhookRoutes);
-}
+// GreenAPI webhook route (guarded internally for production)
+app.use('/api/greenapi/webhook', greenApiWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));

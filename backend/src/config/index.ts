@@ -238,8 +238,12 @@ function resolveWhatsAppProvider(): WhatsAppProvider {
 const nodeEnv = process.env.NODE_ENV || 'development';
 const whatsappProvider = resolveWhatsAppProvider();
 
-if (nodeEnv === 'production' && whatsappProvider !== 'meta') {
-  throw new Error(`WHATSAPP_PROVIDER='${whatsappProvider}' is not allowed when NODE_ENV='production'`);
+const allowGreenapiInProd = process.env.WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION === 'true';
+
+if (nodeEnv === 'production' && whatsappProvider === 'greenapi' && !allowGreenapiInProd) {
+  throw new Error(
+    "WHATSAPP_PROVIDER='greenapi' is not allowed when NODE_ENV='production' unless WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION='true'",
+  );
 }
 
 const databaseUrl = resolveDatabaseUrl();
@@ -302,6 +306,7 @@ const config = {
 
   whatsapp: {
     provider: whatsappProvider,
+    allowGreenapiInProd,
     apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v18.0',
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
     appSecret: process.env.WHATSAPP_APP_SECRET || '',
