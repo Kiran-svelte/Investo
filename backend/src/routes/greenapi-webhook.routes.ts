@@ -68,7 +68,7 @@ router.post(
       }
 
       const [instanceId] = Array.from(instanceIds);
-      const companyResult = await whatsappService.getCompanyByPhoneNumberId(instanceId, 'greenapi');
+      const companyResult = await whatsappService.getCompanyByPhoneNumberId(instanceId);
       if (!companyResult) {
         res.status(404).json({ error: 'company_not_found', code: 'greenapi_company_not_found' });
         return;
@@ -359,7 +359,6 @@ async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcess
 
     try {
       const result = await whatsappService.handleIncomingMessage({
-        provider: 'greenapi',
         phoneNumberId,
         customerPhone: msg.customerPhone,
         customerName: msg.customerName,
