@@ -3,12 +3,17 @@
 This backend supports two WhatsApp integration tracks:
 
 - **Meta (WhatsApp Cloud API)** — supported in production.
-- **GreenAPI** — **non-production only** (dev/testing).
+- **GreenAPI** — optional; production requires an explicit allow-flag.
 
 ## Dual-track provider policy
 
-- **Production** (`NODE_ENV=production`): **Meta only**. Setting `WHATSAPP_PROVIDER=greenapi` **fails server boot**.
-- **Non-production**: `WHATSAPP_PROVIDER` may be `meta` (default) or `greenapi`.
+- **Production** (`NODE_ENV=production`): **Meta by default**. GreenAPI is disabled unless `WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true`.
+- **Non-production**: provider may be `meta` (default) or `greenapi`.
+
+Provider selection may be set:
+
+- **Per company (recommended)**: `company.settings.whatsapp.provider` (`meta` | `greenapi`)
+- **Fallback (global)**: `WHATSAPP_PROVIDER` (`meta` | `greenapi`)
 
 ## Meta webhook (WhatsApp Cloud API)
 
@@ -74,14 +79,14 @@ Content-Type: application/json
 }
 ```
 
-## GreenAPI webhook (non-production only)
+## GreenAPI webhook (guarded)
 
-**When it exists**
+**When it responds**
 
-The GreenAPI route is mounted only when both conditions are true:
+The endpoint is mounted by the backend, but is **fail-closed** in production unless GreenAPI is explicitly enabled.
 
-- `NODE_ENV != production`
-- `WHATSAPP_PROVIDER=greenapi`
+- Production: requires `WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true` (otherwise responds `404 {"error":"not_found"}`)
+- Any environment: requires `Authorization` token (otherwise responds `401 {"error":"unauthorized"}`)
 
 **Endpoint**
 
@@ -100,7 +105,10 @@ Accepted header formats:
 **Required env vars (GreenAPI mode)**
 
 ```bash
-WHATSAPP_PROVIDER=greenapi
+WHATSAPP_PROVIDER=greenapi # optional fallback when per-company provider is not set
+
+# Production opt-in (required to allow GreenAPI in production)
+WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true
 
 GREENAPI_API_URL=https://api.green-api.com     # optional (defaults to this)
 GREENAPI_ID_INSTANCE=<YOUR_ID_INSTANCE>
@@ -116,6 +124,10 @@ GreenAPI inbound webhooks are **multi-tenant routed** by instance identifier:
 - It routes the inbound message to a company by matching:
 
 ```
+payload.instanceData.idInstance  ==  company.settings.whatsapp.greenapi.idInstance
+
+Legacy fallback (supported only when the company is configured for GreenAPI):
+
 payload.instanceData.idInstance  ==  company.settings.whatsapp.phoneNumberId
 ```
 
@@ -128,7 +140,7 @@ Keep this mapping **unique per active company**.
 
 ### How to set `company.settings.whatsapp.phoneNumberId`
 
-- **Preferred (UI)**: In the frontend **AI Settings** page, set **Phone Number ID** to your GreenAPI `GREENAPI_ID_INSTANCE` for that company, then save.
+- **Preferred (UI)**: In the frontend **AI Settings** page, select provider **GreenAPI**, set **ID Instance** to your GreenAPI `GREENAPI_ID_INSTANCE`, then save.
 - **Fallback (DB JSON)**: Update the company `settings` JSON to include:
 
 ```json
@@ -141,7 +153,7 @@ Keep this mapping **unique per active company**.
 
 ## Limitations
 
-- GreenAPI is **dev/testing only** (enforced: cannot run when `NODE_ENV=production`).
+- GreenAPI in production requires an explicit opt-in (`WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true`).
 - GreenAPI inbound processing is **text-only** (non-text message types are skipped).
 - GreenAPI outbound sending supports **text messages only**; Meta-only rich media/interactive features are not supported in GreenAPI mode.
 

@@ -102,58 +102,71 @@ router.post(
   authorize('ai_settings', 'update'),
   async (req: AuthRequest, res: Response) => {
     try {
-      const effectiveProvider =
-        config.env === 'production'
-          ? 'meta'
-          : (config as any)?.whatsapp?.provider === 'greenapi'
-            ? 'greenapi'
-            : 'meta';
+      const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';
 
-      if (effectiveProvider === 'greenapi') {
-        const idInstance = (config as any)?.greenapi?.idInstance;
-        const apiTokenInstance = (config as any)?.greenapi?.apiTokenInstance;
+      if (provider === 'greenapi') {
+        if (config.env === 'production' && !(config as any)?.whatsapp?.allowGreenapiInProd) {
+          res.status(403).json({
+            success: false,
+            error: 'GreenAPI is disabled in production',
+          });
+          return;
+        }
+
+        const idInstance =
+          req.body?.id_instance || req.body?.idInstance || (config as any)?.greenapi?.idInstance || '';
+        const apiTokenInstance =
+          req.body?.api_token_instance ||
+          req.body?.apiTokenInstance ||
+          (config as any)?.greenapi?.apiTokenInstance ||
+          '';
 
         if (!idInstance || !apiTokenInstance) {
           res.status(400).json({
-            error:
-              'GREENAPI_ID_INSTANCE and GREENAPI_API_TOKEN_INSTANCE are required when WHATSAPP_PROVIDER=greenapi',
+            success: false,
+            error: 'id_instance and api_token_instance are required',
           });
           return;
         }
 
         const { whatsappService } = await import('../services/whatsapp.service');
         const result = await whatsappService.testConnection({
+          provider: 'greenapi',
           phoneNumberId: '',
           accessToken: '',
           verifyToken: '',
+          idInstance,
+          apiTokenInstance,
         });
 
         if (result.success) {
-          res.json(result);
+          res.json({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
         } else {
-          res.status(400).json(result);
+          res.status(400).json({ success: false, provider: 'greenapi', error: result.error });
         }
+
         return;
       }
 
       const { phone_number_id, access_token } = req.body;
 
       if (!phone_number_id || !access_token) {
-        res.status(400).json({ error: 'phone_number_id and access_token are required' });
+        res.status(400).json({ success: false, error: 'phone_number_id and access_token are required' });
         return;
       }
 
       const { whatsappService } = await import('../services/whatsapp.service');
       const result = await whatsappService.testConnection({
+        provider: 'meta',
         phoneNumberId: phone_number_id,
         accessToken: access_token,
         verifyToken: '',
       });
 
       if (result.success) {
-        res.json({ success: true, message: 'WhatsApp connection successful' });
+        res.json({ success: true, provider: 'meta', message: 'WhatsApp connection successful' });
       } else {
-        res.status(400).json({ success: false, error: result.error });
+        res.status(400).json({ success: false, provider: 'meta', error: result.error });
       }
     } catch (err: any) {
       logger.error('WhatsApp test failed', { error: err.message });

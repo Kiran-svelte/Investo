@@ -53,6 +53,20 @@ WHATSAPP_VERIFY_TOKEN=investo_webhook_verify_token
 WHATSAPP_API_URL=https://graph.facebook.com/v18.0
 SKIP_IP_WHITELIST=true
 
+# WhatsApp provider selection (fallback)
+# - Per-company selection is stored in company.settings.whatsapp.provider
+# - WHATSAPP_PROVIDER is used only when company settings do not specify a provider
+WHATSAPP_PROVIDER=meta
+
+# Production opt-in for GreenAPI (default: disabled)
+WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=false
+
+# GreenAPI (optional)
+GREENAPI_API_URL=https://api.green-api.com
+GREENAPI_ID_INSTANCE=<your-greenapi-id-instance>
+GREENAPI_API_TOKEN_INSTANCE=<your-greenapi-api-token-instance>
+GREENAPI_WEBHOOK_URL_TOKEN=<your-greenapi-webhook-shared-secret>
+
 # AI
 AI_PROVIDER=openai
 OPENAI_API_KEY=<your-openai-api-key-from-backend-env>

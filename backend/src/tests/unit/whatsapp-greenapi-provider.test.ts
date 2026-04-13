@@ -13,12 +13,14 @@ describe('GreenApiWhatsAppProvider (outbound)', () => {
   const idInstance = '1100000001';
   const apiTokenInstance = 'token-abc';
 
-  const provider = new GreenApiWhatsAppProvider({ apiUrl, idInstance, apiTokenInstance });
+  const provider = new GreenApiWhatsAppProvider({ apiUrl });
 
   const companyConfig = {
     phoneNumberId: '',
     accessToken: '',
     verifyToken: '',
+    idInstance,
+    apiTokenInstance,
   };
 
   beforeEach(() => {
@@ -85,9 +87,11 @@ describe('GreenApiWhatsAppProvider (outbound)', () => {
 
   describe('testConnection', () => {
     test('returns missing config error without calling fetch', async () => {
-      const misconfigured = new GreenApiWhatsAppProvider({ apiUrl, idInstance: '', apiTokenInstance: '' });
-
-      const result = await misconfigured.testConnection(companyConfig);
+      const result = await provider.testConnection({
+        ...companyConfig,
+        idInstance: '',
+        apiTokenInstance: '',
+      });
 
       expect(result).toEqual({ success: false, error: 'Missing idInstance or apiTokenInstance' });
       expect(mockFetch).not.toHaveBeenCalled();

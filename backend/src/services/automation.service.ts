@@ -6,23 +6,46 @@ import { whatsappService } from './whatsapp.service';
 import { automationQueueService, AutomationJobType } from './automationQueue.service';
 
 function getCompanyWhatsAppConfig(company: any): {
+  provider: 'meta' | 'greenapi';
   phoneNumberId: string;
   accessToken: string;
   verifyToken: string;
+  idInstance?: string;
+  apiTokenInstance?: string;
   isCompanyConfigured: boolean;
 } {
   const settings = (company?.settings as any) || {};
   const whatsapp = settings.whatsapp || {};
 
-  const phoneNumberId = whatsapp.phoneNumberId || config.whatsapp.phoneNumberId;
-  const accessToken = whatsapp.accessToken || config.whatsapp.accessToken;
-  const verifyToken = whatsapp.verifyToken || config.whatsapp.verifyToken;
+  const provider = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
+
+  if (provider === 'greenapi') {
+    const greenapi = whatsapp.greenapi || whatsapp;
+    const idInstance = greenapi.idInstance || whatsapp.phoneNumberId || '';
+    const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
+
+    return {
+      provider: 'greenapi',
+      phoneNumberId: '',
+      accessToken: '',
+      verifyToken: whatsapp.verifyToken || config.whatsapp.verifyToken,
+      idInstance,
+      apiTokenInstance,
+      isCompanyConfigured: Boolean(idInstance && apiTokenInstance),
+    };
+  }
+
+  const meta = whatsapp.meta || whatsapp;
+  const phoneNumberId = meta.phoneNumberId || config.whatsapp.phoneNumberId;
+  const accessToken = meta.accessToken || config.whatsapp.accessToken;
+  const verifyToken = meta.verifyToken || config.whatsapp.verifyToken;
 
   return {
+    provider: 'meta',
     phoneNumberId,
     accessToken,
     verifyToken,
-    isCompanyConfigured: Boolean(whatsapp.phoneNumberId && whatsapp.accessToken),
+    isCompanyConfigured: Boolean(meta.phoneNumberId && meta.accessToken),
   };
 }
 
@@ -212,7 +235,12 @@ export class AutomationService {
       }
 
       const whatsappConfig = getCompanyWhatsAppConfig(visit.company);
-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+      if (
+        !whatsappConfig.isCompanyConfigured ||
+        (whatsappConfig.provider === 'meta'
+          ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
+          : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)
+      ) {
         logger.debug('Visit reminder skipped because company WhatsApp is not configured', {
           visitId: visit.id,
           timing,
@@ -221,9 +249,12 @@ export class AutomationService {
       }
 
       const sent = await whatsappService.sendMessage(customerPhone, message, {
+        provider: whatsappConfig.provider,
         phoneNumberId: whatsappConfig.phoneNumberId,
         accessToken: whatsappConfig.accessToken,
         verifyToken: whatsappConfig.verifyToken,
+        idInstance: whatsappConfig.idInstance,
+        apiTokenInstance: whatsappConfig.apiTokenInstance,
       });
 
       if (!sent) {
@@ -346,7 +377,12 @@ export class AutomationService {
       }
 
       const whatsappConfig = getCompanyWhatsAppConfig(lead.company);
-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+      if (
+        !whatsappConfig.isCompanyConfigured ||
+        (whatsappConfig.provider === 'meta'
+          ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
+          : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)
+      ) {
         logger.debug('Follow-up skipped because company WhatsApp is not configured', {
           leadId: lead.id,
           reason,
@@ -355,9 +391,12 @@ export class AutomationService {
       }
 
       const sent = await whatsappService.sendMessage(lead.phone, message, {
+        provider: whatsappConfig.provider,
         phoneNumberId: whatsappConfig.phoneNumberId,
         accessToken: whatsappConfig.accessToken,
         verifyToken: whatsappConfig.verifyToken,
+        idInstance: whatsappConfig.idInstance,
+        apiTokenInstance: whatsappConfig.apiTokenInstance,
       });
 
       if (!sent) {

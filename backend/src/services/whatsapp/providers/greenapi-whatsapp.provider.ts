@@ -6,17 +6,19 @@ type GreenApiSendMessageResponse = {
 
 export class GreenApiWhatsAppProvider implements WhatsAppOutboundProvider {
   private readonly apiUrl: string;
-  private readonly idInstance: string;
-  private readonly apiTokenInstance: string;
 
-  constructor(params: { apiUrl: string; idInstance: string; apiTokenInstance: string }) {
+  constructor(params: { apiUrl: string }) {
     this.apiUrl = params.apiUrl.replace(/\/+$/, '');
-    this.idInstance = params.idInstance;
-    this.apiTokenInstance = params.apiTokenInstance;
   }
 
-  async sendTextMessage(to: string, text: string, _companyConfig: WhatsAppProviderConfig): Promise<SendTextMessageResult> {
-    const response = await fetch(this.buildUrl('sendMessage'), {
+  async sendTextMessage(to: string, text: string, companyConfig: WhatsAppProviderConfig): Promise<SendTextMessageResult> {
+    const { idInstance, apiTokenInstance } = companyConfig;
+
+    if (!idInstance || !apiTokenInstance) {
+      return { success: false, status: 400, errorText: 'Missing idInstance or apiTokenInstance' };
+    }
+
+    const response = await fetch(this.buildUrl('sendMessage', { idInstance, apiTokenInstance }), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -36,13 +38,15 @@ export class GreenApiWhatsAppProvider implements WhatsAppOutboundProvider {
     return { success: true, messageId: result.idMessage };
   }
 
-  async testConnection(_companyConfig: WhatsAppProviderConfig): Promise<{ success: boolean; error?: string }> {
-    if (!this.idInstance || !this.apiTokenInstance) {
+  async testConnection(companyConfig: WhatsAppProviderConfig): Promise<{ success: boolean; error?: string }> {
+    const { idInstance, apiTokenInstance } = companyConfig;
+
+    if (!idInstance || !apiTokenInstance) {
       return { success: false, error: 'Missing idInstance or apiTokenInstance' };
     }
 
     try {
-      const response = await fetch(this.buildUrl('getSettings'), {
+      const response = await fetch(this.buildUrl('getSettings', { idInstance, apiTokenInstance }), {
         method: 'GET',
       });
 
@@ -58,8 +62,8 @@ export class GreenApiWhatsAppProvider implements WhatsAppOutboundProvider {
     }
   }
 
-  private buildUrl(endpoint: 'sendMessage' | 'getSettings'): string {
-    return `${this.apiUrl}/waInstance${this.idInstance}/${endpoint}/${this.apiTokenInstance}`;
+  private buildUrl(endpoint: 'sendMessage' | 'getSettings', params: { idInstance: string; apiTokenInstance: string }): string {
+    return `${this.apiUrl}/waInstance${params.idInstance}/${endpoint}/${params.apiTokenInstance}`;
   }
 }
 

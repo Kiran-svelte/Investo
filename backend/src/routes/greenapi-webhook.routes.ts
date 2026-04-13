@@ -359,6 +359,7 @@ async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcess
 
     try {
       const result = await whatsappService.handleIncomingMessage({
+        provider: 'greenapi',
         phoneNumberId,
         customerPhone: msg.customerPhone,
         customerName: msg.customerName,

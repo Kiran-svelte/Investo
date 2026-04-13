@@ -18,19 +18,47 @@ interface NotifyOptions {
   data?: Record<string, any>;
 }
 
-function getCompanyWhatsAppConfig(company: any): { phoneNumberId: string; accessToken: string; verifyToken: string; isCompanyConfigured: boolean } {
+function getCompanyWhatsAppConfig(company: any): {
+  provider: 'meta' | 'greenapi';
+  phoneNumberId: string;
+  accessToken: string;
+  verifyToken: string;
+  idInstance?: string;
+  apiTokenInstance?: string;
+  isCompanyConfigured: boolean;
+} {
   const settings = (company?.settings as any) || {};
   const whatsapp = settings.whatsapp || {};
 
-  const phoneNumberId = whatsapp.phoneNumberId || config.whatsapp.phoneNumberId;
-  const accessToken = whatsapp.accessToken || config.whatsapp.accessToken;
-  const verifyToken = whatsapp.verifyToken || config.whatsapp.verifyToken;
+  const provider = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
+
+  if (provider === 'greenapi') {
+    const greenapi = whatsapp.greenapi || whatsapp;
+    const idInstance = greenapi.idInstance || whatsapp.phoneNumberId || '';
+    const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
+
+    return {
+      provider: 'greenapi',
+      phoneNumberId: '',
+      accessToken: '',
+      verifyToken: whatsapp.verifyToken || config.whatsapp.verifyToken,
+      idInstance,
+      apiTokenInstance,
+      isCompanyConfigured: Boolean(idInstance && apiTokenInstance),
+    };
+  }
+
+  const meta = whatsapp.meta || whatsapp;
+  const phoneNumberId = meta.phoneNumberId || config.whatsapp.phoneNumberId;
+  const accessToken = meta.accessToken || config.whatsapp.accessToken;
+  const verifyToken = meta.verifyToken || config.whatsapp.verifyToken;
 
   return {
+    provider: 'meta',
     phoneNumberId,
     accessToken,
     verifyToken,
-    isCompanyConfigured: Boolean(whatsapp.phoneNumberId && whatsapp.accessToken),
+    isCompanyConfigured: Boolean(meta.phoneNumberId && meta.accessToken),
   };
 }
 
@@ -222,7 +250,12 @@ class NotificationEngine {
     // Send WhatsApp to customer
     if (lead?.phone) {
       const whatsappConfig = getCompanyWhatsAppConfig(company);
-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+      if (
+        !whatsappConfig.isCompanyConfigured ||
+        (whatsappConfig.provider === 'meta'
+          ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
+          : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)
+      ) {
         logger.debug('Skipping WhatsApp visit notification (company not configured)', {
           companyId: visit.companyId,
           visitId: visit.id,
@@ -245,9 +278,12 @@ class NotificationEngine {
       if (whatsappMsg) {
         try {
           const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
+            provider: whatsappConfig.provider,
             phoneNumberId: whatsappConfig.phoneNumberId,
             accessToken: whatsappConfig.accessToken,
             verifyToken: whatsappConfig.verifyToken,
+            idInstance: whatsappConfig.idInstance,
+            apiTokenInstance: whatsappConfig.apiTokenInstance,
           });
           if (!sent) {
             logger.warn('Failed to send WhatsApp visit notification', {
@@ -301,7 +337,12 @@ class NotificationEngine {
     // Send WhatsApp to customer
     if (lead?.phone) {
       const whatsappConfig = getCompanyWhatsAppConfig(company);
-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+      if (
+        !whatsappConfig.isCompanyConfigured ||
+        (whatsappConfig.provider === 'meta'
+          ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
+          : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)
+      ) {
         logger.debug('Skipping WhatsApp reschedule notification (company not configured)', {
           companyId: visit.companyId,
           visitId: visit.id,
@@ -314,9 +355,12 @@ class NotificationEngine {
 
       try {
         const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
+          provider: whatsappConfig.provider,
           phoneNumberId: whatsappConfig.phoneNumberId,
           accessToken: whatsappConfig.accessToken,
           verifyToken: whatsappConfig.verifyToken,
+          idInstance: whatsappConfig.idInstance,
+          apiTokenInstance: whatsappConfig.apiTokenInstance,
         });
         if (!sent) {
           logger.warn('Failed to send WhatsApp reschedule notification', {

@@ -1,6 +1,16 @@
 export interface WhatsAppProviderConfig {
-  phoneNumberId: string;
-  accessToken: string;
+  /** Optional discriminator used by higher-level services. */
+  provider?: 'meta' | 'greenapi';
+
+  /** Meta Cloud API credentials (per company). */
+  phoneNumberId?: string;
+  accessToken?: string;
+
+  /** Green-API credentials (per company). */
+  idInstance?: string;
+  apiTokenInstance?: string;
+
+  /** Webhook verification token(s), when applicable. */
   verifyToken?: string;
 }
 

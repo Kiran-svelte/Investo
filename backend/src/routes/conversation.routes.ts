@@ -19,10 +19,29 @@ router.use(requireFeature('conversation_center'));
 
 function normalizeWhatsAppConfig(company: { settings: unknown; whatsappPhone: string | null }) {
   const settings = (company.settings as any) || {};
+  const whatsapp = settings.whatsapp || {};
+  const provider = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
+
+  if (provider === 'greenapi') {
+    const greenapi = whatsapp.greenapi || whatsapp;
+
+    return {
+      provider: 'greenapi' as const,
+      phoneNumberId: '',
+      accessToken: '',
+      verifyToken: whatsapp.verifyToken || config.whatsapp.verifyToken,
+      idInstance: greenapi.idInstance || whatsapp.phoneNumberId || '',
+      apiTokenInstance: greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '',
+    };
+  }
+
+  const meta = whatsapp.meta || whatsapp;
+
   return {
-    phoneNumberId: settings.whatsapp?.phoneNumberId || company.whatsappPhone || config.whatsapp.phoneNumberId,
-    accessToken: settings.whatsapp?.accessToken || config.whatsapp.accessToken,
-    verifyToken: settings.whatsapp?.verifyToken || config.whatsapp.verifyToken,
+    provider: 'meta' as const,
+    phoneNumberId: meta.phoneNumberId || company.whatsappPhone || config.whatsapp.phoneNumberId,
+    accessToken: meta.accessToken || config.whatsapp.accessToken,
+    verifyToken: meta.verifyToken || config.whatsapp.verifyToken,
   };
 }
 
@@ -361,9 +380,16 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
     }
 
     const whatsappConfig = normalizeWhatsAppConfig(company);
-    if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
-      res.status(400).json({ error: 'WhatsApp is not configured for this company' });
-      return;
+    if (whatsappConfig.provider === 'greenapi') {
+      if (!whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance) {
+        res.status(400).json({ error: 'WhatsApp is not configured for this company' });
+        return;
+      }
+    } else {
+      if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+        res.status(400).json({ error: 'WhatsApp is not configured for this company' });
+        return;
+      }
     }
 
     const payload = parsed.data;

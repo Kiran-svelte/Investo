@@ -18,6 +18,8 @@ import {
 } from './conversationStateMachine';
 
 interface IncomingMessage {
+  /** Which inbound webhook delivered this message. Defaults to 'meta' for backward compatibility. */
+  provider?: 'meta' | 'greenapi';
   phoneNumberId: string;
   customerPhone: string;
   customerName: string;
@@ -30,9 +32,14 @@ interface IncomingMessage {
 }
 
 interface CompanyWhatsAppConfig {
+  provider?: 'meta' | 'greenapi';
   phoneNumberId: string;
   accessToken: string;
   verifyToken: string;
+
+  /** Green-API credentials (per company). */
+  idInstance?: string;
+  apiTokenInstance?: string;
 }
 
 export interface InboundPropagationResult {
@@ -50,82 +57,130 @@ export interface IncomingMessageProcessingResult {
 }
 
 export class WhatsAppService {
-  private outboundProvider: WhatsAppOutboundProvider | null = null;
-  private outboundProviderName: 'meta' | 'greenapi' | null = null;
+  private outboundProviders: Partial<Record<'meta' | 'greenapi', WhatsAppOutboundProvider>> = {};
 
-  private resolveOutboundProviderName(): 'meta' | 'greenapi' {
-    // Defense-in-depth: production must never instantiate GreenApi provider.
-    if (config.env === 'production') {
+  private resolveOutboundProviderName(whatsappConfig?: CompanyWhatsAppConfig | null): 'meta' | 'greenapi' {
+    const requested = whatsappConfig?.provider || (config as any)?.whatsapp?.provider;
+    const provider = requested === 'greenapi' ? 'greenapi' : 'meta';
+
+    // Production guard: allow Green-API only when explicitly enabled.
+    if (provider === 'greenapi' && config.env === 'production' && !(config as any)?.whatsapp?.allowGreenapiInProd) {
       return 'meta';
     }
 
-    // Some unit tests mock config with partial whatsapp object; default to meta.
-    const configured = (config as any)?.whatsapp?.provider;
-    return configured === 'greenapi' ? 'greenapi' : 'meta';
+    return provider;
   }
 
-  private getOutboundProvider(): WhatsAppOutboundProvider {
-    const providerName = this.resolveOutboundProviderName();
-
-    if (this.outboundProvider && this.outboundProviderName === providerName) {
-      return this.outboundProvider;
+  private getOutboundProvider(providerName: 'meta' | 'greenapi'): WhatsAppOutboundProvider {
+    const cached = this.outboundProviders[providerName];
+    if (cached) {
+      return cached;
     }
 
-    this.outboundProviderName = providerName;
-    this.outboundProvider =
+    const provider =
       providerName === 'greenapi'
         ? new GreenApiWhatsAppProvider({
             apiUrl: (config as any)?.greenapi?.apiUrl || 'https://api.green-api.com',
-            idInstance: (config as any)?.greenapi?.idInstance || '',
-            apiTokenInstance: (config as any)?.greenapi?.apiTokenInstance || '',
           })
         : new MetaWhatsAppProvider({ apiUrl: config.whatsapp.apiUrl });
 
-    return this.outboundProvider;
+    this.outboundProviders[providerName] = provider;
+    return provider;
   }
 
   /**
    * Get company by WhatsApp phone number ID.
     * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
    */
-  async getCompanyByPhoneNumberId(phoneNumberId: string): Promise<{ company: any; config: CompanyWhatsAppConfig | null } | null> {
+  async getCompanyByPhoneNumberId(
+    phoneNumberId: string,
+    providerHint?: 'meta' | 'greenapi',
+  ): Promise<{ company: any; config: CompanyWhatsAppConfig | null } | null> {
     // Find all active companies
     const companies = await prisma.company.findMany({
       where: { status: 'active' },
       select: { id: true, name: true, settings: true, whatsappPhone: true },
     });
 
-    const providerName = this.resolveOutboundProviderName();
+    const providerName = providerHint || this.resolveOutboundProviderName(null);
+
+    const normalizeStringLike = (value: unknown): string => {
+      if (typeof value === 'string') {
+        return value.trim();
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value);
+      }
+      return '';
+    };
 
     // GreenAPI inbound MUST be deterministically routed by instance identifier.
     // Fail closed if no company is explicitly mapped.
     if (providerName === 'greenapi') {
-      const normalizedPhoneNumberId =
-        typeof phoneNumberId === 'string' ? phoneNumberId.trim() : String(phoneNumberId ?? '').trim();
+      const normalizedInstanceId = normalizeStringLike(phoneNumberId);
 
-      if (!normalizedPhoneNumberId) {
+      if (!normalizedInstanceId) {
         logger.error('GreenAPI company resolution failed: missing instance identifier (phoneNumberId)');
         return null;
       }
 
+      const matches: any[] = [];
       for (const company of companies) {
         const settings = (company.settings as any) || {};
-        const configuredId = typeof settings.whatsapp?.phoneNumberId === 'string' ? settings.whatsapp.phoneNumberId.trim() : '';
+        const whatsapp = (settings.whatsapp as any) || {};
+        const greenapi = (whatsapp.greenapi as any) || {};
 
-        if (configuredId && configuredId === normalizedPhoneNumberId) {
-          return {
-            company,
-            config: {
-              phoneNumberId: settings.whatsapp.phoneNumberId,
-              accessToken: settings.whatsapp.accessToken || config.whatsapp.accessToken,
-              verifyToken: settings.whatsapp.verifyToken || config.whatsapp.verifyToken,
-            },
-          };
+        const configuredId = normalizeStringLike(greenapi.idInstance);
+        const legacyConfiguredId = normalizeStringLike(whatsapp.phoneNumberId);
+
+        const allowLegacyMapping =
+          whatsapp.provider === 'greenapi' ||
+          (config.env !== 'production' && (config as any)?.whatsapp?.provider === 'greenapi');
+
+        const candidateId = configuredId || (allowLegacyMapping ? legacyConfiguredId : '');
+
+        if (candidateId && candidateId === normalizedInstanceId) {
+          matches.push(company);
         }
       }
 
+      if (matches.length === 1) {
+        const company = matches[0];
+        const settings = (company.settings as any) || {};
+        const whatsapp = (settings.whatsapp as any) || {};
+        const greenapi = (whatsapp.greenapi as any) || {};
+
+        const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
+        const apiTokenInstance =
+          normalizeStringLike(greenapi.apiTokenInstance) ||
+          normalizeStringLike(whatsapp.apiTokenInstance) ||
+          (config as any)?.greenapi?.apiTokenInstance ||
+          '';
+
+        return {
+          company,
+          config: {
+            provider: 'greenapi',
+            phoneNumberId: '',
+            accessToken: '',
+            verifyToken: normalizeStringLike(whatsapp.verifyToken) || config.whatsapp.verifyToken,
+            idInstance,
+            apiTokenInstance,
+          },
+        };
+      }
+
+      if (matches.length > 1) {
+        logger.error('GreenAPI company resolution failed: duplicate instance mapping', {
+          instanceId: normalizedInstanceId,
+          matchingCompanyIds: matches.map((company) => company.id),
+          totalCompanies: companies.length,
+        });
+        return null;
+      }
+
       logger.error('No company found for GreenAPI instance', {
-        phoneNumberId: normalizedPhoneNumberId,
+        instanceId: normalizedInstanceId,
         totalCompanies: companies.length,
       });
       return null;
@@ -142,12 +197,11 @@ export class WhatsAppService {
     const matches: any[] = [];
     for (const company of companies) {
       const settings = (company.settings as any) || {};
-      const whatsappSettings = (settings.whatsapp as any) || {};
+      const whatsapp = (settings.whatsapp as any) || {};
+      const meta = (whatsapp.meta as any) || whatsapp;
 
-      const configuredId =
-        typeof whatsappSettings.phoneNumberId === 'string' ? whatsappSettings.phoneNumberId.trim() : '';
-      const legacyConfiguredId =
-        typeof whatsappSettings.phone_number_id === 'string' ? whatsappSettings.phone_number_id.trim() : '';
+      const configuredId = normalizeStringLike(meta.phoneNumberId);
+      const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
 
       if (
         (configuredId && configuredId === normalizedPhoneNumberId) ||
@@ -160,18 +214,18 @@ export class WhatsAppService {
     if (matches.length === 1) {
       const company = matches[0];
       const settings = (company.settings as any) || {};
-      const whatsappSettings = (settings.whatsapp as any) || {};
-      const configuredId =
-        typeof whatsappSettings.phoneNumberId === 'string' ? whatsappSettings.phoneNumberId.trim() : '';
-      const legacyConfiguredId =
-        typeof whatsappSettings.phone_number_id === 'string' ? whatsappSettings.phone_number_id.trim() : '';
+      const whatsapp = (settings.whatsapp as any) || {};
+      const meta = (whatsapp.meta as any) || whatsapp;
+      const configuredId = normalizeStringLike(meta.phoneNumberId);
+      const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
 
       return {
         company,
         config: {
+          provider: 'meta',
           phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
-          accessToken: whatsappSettings.accessToken || config.whatsapp.accessToken,
-          verifyToken: whatsappSettings.verifyToken || config.whatsapp.verifyToken,
+          accessToken: normalizeStringLike(meta.accessToken) || config.whatsapp.accessToken,
+          verifyToken: normalizeStringLike(meta.verifyToken) || config.whatsapp.verifyToken,
         },
       };
     }
@@ -198,11 +252,10 @@ export class WhatsAppService {
     if (companies.length === 1) {
       const company = companies[0];
       const settings = (company.settings as any) || {};
-      const whatsappSettings = (settings.whatsapp as any) || {};
-      const configuredId =
-        typeof whatsappSettings.phoneNumberId === 'string' ? whatsappSettings.phoneNumberId.trim() : '';
-      const legacyConfiguredId =
-        typeof whatsappSettings.phone_number_id === 'string' ? whatsappSettings.phone_number_id.trim() : '';
+      const whatsapp = (settings.whatsapp as any) || {};
+      const meta = (whatsapp.meta as any) || whatsapp;
+      const configuredId = normalizeStringLike(meta.phoneNumberId);
+      const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
 
       logger.warn('Meta company resolution fallback: single active company (non-production)', {
         companyId: company.id,
@@ -213,9 +266,10 @@ export class WhatsAppService {
       return {
         company,
         config: {
+          provider: 'meta',
           phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
-          accessToken: whatsappSettings.accessToken || config.whatsapp.accessToken,
-          verifyToken: whatsappSettings.verifyToken || config.whatsapp.verifyToken,
+          accessToken: normalizeStringLike(meta.accessToken) || config.whatsapp.accessToken,
+          verifyToken: normalizeStringLike(meta.verifyToken) || config.whatsapp.verifyToken,
         },
       };
     }
@@ -239,13 +293,16 @@ export class WhatsAppService {
   async handleIncomingMessage(msg: IncomingMessage): Promise<IncomingMessageProcessingResult> {
     const notAttempted: InboundPropagationResult = { status: 'not_attempted' };
 
+    const inboundProvider: 'meta' | 'greenapi' = msg.provider === 'greenapi' ? 'greenapi' : 'meta';
+
     logger.info('=== WHATSAPP SERVICE: handleIncomingMessage START ===', {
+      provider: inboundProvider,
       phoneNumberId: msg.phoneNumberId,
       customerPhone: maskPhoneNumberForLogs(msg.customerPhone),
     });
 
     // 1. Find company by WhatsApp phone number ID
-    const result = await this.getCompanyByPhoneNumberId(msg.phoneNumberId);
+    const result = await this.getCompanyByPhoneNumberId(msg.phoneNumberId, inboundProvider);
 
     if (!result) {
       logger.error('=== NO COMPANY FOUND ===', { phoneNumberId: msg.phoneNumberId });
@@ -644,19 +701,37 @@ export class WhatsAppService {
    * Uses company-specific config for multi-tenant support.
    */
   async sendMessage(to: string, text: string, whatsappConfig: CompanyWhatsAppConfig): Promise<boolean> {
-    const providerName = this.resolveOutboundProviderName();
+    const providerName = this.resolveOutboundProviderName(whatsappConfig);
 
     if (providerName === 'meta') {
       const { phoneNumberId, accessToken } = whatsappConfig;
 
       if (!phoneNumberId || !accessToken) {
-        logger.error('WhatsApp config missing phoneNumberId or accessToken');
+        logger.error('WhatsApp Meta config missing phoneNumberId or accessToken');
         return false;
       }
+    } else {
+      const idInstance = whatsappConfig.idInstance || (config as any)?.greenapi?.idInstance || '';
+      const apiTokenInstance = whatsappConfig.apiTokenInstance || (config as any)?.greenapi?.apiTokenInstance || '';
+
+      if (!idInstance || !apiTokenInstance) {
+        logger.error('WhatsApp GreenAPI config missing idInstance or apiTokenInstance');
+        return false;
+      }
+
+      // Ensure provider config contains credentials for the provider implementation.
+      whatsappConfig = {
+        ...whatsappConfig,
+        idInstance,
+        apiTokenInstance,
+      };
     }
 
     try {
-      const result = await this.getOutboundProvider().sendTextMessage(to, text, whatsappConfig);
+      const result = await this.getOutboundProvider(providerName).sendTextMessage(to, text, {
+        ...whatsappConfig,
+        provider: providerName,
+      });
 
       if (!result.success) {
         logger.error('WhatsApp API error', { status: result.status, error: result.errorText });
@@ -675,7 +750,24 @@ export class WhatsAppService {
    * Test WhatsApp connection by calling the phone number endpoint.
    */
   async testConnection(whatsappConfig: CompanyWhatsAppConfig): Promise<{ success: boolean; error?: string }> {
-    return this.getOutboundProvider().testConnection(whatsappConfig);
+    const providerName = this.resolveOutboundProviderName(whatsappConfig);
+
+    if (providerName === 'greenapi') {
+      const idInstance = whatsappConfig.idInstance || (config as any)?.greenapi?.idInstance || '';
+      const apiTokenInstance = whatsappConfig.apiTokenInstance || (config as any)?.greenapi?.apiTokenInstance || '';
+
+      return this.getOutboundProvider('greenapi').testConnection({
+        ...whatsappConfig,
+        provider: 'greenapi',
+        idInstance,
+        apiTokenInstance,
+      });
+    }
+
+    return this.getOutboundProvider('meta').testConnection({
+      ...whatsappConfig,
+      provider: 'meta',
+    });
   }
 
   /**
@@ -731,7 +823,7 @@ export class WhatsAppService {
     caption: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (this.resolveOutboundProviderName() !== 'meta') {
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
       return {
         success: false,
         error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
@@ -805,7 +897,7 @@ export class WhatsAppService {
     caption: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (this.resolveOutboundProviderName() !== 'meta') {
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
       return {
         success: false,
         error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
@@ -882,7 +974,7 @@ export class WhatsAppService {
     address: string,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (this.resolveOutboundProviderName() !== 'meta') {
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
       return {
         success: false,
         error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
@@ -957,7 +1049,7 @@ export class WhatsAppService {
     footerText: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (this.resolveOutboundProviderName() !== 'meta') {
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
       return {
         success: false,
         error: "Not supported: interactive sends require WHATSAPP_PROVIDER='meta'",
@@ -1056,7 +1148,7 @@ export class WhatsAppService {
     footerText: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (this.resolveOutboundProviderName() !== 'meta') {
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
       return {
         success: false,
         error: "Not supported: interactive sends require WHATSAPP_PROVIDER='meta'",
