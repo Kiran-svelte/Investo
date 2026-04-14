@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-04-13T01:20:42.942Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app/",
+  "evidenceDir": "D:\\Investo\\test-results\\debug-ui-proof",
+  "bypassHeaderConfigured": false,
+  "login": {
+    "ok": true,
+    "finalUrl": "https://frontend-navy-eight-37.vercel.app/",
+    "error": null
+  },
+  "whatsapp": {
+    "pageLoaded": true,
+    "providerSelectPresent": true,
+    "meta": {
+      "webhookUrl": "https://investo-backend-v2.onrender.com/api/webhook",
+      "webhookUrlLooksCorrect": true,
+      "phoneNumberIdPresent": true,
+      "accessTokenPresent": false,
+      "verifyTokenPresent": true,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": "Skipped: missing Meta credentials in UI state"
+    },
+    "greenapi": {
+      "webhookUrl": "https://investo-backend-v2.onrender.com/api/greenapi/webhook",
+      "webhookUrlLooksCorrect": true,
+      "idInstancePresent": true,
+      "apiTokenInstancePresent": false,
+      "webhookTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": "Skipped: missing Green-API credentials in UI state (and env not provided)"
+    }
+  },
+  "runtime": {
+    "consoleErrors": [],
+    "pageErrors": [],
+    "requestFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": []
+  },
+  "screenshots": [
+    "01-login.png",
+    "02-after-login.png",
+    "03-ai-settings.png",
+    "04-whatsapp-meta.png",
+    "05-whatsapp-meta-skip.png",
+    "06-whatsapp-greenapi.png",
+    "07-whatsapp-greenapi-skip.png"
+  ],
+  "failures": []
+}

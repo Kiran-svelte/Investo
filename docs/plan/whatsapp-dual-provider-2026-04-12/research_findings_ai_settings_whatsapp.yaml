@@ -1,0 +1,537 @@
+plan_id: whatsapp-dual-provider-2026-04-12
+objective: |
+  Map the /ai-settings "WhatsApp Business Integration" fields to the exact frontend+backend code paths,
+  including save/test endpoints, webhook URL derivation, and dual-provider (Meta vs GreenAPI) behavior.
+focus_area: ai_settings_whatsapp
+created_at: "2026-04-12"
+created_by: GitHub Copilot (GPT-5.2)
+status: completed
+
+tldr: |
+  - /ai-settings WhatsApp fields are persisted per-company under company.settings.whatsapp via PUT /api/companies/:id (frontend AISettingsPage → backend company.routes).
+  - The UI “Webhook URL” is computed (read-only) as <backendBase>/api/webhook using the frontend API base URL logic; it does not reflect GreenAPI’s /api/greenapi/webhook route.
+  - Meta webhook verification compares hub.verify_token to the backend global config.whatsapp.verifyToken (WHATSAPP_VERIFY_TOKEN), not the per-company saved verifyToken field.
+  - Production enforces Meta-only provider (WHATSAPP_PROVIDER must be meta); GreenAPI inbound webhook is mounted only when NODE_ENV!=production and WHATSAPP_PROVIDER=greenapi.
+  - GreenAPI inbound routing is fail-closed and deterministic: instance identifier extracted from payload must match company.settings.whatsapp.phoneNumberId (unique per active company).
+
+research_metadata:
+  methodology: "Hybrid retrieval: semantic_search + grep_search for endpoint/field discovery, targeted read_file for implementation details, relationship discovery by tracing UI → API calls → routes → services → config; external doc verification via fetch_webpage (Meta docs)."
+  scope: "Focused on /ai-settings WhatsApp section (frontend), company settings persistence, WhatsApp test endpoint, webhook endpoints (/api/webhook and /api/greenapi/webhook), provider gating (meta vs greenapi), and related tests/docs."
+  confidence: high
+  coverage: 0.85
+  decision_blockers: 0
+  research_blockers: 0
+
+files_analyzed:
+  - file: AISettingsPage.tsx
+    path: frontend/src/pages/ai-settings/AISettingsPage.tsx
+    purpose: Renders /ai-settings, loads and saves WhatsApp Business Integration fields via company settings, computes the displayed webhook URL, and triggers connection tests.
+    key_elements:
+      - element: webhookUrl computation
+        type: pattern
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:115
+        description: Builds read-only webhook URL as `${backendBase}/api/webhook` using `api.defaults.baseURL` (minus `/api`) or `window.location.origin`.
+      - element: handleSaveWhatsApp
+        type: function
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:200
+        description: Reads current company settings then PUTs merged `settings.whatsapp` (phoneNumberId/accessToken/verifyToken/webhookUrl) to `/companies/:companyId`.
+      - element: handleTestWhatsApp
+        type: function
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:230
+        description: POSTs `{ phone_number_id, access_token }` to `/ai-settings/whatsapp/test`; UI blocks test when either field is empty.
+    language: TypeScript (TSX)
+    lines: 608
+
+  - file: api.ts
+    path: frontend/src/services/api.ts
+    purpose: Defines the frontend Axios client and determines the backend base URL used by the AI settings page (including webhook URL display).
+    key_elements:
+      - element: getApiBaseUrl
+        type: function
+        location: frontend/src/services/api.ts:74
+        description: Chooses baseURL using `VITE_API_URL`, localhost `/api`, else defaults to `https://investo-backend-v2.onrender.com/api`.
+    language: TypeScript
+    lines: 194
+
+  - file: company.routes.ts
+    path: backend/src/routes/company.routes.ts
+    purpose: Company CRUD; allows company_admin to update own company `settings` blob (used by AI Settings WhatsApp save).
+    key_elements:
+      - element: PUT /api/companies/:id
+        type: function
+        location: backend/src/routes/company.routes.ts:161
+        description: Super admin can update settings; company_admin can update own name/settings; no WhatsApp-specific validation/sanitization for `settings.whatsapp.*`.
+    language: TypeScript
+    lines: 293
+
+  - file: ai-settings.routes.ts
+    path: backend/src/routes/ai-settings.routes.ts
+    purpose: AI settings API + provider-aware WhatsApp connection test endpoint.
+    key_elements:
+      - element: POST /api/ai-settings/whatsapp/test
+        type: function
+        location: backend/src/routes/ai-settings.routes.ts:101
+        description: Provider-aware connectivity test; in meta mode requires phone_number_id/access_token; in greenapi mode requires GREENAPI_* env and ignores meta fields.
+    language: TypeScript
+    lines: 166
+
+  - file: webhook.routes.ts
+    path: backend/src/routes/webhook.routes.ts
+    purpose: Meta webhook verification and inbound webhook processing endpoint.
+    key_elements:
+      - element: GET /api/webhook
+        type: function
+        location: backend/src/routes/webhook.routes.ts:21
+        description: Validates `hub.verify_token` against `config.whatsapp.verifyToken` and echoes `hub.challenge` on success.
+      - element: POST /api/webhook signature verification
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:42
+        description: Captures raw body bytes and checks `x-hub-signature-256` HMAC against `config.whatsapp.appSecret`; rejects in production if app secret/signature missing.
+      - element: metadata.phone_number_id extraction
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:216
+        description: Extracts `value.metadata.phone_number_id` from webhook payload and passes it into downstream message handling (used for tenant routing).
+    language: TypeScript
+    lines: 615
+
+  - file: greenapi-webhook.routes.ts
+    path: backend/src/routes/greenapi-webhook.routes.ts
+    purpose: GreenAPI inbound webhook endpoint (non-production only when provider=greenapi) with token auth and fail-closed tenant routing.
+    key_elements:
+      - element: POST /api/greenapi/webhook
+        type: function
+        location: backend/src/routes/greenapi-webhook.routes.ts:34
+        description: Requires Authorization token matching config.greenapi.webhookUrlToken; validates a single instance identifier and ensures it maps to exactly one active company before acknowledging.
+      - element: extractAuthorizationToken
+        type: function
+        location: backend/src/routes/greenapi-webhook.routes.ts:91
+        description: Accepts `Authorization: Bearer <token>`, `Basic <token>`, or raw token.
+    language: TypeScript
+    lines: 377
+
+  - file: whatsapp.service.ts
+    path: backend/src/services/whatsapp.service.ts
+    purpose: Central WhatsApp domain service: provider selection (meta vs greenapi), inbound tenant routing by identifier, and outbound send/test operations.
+    key_elements:
+      - element: resolveOutboundProviderName
+        type: function
+        location: backend/src/services/whatsapp.service.ts:56
+        description: Forces meta in production; otherwise uses config.whatsapp.provider (defaults to meta if missing in mocks).
+      - element: getCompanyByPhoneNumberId
+        type: function
+        location: backend/src/services/whatsapp.service.ts:91
+        description: Deterministic multi-tenant routing by company.settings.whatsapp.phoneNumberId (GreenAPI: instance ID; Meta: phone_number_id); production fails closed on unmapped/duplicate.
+      - element: sendMessage
+        type: function
+        location: backend/src/services/whatsapp.service.ts:646
+        description: Delegates outbound send to the selected provider using companyConfig.phoneNumberId/accessToken.
+    language: TypeScript
+    lines: 2206
+
+  - file: meta-whatsapp.provider.ts
+    path: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+    purpose: Meta WhatsApp Cloud API outbound implementation.
+    key_elements:
+      - element: sendTextMessage
+        type: function
+        location: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts:10
+        description: POSTs `${apiUrl}/${phoneNumberId}/messages` with bearer Authorization using accessToken.
+      - element: testConnection
+        type: function
+        location: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts:36
+        description: GETs `${apiUrl}/${phoneNumberId}` with bearer Authorization; fails when phoneNumberId/accessToken are missing.
+    language: TypeScript
+    lines: 66
+
+  - file: index.ts
+    path: backend/src/config/index.ts
+    purpose: Runtime config and environment-variable mapping, including provider gating and webhook security configuration.
+    key_elements:
+      - element: production provider guard
+        type: pattern
+        location: backend/src/config/index.ts:241
+        description: Throws during config load when NODE_ENV=production and WHATSAPP_PROVIDER != meta.
+      - element: config.whatsapp
+        type: variable
+        location: backend/src/config/index.ts:303
+        description: Defines whatsapp provider, apiUrl default v18.0, verifyToken (WHATSAPP_VERIFY_TOKEN), appSecret (WHATSAPP_APP_SECRET), and optional IP whitelist flags.
+      - element: config.greenapi
+        type: variable
+        location: backend/src/config/index.ts:317
+        description: Defines GreenAPI apiUrl/idInstance/apiTokenInstance/webhookUrlToken from env.
+    language: TypeScript
+    lines: 380
+
+  - file: app.ts
+    path: backend/src/app.ts
+    purpose: Express wiring; mounts webhook routes before global JSON parsing and conditionally mounts GreenAPI webhook route.
+    key_elements:
+      - element: /api/webhook mount order
+        type: pattern
+        location: backend/src/app.ts:56
+        description: Mounts Meta webhook router before global express.json to preserve raw-body signature verification.
+      - element: /api/greenapi/webhook conditional mount
+        type: pattern
+        location: backend/src/app.ts:59
+        description: Mounts GreenAPI webhook route only when config.env != production AND config.whatsapp.provider == greenapi.
+    language: TypeScript
+    lines: 106
+
+  - file: WEBHOOK_CONFIGURATION.md
+    path: WEBHOOK_CONFIGURATION.md
+    purpose: Repo documentation for Meta and GreenAPI webhook setup, provider policy, env vars, and the GreenAPI instance→company mapping rule.
+    key_elements:
+      - element: Provider policy
+        type: pattern
+        location: WEBHOOK_CONFIGURATION.md:6
+        description: States Meta is supported in production and GreenAPI is non-production only.
+      - element: Callback URL + Verify Token
+        type: pattern
+        location: WEBHOOK_CONFIGURATION.md:30
+        description: Documents Meta callback URL format `<BACKEND_BASE>/api/webhook` and verify token value `WHATSAPP_VERIFY_TOKEN`.
+      - element: GreenAPI mapping requirement
+        type: pattern
+        location: WEBHOOK_CONFIGURATION.md:119
+        description: Requires `payload.instanceData.idInstance == company.settings.whatsapp.phoneNumberId` and describes fail-closed behavior.
+    language: Markdown
+    lines: 195
+
+  - file: PRD.yaml
+    path: docs/PRD.yaml
+    purpose: Product requirements for dual-track WhatsApp providers and production enforcement.
+    key_elements:
+      - element: acceptance_criteria (provider gating)
+        type: pattern
+        location: docs/PRD.yaml:53
+        description: Requires production fail-fast if GreenAPI configured and conditional mount for /api/greenapi/webhook.
+    language: YAML
+    lines: 108
+
+  - file: plan.yaml
+    path: docs/plan/whatsapp-dual-provider-2026-04-12/plan.yaml
+    purpose: Engineering plan for dual-provider implementation, invariants (webhook ordering/security), and verification.
+    key_elements:
+      - element: webhook_invariants
+        type: pattern
+        location: docs/plan/whatsapp-dual-provider-2026-04-12/plan.yaml:47
+        description: Specifies /api/webhook must remain mounted before JSON parsing to preserve signature verification.
+    language: YAML
+    lines: 539
+
+  - file: ai-settings.routes.whatsapp-test.test.ts
+    path: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+    purpose: Unit tests for provider-aware POST /api/ai-settings/whatsapp/test behavior.
+    key_elements:
+      - element: meta requires phone_number_id/access_token
+        type: pattern
+        location: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:99
+        description: Asserts meta mode passes phone_number_id/access_token through to whatsappService.testConnection.
+      - element: greenapi ignores meta fields
+        type: pattern
+        location: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:127
+        description: Asserts greenapi mode accepts empty body and requires GREENAPI env credentials.
+    language: TypeScript
+    lines: 176
+
+  - file: webhook.routes.security.test.ts
+    path: backend/src/tests/unit/webhook.routes.security.test.ts
+    purpose: Unit tests for Meta webhook signature enforcement and security behavior.
+    key_elements:
+      - element: production rejects missing app secret
+        type: pattern
+        location: backend/src/tests/unit/webhook.routes.security.test.ts:243
+        description: Asserts POST /api/webhook rejects when WHATSAPP_APP_SECRET is missing in production.
+    language: TypeScript
+    lines: 265
+
+  - file: whatsapp.greenapi-company-resolution.test.ts
+    path: backend/src/tests/unit/whatsapp.greenapi-company-resolution.test.ts
+    purpose: Unit tests confirming GreenAPI company resolution is deterministic and fail-closed.
+    key_elements:
+      - element: instanceId mapping to settings.whatsapp.phoneNumberId
+        type: pattern
+        location: backend/src/tests/unit/whatsapp.greenapi-company-resolution.test.ts:52
+        description: Asserts getCompanyByPhoneNumberId routes to the mapped company and returns null when unmapped.
+    language: TypeScript
+    lines: 110
+
+  - file: greenapi-webhook.routes.test.ts
+    path: backend/src/tests/unit/greenapi-webhook.routes.test.ts
+    purpose: Unit tests for GreenAPI webhook auth and inbound handling behavior.
+    key_elements:
+      - element: rejects missing/invalid Authorization
+        type: pattern
+        location: backend/src/tests/unit/greenapi-webhook.routes.test.ts:235
+        description: Asserts 401 behavior when Authorization header is missing or mismatched.
+    language: TypeScript
+    lines: 397
+
+patterns_found:
+  - category: architecture
+    pattern: "Dual-provider outbound abstraction with production Meta-only enforcement"
+    description: "Provider selection is driven by config.whatsapp.provider, but forced to meta in production; provider instantiation is centralized in WhatsAppService. Production misconfiguration fails fast during config load."
+    examples:
+      - file: backend/src/config/index.ts
+        location: backend/src/config/index.ts:241
+        snippet: "if (nodeEnv === 'production' && whatsappProvider !== 'meta') { throw new Error(...) }"
+      - file: backend/src/services/whatsapp.service.ts
+        location: backend/src/services/whatsapp.service.ts:56
+        snippet: "if (config.env === 'production') { return 'meta'; }"
+    prevalence: common
+
+  - category: structure
+    pattern: "Per-company WhatsApp config stored in company.settings JSON blob"
+    description: "The AI Settings page persists WhatsApp configuration under company.settings.whatsapp via the companies update endpoint; backend accepts settings as an opaque blob." 
+    examples:
+      - file: frontend/src/pages/ai-settings/AISettingsPage.tsx
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:200
+        snippet: "await api.put(`/companies/${user.company_id}`, { settings: newSettings });"
+      - file: backend/src/routes/company.routes.ts
+        location: backend/src/routes/company.routes.ts:225
+        snippet: "...(settings && { settings }),"
+    prevalence: common
+
+  - category: error_handling
+    pattern: "Fail-closed tenant routing on inbound webhooks"
+    description: "Inbound processing requires deterministic mapping to a single active company. GreenAPI rejects missing/multiple instance identifiers (422) and unmapped identifiers (404) before acknowledging; Meta routing fails closed in production when unmapped/duplicate." 
+    examples:
+      - file: backend/src/routes/greenapi-webhook.routes.ts
+        location: backend/src/routes/greenapi-webhook.routes.ts:61
+        snippet: "res.status(422).json({ error: 'missing_instance_identifier' ... });"
+      - file: backend/src/services/whatsapp.service.ts
+        location: backend/src/services/whatsapp.service.ts:190
+        snippet: "if (config.env === 'production') { ... return null; }"
+    prevalence: common
+
+  - category: security
+    pattern: "Webhook verification via verify token and HMAC signature"
+    description: "Meta webhook verification checks hub.verify_token against backend config and uses x-hub-signature-256 HMAC with WHATSAPP_APP_SECRET; signature/app secret are enforced in production." 
+    examples:
+      - file: backend/src/routes/webhook.routes.ts
+        location: backend/src/routes/webhook.routes.ts:26
+        snippet: "if (mode === 'subscribe' && token === config.whatsapp.verifyToken) { ... }"
+      - file: backend/src/routes/webhook.routes.ts
+        location: backend/src/routes/webhook.routes.ts:90
+        snippet: "function verifyWebhookSignature(body, signature) { ... createHmac('sha256', config.whatsapp.appSecret) ... }"
+    prevalence: common
+
+  - category: testing
+    pattern: "Jest module isolation with config/service mocks"
+    description: "Route unit tests isolate module imports and mock config + services to exercise provider-aware branching and security logic." 
+    examples:
+      - file: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+        location: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:12
+        snippet: "jest.doMock('../../config', () => ({ default: params.config }))"
+      - file: backend/src/tests/unit/webhook.routes.security.test.ts
+        location: backend/src/tests/unit/webhook.routes.security.test.ts:243
+        snippet: "test('POST rejects when WHATSAPP_APP_SECRET is missing in production', ... )"
+    prevalence: common
+
+related_architecture:
+  components_relevant_to_domain:
+    - component: "Frontend /ai-settings WhatsApp section"
+      responsibility: "Display/edit WhatsApp config, compute webhook URL display, call save/test endpoints."
+      location: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      relationship_to_domain: "domain entrypoint"
+
+    - component: "Company settings API"
+      responsibility: "Persist company.settings (including settings.whatsapp) via PUT /api/companies/:id."
+      location: backend/src/routes/company.routes.ts
+      relationship_to_domain: "stores WhatsApp settings"
+
+    - component: "AI settings WhatsApp test endpoint"
+      responsibility: "Provider-aware WhatsApp connectivity check (meta requires body fields; greenapi uses env)."
+      location: backend/src/routes/ai-settings.routes.ts
+      relationship_to_domain: "validates credentials/connectivity"
+
+    - component: "Meta webhook endpoint"
+      responsibility: "Webhook verification + inbound processing with signature enforcement."
+      location: backend/src/routes/webhook.routes.ts
+      relationship_to_domain: "inbound webhook intake (meta)"
+
+    - component: "GreenAPI webhook endpoint"
+      responsibility: "Inbound webhook intake (greenapi) with Authorization token auth and fail-closed tenant mapping."
+      location: backend/src/routes/greenapi-webhook.routes.ts
+      relationship_to_domain: "inbound webhook intake (greenapi)"
+
+    - component: WhatsAppService
+      responsibility: "Provider resolution, tenant mapping, inbound message handling, outbound send/test." 
+      location: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: "core domain service"
+
+  interfaces_used_by_domain:
+    - interface: "PUT /api/companies/:id"
+      location: backend/src/routes/company.routes.ts
+      usage_pattern: "Frontend merges and writes settings.whatsapp blob (phoneNumberId/accessToken/verifyToken/webhookUrl)."
+
+    - interface: "POST /api/ai-settings/whatsapp/test"
+      location: backend/src/routes/ai-settings.routes.ts
+      usage_pattern: "Frontend sends phone_number_id/access_token; backend branches by provider."
+
+    - interface: "GET/POST /api/webhook"
+      location: backend/src/routes/webhook.routes.ts
+      usage_pattern: "Meta webhook verification (GET) and event delivery (POST) with signature verification."
+
+    - interface: "POST /api/greenapi/webhook"
+      location: backend/src/routes/greenapi-webhook.routes.ts
+      usage_pattern: "GreenAPI event delivery with Authorization token + deterministic instance→company routing."
+
+  data_flow_involving_domain: |
+    1) Admin edits WhatsApp config in /ai-settings → frontend writes company.settings.whatsapp via PUT /api/companies/:id.
+    2) "Test connection" → frontend POSTs /api/ai-settings/whatsapp/test → backend executes provider-specific connectivity logic.
+    3) Meta inbound → Meta sends GET verification + POST events to /api/webhook → backend verifies hub.verify_token and x-hub-signature-256 → extracts metadata.phone_number_id → WhatsAppService resolves company by settings.whatsapp.phoneNumberId.
+    4) GreenAPI inbound (non-prod only) → GreenAPI POSTs /api/greenapi/webhook with Authorization → backend validates token + instance identifier → WhatsAppService resolves company by settings.whatsapp.phoneNumberId.
+
+  key_relationships_to_domain:
+    - from: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      to: frontend/src/services/api.ts
+      relationship: imports
+    - from: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      to: backend/src/routes/company.routes.ts
+      relationship: calls (HTTP)
+    - from: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      to: backend/src/routes/ai-settings.routes.ts
+      relationship: calls (HTTP)
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/routes/greenapi-webhook.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/services/whatsapp.service.ts
+      to: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+      relationship: composes
+
+related_technology_stack:
+  languages_used_in_domain:
+    - TypeScript
+    - TSX
+    - Markdown
+    - YAML
+
+  frameworks_used_in_domain:
+    - name: React
+      usage_in_domain: "Frontend /ai-settings page"
+    - name: Express
+      usage_in_domain: "Backend REST + webhook routes"
+
+  libraries_used_in_domain:
+    - name: axios@^1.14.0
+      purpose_in_domain: "Frontend HTTP client"
+    - name: react-router-dom@^6.30.3
+      purpose_in_domain: "Frontend routing to /ai-settings"
+    - name: express@^4.18.2
+      purpose_in_domain: "Backend routing/middleware"
+    - name: prisma@^7.5.0
+      purpose_in_domain: "Persist company settings and other domain data"
+    - name: jest@^29.7.0
+      purpose_in_domain: "Backend unit tests"
+    - name: supertest@^6.3.3
+      purpose_in_domain: "HTTP route testing"
+
+  external_apis_used_in_domain:
+    - name: "Meta WhatsApp Cloud API (Graph API)"
+      integration_point: "Outbound send + testConnection use config.whatsapp.apiUrl (default https://graph.facebook.com/v18.0)."
+    - name: "Meta Webhooks"
+      integration_point: "Inbound verification/events at /api/webhook using hub.verify_token and x-hub-signature-256."
+    - name: GreenAPI
+      integration_point: "Non-production inbound webhook at /api/greenapi/webhook and outbound provider when WHATSAPP_PROVIDER=greenapi."
+
+related_conventions:
+  naming_patterns_in_domain: |
+    - Company settings key: company.settings.whatsapp.{phoneNumberId, accessToken, verifyToken, webhookUrl} (camelCase).
+    - Request bodies often use snake_case in API routes (e.g., phone_number_id/access_token in /ai-settings/whatsapp/test).
+    - Legacy support exists for company.settings.whatsapp.phone_number_id in Meta company resolution.
+
+  structure_of_domain: |
+    Frontend: React page reads/writes settings via REST.
+    Backend: Express routers for /ai-settings, /companies, /webhook, /greenapi/webhook; WhatsAppService owns provider selection + tenant routing.
+
+  error_handling_in_domain: |
+    - Webhook endpoints reject with 401/403/422/404 depending on auth/signature/mapping failures.
+    - Production webhook signature enforcement is strict; non-production allows missing app secret/signature.
+
+  testing_in_domain: |
+    Jest unit tests isolate modules and mock config/services to test provider-aware branching and security behavior.
+
+  documentation_in_domain: |
+    WEBHOOK_CONFIGURATION.md documents provider policy, env vars, webhook endpoints, and GreenAPI mapping.
+    docs/PRD.yaml defines acceptance criteria for provider gating and route mounting.
+
+related_dependencies:
+  internal:
+    - component: frontend/src/services/api.ts
+      relationship_to_domain: "Provides API baseURL that influences displayed webhook URL"
+      direction: inbound
+    - component: backend/src/config/index.ts
+      relationship_to_domain: "Defines provider selection and webhook secrets"
+      direction: outbound
+    - component: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: "Central WhatsApp domain logic"
+      direction: outbound
+
+  external:
+    - name: "Meta WhatsApp Cloud API Get Started"
+      purpose_for_domain: "Documents token generation and the API Setup panel (temporary token + test phone number ID) and permanent token flow via Business Settings system users. URL: https://developers.facebook.com/docs/whatsapp/cloud-api/get-started"
+    - name: "Meta Graph API Webhooks Getting Started"
+      purpose_for_domain: "Documents webhook verification (hub.verify_token/hub.challenge) and signature header (X-Hub-Signature-256 using app secret). URL: https://developers.facebook.com/docs/graph-api/webhooks/getting-started"
+
+domain_security_considerations:
+  sensitive_areas:
+    - area: "Meta webhook verify token"
+      location: backend/src/routes/webhook.routes.ts:26
+      concern: "Verification uses global config.whatsapp.verifyToken (WHATSAPP_VERIFY_TOKEN); per-company saved verifyToken does not participate in verification." 
+    - area: "Meta webhook signature verification"
+      location: backend/src/routes/webhook.routes.ts:62
+      concern: "Production rejects when WHATSAPP_APP_SECRET is missing or signature invalid; raw body is captured for HMAC." 
+    - area: "GreenAPI webhook Authorization"
+      location: backend/src/routes/greenapi-webhook.routes.ts:34
+      concern: "Inbound auth is a shared secret token in Authorization header; endpoint is mounted only in non-production." 
+    - area: "Per-company access tokens"
+      location: frontend/src/pages/ai-settings/AISettingsPage.tsx:200
+      concern: "Access tokens are stored in company.settings.whatsapp.accessToken and used for outbound Graph API calls." 
+
+  authentication_patterns_in_domain: |
+    - Admin endpoints use RBAC middleware (e.g., authorize('ai_settings','update') for /ai-settings/whatsapp/test).
+    - Webhook endpoints do not require JWT auth; they rely on verify token + signature (Meta) or Authorization token (GreenAPI).
+
+  authorization_patterns_in_domain: |
+    - company_admin can update only their own company settings via PUT /api/companies/:id.
+    - super_admin can update any company and settings.
+
+  data_validation_in_domain: |
+    - /ai-settings/whatsapp/test validates required fields in meta mode; greenapi mode validates env credentials.
+    - company.settings.whatsapp values are not validated/sanitized by the companies update route.
+
+testing_patterns:
+  framework: Jest + Supertest
+  coverage_areas:
+    - "Provider-aware /api/ai-settings/whatsapp/test branching"
+    - "Meta webhook signature enforcement in production"
+    - "GreenAPI webhook Authorization handling"
+    - "GreenAPI instance→company mapping (fail-closed)"
+  test_organization: "backend/src/tests/unit/*"
+  mock_patterns:
+    - "jest.doMock('../../config', ...) and jest.isolateModules() for route tests"
+
+open_questions:
+  - question: "Should the per-company WhatsApp 'verifyToken' UI field be treated as informational-only, given GET /api/webhook uses global WHATSAPP_VERIFY_TOKEN?"
+    context: "AISettingsPage persists company.settings.whatsapp.verifyToken, but webhook verification reads config.whatsapp.verifyToken from env (backend/src/routes/webhook.routes.ts)."
+    type: nice_to_know
+    affects: ["wa07_docs_update"]
+
+  - question: "In GreenAPI mode, should the UI display /api/greenapi/webhook somewhere, since the read-only webhook URL is always /api/webhook?"
+    context: "GreenAPI inbound route is /api/greenapi/webhook and is conditionally mounted, but AISettingsPage computes webhookUrl as `${backendBase}/api/webhook`."
+    type: nice_to_know
+    affects: ["wa07_docs_update"]
+
+gaps:
+  - area: "UI guidance for Meta vs GreenAPI"
+    description: "The /ai-settings UI stores Meta-labeled fields in settings.whatsapp, but the backend uses a separate /api/greenapi/webhook endpoint in GreenAPI mode and does not consume settings.whatsapp.webhookUrl; the UI does not reflect provider-specific webhook endpoint selection."
+    impact: nice_to_know
+    affects: ["wa07_docs_update"]
+
+  - area: "Internal runbook for Meta console navigation"
+    description: "Repository docs describe required values (verify token/app secret/phone number ID/access token) but do not include step-by-step Meta App Dashboard navigation for obtaining them; external Meta docs were referenced."
+    impact: nice_to_know
+    affects: ["wa07_docs_update"]

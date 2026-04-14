@@ -1,0 +1,554 @@
+plan_id: whatsapp-dual-provider-2026-04-12
+objective: >
+  Inspect git stash@{0} contents and classify changes needed for production-ready dual WhatsApp providers
+  (Meta + GreenAPI) with provider selector UX and correct backend wiring, including production gating via
+  WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION.
+focus_area: stash@{0} (backend/src + frontend/src ai-settings + whatsapp providers)
+created_at: "2026-04-13"
+created_by: GitHub Copilot (GPT-5.2)
+status: completed
+
+tldr: |
+  - Stash@{0} changes 13 files: 11 WhatsApp/provider-related, plus 2 unrelated DB/upload changes.
+  - Frontend AI Settings adds a provider selector (meta vs greenapi), provider-specific fields, and writes company settings as nested whatsapp.meta + whatsapp.greenapi with legacy top-level mirrors.
+  - Backend updates AI settings test route + WhatsApp provider layer + WhatsAppService to be provider-aware per-company, including allowGreenapiInProd gating in production.
+  - Backend also updates conversation/automation/notification outbound send paths to read the new settings shape and pass provider + credentials into WhatsAppService.
+  - Gap: GreenAPI webhook route still calls WhatsAppService.handleIncomingMessage without provider='greenapi'; with stash changes, inboundProvider defaults to 'meta', so GreenAPI-specific deterministic routing is not guaranteed unless the route passes the provider hint.
+
+research_metadata:
+  methodology: >
+    Hybrid retrieval: stash enumeration via git, targeted diffs via git diff (stash@{0}^1..stash@{0}),
+    and codebase validation via grep_search + read_file for current-HEAD behavior.
+  scope: >
+    Focused on files changed in stash@{0} and their immediate runtime dependencies (backend config,
+    route mounting, GreenAPI webhook behavior).
+  confidence: high
+  coverage: 85
+  decision_blockers: 1
+  research_blockers: 0
+
+stash_review:
+  stash_ref: "stash@{0}"
+  stash_commit: a538200eef7851da033cd29594555756ae13fe45
+  stash_subject: "On main: wip: local changes (do not push)"
+  changed_files:
+    - backend/src/config/bootstrapDatabase.ts
+    - backend/src/routes/ai-settings.routes.ts
+    - backend/src/routes/conversation.routes.ts
+    - backend/src/routes/property-import-upload.routes.ts
+    - backend/src/services/automation.service.ts
+    - backend/src/services/notification.engine.ts
+    - backend/src/services/whatsapp.service.ts
+    - backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts
+    - backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+    - backend/src/services/whatsapp/providers/whatsapp-provider.ts
+    - backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+    - backend/src/tests/unit/whatsapp-greenapi-provider.test.ts
+    - frontend/src/pages/ai-settings/AISettingsPage.tsx
+
+scope_mapping:
+  directly_required_for_provider_selector_ux_and_connectivity:
+    - frontend/src/pages/ai-settings/AISettingsPage.tsx
+    - backend/src/routes/ai-settings.routes.ts
+    - backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+  directly_required_for_per_company_provider_selection_and_greenapi_outbound:
+    - backend/src/services/whatsapp.service.ts
+    - backend/src/services/whatsapp/providers/whatsapp-provider.ts
+    - backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts
+    - backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+    - backend/src/tests/unit/whatsapp-greenapi-provider.test.ts
+  related_backend_wiring_for_outbound_messages (touches automation/notifications/conversation-center):
+    - backend/src/routes/conversation.routes.ts
+    - backend/src/services/automation.service.ts
+    - backend/src/services/notification.engine.ts
+  unrelated_or_high_risk_out_of_scope_for_this_objective:
+    - backend/src/config/bootstrapDatabase.ts
+    - backend/src/routes/property-import-upload.routes.ts
+
+required_changes_summary:
+  frontend:
+    provider_selector_and_fields:
+      file: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      summary:
+        - Adds whatsappConfig.provider ('meta'|'greenapi') and GreenAPI fields (idInstance, apiTokenInstance, webhookUrlToken).
+        - Loads company.settings.whatsapp with support for nested whatsapp.meta and whatsapp.greenapi plus legacy flat keys.
+        - Saves settings as { whatsapp: { provider, meta: {...}, greenapi: {...}, legacy mirrors... } }.
+        - Tests connection via POST /api/ai-settings/whatsapp/test with provider-aware payload.
+  backend:
+    provider_aware_test_route:
+      file: backend/src/routes/ai-settings.routes.ts
+      summary:
+        - Accepts req.body.provider to select meta vs greenapi test.
+        - Enforces production gating for greenapi via config.whatsapp.allowGreenapiInProd.
+        - For greenapi test, accepts id_instance + api_token_instance in request and passes them to WhatsAppService.testConnection.
+    whatsapp_service_provider_selection:
+      file: backend/src/services/whatsapp.service.ts
+      summary:
+        - resolveOutboundProviderName now accepts optional per-company config and uses whatsappConfig.provider when present.
+        - Production gating: if provider=greenapi and NODE_ENV=production and allowGreenapiInProd is false, provider resolves to meta.
+        - Caches outbound providers by provider name (meta vs greenapi) rather than a single instance.
+        - sendMessage/testConnection pass provider + required credentials to the appropriate provider implementation.
+        - getCompanyByPhoneNumberId now accepts an optional providerHint and reads nested company settings (whatsapp.meta / whatsapp.greenapi) with legacy fallbacks.
+    provider_layer_changes:
+      files:
+        - backend/src/services/whatsapp/providers/whatsapp-provider.ts
+        - backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+        - backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts
+      summary:
+        - WhatsAppProviderConfig expands to include optional meta credentials and greenapi credentials (idInstance, apiTokenInstance) and optional provider discriminator.
+        - GreenApiWhatsAppProvider no longer stores credentials in constructor; it requires them per call via companyConfig.
+        - MetaWhatsAppProvider validates phoneNumberId/accessToken presence and returns 400-style failure when missing.
+    outbound_call_site_wiring:
+      files:
+        - backend/src/routes/conversation.routes.ts
+        - backend/src/services/automation.service.ts
+        - backend/src/services/notification.engine.ts
+      summary:
+        - Normalizes company.settings.whatsapp with provider-aware shape (nested meta/greenapi) and passes provider + credentials through to whatsappService.sendMessage.
+
+missing_pieces_or_mismatches_in_current_HEAD:
+  - area: Production GreenAPI outbound gating consistency
+    observation: >
+      Current HEAD config fails fast when WHATSAPP_PROVIDER=greenapi in production unless WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true
+      (backend/src/config/index.ts), but WhatsAppService.resolveOutboundProviderName still forces meta in production unconditionally
+      (backend/src/services/whatsapp.service.ts). Stash changes align WhatsAppService with the allow flag.
+    sources:
+      - backend/src/config/index.ts
+      - backend/src/services/whatsapp.service.ts
+  - area: GreenAPI inbound provider hint
+    observation: >
+      With stash changes, WhatsAppService.handleIncomingMessage defaults inboundProvider to meta unless msg.provider==='greenapi'.
+      Current GreenAPI webhook route calls whatsappService.handleIncomingMessage without provider, so GreenAPI inbound requests
+      will be processed with inboundProvider=meta and will not invoke GreenAPI-specific deterministic routing logic unless the
+      route passes provider='greenapi'.
+    sources:
+      - backend/src/routes/greenapi-webhook.routes.ts
+      - backend/src/services/whatsapp.service.ts
+  - area: Route mounting vs docs
+    observation: >
+      WEBHOOK_CONFIGURATION.md states /api/greenapi/webhook is mounted only in non-production when WHATSAPP_PROVIDER=greenapi,
+      but backend/src/app.ts mounts /api/greenapi/webhook unconditionally and relies on internal guards.
+    sources:
+      - WEBHOOK_CONFIGURATION.md
+      - backend/src/app.ts
+
+secrets_and_credentials_scan:
+  approach: >
+    Heuristic scan of stash diffs for common token/key prefixes and key=value patterns, outputting only file path + match type.
+  findings:
+    high_confidence_secrets_found: []
+    credential_like_fields_or_placeholders_detected:
+      - backend/src/routes/ai-settings.routes.ts
+      - backend/src/routes/conversation.routes.ts
+      - backend/src/services/automation.service.ts
+      - backend/src/services/notification.engine.ts
+      - backend/src/services/whatsapp.service.ts
+      - backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+      - backend/src/tests/unit/whatsapp-greenapi-provider.test.ts
+      - frontend/src/pages/ai-settings/AISettingsPage.tsx
+    notes:
+      - No vcp_/rnd_/JWT-style secrets detected in stash diffs; matches are primarily credential field names and test/UI placeholders.
+      - If any real provider tokens were accidentally hard-coded in local changes, rotation would be required before applying/pushing.
+
+files_analyzed:
+  - file: PRD
+    path: docs/PRD.yaml
+    purpose: Defines intended dual-provider behavior and production constraints.
+    key_elements:
+      - element: acceptance_criteria
+        type: pattern
+        location: docs/PRD.yaml:acceptance_criteria
+        description: Production Meta-only enforcement, non-prod GreenAPI webhook availability, provider abstraction.
+    language: yaml
+    lines: 94
+
+  - file: Webhook configuration doc
+    path: WEBHOOK_CONFIGURATION.md
+    purpose: Documents Meta + GreenAPI webhook endpoints and expected configuration.
+    key_elements:
+      - element: GreenAPI webhook policy
+        type: pattern
+        location: WEBHOOK_CONFIGURATION.md:GreenAPI webhook (non-production only)
+        description: States when /api/greenapi/webhook exists and how to authorize.
+    language: markdown
+    lines: 134
+
+  - file: Backend route mounting
+    path: backend/src/app.ts
+    purpose: Express app composition and route mounting order.
+    key_elements:
+      - element: /api/greenapi/webhook mount
+        type: pattern
+        location: backend/src/app.ts:59
+        description: Mounts GreenAPI webhook routes (guarded internally).
+    language: typescript
+    lines: 89
+
+  - file: Backend config
+    path: backend/src/config/index.ts
+    purpose: Central runtime configuration from environment variables.
+    key_elements:
+      - element: WHATSAPP_PROVIDER resolver
+        type: function
+        location: backend/src/config/index.ts:221
+        description: Validates WHATSAPP_PROVIDER is meta|greenapi.
+      - element: allowGreenapiInProd + fail-fast guard
+        type: pattern
+        location: backend/src/config/index.ts:241
+        description: Throws on production greenapi unless WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true.
+      - element: config.whatsapp.provider/allowGreenapiInProd
+        type: variable
+        location: backend/src/config/index.ts:305
+        description: Exposes whatsapp provider selection and allow flag.
+    language: typescript
+    lines: 325
+
+  - file: GreenAPI webhook route
+    path: backend/src/routes/greenapi-webhook.routes.ts
+    purpose: Receives GreenAPI inbound webhooks, authorizes, deduplicates, and forwards to WhatsAppService.
+    key_elements:
+      - element: company-specific webhook token fallback
+        type: pattern
+        location: backend/src/routes/greenapi-webhook.routes.ts:70
+        description: Uses company.settings.whatsapp.greenapi.webhookUrlToken or global config.greenapi.webhookUrlToken.
+      - element: handleIncomingMessage call
+        type: function
+        location: backend/src/routes/greenapi-webhook.routes.ts:361
+        description: Calls whatsappService.handleIncomingMessage with phoneNumberId=instanceId (no provider hint in HEAD).
+    language: typescript
+    lines: 341
+
+  - file: AI settings route
+    path: backend/src/routes/ai-settings.routes.ts
+    purpose: AI settings CRUD and WhatsApp connection test endpoint.
+    key_elements:
+      - element: POST /ai-settings/whatsapp/test
+        type: function
+        location: backend/src/routes/ai-settings.routes.ts:97
+        description: In HEAD, provider is derived from env; stash makes it provider-aware via req.body.provider.
+    language: typescript
+    lines: 146
+
+  - file: WhatsApp service
+    path: backend/src/services/whatsapp.service.ts
+    purpose: Handles inbound WhatsApp messages and outbound sending via provider abstraction.
+    key_elements:
+      - element: resolveOutboundProviderName (HEAD)
+        type: function
+        location: backend/src/services/whatsapp.service.ts:56
+        description: In HEAD, forces meta in production and uses config.whatsapp.provider in non-prod; stash changes this to allow per-company provider and allowGreenapiInProd gating.
+      - element: getCompanyByPhoneNumberId (HEAD)
+        type: function
+        location: backend/src/services/whatsapp.service.ts:91
+        description: In HEAD, resolution strategy depends on global provider; stash adds providerHint and nested settings support.
+      - element: sendMessage/testConnection (HEAD)
+        type: function
+        location: backend/src/services/whatsapp.service.ts:646
+        description: In HEAD, always uses global provider; stash routes by per-company config.
+    language: typescript
+    lines: 1963
+
+  - file: Provider interface
+    path: backend/src/services/whatsapp/providers/whatsapp-provider.ts
+    purpose: Defines outbound provider contract + configuration payload passed into providers.
+    key_elements:
+      - element: WhatsAppProviderConfig
+        type: variable
+        location: backend/src/services/whatsapp/providers/whatsapp-provider.ts:1
+        description: Stash expands config to include provider discriminator and GreenAPI credentials.
+    language: typescript
+    lines: 12
+
+  - file: Meta outbound provider
+    path: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+    purpose: Sends outbound text via Meta WhatsApp Cloud API.
+    key_elements:
+      - element: sendTextMessage
+        type: function
+        location: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts:10
+        description: Stash adds explicit missing-credential validation.
+    language: typescript
+    lines: 54
+
+  - file: GreenAPI outbound provider
+    path: backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts
+    purpose: Sends outbound text via Green-API endpoints.
+    key_elements:
+      - element: sendTextMessage/testConnection
+        type: function
+        location: backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts:18
+        description: Stash shifts idInstance/apiTokenInstance from constructor params to per-call companyConfig.
+    language: typescript
+    lines: 65
+
+  - file: Conversation center routes
+    path: backend/src/routes/conversation.routes.ts
+    purpose: Conversation center API including agent-initiated outbound sends.
+    key_elements:
+      - element: normalizeWhatsAppConfig
+        type: function
+        location: backend/src/routes/conversation.routes.ts:20
+        description: Stash makes this provider-aware for nested settings and GreenAPI credentials.
+    language: typescript
+    lines: 405
+
+  - file: Automation service
+    path: backend/src/services/automation.service.ts
+    purpose: Scheduled outbound automation (visit reminders, follow-ups).
+    key_elements:
+      - element: getCompanyWhatsAppConfig
+        type: function
+        location: backend/src/services/automation.service.ts:6
+        description: Stash adds provider-aware config extraction and passes provider + credentials to whatsappService.sendMessage.
+    language: typescript
+    lines: 493
+
+  - file: Notification engine
+    path: backend/src/services/notification.engine.ts
+    purpose: Sends notifications (including WhatsApp) for visit events.
+    key_elements:
+      - element: getCompanyWhatsAppConfig
+        type: function
+        location: backend/src/services/notification.engine.ts:18
+        description: Stash adds provider-aware config extraction and passes provider + credentials to whatsappService.sendMessage.
+    language: typescript
+    lines: 303
+
+  - file: Frontend AI settings page
+    path: frontend/src/pages/ai-settings/AISettingsPage.tsx
+    purpose: Admin UX to configure AI + WhatsApp integration at company level.
+    key_elements:
+      - element: WhatsAppConfig.provider + greenapi fields (stash)
+        type: pattern
+        location: git diff stash@{0}^1..stash@{0} (hunks @@ -27,+27 and @@ -69,+73)
+        description: Adds provider selector and provider-specific fields; writes nested settings + legacy mirrors.
+    language: typescriptreact
+    lines: 608
+
+  - file: Unit tests - AI settings WhatsApp test route
+    path: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+    purpose: Validates POST /api/ai-settings/whatsapp/test behavior.
+    key_elements:
+      - element: provider-aware test cases (stash)
+        type: pattern
+        location: git diff stash@{0}^1..stash@{0}
+        description: Asserts provider passthrough and greenapi credential requirements.
+    language: typescript
+    lines: 145
+
+  - file: Unit tests - GreenAPI provider
+    path: backend/src/tests/unit/whatsapp-greenapi-provider.test.ts
+    purpose: Verifies GreenApiWhatsAppProvider outbound call construction.
+    key_elements:
+      - element: per-call credentials (stash)
+        type: pattern
+        location: git diff stash@{0}^1..stash@{0}
+        description: Updates tests to pass idInstance/apiTokenInstance via companyConfig.
+    language: typescript
+    lines: 100
+
+  - file: Out-of-scope DB bootstrap changes (stash)
+    path: backend/src/config/bootstrapDatabase.ts
+    purpose: Applies compatibility patches and controls auto-migrate/seed flows.
+    key_elements:
+      - element: safeExecutePatch wrapper (stash)
+        type: function
+        location: git diff stash@{0}^1..stash@{0}
+        description: Converts many raw DDL steps to best-effort warning logs.
+    language: typescript
+    lines: 129
+
+  - file: Out-of-scope upload self-heal changes (stash)
+    path: backend/src/routes/property-import-upload.routes.ts
+    purpose: Handles DB-backed property import uploads.
+    key_elements:
+      - element: self-heal DDL + retry on missing table (stash)
+        type: pattern
+        location: git diff stash@{0}^1..stash@{0}
+        description: Adds best-effort DDL + retry flow for property_import_media_blobs.
+    language: typescript
+    lines: 165
+
+patterns_found:
+  - category: architecture
+    pattern: Provider abstraction + per-company provider selection
+    description: WhatsApp outbound operations route through WhatsAppOutboundProvider implementations with per-company credentials.
+    examples:
+      - file: backend/src/services/whatsapp/providers/whatsapp-provider.ts
+        location: git diff stash@{0}^1..stash@{0}
+        snippet: "WhatsAppProviderConfig now supports provider + meta/greenapi credential fields (values redacted)."
+      - file: backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts
+        location: git diff stash@{0}^1..stash@{0}
+        snippet: "GreenApiWhatsAppProvider constructor takes apiUrl only; idInstance/apiTokenInstance come from companyConfig."
+    prevalence: common
+
+  - category: structure
+    pattern: Nested company.settings.whatsapp.{meta,greenapi} with legacy mirrors
+    description: Stash writes nested provider-specific config while maintaining backwards-compatible top-level keys.
+    examples:
+      - file: frontend/src/pages/ai-settings/AISettingsPage.tsx
+        location: git diff stash@{0}^1..stash@{0}
+        snippet: "settings.whatsapp = { provider, meta: {...}, greenapi: {...}, phoneNumberId: <mirror>, accessToken: <mirror> }"
+    prevalence: occasional
+
+  - category: error_handling
+    pattern: Production gating via allowGreenapiInProd
+    description: Multiple entry points enforce production constraints using config.whatsapp.allowGreenapiInProd.
+    examples:
+      - file: backend/src/config/index.ts
+        location: backend/src/config/index.ts:241
+        snippet: "Boot-time guard rejects production greenapi unless allow flag is true."
+      - file: backend/src/routes/greenapi-webhook.routes.ts
+        location: backend/src/routes/greenapi-webhook.routes.ts:33
+        snippet: "Route returns 404 in production when allowGreenapiInProd is false."
+    prevalence: common
+
+related_architecture:
+  components_relevant_to_domain:
+    - component: WhatsAppService
+      responsibility: Inbound processing and outbound sending; resolves company config; routes by provider.
+      location: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: domain core
+    - component: MetaWhatsAppProvider
+      responsibility: Outbound text via Meta Graph API.
+      location: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+      relationship_to_domain: domain dependency
+    - component: GreenApiWhatsAppProvider
+      responsibility: Outbound text via Green-API.
+      location: backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts
+      relationship_to_domain: domain dependency
+    - component: GreenAPI webhook router
+      responsibility: Authorizes + deduplicates GreenAPI inbound and forwards to WhatsAppService.
+      location: backend/src/routes/greenapi-webhook.routes.ts
+      relationship_to_domain: this uses domain outputs
+    - component: AI settings WhatsApp test route
+      responsibility: Connectivity test endpoint used by frontend UX.
+      location: backend/src/routes/ai-settings.routes.ts
+      relationship_to_domain: this uses domain outputs
+    - component: AISettingsPage (frontend)
+      responsibility: Provider selector UI; writes company.settings.whatsapp provider config.
+      location: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      relationship_to_domain: this uses domain outputs
+
+  interfaces_used_by_domain:
+    - interface: WhatsAppOutboundProvider
+      location: backend/src/services/whatsapp/providers/whatsapp-provider.ts
+      usage_pattern: WhatsAppService delegates sendTextMessage/testConnection to provider implementation.
+
+  data_flow_involving_domain: >
+    Frontend updates company.settings.whatsapp via /api/companies/:id (PUT). Backend reads company.settings.whatsapp in
+    conversation routes/automation/notification flows to build provider config and calls WhatsAppService.sendMessage.
+    Inbound webhooks (Meta: /api/webhook, GreenAPI: /api/greenapi/webhook) resolve tenant mapping via WhatsAppService and
+    then propagate messages into conversation/lead state.
+
+  key_relationships_to_domain:
+    - from: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      to: backend/src/routes/ai-settings.routes.ts
+      relationship: calls
+    - from: backend/src/routes/conversation.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/routes/greenapi-webhook.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+
+related_technology_stack:
+  languages_used_in_domain:
+    - TypeScript
+    - TSX (React)
+    - YAML
+    - Markdown
+
+  frameworks_used_in_domain:
+    - name: Express
+      usage_in_domain: Backend routing for webhooks and AI settings.
+    - name: React
+      usage_in_domain: AI settings provider selector UX.
+
+  libraries_used_in_domain:
+    - name: Prisma
+      purpose_in_domain: Company lookup + conversation/lead persistence in WhatsAppService and routes.
+    - name: Jest
+      purpose_in_domain: Unit tests for WhatsApp provider and routes.
+    - name: Supertest
+      purpose_in_domain: HTTP route testing.
+    - name: Axios
+      purpose_in_domain: Frontend API client used by AISettingsPage.
+
+  external_apis_used_in_domain:
+    - name: Meta WhatsApp Cloud API (Graph API)
+      integration_point: backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts
+    - name: Green-API
+      integration_point: backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts
+
+related_conventions:
+  naming_patterns_in_domain: "Provider names use literals 'meta'|'greenapi'; nested settings keys use whatsapp.meta and whatsapp.greenapi."
+  structure_of_domain: "Outbound provider interface in backend/src/services/whatsapp/providers; orchestration in WhatsAppService; routes in backend/src/routes."
+  error_handling_in_domain: "Production guards use config.whatsapp.allowGreenapiInProd; providers return {success:false,status,errorText} for HTTP failures."
+  testing_in_domain: "Jest unit tests in backend/src/tests/unit validate provider behavior and route responses."
+  documentation_in_domain: "docs/PRD.yaml + WEBHOOK_CONFIGURATION.md describe intended behavior." 
+
+related_dependencies:
+  internal:
+    - component: backend/src/config/index.ts
+      relationship_to_domain: supplies provider selection + allow flags + credentials
+      direction: outbound
+    - component: backend/src/routes/greenapi-webhook.routes.ts
+      relationship_to_domain: supplies inbound GreenAPI messages to WhatsAppService
+      direction: inbound
+    - component: backend/src/routes/webhook.routes.ts
+      relationship_to_domain: supplies inbound Meta messages to WhatsAppService
+      direction: inbound
+
+  external:
+    - name: express@^4.18.2
+      purpose_for_domain: HTTP routing and webhook endpoints
+    - name: prisma@^7.5.0 / @prisma/client@^7.5.0
+      purpose_for_domain: DB access
+    - name: react@^18.3.1
+      purpose_for_domain: provider selector UI
+
+domain_security_considerations:
+  sensitive_areas:
+    - area: Company settings include provider credentials
+      location: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      concern: Access tokens / API tokens and webhook shared secrets are handled in admin UI and persisted in settings JSON.
+    - area: GreenAPI webhook Authorization token
+      location: backend/src/routes/greenapi-webhook.routes.ts
+      concern: Requests must be authorized; code supports per-company token or global fallback.
+    - area: Production allow flag
+      location: backend/src/config/index.ts
+      concern: Production guard must remain fail-closed unless explicitly overridden.
+
+  authentication_patterns_in_domain: "Webhook auth for GreenAPI is via shared token in Authorization header; Meta webhook uses signature verification (see webhook.routes.ts)."
+  authorization_patterns_in_domain: "AI settings routes are protected by authenticate + tenant isolation + RBAC (ai-settings.routes.ts)."
+  data_validation_in_domain: "AI settings test route validates presence of required fields per provider; webhook routes validate instance identifiers and dedup keys." 
+
+testing_patterns:
+  framework: Jest (backend)
+  coverage_areas:
+    - Provider outbound behavior (GreenApiWhatsAppProvider)
+    - AI settings WhatsApp test route responses
+  test_organization: backend/src/tests/unit
+  mock_patterns:
+    - Jest module mocks for prisma/config/logger
+
+open_questions:
+  - question: Should automation + notification WhatsApp sends be in the minimal rollout for 'full premium UX GreenAPI mode'?
+    context: Stash includes provider-aware wiring in both services; excluding them yields partial provider compliance (manual sends only).
+    type: decision_blocker
+    affects: ["dual-provider-rollout"]
+  - question: Should GreenAPI webhook route pass provider='greenapi' into WhatsAppService.handleIncomingMessage after stash changes?
+    context: Stash adds inboundProvider defaulting to meta; current route does not set provider field.
+    type: decision_blocker
+    affects: ["dual-provider-rollout"]
+
+gaps:
+  - area: GreenAPI inbound provider hint not set
+    description: backend/src/routes/greenapi-webhook.routes.ts does not pass provider='greenapi' to handleIncomingMessage, while stash makes handleIncomingMessage default provider to meta.
+    impact: decision_blocker
+    affects: ["dual-provider-rollout"]
+  - area: Out-of-scope changes bundled in stash
+    description: bootstrapDatabase.ts and property-import-upload.routes.ts include unrelated DDL/self-heal changes that expand risk surface for a WhatsApp-only rollout.
+    impact: nice_to_know
+    affects: ["dual-provider-rollout"]

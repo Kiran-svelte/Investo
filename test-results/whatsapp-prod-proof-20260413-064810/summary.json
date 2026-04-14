@@ -1,0 +1,30 @@
+{
+  "timestamp": "20260413-064810",
+  "evidenceDir": "D:\\Investo\\test-results\\whatsapp-prod-proof-20260413-064810",
+  "requests": [
+    {
+      "file": "01_health.txt",
+      "status": 200,
+      "bodyPreview": "{\"status\":\"ok\",\"timestamp\":\"2026-04-13T01:18:12.523Z\",\"environment\":\"production\",\"dependencies\":{\"db\":{\"status\":\"ok\",\"latency_ms\":67}}}\r\n"
+    },
+    {
+      "file": "02_meta_verify.txt",
+      "status": 200,
+      "bodyPreview": "test123\r\n"
+    },
+    {
+      "file": "03_greenapi_no_auth.txt",
+      "status": 404,
+      "bodyPreview": "{\"error\":\"Endpoint not found\"}\r\n"
+    },
+    {
+      "file": "04_greenapi_dummy_bearer.txt",
+      "status": 404,
+      "bodyPreview": "{\"error\":\"Endpoint not found\"}\r\n"
+    }
+  ],
+  "interpretation": {
+    "greenapiEnabled": false,
+    "greenapiNote": "Both GreenAPI webhook calls returned 404: route likely not deployed/disabled in production."
+  }
+}

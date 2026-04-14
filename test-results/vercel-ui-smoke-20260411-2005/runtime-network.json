@@ -1,0 +1,83 @@
+{
+  "networkFailures": [
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    }
+  ],
+  "failingResponses": [
+    {
+      "url": "https://vercel.com/api/jwt",
+      "status": 403,
+      "method": "POST",
+      "bodyPath": "..\\test-results\\vercel-ui-smoke-20260411-2005\\fail-response-1.txt",
+      "bodySnippet": "Unauthorized"
+    }
+  ]
+}

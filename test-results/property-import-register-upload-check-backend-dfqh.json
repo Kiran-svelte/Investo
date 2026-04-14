@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-04-11T21:42:40.2125099+05:30",
+  "base": "https://investo-backend-dfqh.onrender.com",
+  "login": {
+    "status": 401,
+    "body": "{\"message\":\"Invalid credentials\"}"
+  },
+  "draft": {
+    "draftId": null,
+    "body": null,
+    "status": null
+  },
+  "registerUpload": {
+    "status": null,
+    "body": null
+  }
+}

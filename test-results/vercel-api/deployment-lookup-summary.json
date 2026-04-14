@@ -1,0 +1,17 @@
+[
+  {
+    "target": "dpl_8644KMyWXtZjQHjaTrTL5V1CkBvA",
+    "ok": false,
+    "error": "Response status code does not indicate success: 404 (Not Found)."
+  },
+  {
+    "target": "frontend-navy-eight-37.vercel.app",
+    "ok": false,
+    "error": "Response status code does not indicate success: 404 (Not Found)."
+  },
+  {
+    "target": "frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app",
+    "ok": false,
+    "error": "Response status code does not indicate success: 404 (Not Found)."
+  }
+]

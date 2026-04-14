@@ -1,0 +1,48 @@
+{
+  "timestamp": "2026-04-13T01:20:27.081Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app/",
+  "evidenceDir": "D:\\Investo\\test-results\\whatsapp-prod-ui-proof-debug2",
+  "bypassHeaderConfigured": false,
+  "login": {
+    "ok": false,
+    "finalUrl": null,
+    "error": "page.goto: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - navigating to \"https://frontend-navy-eight-37.vercel.app/login\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "whatsapp": {
+    "pageLoaded": false,
+    "providerSelectPresent": false,
+    "meta": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "phoneNumberIdPresent": false,
+      "accessTokenPresent": false,
+      "verifyTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    },
+    "greenapi": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "idInstancePresent": false,
+      "apiTokenInstancePresent": false,
+      "webhookTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    }
+  },
+  "runtime": {
+    "consoleErrors": [],
+    "pageErrors": [],
+    "requestFailures": [],
+    "failingResponses": []
+  },
+  "screenshots": [],
+  "failures": [
+    {
+      "step": "login",
+      "details": "page.goto: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - navigating to \"https://frontend-navy-eight-37.vercel.app/login\", waiting until \"domcontentloaded\"\u001b[22m\n"
+    }
+  ]
+}

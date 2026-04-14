@@ -1,0 +1,1 @@
+{"version":3,"file":"bootstrapDatabase.d.ts","sourceRoot":"","sources":["../../src/config/bootstrapDatabase.ts"],"names":[],"mappings":"AAIA,UAAU,gBAAgB;IACxB,WAAW,EAAE,OAAO,CAAC;IACrB,QAAQ,EAAE,OAAO,CAAC;CACnB;AAgGD,wBAAsB,iBAAiB,CAAC,OAAO,EAAE,gBAAgB,GAAG,OAAO,CAAC,IAAI,CAAC,CA0ChF"}

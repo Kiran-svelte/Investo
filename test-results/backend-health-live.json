@@ -1,0 +1,4 @@
+{
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"timestamp\":\"2026-04-11T15:40:22.387Z\",\"environment\":\"production\",\"dependencies\":{\"db\":{\"status\":\"ok\",\"latency_ms\":60}}}"
+}

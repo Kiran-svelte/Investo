@@ -1,0 +1,29 @@
+HTTP/1.1 200 OK
+Date: Mon, 13 Apr 2026 02:07:56 GMT
+Content-Type: text/html; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+access-control-allow-credentials: true
+content-security-policy: default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+etag: W/"6-Y2fEjdGT1W6nsLqtJbGUVeUp9e4"
+origin-agent-cluster: ?1
+referrer-policy: no-referrer
+rndr-id: 607dc482-4046-4d76
+strict-transport-security: max-age=15552000; includeSubDomains
+vary: Origin
+vary: Accept-Encoding
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-render-origin-server: Render
+x-xss-protection: 0
+cf-cache-status: DYNAMIC
+Server: cloudflare
+CF-RAY: 9eb6eb854f32dfa6-BLR
+alt-svc: h3=":443"; ma=86400
+
+abc123

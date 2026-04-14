@@ -1,0 +1,68 @@
+[
+  {
+    "baseURL": "https://frontend-navy-eight-37.vercel.app/",
+    "evidenceDir": "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app",
+    "loginOk": true,
+    "providerSelectPresent": true,
+    "screenshots": [
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app/01-login.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app/02-after-login.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app/03-ai-settings.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app/04-whatsapp-meta.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app/05-whatsapp-meta-skip.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app/06-whatsapp-greenapi.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/frontend-navy-eight-37.vercel.app/07-whatsapp-greenapi-skip.png"
+    ],
+    "attempts": 1,
+    "exitCode": 0,
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "requestFailures": 4,
+    "failingResponses": 0,
+    "failures": []
+  },
+  {
+    "baseURL": "https://investo.vercel.app/",
+    "evidenceDir": "test-results/whatsapp-prod-ui-proof-20260413-065803/investo.vercel.app",
+    "loginOk": false,
+    "providerSelectPresent": false,
+    "screenshots": [
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/investo.vercel.app/01-login.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/investo.vercel.app/99-login-failure.png"
+    ],
+    "attempts": 1,
+    "exitCode": 1,
+    "consoleErrors": 1,
+    "pageErrors": 0,
+    "requestFailures": 0,
+    "failingResponses": 1,
+    "failures": [
+      {
+        "step": "login",
+        "details": "locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByLabel(/email/i)\u001b[22m\n"
+      }
+    ]
+  },
+  {
+    "baseURL": "https://investo-six.vercel.app/",
+    "evidenceDir": "test-results/whatsapp-prod-ui-proof-20260413-065803/investo-six.vercel.app",
+    "loginOk": false,
+    "providerSelectPresent": false,
+    "screenshots": [
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/investo-six.vercel.app/01-login.png",
+      "test-results/whatsapp-prod-ui-proof-20260413-065803/investo-six.vercel.app/99-login-failure.png"
+    ],
+    "attempts": 1,
+    "exitCode": 1,
+    "consoleErrors": 1,
+    "pageErrors": 0,
+    "requestFailures": 0,
+    "failingResponses": 1,
+    "failures": [
+      {
+        "step": "login",
+        "details": "locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByLabel(/email/i)\u001b[22m\n"
+      }
+    ]
+  }
+]

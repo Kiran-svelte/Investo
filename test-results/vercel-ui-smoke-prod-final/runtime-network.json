@@ -1,0 +1,80 @@
+{
+  "networkFailures": [
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    }
+  ],
+  "failingResponses": [
+    {
+      "url": "https://vercel.com/api/jwt",
+      "status": 403,
+      "method": "POST",
+      "bodyPath": "..\\test-results\\vercel-ui-smoke-prod-final\\fail-response-1.txt",
+      "bodySnippet": "Unauthorized"
+    },
+    {
+      "url": "https://o205439.ingest.sentry.io/api/1323670/envelope/?sentry_key=d00780d432ac4ccf882f60dd02062e14&sentry_version=7&sentry_client=sentry.javascript.browser%2F7.111.0",
+      "status": 429,
+      "method": "POST",
+      "bodyPath": "..\\test-results\\vercel-ui-smoke-prod-final\\fail-response-2.txt",
+      "bodySnippet": "{\n  \"detail\": \"Sentry dropped data due to a quota or internal rate limit being reached. This will not affect your application. See https://docs.sentry.io/product/accounts/quotas/ for more information.\"\n}"
+    }
+  ]
+}

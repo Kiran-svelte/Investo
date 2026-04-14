@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-04-13T01:24:43.963Z",
+  "baseURL": "https://investo-six.vercel.app/",
+  "loginOk": false,
+  "providerSelectPresent": false,
+  "meta": {
+    "webhookUrlLooksCorrect": false,
+    "credsPresent": false,
+    "testOutcome": "skipped",
+    "message": null
+  },
+  "greenapi": {
+    "webhookUrlLooksCorrect": false,
+    "credsPresent": false,
+    "testOutcome": "skipped",
+    "message": null
+  },
+  "screenshots": [
+    "01-login.png",
+    "99-login-failure.png"
+  ],
+  "failures": [
+    {
+      "step": "login",
+      "details": "locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByLabel(/email/i)\u001b[22m\n"
+    }
+  ],
+  "runtime": {
+    "consoleErrors": 1,
+    "pageErrors": 0,
+    "requestFailures": 0,
+    "failingResponses": 1
+  }
+}

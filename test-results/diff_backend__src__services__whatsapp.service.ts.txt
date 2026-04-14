@@ -1,0 +1,381 @@
+diff --git a/backend/src/services/whatsapp.service.ts b/backend/src/services/whatsapp.service.ts
+index 336ca85..8536dd0 100644
+--- a/backend/src/services/whatsapp.service.ts
++++ b/backend/src/services/whatsapp.service.ts
+@@ -11,6 +11,8 @@ import {
+   NextBestAction,
+ } from './conversationStateMachine';
+ 
++type WhatsAppProvider = 'meta' | 'greenapi';
++
+ interface IncomingMessage {
+   phoneNumberId: string;
+   customerPhone: string;
+@@ -24,9 +26,17 @@ interface IncomingMessage {
+ }
+ 
+ interface CompanyWhatsAppConfig {
+-  phoneNumberId: string;
+-  accessToken: string;
+-  verifyToken: string;
++  provider?: WhatsAppProvider | string;
++
++  // Meta WhatsApp Cloud API
++  phoneNumberId?: string;
++  accessToken?: string;
++  verifyToken?: string;
++
++  // Green-API
++  greenApiIdInstance?: string;
++  greenApiApiTokenInstance?: string;
++  greenApiApiUrl?: string;
+ }
+ 
+ export interface InboundPropagationResult {
+@@ -44,17 +54,113 @@ export interface IncomingMessageProcessingResult {
+ }
+ 
+ export class WhatsAppService {
++  private resolveProvider(whatsappConfig?: CompanyWhatsAppConfig | null): WhatsAppProvider {
++    const rawProvider = whatsappConfig?.provider;
++    const normalizedFromCompany = typeof rawProvider === 'string' ? rawProvider.trim().toLowerCase() : '';
++    if (normalizedFromCompany === 'greenapi') return 'greenapi';
++    if (normalizedFromCompany === 'meta') return 'meta';
++
++    const globalProvider = (config.whatsapp as any)?.provider;
++    const normalizedFromGlobal = typeof globalProvider === 'string' ? globalProvider.trim().toLowerCase() : '';
++    return normalizedFromGlobal === 'greenapi' ? 'greenapi' : 'meta';
++  }
++
++  private toGreenApiChatId(to: string): string {
++    if (to.includes('@')) return to;
++    const digits = String(to).replace(/\D/g, '');
++    return `${digits}@c.us`;
++  }
++
+   /**
+    * Get company by WhatsApp phone number ID.
+    * First checks company.settings.whatsapp.phoneNumberId, then falls back to whatsappPhone field.
+    */
+   async getCompanyByPhoneNumberId(phoneNumberId: string): Promise<{ company: any; config: CompanyWhatsAppConfig | null } | null> {
++    const provider = this.resolveProvider();
++
+     // Find all active companies
+     const companies = await prisma.company.findMany({
+       where: { status: 'active' },
+       select: { id: true, name: true, settings: true, whatsappPhone: true },
+     });
+ 
++    // Green-API path: phoneNumberId represents instanceData.idInstance
++    if (provider === 'greenapi') {
++      for (const company of companies) {
++        const settings = (company.settings as any) || {};
++        const greenApi = settings.whatsapp?.greenApi || {};
++        const companyInstanceId = greenApi.idInstance;
++        if (companyInstanceId !== undefined && String(companyInstanceId) === String(phoneNumberId)) {
++          return {
++            company,
++            config: {
++              provider: 'greenapi',
++              phoneNumberId: String(phoneNumberId),
++              verifyToken: settings.whatsapp?.verifyToken || config.whatsapp.verifyToken,
++              greenApiIdInstance: String(companyInstanceId),
++              greenApiApiTokenInstance: greenApi.apiTokenInstance || (config as any)?.greenapi?.apiTokenInstance || '',
++              greenApiApiUrl: greenApi.apiUrl || (config as any)?.greenapi?.apiUrl,
++            },
++          };
++        }
++      }
++
++      const companiesWithGreenApi = companies.filter((c) => {
++        const settings = (c.settings as any) || {};
++        const greenApi = settings.whatsapp?.greenApi || {};
++        return Boolean(greenApi.idInstance || greenApi.apiTokenInstance);
++      });
++
++      if (companiesWithGreenApi.length === 1) {
++        const company = companiesWithGreenApi[0];
++        const settings = (company.settings as any) || {};
++        const greenApi = settings.whatsapp?.greenApi || {};
++        logger.info('Using company with Green-API config (fallback)', {
++          companyId: company.id,
++          companyName: company.name,
++          requestedInstanceId: phoneNumberId,
++        });
++        return {
++          company,
++          config: {
++            provider: 'greenapi',
++            phoneNumberId: String(phoneNumberId),
++            verifyToken: settings.whatsapp?.verifyToken || config.whatsapp.verifyToken,
++            greenApiIdInstance: String(greenApi.idInstance || phoneNumberId),
++            greenApiApiTokenInstance: greenApi.apiTokenInstance || (config as any)?.greenapi?.apiTokenInstance || '',
++            greenApiApiUrl: greenApi.apiUrl || (config as any)?.greenapi?.apiUrl,
++          },
++        };
++      }
++
++      const envGreenApi = (config as any)?.greenapi || {};
++      if (companies.length > 0 && envGreenApi.idInstance && envGreenApi.apiTokenInstance) {
++        const company = companies[0];
++        logger.warn('Using first active company as Green-API fallback', {
++          companyId: company.id,
++          companyName: company.name,
++        });
++        return {
++          company,
++          config: {
++            provider: 'greenapi',
++            phoneNumberId: String(phoneNumberId),
++            verifyToken: config.whatsapp.verifyToken,
++            greenApiIdInstance: String(envGreenApi.idInstance),
++            greenApiApiTokenInstance: String(envGreenApi.apiTokenInstance),
++            greenApiApiUrl: envGreenApi.apiUrl,
++          },
++        };
++      }
++
++      logger.error('No company found for Green-API', {
++        instanceId: phoneNumberId,
++        totalCompanies: companies.length,
++        companiesWithGreenApi: companiesWithGreenApi.length,
++      });
++      return null;
++    }
++
+     // Check each company's settings.whatsapp.phoneNumberId
+     for (const company of companies) {
+       const settings = company.settings as any || {};
+@@ -62,6 +168,7 @@ export class WhatsAppService {
+         return {
+           company,
+           config: {
++            provider: 'meta',
+             phoneNumberId: settings.whatsapp.phoneNumberId,
+             accessToken: settings.whatsapp.accessToken || config.whatsapp.accessToken,
+             verifyToken: settings.whatsapp.verifyToken || config.whatsapp.verifyToken,
+@@ -76,6 +183,7 @@ export class WhatsAppService {
+       return {
+         company: legacyCompany,
+         config: {
++          provider: 'meta',
+           phoneNumberId,
+           accessToken: config.whatsapp.accessToken,
+           verifyToken: config.whatsapp.verifyToken,
+@@ -101,6 +209,7 @@ export class WhatsAppService {
+       return {
+         company,
+         config: {
++          provider: 'meta',
+           phoneNumberId: settings.whatsapp?.phoneNumberId || phoneNumberId,
+           accessToken: settings.whatsapp?.accessToken || config.whatsapp.accessToken,
+           verifyToken: settings.whatsapp?.verifyToken || config.whatsapp.verifyToken,
+@@ -118,6 +227,7 @@ export class WhatsAppService {
+       return {
+         company,
+         config: {
++          provider: 'meta',
+           phoneNumberId: config.whatsapp.phoneNumberId || phoneNumberId,
+           accessToken: config.whatsapp.accessToken,
+           verifyToken: config.whatsapp.verifyToken,
+@@ -457,9 +567,15 @@ export class WhatsAppService {
+         // Send via WhatsApp Cloud API using company-specific config
+         await this.sendMessage(msg.customerPhone, aiResponse.text, whatsappConfig!);
+ 
++        const activeProvider = this.resolveProvider(whatsappConfig!);
++
+         // CHUNK 5: AI Rich Media Presentation
+         // If AI recommended properties and they have media, send it automatically
+-        if (aiResponse.newState && this.shouldSendPropertyMedia(aiResponse.newState, aiResponse.nextAction)) {
++        if (
++          activeProvider === 'meta' &&
++          aiResponse.newState &&
++          this.shouldSendPropertyMedia(aiResponse.newState, aiResponse.nextAction)
++        ) {
+           await this.sendPropertyMediaForStage(
+             msg.customerPhone,
+             whatsappConfig!,
+@@ -472,7 +588,11 @@ export class WhatsAppService {
+ 
+         // CHUNK 6: AI Interactive Filters
+         // If AI is qualifying and lead hasn't specified preference, send filter buttons
+-        if (aiResponse.newState && this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction)) {
++        if (
++          activeProvider === 'meta' &&
++          aiResponse.newState &&
++          this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction)
++        ) {
+           await this.sendPropertyTypeFilters(
+             msg.customerPhone,
+             whatsappConfig!,
+@@ -546,10 +666,57 @@ export class WhatsAppService {
+   }
+ 
+   /**
+-   * Send a message via WhatsApp Cloud API.
++   * Send a message via the configured WhatsApp provider.
+    * Uses company-specific config for multi-tenant support.
+    */
+   async sendMessage(to: string, text: string, whatsappConfig: CompanyWhatsAppConfig): Promise<boolean> {
++    const provider = this.resolveProvider(whatsappConfig);
++
++    if (provider === 'greenapi') {
++      const apiUrl =
++        whatsappConfig.greenApiApiUrl || (config as any)?.greenapi?.apiUrl || 'https://api.green-api.com';
++      const idInstance =
++        whatsappConfig.greenApiIdInstance || (config as any)?.greenapi?.idInstance;
++      const apiTokenInstance =
++        whatsappConfig.greenApiApiTokenInstance || (config as any)?.greenapi?.apiTokenInstance;
++
++      if (!idInstance || !apiTokenInstance) {
++        logger.error('Green-API config missing idInstance or apiTokenInstance');
++        return false;
++      }
++
++      try {
++        const chatId = this.toGreenApiChatId(to);
++        const message = String(text || '').substring(0, 20000);
++        const response = await fetch(
++          `${apiUrl}/waInstance${idInstance}/sendMessage/${apiTokenInstance}`,
++          {
++            method: 'POST',
++            headers: {
++              'Content-Type': 'application/json',
++            },
++            body: JSON.stringify({
++              chatId,
++              message,
++            }),
++          },
++        );
++
++        if (!response.ok) {
++          const error = await response.text();
++          logger.error('Green-API sendMessage error', { status: response.status, error });
++          return false;
++        }
++
++        const result = (await response.json()) as { idMessage?: string };
++        logger.info('Green-API message sent', { messageId: result.idMessage });
++        return true;
++      } catch (err: any) {
++        logger.error('Failed to send Green-API message', { error: err.message });
++        return false;
++      }
++    }
++
+     const { phoneNumberId, accessToken } = whatsappConfig;
+ 
+     if (!phoneNumberId || !accessToken) {
+@@ -591,6 +758,43 @@ export class WhatsAppService {
+    * Test WhatsApp connection by calling the phone number endpoint.
+    */
+   async testConnection(whatsappConfig: CompanyWhatsAppConfig): Promise<{ success: boolean; error?: string }> {
++    const provider = this.resolveProvider(whatsappConfig);
++
++    if (provider === 'greenapi') {
++      const apiUrl =
++        whatsappConfig.greenApiApiUrl || (config as any)?.greenapi?.apiUrl || 'https://api.green-api.com';
++      const idInstance =
++        whatsappConfig.greenApiIdInstance || (config as any)?.greenapi?.idInstance;
++      const apiTokenInstance =
++        whatsappConfig.greenApiApiTokenInstance || (config as any)?.greenapi?.apiTokenInstance;
++
++      if (!idInstance || !apiTokenInstance) {
++        return { success: false, error: 'Missing Green-API idInstance or apiTokenInstance' };
++      }
++
++      try {
++        const response = await fetch(
++          `${apiUrl}/waInstance${idInstance}/getSettings/${apiTokenInstance}`,
++          {
++            method: 'GET',
++            headers: {
++              'Content-Type': 'application/json',
++            },
++          },
++        );
++
++        if (!response.ok) {
++          const error = await response.text();
++          return { success: false, error: `API Error: ${response.status} - ${error}` };
++        }
++
++        await response.json();
++        return { success: true, error: undefined };
++      } catch (err: any) {
++        return { success: false, error: err.message };
++      }
++    }
++
+     const { phoneNumberId, accessToken } = whatsappConfig;
+ 
+     if (!phoneNumberId || !accessToken) {
+@@ -610,9 +814,9 @@ export class WhatsAppService {
+         return { success: false, error: `API Error: ${response.status} - ${error}` };
+       }
+ 
+-      const data = await response.json();
+-      return { 
+-        success: true, 
++      await response.json();
++      return {
++        success: true,
+         error: undefined,
+       };
+     } catch (err: any) {
+@@ -673,6 +877,10 @@ export class WhatsAppService {
+     caption: string | null,
+     whatsappConfig: CompanyWhatsAppConfig
+   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
++    if (this.resolveProvider(whatsappConfig) !== 'meta') {
++      return { success: false, error: 'Rich media not supported for current WhatsApp provider' };
++    }
++
+     const { phoneNumberId, accessToken } = whatsappConfig;
+ 
+     if (!phoneNumberId || !accessToken) {
+@@ -740,6 +948,10 @@ export class WhatsAppService {
+     caption: string | null,
+     whatsappConfig: CompanyWhatsAppConfig
+   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
++    if (this.resolveProvider(whatsappConfig) !== 'meta') {
++      return { success: false, error: 'Rich media not supported for current WhatsApp provider' };
++    }
++
+     const { phoneNumberId, accessToken } = whatsappConfig;
+ 
+     if (!phoneNumberId || !accessToken) {
+@@ -810,6 +1022,10 @@ export class WhatsAppService {
+     address: string,
+     whatsappConfig: CompanyWhatsAppConfig
+   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
++    if (this.resolveProvider(whatsappConfig) !== 'meta') {
++      return { success: false, error: 'Rich media not supported for current WhatsApp provider' };
++    }
++
+     const { phoneNumberId, accessToken } = whatsappConfig;
+ 
+     if (!phoneNumberId || !accessToken) {
+@@ -878,6 +1094,10 @@ export class WhatsAppService {
+     footerText: string | null,
+     whatsappConfig: CompanyWhatsAppConfig
+   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
++    if (this.resolveProvider(whatsappConfig) !== 'meta') {
++      return { success: false, error: 'Interactive messages not supported for current WhatsApp provider' };
++    }
++
+     const { phoneNumberId, accessToken } = whatsappConfig;
+ 
+     if (!phoneNumberId || !accessToken) {
+@@ -970,6 +1190,10 @@ export class WhatsAppService {
+     footerText: string | null,
+     whatsappConfig: CompanyWhatsAppConfig
+   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
++    if (this.resolveProvider(whatsappConfig) !== 'meta') {
++      return { success: false, error: 'Interactive messages not supported for current WhatsApp provider' };
++    }
++
+     const { phoneNumberId, accessToken } = whatsappConfig;
+ 
+     if (!phoneNumberId || !accessToken) {

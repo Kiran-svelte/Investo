@@ -1,0 +1,29 @@
+diff --git a/backend/src/config/index.ts b/backend/src/config/index.ts
+index 427ff0c..cd3c4f6 100644
+--- a/backend/src/config/index.ts
++++ b/backend/src/config/index.ts
+@@ -271,6 +271,8 @@ const config = {
+   },
+ 
+   whatsapp: {
++    // Provider selection: 'meta' (default) or 'greenapi'
++    provider: (process.env.WHATSAPP_PROVIDER || 'meta').trim().toLowerCase(),
+     apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v18.0',
+     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
+     appSecret: process.env.WHATSAPP_APP_SECRET || '',
+@@ -283,6 +285,15 @@ const config = {
+     dedupTtlSeconds: parseInt(process.env.WHATSAPP_DEDUP_TTL_SECONDS || '300', 10),
+   },
+ 
++  greenapi: {
++    apiUrl: (process.env.GREENAPI_API_URL || 'https://api.green-api.com').trim().replace(/\/+$/, ''),
++    idInstance: (process.env.GREENAPI_ID_INSTANCE || '').trim(),
++    apiTokenInstance: process.env.GREENAPI_API_TOKEN_INSTANCE || '',
++    // Optional shared secret: if set, Green-API will include an Authorization header.
++    // We validate that header matches this value (supports raw token or Basic/Bearer schemes).
++    webhookUrlToken: (process.env.GREENAPI_WEBHOOK_URL_TOKEN || '').trim(),
++  },
++
+   ai: {
+     provider: process.env.AI_PROVIDER || 'kimi',
+     kimiApiBaseUrl: process.env.KIMI_API_BASE_URL || 'https://api.moonshot.ai/v1',

@@ -1,0 +1,182 @@
+{
+  "deployments": [
+    {
+      "uid": "dpl_8644KMyWXtZjQHjaTrTL5V1CkBvA",
+      "name": "frontend",
+      "projectId": "prj_D4zzEk5yjwvEDCasMGQLSLWOwZv4",
+      "url": "frontend-40b6e3o6p-traderlighter11-7085s-projects.vercel.app",
+      "created": 1775921561456,
+      "source": "cli",
+      "state": "READY",
+      "readyState": "READY",
+      "readySubstate": "PROMOTED",
+      "type": "LAMBDAS",
+      "creator": {
+        "uid": "FFp6U5ZYKx4MDZzd8ZI4G7J2",
+        "email": "traderlighter11@gmail.com",
+        "username": "traderlighter11-7085"
+      },
+      "inspectorUrl": "https://vercel.com/traderlighter11-7085s-projects/frontend/8644KMyWXtZjQHjaTrTL5V1CkBvA",
+      "attribution": {
+        "commitMeta": {
+          "name": "Kiran R",
+          "email": "kiranlighter11@gmail.com",
+          "isVerified": false
+        }
+      },
+      "meta": {
+        "gitCommitAuthorName": "Kiran R",
+        "gitCommitAuthorEmail": "kiranlighter11@gmail.com",
+        "gitCommitMessage": "Fix Lead Detail crash on timeline",
+        "gitCommitRef": "main",
+        "gitCommitSha": "e4fb7f2678f04d694766f984ecb23c11f3a6741b",
+        "gitDirty": "1"
+      },
+      "target": "production",
+      "aliasError": null,
+      "aliasAssigned": 1775921585793,
+      "isRollbackCandidate": true,
+      "createdAt": 1775921561456,
+      "buildingAt": 1775921562735,
+      "ready": 1775921585600,
+      "projectSettings": {
+        "commandForIgnoringBuildStep": null
+      }
+    },
+    {
+      "uid": "dpl_E8iATF6nVXsRQUYW8NjZxeUtFDg8",
+      "name": "frontend",
+      "projectId": "prj_D4zzEk5yjwvEDCasMGQLSLWOwZv4",
+      "url": "frontend-oz4vwozxv-traderlighter11-7085s-projects.vercel.app",
+      "created": 1775473117961,
+      "source": "cli",
+      "state": "READY",
+      "readyState": "READY",
+      "readySubstate": "PROMOTED",
+      "type": "LAMBDAS",
+      "creator": {
+        "uid": "FFp6U5ZYKx4MDZzd8ZI4G7J2",
+        "email": "traderlighter11@gmail.com",
+        "username": "traderlighter11-7085"
+      },
+      "inspectorUrl": "https://vercel.com/traderlighter11-7085s-projects/frontend/E8iATF6nVXsRQUYW8NjZxeUtFDg8",
+      "meta": {
+        "gitCommitAuthorName": "Kiran R",
+        "gitCommitAuthorEmail": "kiranlighter11@gmail.com",
+        "gitCommitMessage": "docs: Add deployment verification report",
+        "gitCommitRef": "main",
+        "gitCommitSha": "ef46d37648e7f4af5bd1cc7522f133dfac2c7859",
+        "gitDirty": "1"
+      },
+      "target": "production",
+      "aliasError": null,
+      "aliasAssigned": 1775473138965,
+      "isRollbackCandidate": true,
+      "createdAt": 1775473117961,
+      "buildingAt": 1775473118954,
+      "ready": 1775473138769,
+      "projectSettings": {
+        "commandForIgnoringBuildStep": null
+      }
+    },
+    {
+      "uid": "dpl_HCVJfEXTkX6qEhR2jBWycYk91Xi1",
+      "name": "frontend",
+      "projectId": "prj_D4zzEk5yjwvEDCasMGQLSLWOwZv4",
+      "url": "frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app",
+      "created": 1775472793087,
+      "source": "cli",
+      "state": "READY",
+      "readyState": "READY",
+      "readySubstate": "PROMOTED",
+      "type": "LAMBDAS",
+      "creator": {
+        "uid": "FFp6U5ZYKx4MDZzd8ZI4G7J2",
+        "email": "traderlighter11@gmail.com",
+        "username": "traderlighter11-7085"
+      },
+      "inspectorUrl": "https://vercel.com/traderlighter11-7085s-projects/frontend/HCVJfEXTkX6qEhR2jBWycYk91Xi1",
+      "meta": {
+        "gitCommitAuthorName": "Kiran R",
+        "gitCommitAuthorEmail": "kiranlighter11@gmail.com",
+        "gitCommitMessage": "docs: Add deployment guide template without secrets",
+        "gitCommitRef": "main",
+        "gitCommitSha": "093d6561a512b16d5de2b666cf8e7a440a285e9e",
+        "gitDirty": "1"
+      },
+      "target": "production",
+      "aliasError": null,
+      "aliasAssigned": 1775472812623,
+      "isRollbackCandidate": false,
+      "createdAt": 1775472793087,
+      "buildingAt": 1775472794414,
+      "ready": 1775472812423,
+      "projectSettings": {
+        "commandForIgnoringBuildStep": null
+      }
+    },
+    {
+      "uid": "dpl_CzpNR8q8YNS64MwhC7vW7k4BMwSk",
+      "name": "frontend",
+      "projectId": "prj_D4zzEk5yjwvEDCasMGQLSLWOwZv4",
+      "url": "frontend-f2pdvk15p-traderlighter11-7085s-projects.vercel.app",
+      "created": 1775445250913,
+      "source": "cli",
+      "state": "READY",
+      "readyState": "READY",
+      "readySubstate": "PROMOTED",
+      "type": "LAMBDAS",
+      "creator": {
+        "uid": "FFp6U5ZYKx4MDZzd8ZI4G7J2",
+        "email": "traderlighter11@gmail.com",
+        "username": "traderlighter11-7085"
+      },
+      "inspectorUrl": "https://vercel.com/traderlighter11-7085s-projects/frontend/CzpNR8q8YNS64MwhC7vW7k4BMwSk",
+      "meta": {},
+      "target": "production",
+      "aliasError": null,
+      "aliasAssigned": 1775445282752,
+      "isRollbackCandidate": false,
+      "createdAt": 1775445250913,
+      "buildingAt": 1775445251883,
+      "ready": 1775445282567,
+      "projectSettings": {
+        "commandForIgnoringBuildStep": null
+      }
+    },
+    {
+      "uid": "dpl_3c1SC2ycmAQhma5gJkFpry6dWTEh",
+      "name": "frontend",
+      "projectId": "prj_D4zzEk5yjwvEDCasMGQLSLWOwZv4",
+      "url": "frontend-1txoompn8-traderlighter11-7085s-projects.vercel.app",
+      "created": 1775445131189,
+      "source": "cli",
+      "state": "ERROR",
+      "readyState": "ERROR",
+      "type": "LAMBDAS",
+      "creator": {
+        "uid": "FFp6U5ZYKx4MDZzd8ZI4G7J2",
+        "email": "traderlighter11@gmail.com",
+        "username": "traderlighter11-7085"
+      },
+      "inspectorUrl": "https://vercel.com/traderlighter11-7085s-projects/frontend/3c1SC2ycmAQhma5gJkFpry6dWTEh",
+      "meta": {},
+      "target": "production",
+      "aliasAssigned": null,
+      "isRollbackCandidate": false,
+      "createdAt": 1775445131189,
+      "buildingAt": 1775445132163,
+      "ready": 1775445157456,
+      "errorCode": "lint_or_type_error",
+      "errorMessage": "Command \"npm run build\" exited with 1",
+      "projectSettings": {
+        "commandForIgnoringBuildStep": null
+      }
+    }
+  ],
+  "pagination": {
+    "count": 5,
+    "next": 1775445131189,
+    "prev": 1775921561456
+  }
+}

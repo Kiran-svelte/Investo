@@ -1,0 +1,95 @@
+task_id: expanded_ui_smoke_20260409-224958
+plan_id: adhoc
+timestamp: 2026-04-09T17:19:59.448Z
+status: failed
+evidence_root: docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/
+
+flows:
+  - id: frontend_login_ui
+    status: passed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/01-login.png
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/02-after-login.png
+    notes:
+      final_url: https://frontend-navy-eight-37.vercel.app/
+      shell_visible: true
+
+  - id: dashboard_ui
+    status: passed_with_warnings
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/03-dashboard.png
+    warnings:
+      - type: network_request_failed
+        details: 4 backend analytics requests were aborted (net::ERR_ABORTED) during the dashboard step.
+        evidence:
+          - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/runtime-network.json
+
+  - id: leads_list_ui
+    status: passed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/04-leads-list.png
+    notes:
+      lead_rows_detected: 6
+
+  - id: lead_detail_ui
+    status: failed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/96-lead-detail-failure.png
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/runtime-console.json
+    failures:
+      - type: ui_render_failed
+        details: Lead detail page did not render "Back to Leads"; uncaught React error occurred (minified React error #31).
+
+  - id: visits_ui
+    status: passed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/06-visits.png
+
+  - id: properties_ui
+    status: passed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/07-properties.png
+
+  - id: property_import_ui
+    status: failed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/08-property-import-before.png
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/09-property-import-after.png
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/fail-response-1.txt
+      - docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/runtime-network.json
+    failures:
+      - type: backend_500
+        scenario: small_pdf_upload
+        failing_request:
+          method: POST
+          url: https://investo-backend-v2.onrender.com/api/property-imports/drafts/b69e3a5f-5799-4924-8514-1eb0b4457969/uploads
+          status: 500
+          response_body_path: docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/fail-response-1.txt
+          response_body_json:
+            error: Failed to register upload
+
+  - id: whatsapp_webhook_verification
+    status: passed
+    request:
+      method: GET
+      url: https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=test123
+    response:
+      status: 200
+      expected_body_exact: test123
+      actual_body_path: docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/10-webhook-verify.txt
+
+lighthouse:
+  url: https://frontend-navy-eight-37.vercel.app/login
+  report_path: docs/plan/adhoc/evidence/expanded-ui-smoke-20260409-224958/lighthouse-login.json
+  scores:
+    accessibility: 1.0
+    seo: 1.0
+    best_practices: 0.96
+    performance: 0.98

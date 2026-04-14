@@ -1,0 +1,33 @@
+{
+  "networkFailures": [
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    }
+  ],
+  "failingResponses": [
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/auth/me",
+      "status": 429,
+      "method": "GET",
+      "bodyPath": "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\fail-response-1.txt",
+      "bodySnippet": "{\n  \"error\": \"Too many attempts. Please try again in a minute.\",\n  \"retryAfter\": 60\n}"
+    }
+  ]
+}

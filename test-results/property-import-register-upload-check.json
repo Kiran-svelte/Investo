@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-04-11T21:14:07.0005457+05:30",
+  "draftId": "9624f27d-86a7-47b6-b9c7-edd408f74e1c",
+  "registerUpload": {
+    "status": 503,
+    "body": "{\"error\":\"R2 storage is not configured. Missing environment variables: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET\"}"
+  }
+}

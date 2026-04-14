@@ -1,0 +1,22 @@
+{
+  "finalUri": null,
+  "host": "frontend-navy-eight-37.vercel.app",
+  "url": "https://frontend-navy-eight-37.vercel.app/",
+  "headers": {
+    "Content-Disposition": "inline",
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "public, must-revalidate, max-age=0",
+    "Server": "Vercel",
+    "Access-Control-Allow-Origin": "*",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "X-Vercel-Id": "bom1::wcs56-1775919075018-8b0c4775c9b5",
+    "X-Vercel-Cache": "HIT",
+    "Content-Type": "text/html; charset=utf-8",
+    "Last-Modified": "Thu, 09 Apr 2026 08:21:08 GMT",
+    "Date": "Sat, 11 Apr 2026 14:51:15 GMT",
+    "ETag": "\"3a416b6bf50a2b8210f09071d7822b9e\"",
+    "Content-Length": "499",
+    "Age": "196206"
+  },
+  "statusCode": 200
+}

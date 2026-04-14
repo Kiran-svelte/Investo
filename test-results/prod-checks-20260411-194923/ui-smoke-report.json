@@ -1,0 +1,185 @@
+{
+  "timestamp": "2026-04-11T14:22:10.605Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app",
+  "evidenceDir": "D:\\Investo\\test-results\\prod-checks-20260411-194923",
+  "flows": {
+    "login": {
+      "ok": true,
+      "finalUrl": "https://frontend-navy-eight-37.vercel.app/",
+      "shellVisible": true,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\01-login.png",
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\02-after-login.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "dashboard": {
+      "ok": true,
+      "widgetsLoaded": true,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\03-dashboard.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 4,
+        "failingResponses": 0
+      }
+    },
+    "leadsList": {
+      "ok": true,
+      "listLoaded": true,
+      "emptyState": false,
+      "leadRowCount": 6,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\04-leads-list.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "leadDetail": {
+      "ok": false,
+      "opened": false,
+      "url": null,
+      "skipped": false,
+      "skippedReason": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\96-lead-detail-failure.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 1,
+        "consoleWarnings": 0,
+        "pageErrors": 1,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "visits": {
+      "ok": true,
+      "rendered": true,
+      "skipped": false,
+      "skippedReason": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\06-visits.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "properties": {
+      "ok": true,
+      "rendered": true,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\07-properties.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "propertyImportSmallPdf": {
+      "ok": false,
+      "draftUrl": "https://frontend-navy-eight-37.vercel.app/properties/import/102b0c9a-29a1-40c8-a491-591f53899104",
+      "draftId": "102b0c9a-29a1-40c8-a491-591f53899104",
+      "uploadStatus": "failed",
+      "registerUploadFailedTextVisible": false,
+      "observedRegisterUpload500": true,
+      "errorBanner": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\08-property-import-before.png",
+        "D:\\Investo\\test-results\\prod-checks-20260411-194923\\09-property-import-after.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 1,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 1
+      }
+    },
+    "webhookVerify": {
+      "ok": true,
+      "url": "https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=test123",
+      "status": 200,
+      "expectedBodyExact": "test123",
+      "bodyPath": "D:\\Investo\\test-results\\prod-checks-20260411-194923\\10-webhook-verify.txt",
+      "bodyActualPreview": "test123"
+    }
+  },
+  "runtime": {
+    "consoleErrors": [
+      {
+        "text": "Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Bpath%2C%20method%2C%20params%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.\n    at ga (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:38:6314)\n    at w (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:38:11369)\n    at ze (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:1475)\n    at ph (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:45668)\n    at ch (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:39727)\n    at ey (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:39655)\n    at hi (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:39508)\n    at Bl (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:35875)\n    at ih (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:34826)\n    at k (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:25:1567)"
+      },
+      {
+        "text": "Failed to load resource: the server responded with a status of 500 ()"
+      }
+    ],
+    "consoleWarnings": [],
+    "pageErrors": [
+      {
+        "message": "Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Bpath%2C%20method%2C%20params%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings."
+      }
+    ],
+    "networkFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/property-imports/drafts/102b0c9a-29a1-40c8-a491-591f53899104/uploads",
+        "status": 500,
+        "method": "POST",
+        "bodyPath": "D:\\Investo\\test-results\\prod-checks-20260411-194923\\fail-response-1.txt",
+        "bodySnippet": "{\n  \"error\": \"Failed to register upload\"\n}"
+      }
+    ]
+  },
+  "failures": [
+    {
+      "flow": "leadDetail",
+      "details": "locator.waitFor: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /back to leads/i }) to be visible\u001b[22m\n"
+    },
+    {
+      "flow": "propertyImportSmallPdf",
+      "details": "Upload did not complete successfully (status=failed, failedRegisterText=false)"
+    }
+  ]
+}

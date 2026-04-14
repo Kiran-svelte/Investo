@@ -1,0 +1,115 @@
+{
+  "timestamp": "2026-04-12T18:33:43.524Z",
+  "baseURL": "http://localhost:3000/",
+  "evidenceDir": "D:\\Investo\\test-results\\whatsapp-local-ui-proof-20260413-000342",
+  "bypassHeaderConfigured": false,
+  "login": {
+    "ok": true,
+    "finalUrl": "http://localhost:3000/",
+    "error": null
+  },
+  "whatsapp": {
+    "pageLoaded": true,
+    "providerSelectPresent": false,
+    "meta": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "phoneNumberIdPresent": false,
+      "accessTokenPresent": false,
+      "verifyTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    },
+    "greenapi": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "idInstancePresent": false,
+      "apiTokenInstancePresent": false,
+      "webhookTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    }
+  },
+  "runtime": {
+    "consoleErrors": [
+      {
+        "text": "Failed to load resource: the server responded with a status of 429 ()"
+      },
+      {
+        "text": "Failed to load resource: the server responded with a status of 401 ()"
+      }
+    ],
+    "pageErrors": [],
+    "requestFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/ai-settings",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/auth/me",
+        "status": 429
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/companies/98162ddb-87c6-444b-b5e9-94216e62a814",
+        "status": 401
+      }
+    ]
+  },
+  "screenshots": [
+    "01-login.png",
+    "02-after-login.png",
+    "03-ai-settings.png",
+    "97-whatsapp-failure.png"
+  ],
+  "failures": [
+    {
+      "step": "whatsapp",
+      "details": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('heading', { name: /whatsapp/i }).first() to be visible\u001b[22m\n"
+    }
+  ]
+}

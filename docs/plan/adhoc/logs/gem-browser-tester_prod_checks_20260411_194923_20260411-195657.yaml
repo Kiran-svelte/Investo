@@ -1,0 +1,98 @@
+task_id: prod_checks_20260411_194923
+plan_id: adhoc
+timestamp: 2026-04-11T14:27:04.6067617Z
+status: failed
+evidence_root: test-results/prod-checks-20260411-194923/
+
+flows:
+  - id: frontend_vercel_deploy_check
+    status: passed
+    request:
+      method: GET
+      url: https://frontend-navy-eight-37.vercel.app/
+    response:
+      status: 200
+      headers_path: test-results/prod-checks-20260411-194923/01-frontend-headers.txt
+      body_path: test-results/prod-checks-20260411-194923/01-frontend-homepage.html
+    notes:
+      asset: assets/index-CoaYFW_E.js
+      previous_asset: assets/index-CoaYFW_E.js
+      asset_changed_vs_previous: false
+      x_vercel_id: bom1::hftxj-1775917231682-562b4482c825
+      last_modified: Thu, 09 Apr 2026 08:21:08 GMT
+
+  - id: backend_health
+    status: passed
+    request:
+      method: GET
+      url: https://investo-backend-v2.onrender.com/api/health
+    response:
+      status: 200
+      body_path: test-results/prod-checks-20260411-194923/02-backend-health.json
+      body_json:
+        status: ok
+        timestamp: 2026-04-11T14:21:31.913Z
+        environment: production
+
+  - id: frontend_login_ui
+    status: passed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - test-results/prod-checks-20260411-194923/01-login.png
+      - test-results/prod-checks-20260411-194923/02-after-login.png
+
+  - id: leads_list_ui
+    status: passed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - test-results/prod-checks-20260411-194923/04-leads-list.png
+    notes:
+      lead_rows_detected: 6
+
+  - id: lead_detail_ui
+    status: failed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - test-results/prod-checks-20260411-194923/96-lead-detail-failure.png
+      - test-results/prod-checks-20260411-194923/runtime-console.json
+    failures:
+      - type: ui_render_failed
+        details: Lead detail page did not render "Back to Leads" and crashed with an uncaught React error (minified React error #31).
+
+  - id: property_import_ui
+    status: failed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - test-results/prod-checks-20260411-194923/08-property-import-before.png
+      - test-results/prod-checks-20260411-194923/09-property-import-after.png
+      - test-results/prod-checks-20260411-194923/fail-response-1.txt
+      - test-results/prod-checks-20260411-194923/runtime-network.json
+    failures:
+      - type: backend_500
+        scenario: small_pdf_upload
+        failing_request:
+          method: POST
+          url: https://investo-backend-v2.onrender.com/api/property-imports/drafts/102b0c9a-29a1-40c8-a491-591f53899104/uploads
+          status: 500
+          response_body_path: test-results/prod-checks-20260411-194923/fail-response-1.txt
+          response_body_json:
+            error: Failed to register upload
+
+  - id: whatsapp_webhook_verification
+    status: passed
+    request:
+      method: GET
+      url: https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=test123
+    response:
+      status: 200
+      expected_body_exact: test123
+      actual_body_path: test-results/prod-checks-20260411-194923/04-webhook-verify.txt
+
+lighthouse:
+  url: https://frontend-navy-eight-37.vercel.app/login
+  report_path: test-results/prod-checks-20260411-194923/lighthouse-login.json
+  scores:
+    accessibility: 1.0
+    seo: 1.0
+    best_practices: 0.96
+    performance: 0.98

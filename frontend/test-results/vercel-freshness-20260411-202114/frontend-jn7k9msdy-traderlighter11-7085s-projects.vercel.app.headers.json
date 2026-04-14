@@ -1,0 +1,17 @@
+{
+  "host": "frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app",
+  "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/",
+  "headers": {
+    "Date": "Sat, 11 Apr 2026 14:52:27 GMT",
+    "Cache-Control": "no-store, max-age=0",
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": "14588",
+    "X-Vercel-Id": "bom1::skvpz-1775919147970-4e70ea21eb91",
+    "Set-Cookie": "_vercel_sso_nonce=3cb5c115bbd8c9487bb5292991de4f1726908e309c8bff53; Max-Age=3600; Path=/; Secure; HttpOnly; SameSite=Lax",
+    "X-Frame-Options": "DENY",
+    "Server": "Vercel",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "X-Robots-Tag": "noindex"
+  },
+  "statusCode": 401
+}

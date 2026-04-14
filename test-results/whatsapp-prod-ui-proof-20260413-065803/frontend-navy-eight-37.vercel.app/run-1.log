@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-04-13T01:28:07.345Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app/",
+  "loginOk": true,
+  "providerSelectPresent": true,
+  "meta": {
+    "webhookUrlLooksCorrect": true,
+    "credsPresent": false,
+    "testOutcome": "skipped",
+    "message": "Skipped: missing Meta credentials in UI state"
+  },
+  "greenapi": {
+    "webhookUrlLooksCorrect": true,
+    "credsPresent": false,
+    "testOutcome": "skipped",
+    "message": "Skipped: missing Green-API credentials in UI state (and env not provided)"
+  },
+  "screenshots": [
+    "01-login.png",
+    "02-after-login.png",
+    "03-ai-settings.png",
+    "04-whatsapp-meta.png",
+    "05-whatsapp-meta-skip.png",
+    "06-whatsapp-greenapi.png",
+    "07-whatsapp-greenapi-skip.png"
+  ],
+  "failures": [],
+  "runtime": {
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "requestFailures": 4,
+    "failingResponses": 0
+  }
+}
