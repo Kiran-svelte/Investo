@@ -183,11 +183,12 @@ export function whatsappIpWhitelist(req: Request, res: Response, next: NextFunct
       userAgent: req.headers['user-agent'],
       path: req.path,
       method: req.method,
+      forwardedFor: req.headers['x-forwarded-for'],
     });
 
     res.status(403).json({
       error: 'Access denied',
-      message: 'Request blocked: Invalid source IP for WhatsApp webhook',
+      message: `Request blocked: Invalid source IP (${clientIp}) for WhatsApp webhook`,
     });
     return;
   }

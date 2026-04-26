@@ -90,7 +90,7 @@ export class WhatsAppService {
 
   /**
    * Get company by WhatsApp phone number ID.
-    * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
+   * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
    */
   async getCompanyByPhoneNumberId(
     phoneNumberId: string,
@@ -211,6 +211,7 @@ export class WhatsAppService {
       }
     }
 
+    // EXACT MATCH FOUND
     if (matches.length === 1) {
       const company = matches[0];
       const settings = (company.settings as any) || {};
@@ -239,27 +240,41 @@ export class WhatsAppService {
       return null;
     }
 
-    // No explicit mapping found.
-    // Production must fail closed; non-prod may fall back only when exactly one active company exists.
-    if (config.env === 'production') {
-      logger.error('Meta company resolution failed: phoneNumberId is unmapped (production fail closed)', {
+    // NO EXPLICIT MAPPING FOUND
+    // Fallback logic: If WHATSAPP_PHONE_NUMBER_ID is set in env and matches the incoming ID,
+    // use the first active company (useful for single-tenant or initial setup).
+    const globalPhoneId = normalizeStringLike(config.whatsapp.phoneNumberId);
+    if (globalPhoneId && globalPhoneId === normalizedPhoneNumberId && companies.length > 0) {
+      const company = companies[0];
+      logger.info('Meta company resolution: matched via global WHATSAPP_PHONE_NUMBER_ID fallback', {
+        companyId: company.id,
         phoneNumberId: normalizedPhoneNumberId,
-        totalCompanies: companies.length,
       });
-      return null;
+
+      const settings = (company.settings as any) || {};
+      const whatsapp = (settings.whatsapp as any) || {};
+      const meta = (whatsapp.meta as any) || whatsapp;
+
+      return {
+        company,
+        config: {
+          provider: 'meta',
+          phoneNumberId: normalizedPhoneNumberId,
+          accessToken: normalizeStringLike(meta.accessToken) || config.whatsapp.accessToken,
+          verifyToken: normalizeStringLike(meta.verifyToken) || config.whatsapp.verifyToken,
+        },
+      };
     }
 
-    if (companies.length === 1) {
+    // Non-production fallback for single company
+    if (config.env !== 'production' && companies.length === 1) {
       const company = companies[0];
       const settings = (company.settings as any) || {};
       const whatsapp = (settings.whatsapp as any) || {};
       const meta = (whatsapp.meta as any) || whatsapp;
-      const configuredId = normalizeStringLike(meta.phoneNumberId);
-      const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
 
       logger.warn('Meta company resolution fallback: single active company (non-production)', {
         companyId: company.id,
-        companyName: company.name,
         requestedPhoneNumberId: normalizedPhoneNumberId,
       });
 
@@ -267,16 +282,18 @@ export class WhatsAppService {
         company,
         config: {
           provider: 'meta',
-          phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
+          phoneNumberId: normalizedPhoneNumberId,
           accessToken: normalizeStringLike(meta.accessToken) || config.whatsapp.accessToken,
           verifyToken: normalizeStringLike(meta.verifyToken) || config.whatsapp.verifyToken,
         },
       };
     }
 
-    logger.error('Meta company resolution failed: phoneNumberId is unmapped (non-production fail closed)', {
+    logger.error('Meta company resolution failed: phoneNumberId is unmapped', {
       phoneNumberId: normalizedPhoneNumberId,
+      globalPhoneId,
       totalCompanies: companies.length,
+      env: config.env,
     });
     return null;
   }

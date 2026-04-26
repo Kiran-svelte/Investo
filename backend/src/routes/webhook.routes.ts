@@ -91,8 +91,15 @@ function verifyWebhookSignature(
   body: any,
   signature: string | undefined,
 ): { allowed: boolean; reason: string } {
+  // Debug bypass
+  if (process.env.BYPASS_WHATSAPP_SIGNATURE === 'true') {
+    logger.warn('Webhook signature verification BYPASSED via BYPASS_WHATSAPP_SIGNATURE=true');
+    return { allowed: true, reason: 'debug_bypass' };
+  }
+
   if (!config.whatsapp.appSecret) {
     if (config.env === 'production') {
+      logger.error('Webhook signature verification failed: WHATSAPP_APP_SECRET is missing in production');
       return { allowed: false, reason: 'app_secret_missing' };
     }
 
@@ -102,9 +109,11 @@ function verifyWebhookSignature(
 
   if (!signature) {
     if (config.env !== 'production') {
+      logger.warn('Webhook signature missing in non-production - allowing');
       return { allowed: true, reason: 'non_prod_missing_signature' };
     }
 
+    logger.error('Webhook signature missing in production');
     return { allowed: false, reason: 'signature_missing' };
   }
 
@@ -121,11 +130,25 @@ function verifyWebhookSignature(
 
   const actual = Buffer.from(signature);
   const expected = Buffer.from(expectedSignature);
+  
   if (actual.length !== expected.length) {
+    logger.error('Webhook signature length mismatch', {
+      actualLength: actual.length,
+      expectedLength: expected.length,
+    });
     return { allowed: false, reason: 'signature_invalid_length' };
   }
 
   const isValid = crypto.timingSafeEqual(actual, expected);
+  
+  if (!isValid) {
+    logger.error('Webhook signature mismatch', {
+      received: signature.substring(0, 15) + '...',
+      expected: expectedSignature.substring(0, 15) + '...',
+      payloadLength: payload.length,
+    });
+  }
+
   return {
     allowed: isValid,
     reason: isValid ? 'signature_valid' : 'signature_mismatch',
