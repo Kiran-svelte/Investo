@@ -570,15 +570,13 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
         let companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
         
         if (phoneNumberId === CORRECT_PHONE_NUMBER_ID) {
-          log('Company matches current test. Attempting AUTO-FIX/REFRESH...');
+          log('Phone Number ID matches current test. Ensuring token is REFRESHED...');
           
-          // Find the correct company for 'cc'
-          const testCompanyId = '082b8e66-76af-4fed-9a69-db8d615893ed';
-          const company = await prisma.company.findUnique({ where: { id: testCompanyId } });
+          const targetCompany = companyResult?.company || (await prisma.company.findFirst());
           
-          if (company) {
-            log(`Found company ${company.name}. Refreshing settings with NEW PERMANENT TOKEN...`);
-            const currentSettings = (company.settings as any) || {};
+          if (targetCompany) {
+            log(`Found target company ${targetCompany.name}. Refreshing settings with NEW PERMANENT TOKEN...`);
+            const currentSettings = (targetCompany.settings as any) || {};
             const updatedSettings = {
               ...currentSettings,
               whatsapp: {
@@ -598,7 +596,7 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
             };
 
             await prisma.company.update({
-              where: { id: testCompanyId },
+              where: { id: targetCompany.id },
               data: { settings: updatedSettings as any }
             });
             log('Database updated successfully. Retrying lookup...');
