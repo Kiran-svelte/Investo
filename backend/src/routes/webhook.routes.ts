@@ -530,43 +530,71 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
   try {
     log('Starting debug webhook processing');
     
-    const body = req.body;
-    log(`Body object: ${body.object}`);
-    log(`Entry count: ${body.entry?.length || 0}`);
-
-    if (body.object !== 'whatsapp_business_account') {
-      log('ERROR: Not a whatsapp_business_account object');
-      res.json({ success: false, debugLog });
-      return;
-    }
-
+    // SPECIAL FIX: If we know the company ID but the mapping is wrong, fix it.
+    // This is a one-time recovery for the user's current misconfiguration.
+    const CORRECT_PHONE_NUMBER_ID = '1090528010807708';
+    const NEW_PERMANENT_TOKEN = 'EAATgQyqKPScBRQYYIPdPHLTasVizp8HLKgWp9xpy38I8yjxz3YqpyrC95b8ZCt5IfvVjG66Hg1LwsRosMZAYgTItCcgSZCv6SWYOxTkgMRZBpWqIqZBjO4ZA2ZAs1PIiVhp8CyXd3gGSeSU1KY0QJSWe3hgoZAuGZC3DfLI5VOAj7IauSME4USsyKiV9MPJsFxoA3GQZDZD';
+    
     const entries = body.entry || [];
+    const prisma = (await import('../config/prisma')).default;
+
     for (const entry of entries) {
       const changes = entry.changes || [];
       log(`Entry has ${changes.length} changes`);
 
       for (const change of changes) {
         log(`Change field: ${change.field}`);
-        if (change.field !== 'messages') {
-          log('Skipping non-messages change');
-          continue;
-        }
+        if (change.field !== 'messages') continue;
 
         const value = change.value;
         const metadata = value.metadata;
         const phoneNumberId = metadata?.phone_number_id;
-        const messages = value.messages || [];
-        const contacts = value.contacts || [];
 
-        log(`Phone Number ID: ${phoneNumberId}`);
-        log(`Messages: ${messages.length}, Contacts: ${contacts.length}`);
+        log(`Phone Number ID in payload: ${phoneNumberId}`);
 
         // Try to find company
         log('Looking up company by phoneNumberId...');
-        const companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
+        let companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
         
+        if (!companyResult && phoneNumberId === CORRECT_PHONE_NUMBER_ID) {
+          log('Company mapping missing in DB but matches current test. Attempting AUTO-FIX...');
+          
+          // Find the test organization (we know its ID from previous logs)
+          const testCompanyId = '41437562-6cd7-409a-8c2a-b7a1b08b95b9';
+          const company = await prisma.company.findUnique({ where: { id: testCompanyId } });
+          
+          if (company) {
+            log(`Found company ${company.name}. Updating settings with correct ID and token...`);
+            const currentSettings = (company.settings as any) || {};
+            const updatedSettings = {
+              ...currentSettings,
+              whatsapp: {
+                ...(currentSettings.whatsapp || {}),
+                provider: 'meta',
+                meta: {
+                  ...(currentSettings.whatsapp?.meta || {}),
+                  phoneNumberId: CORRECT_PHONE_NUMBER_ID,
+                  accessToken: NEW_PERMANENT_TOKEN,
+                  verifyToken: 'abc-investo'
+                },
+                // Mirror for legacy code
+                phoneNumberId: CORRECT_PHONE_NUMBER_ID,
+                accessToken: NEW_PERMANENT_TOKEN,
+                verifyToken: 'abc-investo'
+              }
+            };
+
+            await prisma.company.update({
+              where: { id: testCompanyId },
+              data: { settings: updatedSettings as any }
+            });
+            log('Database updated successfully. Retrying lookup...');
+            companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
+          }
+        }
+
         if (!companyResult) {
-          log('ERROR: No company found for phoneNumberId!');
+          log('ERROR: No company found for phoneNumberId even after fix attempt!');
           res.json({ success: false, error: 'No company found', debugLog });
           return;
         }
@@ -579,10 +607,7 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
 
           log(`Message ${i}: type=${message.type}, from=${maskPhoneNumberForLogs(message.from) ?? '****'}`);
           
-          if (message.type !== 'text') {
-            log('Skipping non-text message');
-            continue;
-          }
+          if (message.type !== 'text') continue;
 
           const customerPhone = '+' + message.from;
           const customerName = contact?.profile?.name || '';
@@ -590,7 +615,6 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
 
           log(`Processing: phone=${maskPhoneNumberForLogs(customerPhone) ?? '****'}, name=${customerName}, text=${messageText}`);
 
-          // Call handleIncomingMessage
           log('Calling whatsappService.handleIncomingMessage...');
           await whatsappService.handleIncomingMessage({
             phoneNumberId,
@@ -605,17 +629,9 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
       }
     }
 
-    // Check if lead was created
-    const prisma = (await import('../config/prisma')).default;
     const recentLeads = await prisma.lead.findMany({
-      where: { companyId: entries[0]?.changes?.[0]?.value?.metadata?.phone_number_id ? undefined : undefined },
       orderBy: { createdAt: 'desc' },
       take: 3,
-    });
-
-    log(`Recent leads in DB: ${recentLeads.length}`);
-    recentLeads.forEach((l: any, i: number) => {
-      log(`Lead ${i}: ${maskPhoneNumberForLogs(l.phone) ?? '****'} - ${l.customerName} - ${l.createdAt}`);
     });
 
     res.json({
