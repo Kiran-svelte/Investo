@@ -531,11 +531,21 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
   try {
     log('Starting debug webhook processing');
     
+    const body = req.body;
+    log(`Body object: ${body.object}`);
+    log(`Entry count: ${body.entry?.length || 0}`);
+
+    if (body.object !== 'whatsapp_business_account') {
+      log('ERROR: Not a whatsapp_business_account object');
+      res.json({ success: false, debugLog });
+      return;
+    }
+
     // SPECIAL FIX: If we know the company ID but the mapping is wrong, fix it.
     // This is a one-time recovery for the user's current misconfiguration.
     const CORRECT_PHONE_NUMBER_ID = '1090528010807708';
     const NEW_PERMANENT_TOKEN = 'EAATgQyqKPScBRQYYIPdPHLTasVizp8HLKgWp9xpy38I8yjxz3YqpyrC95b8ZCt5IfvVjG66Hg1LwsRosMZAYgTItCcgSZCv6SWYOxTkgMRZBpWqIqZBjO4ZA2ZAs1PIiVhp8CyXd3gGSeSU1KY0QJSWe3hgoZAuGZC3DfLI5VOAj7IauSME4USsyKiV9MPJsFxoA3GQZDZD';
-    
+
     const entries = body.entry || [];
 
     for (const entry of entries) {
