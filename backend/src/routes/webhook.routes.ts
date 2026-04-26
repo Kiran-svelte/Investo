@@ -569,15 +569,15 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
         log('Looking up company by phoneNumberId...');
         let companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
         
-        if (!companyResult && phoneNumberId === CORRECT_PHONE_NUMBER_ID) {
-          log('Company mapping missing in DB but matches current test. Attempting AUTO-FIX...');
+        if (phoneNumberId === CORRECT_PHONE_NUMBER_ID) {
+          log('Company matches current test. Attempting AUTO-FIX/REFRESH...');
           
-          // Find the test organization (we know its ID from previous logs)
-          const testCompanyId = '41437562-6cd7-409a-8c2a-b7a1b08b95b9';
+          // Find the correct company for 'cc'
+          const testCompanyId = '082b8e66-76af-4fed-9a69-db8d615893ed';
           const company = await prisma.company.findUnique({ where: { id: testCompanyId } });
           
           if (company) {
-            log(`Found company ${company.name}. Updating settings with correct ID and token...`);
+            log(`Found company ${company.name}. Refreshing settings with NEW PERMANENT TOKEN...`);
             const currentSettings = (company.settings as any) || {};
             const updatedSettings = {
               ...currentSettings,
