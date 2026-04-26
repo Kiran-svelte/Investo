@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import config from '../config';
 import logger from '../config/logger';
+import prisma from '../config/prisma';
 import { whatsappService } from '../services/whatsapp.service';
 import { whatsappIpWhitelist } from '../middleware/whatsappSecurity';
 import { deduplicationService } from '../services/deduplication.service';
@@ -536,7 +537,6 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
     const NEW_PERMANENT_TOKEN = 'EAATgQyqKPScBRQYYIPdPHLTasVizp8HLKgWp9xpy38I8yjxz3YqpyrC95b8ZCt5IfvVjG66Hg1LwsRosMZAYgTItCcgSZCv6SWYOxTkgMRZBpWqIqZBjO4ZA2ZAs1PIiVhp8CyXd3gGSeSU1KY0QJSWe3hgoZAuGZC3DfLI5VOAj7IauSME4USsyKiV9MPJsFxoA3GQZDZD';
     
     const entries = body.entry || [];
-    const prisma = (await import('../config/prisma')).default;
 
     for (const entry of entries) {
       const changes = entry.changes || [];
@@ -549,8 +549,11 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
         const value = change.value;
         const metadata = value.metadata;
         const phoneNumberId = metadata?.phone_number_id;
+        const messages = value.messages || [];
+        const contacts = value.contacts || [];
 
         log(`Phone Number ID in payload: ${phoneNumberId}`);
+        log(`Messages: ${messages.length}, Contacts: ${contacts.length}`);
 
         // Try to find company
         log('Looking up company by phoneNumberId...');
