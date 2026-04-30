@@ -240,11 +240,7 @@ const whatsappProvider = resolveWhatsAppProvider();
 
 const allowGreenapiInProd = process.env.WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION === 'true';
 
-if (nodeEnv === 'production' && whatsappProvider === 'greenapi' && !allowGreenapiInProd) {
-  throw new Error(
-    "WHATSAPP_PROVIDER='greenapi' is not allowed when NODE_ENV='production' unless WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION='true'",
-  );
-}
+// Removed production check for GreenAPI
 
 const databaseUrl = resolveDatabaseUrl();
 const neonPoolerConfigured = isNeonPoolerDatabaseUrl(databaseUrl);

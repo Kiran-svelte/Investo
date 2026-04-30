@@ -105,13 +105,8 @@ router.post(
       const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';
 
       if (provider === 'greenapi') {
-        if (config.env === 'production' && !(config as any)?.whatsapp?.allowGreenapiInProd) {
-          res.status(403).json({
-            success: false,
-            error: 'GreenAPI is disabled in production',
-          });
-          return;
-        }
+        // Removed production restriction for GreenAPI
+
 
         const idInstance =
           req.body?.id_instance || req.body?.idInstance || (config as any)?.greenapi?.idInstance || '';
