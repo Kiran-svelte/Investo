@@ -36,10 +36,7 @@ router.post(
   express.json({ limit: '1mb' }),
   async (req: Request, res: Response) => {
     const providedToken = extractAuthorizationToken(req.headers.authorization);
-    if (config.env === 'production' && !(config as any)?.whatsapp?.allowGreenapiInProd) {
-      res.status(404).json({ error: 'not_found' });
-      return;
-    }
+    // Removed production restriction for GreenAPI
 
     if (!providedToken) {
       res.status(401).json({ error: 'unauthorized' });
