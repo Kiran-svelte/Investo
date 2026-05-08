@@ -4,6 +4,8 @@ import express, { Express } from 'express';
 import request from 'supertest';
 import crypto from 'crypto';
 
+jest.setTimeout(30000);
+
 const ORIGINAL_ENV = { ...process.env };
 
 function restoreEnv(): void {

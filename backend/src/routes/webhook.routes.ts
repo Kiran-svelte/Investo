@@ -2,14 +2,20 @@ import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import config from '../config';
 import logger from '../config/logger';
-import prisma from '../config/prisma';
 import { whatsappService } from '../services/whatsapp.service';
+import { sendToLangGraph } from '../services/langgraphAdapter.service';
+import { runEnterpriseAgent } from '../services/enterpriseAgentBridge';
 import { whatsappIpWhitelist } from '../middleware/whatsappSecurity';
 import { deduplicationService } from '../services/deduplication.service';
 import { whatsappHealthService } from '../services/whatsappHealth.service';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 
 const router = Router();
+
+async function getPrisma() {
+  const module = await import('../config/prisma');
+  return module.default;
+}
 
 // Apply IP whitelist middleware to all webhook routes
 router.use(whatsappIpWhitelist);
@@ -326,6 +332,52 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
         });
 
         try {
+          // If LangGraph integration is enabled, send normalized payload.
+          if (config.langgraph?.enabled) {
+            try {
+              const lgPayload = {
+                event: 'onmessage',
+                session: String(metadata?.session || phoneNumberId || 'default'),
+                body: messageText,
+                type: normalizedType === 'text' ? 'chat' : 'interactive',
+                isNewMsg: true,
+                sender: { id: (message.from || '') + '@s.whatsapp.net', isUser: true },
+                isGroupMsg: !!message?.context?.isGroup || false,
+              } as any;
+
+              const lgResp = await sendToLangGraph(lgPayload as any);
+              // If LangGraph is in replace mode and it handled the message, skip default processing
+              if (config.langgraph.mode === 'replace' && lgResp?.ok) {
+                outcome.propagationStatus = 'success';
+                outcome.status = 'processed';
+                outcome.reason = 'handled_by_langgraph';
+                summary.processed += 1;
+                summary.outcomes.push(outcome);
+                logger.info('Message handled by LangGraph; skipping default processing', { messageId });
+                continue;
+              }
+            } catch (lgErr: any) {
+              logger.warn('LangGraph adapter failed for message, continuing default processing', { error: lgErr?.message });
+            }
+          }
+          // If enterprise agent bridge is enabled and LangGraph isn't taking over, call it.
+          if (!config.langgraph?.enabled && config.enterpriseAgent?.enabled) {
+            try {
+              const bridgeResp = await runEnterpriseAgent({ phone: '+' + customerPhone, message: messageText, conversationState: undefined });
+              if (config.enterpriseAgent.mode === 'replace' && bridgeResp?.ok) {
+                outcome.propagationStatus = 'success';
+                outcome.status = 'processed';
+                outcome.reason = 'handled_by_enterprise_agent';
+                summary.processed += 1;
+                summary.outcomes.push(outcome);
+                logger.info('Message handled by EnterpriseAgent bridge; skipping default processing', { messageId });
+                continue;
+              }
+            } catch (bridgeErr: any) {
+              logger.warn('EnterpriseAgent bridge failed; continuing default processing', { error: bridgeErr?.message });
+            }
+          }
+
           const processingResult = await whatsappService.handleIncomingMessage({
             phoneNumberId,
             customerPhone: '+' + customerPhone,
@@ -465,8 +517,67 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
   }
 
   try {
+    const prisma = await getPrisma();
+    const requestedProvider = req.body?.provider === 'greenapi' ? 'greenapi' : req.body?.provider === 'meta' ? 'meta' : null;
+    const explicitPhoneNumberId = typeof req.body?.phoneNumberId === 'string' ? req.body.phoneNumberId.trim() : '';
+    let resolvedPhoneNumberId = explicitPhoneNumberId || (config.whatsapp.phoneNumberId || '').trim();
+    let resolvedProvider: 'meta' | 'greenapi' =
+      requestedProvider || ((config as any)?.whatsapp?.provider === 'greenapi' ? 'greenapi' : 'meta');
+    let candidateDerivedFromGreenApi = false;
+
+    if (!resolvedPhoneNumberId) {
+      const activeCompanies = await prisma.company.findMany({
+        where: { status: 'active' },
+        select: { settings: true },
+      });
+
+      const candidateIds = activeCompanies
+        .map((company: any) => {
+          const settings = (company?.settings as any) || {};
+          const whatsapp = (settings.whatsapp as any) || {};
+          const meta = (whatsapp.meta as any) || whatsapp;
+          const greenapi = (whatsapp.greenapi as any) || whatsapp;
+          return (
+            (typeof meta.phoneNumberId === 'string' && meta.phoneNumberId.trim()) ||
+            (typeof meta.phone_number_id === 'string' && meta.phone_number_id.trim()) ||
+            (typeof whatsapp.phoneNumberId === 'string' && whatsapp.phoneNumberId.trim()) ||
+            (typeof greenapi.idInstance === 'string' && greenapi.idInstance.trim()) ||
+            ''
+          );
+        })
+        .filter((value) => value.length > 0);
+
+      if (candidateIds.length === 1) {
+        resolvedPhoneNumberId = candidateIds[0];
+        const matchedCompany = activeCompanies.find((company: any) => {
+          const settings = (company?.settings as any) || {};
+          const whatsapp = (settings.whatsapp as any) || {};
+          const greenapi = (whatsapp.greenapi as any) || whatsapp;
+          const instanceId =
+            (typeof greenapi.idInstance === 'string' && greenapi.idInstance.trim()) ||
+            (typeof whatsapp.idInstance === 'string' && whatsapp.idInstance.trim()) ||
+            '';
+          return instanceId === resolvedPhoneNumberId;
+        });
+
+        candidateDerivedFromGreenApi = !!matchedCompany;
+      }
+    }
+
+    if (!requestedProvider && candidateDerivedFromGreenApi) {
+      resolvedProvider = 'greenapi';
+    }
+
+    if (!resolvedPhoneNumberId) {
+      res.status(400).json({
+        error: 'Unable to resolve phoneNumberId for test message. Provide phoneNumberId in request body or configure company WhatsApp settings.',
+      });
+      return;
+    }
+
     await whatsappService.handleIncomingMessage({
-      phoneNumberId: 'test',
+      provider: resolvedProvider,
+      phoneNumberId: resolvedPhoneNumberId,
       customerPhone: phone,
       customerName: name || 'Test Customer',
       messageText: message,
@@ -474,7 +585,7 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
     });
 
     // Get the latest conversation and AI response
-    const lead = await (await import('../config/prisma')).default.lead.findFirst({
+    const lead = await prisma.lead.findFirst({
       where: { phone },
       orderBy: { createdAt: 'desc' },
     });
@@ -484,13 +595,13 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
       return;
     }
 
-    const conversation = await (await import('../config/prisma')).default.conversation.findFirst({
+    const conversation = await prisma.conversation.findFirst({
       where: { leadId: lead.id },
       orderBy: { updatedAt: 'desc' },
     });
 
     const messages = conversation
-      ? await (await import('../config/prisma')).default.message.findMany({
+      ? await prisma.message.findMany({
           where: { conversationId: conversation.id },
           orderBy: { createdAt: 'desc' },
           take: 2,
@@ -522,6 +633,11 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
  * TEMPORARY - remove after debugging.
  */
 router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: Response) => {
+  if (config.env === 'production') {
+    res.status(403).json({ error: 'Debug endpoint is disabled in production' });
+    return;
+  }
+
   const debugLog: string[] = [];
   const log = (msg: string) => {
     debugLog.push(`[${new Date().toISOString()}] ${msg}`);
@@ -540,11 +656,6 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
       res.json({ success: false, debugLog });
       return;
     }
-
-    // SPECIAL FIX: If we know the company ID but the mapping is wrong, fix it.
-    // This is a one-time recovery for the user's current misconfiguration.
-    const CORRECT_PHONE_NUMBER_ID = '1090528010807708';
-    const NEW_PERMANENT_TOKEN = 'EAATgQyqKPScBRQYYIPdPHLTasVizp8HLKgWp9xpy38I8yjxz3YqpyrC95b8ZCt5IfvVjG66Hg1LwsRosMZAYgTItCcgSZCv6SWYOxTkgMRZBpWqIqZBjO4ZA2ZAs1PIiVhp8CyXd3gGSeSU1KY0QJSWe3hgoZAuGZC3DfLI5VOAj7IauSME4USsyKiV9MPJsFxoA3GQZDZD';
 
     const entries = body.entry || [];
 
@@ -568,44 +679,9 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
         // Try to find company
         log('Looking up company by phoneNumberId...');
         let companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
-        
-        if (phoneNumberId === CORRECT_PHONE_NUMBER_ID) {
-          log('Phone Number ID matches current test. Ensuring token is REFRESHED...');
-          
-          const targetCompany = companyResult?.company || (await prisma.company.findFirst());
-          
-          if (targetCompany) {
-            log(`Found target company ${targetCompany.name}. Refreshing settings with NEW PERMANENT TOKEN...`);
-            const currentSettings = (targetCompany.settings as any) || {};
-            const updatedSettings = {
-              ...currentSettings,
-              whatsapp: {
-                ...(currentSettings.whatsapp || {}),
-                provider: 'meta',
-                meta: {
-                  ...(currentSettings.whatsapp?.meta || {}),
-                  phoneNumberId: CORRECT_PHONE_NUMBER_ID,
-                  accessToken: NEW_PERMANENT_TOKEN,
-                  verifyToken: 'abc-investo'
-                },
-                // Mirror for legacy code
-                phoneNumberId: CORRECT_PHONE_NUMBER_ID,
-                accessToken: NEW_PERMANENT_TOKEN,
-                verifyToken: 'abc-investo'
-              }
-            };
-
-            await prisma.company.update({
-              where: { id: targetCompany.id },
-              data: { settings: updatedSettings as any }
-            });
-            log('Database updated successfully. Retrying lookup...');
-            companyResult = await whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
-          }
-        }
 
         if (!companyResult) {
-          log('ERROR: No company found for phoneNumberId even after fix attempt!');
+          log('ERROR: No company found for phoneNumberId');
           res.json({ success: false, error: 'No company found', debugLog });
           return;
         }
@@ -640,6 +716,7 @@ router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: 
       }
     }
 
+    const prisma = await getPrisma();
     const recentLeads = await prisma.lead.findMany({
       orderBy: { createdAt: 'desc' },
       take: 3,

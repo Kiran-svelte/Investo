@@ -91,6 +91,12 @@ const AISettingsPage: React.FC = () => {
   const [whatsappMessage, setWhatsappMessage] = useState('');
   const [locationsText, setLocationsText] = useState('');
   const [showWhatsAppTokens, setShowWhatsAppTokens] = useState(false);
+  // true only after a live /whatsapp/test call succeeds — not just because fields are populated
+  const [connectionVerified, setConnectionVerified] = useState(false);
+  // true if credentials have been saved at least once (fields are non-empty after loading)
+  const [credentialsSaved, setCredentialsSaved] = useState(false);
+  const isLocalWebhookUrl =
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(whatsappConfig.webhookUrl || '');
 
   const loadSettings = useCallback(async () => {
     try {
@@ -137,6 +143,12 @@ const AISettingsPage: React.FC = () => {
             const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
             const webhookUrlToken = greenapi.webhookUrlToken || whatsapp.webhookUrlToken || '';
 
+            const hasCreds =
+              provider === 'greenapi'
+                ? !!idInstance && !!apiTokenInstance
+                : !!accessToken && !!phoneNumberId;
+            setCredentialsSaved(hasCreds);
+            setConnectionVerified(false);
             setWhatsappConfig({
               provider,
               phoneNumberId,
@@ -146,10 +158,7 @@ const AISettingsPage: React.FC = () => {
               apiTokenInstance,
               webhookUrlToken,
               webhookUrl: provider === 'greenapi' ? greenApiWebhookUrl : metaWebhookUrl,
-              isConnected:
-                provider === 'greenapi'
-                  ? !!idInstance && !!apiTokenInstance
-                  : !!accessToken && !!phoneNumberId,
+              isConnected: false,
             });
           } else {
             setWhatsappConfig(prev => ({
@@ -223,6 +232,7 @@ const AISettingsPage: React.FC = () => {
 
   // WhatsApp config handler
   const handleWhatsAppChange = (field: keyof WhatsAppConfig, value: string) => {
+    setConnectionVerified(false);
     setWhatsappConfig(prev => {
       const next: WhatsAppConfig = { ...prev, [field]: value } as any;
 
@@ -233,18 +243,42 @@ const AISettingsPage: React.FC = () => {
           value === 'greenapi' ? `${backendUrl}/api/greenapi/webhook` : `${backendUrl}/api/webhook`;
       }
 
-      const isConnected =
-        next.provider === 'greenapi'
-          ? !!next.idInstance && !!next.apiTokenInstance
-          : !!next.accessToken && !!next.phoneNumberId;
-
-      return { ...next, isConnected };
+      return { ...next, isConnected: false };
     });
   };
 
   const handleSaveWhatsApp = async () => {
     if (!user?.company_id) return;
-    
+
+    // Validate required fields before saving to prevent partial/broken config
+    if (whatsappConfig.provider === 'greenapi') {
+      if (!whatsappConfig.idInstance) {
+        setWhatsappMessage('❌ Instance ID is required for Green-API');
+        return;
+      }
+      if (!whatsappConfig.apiTokenInstance) {
+        setWhatsappMessage('❌ API Token is required for Green-API');
+        return;
+      }
+      if (!whatsappConfig.webhookUrlToken) {
+        setWhatsappMessage('❌ Webhook Token is required for Green-API (used to authenticate inbound webhook calls)');
+        return;
+      }
+    } else {
+      if (!whatsappConfig.phoneNumberId) {
+        setWhatsappMessage('❌ Phone Number ID is required for Meta Cloud API');
+        return;
+      }
+      if (!whatsappConfig.accessToken) {
+        setWhatsappMessage('❌ Access Token is required for Meta Cloud API');
+        return;
+      }
+      if (!whatsappConfig.verifyToken) {
+        setWhatsappMessage('❌ Webhook Verify Token is required for Meta Cloud API');
+        return;
+      }
+    }
+
     setSavingWhatsApp(true);
     setWhatsappMessage('');
     try {
@@ -285,14 +319,13 @@ const AISettingsPage: React.FC = () => {
       };
       
       await api.put(`/companies/${user.company_id}`, { settings: newSettings });
-      setWhatsappConfig(prev => ({
-        ...prev,
-        isConnected:
-          prev.provider === 'greenapi'
-            ? !!prev.idInstance && !!prev.apiTokenInstance
-            : !!prev.accessToken && !!prev.phoneNumberId,
-      }));
-      setWhatsappMessage(t('ai_settings.whatsapp_saved') || 'WhatsApp configuration saved successfully');
+      const hasCreds =
+        whatsappConfig.provider === 'greenapi'
+          ? !!whatsappConfig.idInstance && !!whatsappConfig.apiTokenInstance
+          : !!whatsappConfig.accessToken && !!whatsappConfig.phoneNumberId;
+      setCredentialsSaved(hasCreds);
+      setConnectionVerified(false);
+      setWhatsappMessage((t('ai_settings.whatsapp_saved') || 'WhatsApp configuration saved. Use "Test Connection" to verify it works.'));
     } catch (err: any) {
       setWhatsappMessage(err.response?.data?.message || 'Failed to save WhatsApp configuration');
     } finally {
@@ -332,12 +365,14 @@ const AISettingsPage: React.FC = () => {
       );
       
       if (response.data.success) {
+        setConnectionVerified(true);
         setWhatsappMessage(t('ai_settings.whatsapp_test_success') || '✅ WhatsApp connection test successful!');
-        setWhatsappConfig(prev => ({ ...prev, isConnected: true }));
       } else {
+        setConnectionVerified(false);
         setWhatsappMessage(`❌ ${response.data.error || 'Connection test failed'}`);
       }
     } catch (err: any) {
+      setConnectionVerified(false);
       setWhatsappMessage(`❌ ${err.response?.data?.error || 'Failed to test WhatsApp connection'}`);
     } finally {
       setTestingWhatsApp(false);
@@ -603,10 +638,15 @@ const AISettingsPage: React.FC = () => {
                 {t('ai_settings.whatsapp_integration') || 'WhatsApp Business Integration'}
               </h2>
               <div className="flex items-center gap-2">
-                {whatsappConfig.isConnected ? (
+                {connectionVerified ? (
                   <span className="flex items-center gap-1.5 text-sm text-green-600 bg-green-50 px-2.5 py-1 rounded-full">
                     <CheckCircle className="h-4 w-4" />
                     {t('ai_settings.connected') || 'Connected'}
+                  </span>
+                ) : credentialsSaved ? (
+                  <span className="flex items-center gap-1.5 text-sm text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">
+                    <AlertCircle className="h-4 w-4" />
+                    Saved — not verified
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 text-sm text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">
@@ -655,6 +695,13 @@ const AISettingsPage: React.FC = () => {
                   </ol>
                 )}
               </div>
+
+              {whatsappConfig.provider === 'greenapi' && isLocalWebhookUrl && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                  Green-API cloud cannot call `localhost` webhook URLs. Expose this backend via a public HTTPS URL
+                  (for example ngrok/Cloudflare Tunnel/deployed backend) and use that URL in Green-API webhook settings.
+                </div>
+              )}
 
               {whatsappConfig.provider === 'greenapi' ? (
                 <>

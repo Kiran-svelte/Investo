@@ -1,10 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaNeon } from '@prisma/adapter-neon';
-import { neonConfig } from '@neondatabase/serverless';
 import config from './index';
 import logger from './logger';
-
-neonConfig.fetchConnectionCache = true;
 
 const adapter = new PrismaNeon({ connectionString: config.db.url });
 

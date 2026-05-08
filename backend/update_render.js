@@ -1,7 +1,8 @@
 // No need for node-fetch in Node 18+
+// Usage: RENDER_API_KEY=rnd_xxx node update_render.js
 const url = 'https://api.render.com/v1/services/srv-d79itik50q8c73fjqi7g';
 const headers = {
-    'Authorization': 'Bearer rnd_GjjVdNl0zMCbmHhBKHPlXwyqLik4',
+    'Authorization': `Bearer ${process.env.RENDER_API_KEY}`,
     'Content-Type': 'application/json'
 };
 

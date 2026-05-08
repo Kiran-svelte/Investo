@@ -33,12 +33,11 @@ function isProductionRuntime(): boolean {
   return env === 'production' && !Boolean(process.env.JEST_WORKER_ID);
 }
 
-function throwRedisRequiredError(operation: string, metadata?: Record<string, unknown>): never {
-  logger.error('Property import queue requires Redis in production', {
+function warnRedisUnavailable(operation: string, metadata?: Record<string, unknown>): void {
+  logger.warn('Property import queue: Redis unavailable, using in-memory fallback (data will not survive restarts). Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for durable queueing.', {
     operation,
     ...metadata,
   });
-  throw new Error('Property import queue requires Redis in production. Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.');
 }
 
 function buildQueueKey(type: PropertyImportQueueJobType, idempotencyKey: string): string {
@@ -69,7 +68,7 @@ export class PropertyImportQueueService {
 
     const redis = getRedis();
     if (!redis && isProductionRuntime()) {
-      throwRedisRequiredError('enqueueExtraction', { queueKey });
+      warnRedisUnavailable('enqueueExtraction', { queueKey });
     }
 
     if (redis) {
@@ -95,12 +94,6 @@ export class PropertyImportQueueService {
         });
         return true;
       } catch (err: any) {
-        if (isProductionRuntime()) {
-          throwRedisRequiredError('enqueueExtraction', {
-            queueKey,
-            error: err.message,
-          });
-        }
         logger.warn('Property import queue Redis enqueue failed, falling back to memory', {
           queueKey,
           error: err.message,
@@ -129,7 +122,7 @@ export class PropertyImportQueueService {
   async clearAll(): Promise<void> {
     const redis = getRedis();
     if (!redis && isProductionRuntime()) {
-      throwRedisRequiredError('clearAll');
+      warnRedisUnavailable('clearAll');
     }
 
     if (redis) {
@@ -145,9 +138,6 @@ export class PropertyImportQueueService {
         }
         return;
       } catch (err: any) {
-        if (isProductionRuntime()) {
-          throwRedisRequiredError('clearAll', { error: err.message });
-        }
         logger.warn('Failed to clear property import queue in Redis', { error: err.message });
       }
     }
@@ -237,7 +227,7 @@ export class PropertyImportQueueService {
   private async getAllJobs(): Promise<Array<{ key: string; job: StoredPropertyImportJob }>> {
     const redis = getRedis();
     if (!redis && isProductionRuntime()) {
-      throwRedisRequiredError('getAllJobs');
+      warnRedisUnavailable('getAllJobs');
     }
 
     if (redis) {
@@ -261,9 +251,6 @@ export class PropertyImportQueueService {
 
         return entries.filter((entry): entry is { key: string; job: StoredPropertyImportJob } => Boolean(entry));
       } catch (err: any) {
-        if (isProductionRuntime()) {
-          throwRedisRequiredError('getAllJobs', { error: err.message });
-        }
         logger.warn('Failed to list property import jobs in Redis, falling back to memory', {
           error: err.message,
         });
@@ -278,7 +265,7 @@ export class PropertyImportQueueService {
     const processingKey = buildProcessingKey(queueKey);
 
     if (!redis && isProductionRuntime()) {
-      throwRedisRequiredError('claimJob', { queueKey });
+      warnRedisUnavailable('claimJob', { queueKey });
     }
 
     if (redis) {
@@ -286,12 +273,6 @@ export class PropertyImportQueueService {
         const result = await redis.set(processingKey, '1', { nx: true, ex: 300 });
         return result !== null;
       } catch (err: any) {
-        if (isProductionRuntime()) {
-          throwRedisRequiredError('claimJob', {
-            queueKey,
-            error: err.message,
-          });
-        }
         logger.warn('Failed to claim property import job in Redis, falling back to memory', {
           queueKey,
           error: err.message,
@@ -312,16 +293,13 @@ export class PropertyImportQueueService {
     const processingKey = buildProcessingKey(queueKey);
 
     if (!redis && isProductionRuntime()) {
-      throwRedisRequiredError('releaseJob', { queueKey });
+      warnRedisUnavailable('releaseJob', { queueKey });
     }
 
     if (redis) {
       try {
         await redis.del(processingKey);
       } catch {
-        if (isProductionRuntime()) {
-          throwRedisRequiredError('releaseJob', { queueKey });
-        }
         // best effort
       }
       return;
@@ -335,7 +313,7 @@ export class PropertyImportQueueService {
     const processingKey = buildProcessingKey(queueKey);
 
     if (!redis && isProductionRuntime()) {
-      throwRedisRequiredError('deleteJob', { queueKey });
+      warnRedisUnavailable('deleteJob', { queueKey });
     }
 
     if (redis) {
@@ -343,12 +321,6 @@ export class PropertyImportQueueService {
         await redis.del(queueKey, processingKey);
         return;
       } catch (err: any) {
-        if (isProductionRuntime()) {
-          throwRedisRequiredError('deleteJob', {
-            queueKey,
-            error: err.message,
-          });
-        }
         logger.warn('Failed to delete property import queue key in Redis', {
           queueKey,
           error: err.message,

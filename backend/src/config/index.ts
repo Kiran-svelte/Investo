@@ -240,7 +240,9 @@ const whatsappProvider = resolveWhatsAppProvider();
 
 const allowGreenapiInProd = process.env.WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION === 'true';
 
-// Removed production check for GreenAPI
+if (nodeEnv === 'production' && whatsappProvider === 'greenapi' && !allowGreenapiInProd) {
+  throw new Error("WHATSAPP_PROVIDER='greenapi' is not allowed when NODE_ENV='production'");
+}
 
 const databaseUrl = resolveDatabaseUrl();
 const neonPoolerConfigured = isNeonPoolerDatabaseUrl(databaseUrl);
@@ -374,6 +376,16 @@ const config = {
   rateLimit: {
     perUser: parseInt(process.env.RATE_LIMIT_USER || '100', 10),
     perCompany: parseInt(process.env.RATE_LIMIT_COMPANY || '1000', 10),
+  },
+  langgraph: {
+    enabled: process.env.LANGGRAPH_ENABLED === 'true',
+    url: (process.env.LANGGRAPH_URL || 'http://localhost:8000').replace(/\/+$/, ''),
+    mode: (process.env.LANGGRAPH_MODE || 'augment') as 'augment' | 'replace',
+    timeoutMs: parseInt(process.env.LANGGRAPH_TIMEOUT_MS || '5000', 10),
+  },
+  enterpriseAgent: {
+    enabled: process.env.ENTERPRISE_AGENT_ENABLED === 'true',
+    mode: (process.env.ENTERPRISE_AGENT_MODE || 'augment') as 'augment' | 'replace',
   },
 };
 

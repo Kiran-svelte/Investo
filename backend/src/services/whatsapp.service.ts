@@ -3,6 +3,7 @@ import config from '../config';
 import logger from '../config/logger';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { aiService } from './ai.service';
+import { calculateEmi } from './emi.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import {
   GreenApiWhatsAppProvider,
@@ -60,11 +61,18 @@ export class WhatsAppService {
   private outboundProviders: Partial<Record<'meta' | 'greenapi', WhatsAppOutboundProvider>> = {};
 
   private resolveOutboundProviderName(whatsappConfig?: CompanyWhatsAppConfig | null): 'meta' | 'greenapi' {
-    const requested = whatsappConfig?.provider || (config as any)?.whatsapp?.provider;
+    const explicitProvider = whatsappConfig?.provider;
+    const requested = explicitProvider || (config as any)?.whatsapp?.provider;
     const provider = requested === 'greenapi' ? 'greenapi' : 'meta';
 
-    // Production guard: allow Green-API only when explicitly enabled.
-    if (provider === 'greenapi' && config.env === 'production' && !(config as any)?.whatsapp?.allowGreenapiInProd) {
+    // Keep the ambient default conservative in production, but honor an explicit
+    // company-level Green-API selection so configured tenants can actually use it.
+    if (
+      provider === 'greenapi' &&
+      config.env === 'production' &&
+      !(config as any)?.whatsapp?.allowGreenapiInProd &&
+      explicitProvider !== 'greenapi'
+    ) {
       return 'meta';
     }
 
@@ -95,6 +103,7 @@ export class WhatsAppService {
   async getCompanyByPhoneNumberId(
     phoneNumberId: string,
     providerHint?: 'meta' | 'greenapi',
+    webhookTokenHint?: string,
   ): Promise<{ company: any; config: CompanyWhatsAppConfig | null } | null> {
     // Find all active companies
     const companies = await prisma.company.findMany({
@@ -114,10 +123,20 @@ export class WhatsAppService {
       return '';
     };
 
+    const normalizeTokenLike = (value: unknown): string => {
+      const normalized = normalizeStringLike(value);
+      if (!normalized) {
+        return '';
+      }
+
+      return normalized.replace(/^(?:Bearer|Basic)\s+/i, '').trim();
+    };
+
     // GreenAPI inbound MUST be deterministically routed by instance identifier.
     // Fail closed if no company is explicitly mapped.
     if (providerName === 'greenapi') {
       const normalizedInstanceId = normalizeStringLike(phoneNumberId);
+      const normalizedWebhookToken = normalizeTokenLike(webhookTokenHint);
 
       if (!normalizedInstanceId) {
         logger.error('GreenAPI company resolution failed: missing instance identifier (phoneNumberId)');
@@ -168,6 +187,43 @@ export class WhatsAppService {
             apiTokenInstance,
           },
         };
+      }
+
+      if (matches.length > 1 && normalizedWebhookToken) {
+        const tokenMatches = matches.filter((company) => {
+          const settings = (company.settings as any) || {};
+          const whatsapp = (settings.whatsapp as any) || {};
+          const greenapi = (whatsapp.greenapi as any) || {};
+
+          const configuredToken = normalizeTokenLike(greenapi.webhookUrlToken || whatsapp.webhookUrlToken || '');
+          return configuredToken && configuredToken === normalizedWebhookToken;
+        });
+
+        if (tokenMatches.length === 1) {
+          const company = tokenMatches[0];
+          const settings = (company.settings as any) || {};
+          const whatsapp = (settings.whatsapp as any) || {};
+          const greenapi = (whatsapp.greenapi as any) || {};
+
+          const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
+          const apiTokenInstance =
+            normalizeStringLike(greenapi.apiTokenInstance) ||
+            normalizeStringLike(whatsapp.apiTokenInstance) ||
+            (config as any)?.greenapi?.apiTokenInstance ||
+            '';
+
+          return {
+            company,
+            config: {
+              provider: 'greenapi',
+              phoneNumberId: '',
+              accessToken: '',
+              verifyToken: normalizeStringLike(whatsapp.verifyToken) || config.whatsapp.verifyToken,
+              idInstance,
+              apiTokenInstance,
+            },
+          };
+        }
       }
 
       if (matches.length > 1) {
@@ -612,9 +668,13 @@ export class WhatsAppService {
           if (info.budget_min) updates.budgetMin = info.budget_min;
           if (info.budget_max) updates.budgetMax = info.budget_max;
           if (info.location_preference) updates.locationPreference = info.location_preference;
-          if (info.property_type) updates.propertyType = info.property_type;
+          const normalizedPropertyType = normalizeLeadPropertyType(info.property_type);
+          if (normalizedPropertyType) updates.propertyType = normalizedPropertyType;
           if (info.customer_name && !lead.customerName) updates.customerName = info.customer_name;
-          await prisma.lead.update({ where: { id: lead.id }, data: updates });
+
+          if (Object.keys(updates).length > 0) {
+            await prisma.lead.update({ where: { id: lead.id }, data: updates });
+          }
         }
 
         // If lead is 'new', auto-transition to 'contacted'
@@ -1851,33 +1911,44 @@ export class WhatsAppService {
 
     // ---- EMI Calculator Request ----
     if (interactiveId === 'emi-calculator' || interactiveId === 'calculate-emi') {
-      // This will be fully implemented in CHUNK 7
-      // For now, send a placeholder message
       const propertyId = conversation.selectedPropertyId;
       const property = propertyId 
         ? await prisma.property.findUnique({ where: { id: propertyId } })
         : null;
 
-      // Use priceMin for EMI calculation
       const propertyPrice = property?.priceMin ? Number(property.priceMin) : null;
 
       if (property && propertyPrice) {
-        // Quick EMI estimate (assuming 20% down payment, 8.5% interest, 20 years)
-        const principal = propertyPrice * 0.8;
-        const monthlyRate = 0.085 / 12;
-        const months = 240;
-        const emi = (principal * monthlyRate * Math.pow(1 + monthlyRate, months)) / 
-                    (Math.pow(1 + monthlyRate, months) - 1);
+        const defaultDownPayment = propertyPrice * 0.2;
+        const emi = calculateEmi({
+          principal: propertyPrice,
+          downPayment: defaultDownPayment,
+          interestRate: 8.5,
+          tenureMonths: 240,
+        });
 
         await this.sendMessage(
           customerPhone,
-          `📊 *EMI Estimate for ${property.name}*\n\n💰 Property Price: ₹${(propertyPrice / 100000).toFixed(2)} Lakhs\n📉 Down Payment (20%): ₹${(propertyPrice * 0.2 / 100000).toFixed(2)} Lakhs\n📈 Loan Amount: ₹${(principal / 100000).toFixed(2)} Lakhs\n💳 EMI (20 yrs @ 8.5%): ₹${Math.round(emi).toLocaleString('en-IN')}/month\n\n_This is an estimate. Actual EMI may vary based on your bank's interest rate._`,
+          `📊 *EMI Estimate for ${property.name}*\n\n💰 Property Price: ₹${(emi.principal / 100000).toFixed(2)} Lakhs\n📉 Down Payment (20%): ₹${(emi.downPayment / 100000).toFixed(2)} Lakhs\n📈 Loan Amount: ₹${(emi.loanAmount / 100000).toFixed(2)} Lakhs\n💳 EMI (20 yrs @ 8.5%): ₹${Math.round(emi.monthlyEmi).toLocaleString('en-IN')}/month\n\nThis is an estimate. You can fine-tune values in the dashboard EMI calculator for exact planning.`,
+          whatsappConfig
+        );
+
+        await this.sendInteractiveButtons(
+          customerPhone,
+          'Would you like to continue?',
+          [
+            { id: `book-visit-${property.id}`, title: 'Book Visit' },
+            { id: 'call-me', title: 'Call Me' },
+            { id: `more-info-${property.id}`, title: 'More Info' },
+          ],
+          null,
+          null,
           whatsappConfig
         );
       } else {
         await this.sendMessage(
           customerPhone,
-          `I can help you calculate EMI! Please tell me the property price you're considering, or select a property first.`,
+          'I can help you calculate EMI. Please select a property first, or share your budget and down payment.',
           whatsappConfig
         );
       }
@@ -2309,6 +2380,25 @@ export class WhatsAppService {
 
     return false;
   }
+}
+
+function normalizeLeadPropertyType(value: unknown): 'villa' | 'apartment' | 'plot' | 'commercial' | 'other' | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes('apartment')) return 'apartment';
+  if (normalized.includes('villa')) return 'villa';
+  if (normalized.includes('plot')) return 'plot';
+  if (normalized.includes('commercial')) return 'commercial';
+  if (normalized.includes('other')) return 'other';
+
+  return null;
 }
 
 export const whatsappService = new WhatsAppService();

@@ -65,7 +65,7 @@ router.post(
       }
 
       const [instanceId] = Array.from(instanceIds);
-      const companyResult = await whatsappService.getCompanyByPhoneNumberId(instanceId);
+      const companyResult = await whatsappService.getCompanyByPhoneNumberId(instanceId, 'greenapi', providedToken);
       if (!companyResult) {
         res.status(404).json({ error: 'company_not_found', code: 'greenapi_company_not_found' });
         return;
