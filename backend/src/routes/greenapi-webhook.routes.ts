@@ -32,10 +32,11 @@ interface GreenApiWebhookProcessSummary {
 }
 
 router.post(
-  '/',
+  '/:companyId?',
   express.json({ limit: '1mb' }),
   async (req: Request, res: Response) => {
     const providedToken = extractAuthorizationToken(req.headers.authorization);
+    const companyIdHint = typeof req.params.companyId === 'string' ? req.params.companyId.trim() : '';
     // Removed production restriction for GreenAPI
 
     if (!providedToken) {
@@ -65,7 +66,12 @@ router.post(
       }
 
       const [instanceId] = Array.from(instanceIds);
-      const companyResult = await whatsappService.getCompanyByPhoneNumberId(instanceId, 'greenapi', providedToken);
+      const companyResult = await whatsappService.getCompanyByPhoneNumberId(
+        instanceId,
+        'greenapi',
+        companyIdHint,
+        providedToken,
+      );
       if (!companyResult) {
         res.status(404).json({ error: 'company_not_found', code: 'greenapi_company_not_found' });
         return;
@@ -109,7 +115,7 @@ router.post(
     // Respond quickly; process async to avoid webhook retries.
     res.status(200).json({ status: 'received' });
 
-    processGreenApiWebhook(req.body, providedToken)
+    processGreenApiWebhook(req.body, providedToken, companyIdHint)
       .then((summary) => {
         logger.info('GreenAPI webhook processing summary', { summary: redactGreenApiSummaryForLogs(summary) });
       })
@@ -287,6 +293,7 @@ function extractIncomingTextNotifications(body: any): ExtractedIncomingText[] {
 async function processGreenApiWebhook(
   body: any,
   webhookTokenHint?: string,
+  companyIdHint?: string,
 ): Promise<GreenApiWebhookProcessSummary> {
   const summary: GreenApiWebhookProcessSummary = {
     totalNotifications: Array.isArray(body) ? body.length : 1,
@@ -365,6 +372,7 @@ async function processGreenApiWebhook(
         provider: 'greenapi',
         phoneNumberId,
         webhookTokenHint,
+        companyIdHint,
         customerPhone: msg.customerPhone,
         customerName: msg.customerName,
         messageText: msg.messageText,

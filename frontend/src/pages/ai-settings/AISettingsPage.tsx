@@ -31,6 +31,11 @@ interface WhatsAppConfig {
   phoneNumberId: string;
   accessToken: string;
   verifyToken: string;
+  businessAccountId: string;
+  wabaId: string;
+  appId: string;
+  appSecret: string;
+  systemUserId: string;
   idInstance: string;
   apiTokenInstance: string;
   webhookUrlToken: string;
@@ -77,6 +82,11 @@ const AISettingsPage: React.FC = () => {
     phoneNumberId: '',
     accessToken: '',
     verifyToken: '',
+    businessAccountId: '',
+    wabaId: '',
+    appId: '',
+    appSecret: '',
+    systemUserId: '',
     idInstance: '',
     apiTokenInstance: '',
     webhookUrlToken: '',
@@ -127,7 +137,9 @@ const AISettingsPage: React.FC = () => {
           const apiBaseUrl = (api.defaults.baseURL || '').replace('/api', '');
           const backendUrl = apiBaseUrl || window.location.origin;
           const metaWebhookUrl = `${backendUrl}/api/webhook`;
-          const greenApiWebhookUrl = `${backendUrl}/api/greenapi/webhook`;
+          const greenApiWebhookUrl = user?.company_id
+            ? `${backendUrl}/api/greenapi/webhook/${user.company_id}`
+            : `${backendUrl}/api/greenapi/webhook`;
           
           if (companySettings.whatsapp) {
             const whatsapp = companySettings.whatsapp;
@@ -138,6 +150,11 @@ const AISettingsPage: React.FC = () => {
             const phoneNumberId = meta.phoneNumberId || '';
             const accessToken = meta.accessToken || '';
             const verifyToken = meta.verifyToken || '';
+            const businessAccountId = meta.businessAccountId || meta.business_account_id || '';
+            const wabaId = meta.wabaId || meta.waba_id || '';
+            const appId = meta.appId || meta.app_id || '';
+            const appSecret = meta.appSecret || meta.app_secret || '';
+            const systemUserId = meta.systemUserId || meta.system_user_id || '';
 
             const idInstance = greenapi.idInstance || whatsapp.phoneNumberId || '';
             const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
@@ -154,6 +171,11 @@ const AISettingsPage: React.FC = () => {
               phoneNumberId,
               accessToken,
               verifyToken,
+              businessAccountId,
+              wabaId,
+              appId,
+              appSecret,
+              systemUserId,
               idInstance,
               apiTokenInstance,
               webhookUrlToken,
@@ -240,7 +262,11 @@ const AISettingsPage: React.FC = () => {
         const apiBaseUrl = (api.defaults.baseURL || '').replace('/api', '');
         const backendUrl = apiBaseUrl || window.location.origin;
         next.webhookUrl =
-          value === 'greenapi' ? `${backendUrl}/api/greenapi/webhook` : `${backendUrl}/api/webhook`;
+          value === 'greenapi'
+            ? (user?.company_id
+              ? `${backendUrl}/api/greenapi/webhook/${user.company_id}`
+              : `${backendUrl}/api/greenapi/webhook`)
+            : `${backendUrl}/api/webhook`;
       }
 
       return { ...next, isConnected: false };
@@ -293,6 +319,11 @@ const AISettingsPage: React.FC = () => {
         phoneNumberId: whatsappConfig.phoneNumberId,
         accessToken: whatsappConfig.accessToken,
         verifyToken: whatsappConfig.verifyToken,
+        businessAccountId: whatsappConfig.businessAccountId,
+        wabaId: whatsappConfig.wabaId,
+        appId: whatsappConfig.appId,
+        appSecret: whatsappConfig.appSecret,
+        systemUserId: whatsappConfig.systemUserId,
       };
       const greenApiSettings = {
         ...(existingWhatsApp.greenapi || {}),
@@ -313,6 +344,11 @@ const AISettingsPage: React.FC = () => {
           phoneNumberId: provider === 'greenapi' ? greenApiSettings.idInstance : metaSettings.phoneNumberId,
           accessToken: metaSettings.accessToken,
           verifyToken: metaSettings.verifyToken,
+          businessAccountId: metaSettings.businessAccountId,
+          wabaId: metaSettings.wabaId,
+          appId: metaSettings.appId,
+          appSecret: metaSettings.appSecret,
+          systemUserId: metaSettings.systemUserId,
           apiTokenInstance: greenApiSettings.apiTokenInstance,
           webhookUrlToken: greenApiSettings.webhookUrlToken,
         },
@@ -810,6 +846,69 @@ const AISettingsPage: React.FC = () => {
                     <p className="text-xs text-gray-500 mt-1">
                       {t('ai_settings.verify_token_help') || 'Create a secure random string. You\'ll need to enter this same value in Meta webhook settings.'}
                     </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Meta Business Account ID
+                      </label>
+                      <input
+                        type="text"
+                        value={whatsappConfig.businessAccountId}
+                        onChange={e => handleWhatsAppChange('businessAccountId', e.target.value)}
+                        placeholder="e.g., 1029384756"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        WABA ID
+                      </label>
+                      <input
+                        type="text"
+                        value={whatsappConfig.wabaId}
+                        onChange={e => handleWhatsAppChange('wabaId', e.target.value)}
+                        placeholder="e.g., 123456789012345"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Meta App ID
+                      </label>
+                      <input
+                        type="text"
+                        value={whatsappConfig.appId}
+                        onChange={e => handleWhatsAppChange('appId', e.target.value)}
+                        placeholder="e.g., 987654321234567"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Meta App Secret
+                      </label>
+                      <input
+                        type={showWhatsAppTokens ? 'text' : 'password'}
+                        value={whatsappConfig.appSecret}
+                        onChange={e => handleWhatsAppChange('appSecret', e.target.value)}
+                        placeholder="Meta app secret"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        System User ID
+                      </label>
+                      <input
+                        type="text"
+                        value={whatsappConfig.systemUserId}
+                        onChange={e => handleWhatsAppChange('systemUserId', e.target.value)}
+                        placeholder="e.g., 112233445566778"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
                   </div>
                 </>
               )}
