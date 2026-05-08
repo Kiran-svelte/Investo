@@ -30,6 +30,10 @@ import greenApiWebhookRoutes from './routes/greenapi-webhook.routes';
 
 const app = express();
 
+// Render/other reverse proxies forward client IP via X-Forwarded-For.
+// express-rate-limit requires trust proxy to be enabled to avoid ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 
