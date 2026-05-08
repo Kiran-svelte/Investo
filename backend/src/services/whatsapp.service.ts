@@ -109,6 +109,7 @@ export class WhatsAppService {
     providerHint?: 'meta' | 'greenapi',
     companyIdHint?: string,
     webhookTokenHint?: string,
+    customerPhoneHint?: string,
   ): Promise<{ company: any; config: CompanyWhatsAppConfig | null } | null> {
     // Find all active companies
     const companies = await prisma.company.findMany({
@@ -222,6 +223,58 @@ export class WhatsAppService {
               apiTokenInstance,
             },
           };
+        }
+      }
+
+      if (matches.length > 1 && normalizeStringLike(customerPhoneHint)) {
+        const digits = normalizeStringLike(customerPhoneHint).replace(/[^0-9]/g, '');
+        const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+        const phoneCandidates = Array.from(
+          new Set([
+            normalizeStringLike(customerPhoneHint),
+            digits,
+            last10 ? `+${last10}` : '',
+            last10 ? `91${last10}` : '',
+            last10 ? `+91${last10}` : '',
+          ].filter(Boolean)),
+        );
+
+        const leads = await prisma.lead.findMany({
+          where: {
+            companyId: { in: matches.map((company) => company.id) },
+            OR: phoneCandidates.map((candidate) => ({ phone: { contains: candidate } })),
+          },
+          select: { companyId: true },
+          take: 20,
+        });
+
+        const uniqueLeadCompanyIds = Array.from(new Set(leads.map((lead) => lead.companyId)));
+        if (uniqueLeadCompanyIds.length === 1) {
+          const company = matches.find((item) => item.id === uniqueLeadCompanyIds[0]);
+          if (company) {
+            const settings = (company.settings as any) || {};
+            const whatsapp = (settings.whatsapp as any) || {};
+            const greenapi = (whatsapp.greenapi as any) || {};
+
+            const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
+            const apiTokenInstance =
+              normalizeStringLike(greenapi.apiTokenInstance) ||
+              normalizeStringLike(whatsapp.apiTokenInstance) ||
+              (config as any)?.greenapi?.apiTokenInstance ||
+              '';
+
+            return {
+              company,
+              config: {
+                provider: 'greenapi',
+                phoneNumberId: '',
+                accessToken: '',
+                verifyToken: normalizeStringLike(whatsapp.verifyToken) || config.whatsapp.verifyToken,
+                idInstance,
+                apiTokenInstance,
+              },
+            };
+          }
         }
       }
 
@@ -416,6 +469,7 @@ export class WhatsAppService {
       inboundProvider,
       msg.companyIdHint,
       msg.webhookTokenHint,
+      msg.customerPhone,
     );
 
     if (!result) {
