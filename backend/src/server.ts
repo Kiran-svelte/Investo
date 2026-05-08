@@ -5,15 +5,23 @@ import logger from './config/logger';
 import prisma from './config/prisma';
 import { bootstrapDatabase } from './config/bootstrapDatabase';
 import { automationService } from './services/automation.service';
+import { propertyImportWorkerService } from './services/propertyImportWorker.service';
 import { socketService } from './services/socket.service';
 
 let keepAliveTimer: NodeJS.Timeout | null = null;
 let automationStarted = false;
+let propertyImportWorkerStarted = false;
 
 function startAutomationIfNeeded(): void {
   if (automationStarted) return;
   automationService.start();
   automationStarted = true;
+}
+
+function startPropertyImportWorkerIfNeeded(): void {
+  if (propertyImportWorkerStarted) return;
+  propertyImportWorkerService.start();
+  propertyImportWorkerStarted = true;
 }
 
 async function start() {
@@ -59,6 +67,10 @@ async function start() {
               logger.info('Dependencies healthy; starting automation service');
               startAutomationIfNeeded();
             }
+            if (!propertyImportWorkerStarted) {
+              logger.info('Dependencies healthy; starting property import worker');
+              startPropertyImportWorkerIfNeeded();
+            }
           } catch (err: any) {
             logger.warn('Neon keep-alive ping failed', { error: err.message });
           }
@@ -67,8 +79,10 @@ async function start() {
 
       if (dbConnectedAtStartup) {
         startAutomationIfNeeded();
+        startPropertyImportWorkerIfNeeded();
       } else {
         logger.warn('Automation service delayed until database connectivity is healthy');
+        logger.warn('Property import worker delayed until database connectivity is healthy');
       }
     });
   } catch (err: any) {
@@ -87,6 +101,10 @@ process.on('SIGTERM', async () => {
     automationService.stop();
     automationStarted = false;
   }
+  if (propertyImportWorkerStarted) {
+    propertyImportWorkerService.stop();
+    propertyImportWorkerStarted = false;
+  }
   await prisma.$disconnect();
   process.exit(0);
 });
@@ -99,6 +117,10 @@ process.on('SIGINT', async () => {
   if (automationStarted) {
     automationService.stop();
     automationStarted = false;
+  }
+  if (propertyImportWorkerStarted) {
+    propertyImportWorkerService.stop();
+    propertyImportWorkerStarted = false;
   }
   await prisma.$disconnect();
   process.exit(0);
