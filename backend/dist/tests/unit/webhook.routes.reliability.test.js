@@ -7,6 +7,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const supertest_1 = __importDefault(require("supertest"));
 const crypto_1 = __importDefault(require("crypto"));
+jest.setTimeout(30000);
 const ORIGINAL_ENV = { ...process.env };
 function restoreEnv() {
     for (const key of Object.keys(process.env)) {

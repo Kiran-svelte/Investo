@@ -219,5 +219,34 @@ describe('conversation send endpoint mode handling', () => {
         expect(whatsappServiceMock.sendMessage).not.toHaveBeenCalled();
         expect(mockPrisma.message.create).not.toHaveBeenCalled();
     });
+    test('POST /api/conversations/:id/messages returns 502 when WhatsApp text send fails', async () => {
+        const { app, mockPrisma, whatsappServiceMock } = createConversationApp();
+        whatsappServiceMock.sendMessage.mockResolvedValue(false);
+        const response = await (0, supertest_1.default)(app)
+            .post('/api/conversations/conv-1/messages')
+            .send({ mode: 'text', text: 'This should fail outbound send' });
+        expect(response.status).toBe(502);
+        expect(response.body.error).toBe('Failed to send WhatsApp message');
+        expect(mockPrisma.message.create).not.toHaveBeenCalled();
+    });
+    test('POST /api/conversations/:id/messages returns 400 when meta phoneNumberId is missing', async () => {
+        const { app, mockPrisma, whatsappServiceMock } = createConversationApp();
+        mockPrisma.company.findUnique.mockResolvedValue({
+            settings: {
+                whatsapp: {
+                    accessToken: 'wa-token-1',
+                    verifyToken: 'wa-verify-1',
+                },
+            },
+            whatsappPhone: '+919999999999',
+        });
+        const response = await (0, supertest_1.default)(app)
+            .post('/api/conversations/conv-1/messages')
+            .send({ mode: 'text', text: 'Hello' });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe('WhatsApp is not configured for this company');
+        expect(whatsappServiceMock.sendMessage).not.toHaveBeenCalled();
+        expect(mockPrisma.message.create).not.toHaveBeenCalled();
+    });
 });
 //# sourceMappingURL=conversation.routes.send-message.test.js.map

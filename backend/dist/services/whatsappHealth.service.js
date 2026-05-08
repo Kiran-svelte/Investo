@@ -62,30 +62,31 @@ class WhatsAppHealthService {
      */
     async checkConnection(companyId) {
         const startTime = Date.now();
+        // Check config completeness before making any network call.
+        // Return a clear "not configured" status rather than "disconnected" noise.
+        const configCheck = await this.checkConfigCompleteness(companyId);
+        if (!configCheck.complete) {
+            // #region agent log
+            fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '765cca' }, body: JSON.stringify({ sessionId: '765cca', runId: 'run1', hypothesisId: 'H3', location: 'whatsappHealth.service.ts:checkConnection-config-incomplete', message: 'WhatsApp config incomplete before health check', data: { hasCompanyId: Number(Boolean(companyId)), reason: configCheck.reason }, timestamp: Date.now() }) }).catch(() => { });
+            // #endregion
+            const status = {
+                connected: false,
+                responseTime: null,
+                lastChecked: new Date(),
+                error: configCheck.reason,
+            };
+            this.lastHealthStatus = status;
+            logger_1.default.warn('WhatsApp health check: config incomplete', { companyId, reason: configCheck.reason });
+            return status;
+        }
         try {
-            // Use the access token from config (or company-specific if provided)
-            const accessToken = companyId
-                ? await this.getCompanyAccessToken(companyId)
-                : config_1.default.whatsapp.accessToken;
-            if (!accessToken) {
-                const status = {
-                    connected: false,
-                    responseTime: null,
-                    lastChecked: new Date(),
-                    error: 'No WhatsApp access token configured',
-                };
-                this.lastHealthStatus = status;
-                return status;
-            }
-            // Make a lightweight API call to check connectivity
-            // Using the phone number endpoint is a good health check
-            const response = await fetch(`${this.apiUrl}/me`, {
-                method: 'GET',
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                },
-            });
+            const provider = await this.resolveProvider(companyId);
+            // #region agent log
+            fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '765cca' }, body: JSON.stringify({ sessionId: '765cca', runId: 'run1', hypothesisId: 'H4', location: 'whatsappHealth.service.ts:checkConnection-provider', message: 'WhatsApp health check provider resolved', data: { provider, hasCompanyId: Number(Boolean(companyId)) }, timestamp: Date.now() }) }).catch(() => { });
+            // #endregion
+            const response = provider === 'greenapi'
+                ? await this.checkGreenApiConnection(companyId)
+                : await this.checkMetaConnection(companyId);
             const responseTime = Date.now() - startTime;
             if (response.ok) {
                 const status = {
@@ -104,10 +105,11 @@ class WhatsAppHealthService {
                     connected: false,
                     responseTime,
                     lastChecked: new Date(),
-                    error: `WhatsApp API error: ${response.status} - ${errorText}`,
+                    error: `WhatsApp ${provider} API error: ${response.status} - ${errorText}`,
                 };
                 this.lastHealthStatus = status;
                 logger_1.default.warn('WhatsApp health check: failed', {
+                    provider,
                     status: response.status,
                     error: errorText
                 });
@@ -200,10 +202,112 @@ class WhatsAppHealthService {
     }
     // ===== Private helper methods =====
     async getCompanyAccessToken(companyId) {
-        // In a multi-tenant scenario, you would look up the company's
-        // specific access token from the database
-        // For now, we use the global config token
-        return config_1.default.whatsapp.accessToken;
+        try {
+            const prisma = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
+            const company = await prisma.company.findUnique({
+                where: { id: companyId },
+                select: { settings: true },
+            });
+            const settings = company?.settings || {};
+            const whatsapp = settings.whatsapp || {};
+            const meta = whatsapp.meta || {};
+            return meta.accessToken || whatsapp.accessToken || config_1.default.whatsapp.accessToken;
+        }
+        catch {
+            return config_1.default.whatsapp.accessToken;
+        }
+    }
+    async checkConfigCompleteness(companyId) {
+        try {
+            const provider = await this.resolveProvider(companyId);
+            if (provider === 'greenapi') {
+                const creds = await this.getGreenApiCredentials(companyId);
+                if (!creds.idInstance || !creds.apiTokenInstance) {
+                    return { complete: false, reason: 'Green-API not configured: missing idInstance or apiTokenInstance' };
+                }
+            }
+            else {
+                const accessToken = companyId
+                    ? await this.getCompanyAccessToken(companyId)
+                    : config_1.default.whatsapp.accessToken;
+                if (!accessToken) {
+                    return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken' };
+                }
+            }
+            return { complete: true, reason: '' };
+        }
+        catch (err) {
+            return { complete: false, reason: `Config check error: ${err.message}` };
+        }
+    }
+    async resolveProvider(companyId) {
+        if (!companyId) {
+            return config_1.default.whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
+        }
+        try {
+            const prisma = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
+            const company = await prisma.company.findUnique({
+                where: { id: companyId },
+                select: { settings: true },
+            });
+            const settings = company?.settings || {};
+            const whatsapp = settings.whatsapp || {};
+            return whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
+        }
+        catch {
+            return config_1.default.whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
+        }
+    }
+    async checkMetaConnection(companyId) {
+        const accessToken = companyId
+            ? await this.getCompanyAccessToken(companyId)
+            : config_1.default.whatsapp.accessToken;
+        if (!accessToken) {
+            throw new Error('No WhatsApp access token configured');
+        }
+        return fetch(`${this.apiUrl}/me`, {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+        });
+    }
+    async checkGreenApiConnection(companyId) {
+        const greenApiConfig = await this.getGreenApiCredentials(companyId);
+        if (!greenApiConfig.idInstance || !greenApiConfig.apiTokenInstance) {
+            throw new Error('Missing Green-API idInstance or apiTokenInstance');
+        }
+        const endpoint = `${config_1.default.greenapi.apiUrl}/waInstance${greenApiConfig.idInstance}/getSettings/${greenApiConfig.apiTokenInstance}`;
+        return fetch(endpoint, { method: 'GET' });
+    }
+    async getGreenApiCredentials(companyId) {
+        if (!companyId) {
+            return {
+                idInstance: config_1.default.greenapi.idInstance || '',
+                apiTokenInstance: config_1.default.greenapi.apiTokenInstance || '',
+            };
+        }
+        try {
+            const prisma = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
+            const company = await prisma.company.findUnique({
+                where: { id: companyId },
+                select: { settings: true },
+            });
+            const settings = company?.settings || {};
+            const whatsapp = settings.whatsapp || {};
+            const greenapi = whatsapp.greenapi || whatsapp;
+            return {
+                idInstance: greenapi.idInstance || whatsapp.phoneNumberId || '',
+                apiTokenInstance: greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '',
+            };
+        }
+        catch {
+            return {
+                idInstance: config_1.default.greenapi.idInstance || '',
+                apiTokenInstance: config_1.default.greenapi.apiTokenInstance || '',
+            };
+        }
     }
     async checkRedis() {
         const startTime = Date.now();

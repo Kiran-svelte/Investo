@@ -277,7 +277,9 @@ describe('Green-API webhook route', () => {
     await flushAsyncWork();
 
     expect(dedup.claimMessageProcessing).toHaveBeenCalledWith('greenapi:110:green-msg-1');
+    expect(whatsappService.getCompanyByPhoneNumberId).toHaveBeenCalledWith('110', 'greenapi', 'token-1');
     expect(whatsappService.handleIncomingMessage).toHaveBeenCalledWith({
+      provider: 'greenapi',
       phoneNumberId: '110',
       customerPhone: '+919999999999',
       customerName: 'A User',

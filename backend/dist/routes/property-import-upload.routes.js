@@ -67,6 +67,68 @@ function toDatabaseBytes(buffer) {
     return out;
 }
 const router = (0, express_1.Router)();
+function isMissingBlobTableError(err) {
+    return (err?.code === 'P2021'
+        && typeof err?.message === 'string'
+        && err.message.toLowerCase().includes('property_import_media_blobs'));
+}
+async function ensurePropertyImportMediaBlobTable() {
+    await prisma_1.default.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS property_import_media_blobs (
+      media_id UUID PRIMARY KEY REFERENCES property_import_media(id) ON DELETE CASCADE,
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      mime_type VARCHAR(120) NOT NULL,
+      file_size INTEGER NOT NULL,
+      bytes BYTEA NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+}
+async function persistUpload(uploadToken, contentType, bytes) {
+    await prisma_1.default.$transaction(async (tx) => {
+        const media = await tx.propertyImportMedia.findUnique({
+            where: { uploadToken },
+            select: {
+                id: true,
+                companyId: true,
+                status: true,
+                mimeType: true,
+                storageKey: true,
+            },
+        });
+        if (!media) {
+            throw new PropertyImportUploadError('Upload token not found', 404);
+        }
+        if (media.status !== 'upload_requested') {
+            throw new PropertyImportUploadError('Upload has already been completed', 409);
+        }
+        if (!media.storageKey.startsWith('db/property-import-media/')) {
+            throw new PropertyImportUploadError('Direct upload is not available for this token', 409);
+        }
+        const expectedContentType = normalizeContentType(media.mimeType);
+        if (expectedContentType !== contentType) {
+            throw new PropertyImportUploadError('Content-Type does not match registered mime type', 400);
+        }
+        await tx.propertyImportMediaBlob.create({
+            data: {
+                mediaId: media.id,
+                companyId: media.companyId,
+                mimeType: media.mimeType,
+                fileSize: bytes.length,
+                bytes: toDatabaseBytes(bytes),
+            },
+        });
+        await tx.propertyImportMedia.update({
+            where: { id: media.id },
+            data: {
+                status: 'uploaded',
+                uploadedAt: new Date(),
+                failureReason: null,
+            },
+        });
+    });
+}
 router.put('/:uploadToken', express_1.default.raw({
     type: '*/*',
     limit: config_1.default.storage.propertyUploadMaxBytes,
@@ -87,48 +149,16 @@ router.put('/:uploadToken', express_1.default.raw({
         if (bytes.length <= 0) {
             throw new PropertyImportUploadError('Upload body is empty', 400);
         }
-        await prisma_1.default.$transaction(async (tx) => {
-            const media = await tx.propertyImportMedia.findUnique({
-                where: { uploadToken },
-                select: {
-                    id: true,
-                    companyId: true,
-                    status: true,
-                    mimeType: true,
-                    storageKey: true,
-                },
-            });
-            if (!media) {
-                throw new PropertyImportUploadError('Upload token not found', 404);
+        try {
+            await persistUpload(uploadToken, contentType, bytes);
+        }
+        catch (err) {
+            if (!isMissingBlobTableError(err)) {
+                throw err;
             }
-            if (media.status !== 'upload_requested') {
-                throw new PropertyImportUploadError('Upload has already been completed', 409);
-            }
-            if (!media.storageKey.startsWith('db/property-import-media/')) {
-                throw new PropertyImportUploadError('Direct upload is not available for this token', 409);
-            }
-            const expectedContentType = normalizeContentType(media.mimeType);
-            if (expectedContentType !== contentType) {
-                throw new PropertyImportUploadError('Content-Type does not match registered mime type', 400);
-            }
-            await tx.propertyImportMediaBlob.create({
-                data: {
-                    mediaId: media.id,
-                    companyId: media.companyId,
-                    mimeType: media.mimeType,
-                    fileSize: bytes.length,
-                    bytes: toDatabaseBytes(bytes),
-                },
-            });
-            await tx.propertyImportMedia.update({
-                where: { id: media.id },
-                data: {
-                    status: 'uploaded',
-                    uploadedAt: new Date(),
-                    failureReason: null,
-                },
-            });
-        });
+            await ensurePropertyImportMediaBlobTable();
+            await persistUpload(uploadToken, contentType, bytes);
+        }
         res.status(200).json({ ok: true });
     }
     catch (err) {

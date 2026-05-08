@@ -6,15 +6,22 @@ describe('WhatsAppHealthService (security: token handling)', () => {
     global.fetch = mockFetch;
     const apiUrl = 'https://graph.facebook.com/v18.0';
     const accessToken = 'test-access-token';
+    const greenApiUrl = 'https://api.green-api.com';
     function createService() {
         jest.resetModules();
         jest.doMock('../../config', () => ({
             __esModule: true,
             default: {
                 whatsapp: {
+                    provider: 'meta',
                     apiUrl,
                     accessToken,
                     dedupTtlSeconds: 300,
+                },
+                greenapi: {
+                    apiUrl: greenApiUrl,
+                    idInstance: '110001',
+                    apiTokenInstance: 'green-token',
                 },
             },
         }));
@@ -84,6 +91,53 @@ describe('WhatsAppHealthService (security: token handling)', () => {
         expect(ok).toBe(true);
         const [, options] = mockFetch.mock.calls[0];
         expect(options?.headers?.Authorization).toBe('Bearer override-token');
+    });
+    test('checkConnection uses Green-API settings endpoint in greenapi mode', async () => {
+        jest.resetModules();
+        jest.doMock('../../config', () => ({
+            __esModule: true,
+            default: {
+                whatsapp: {
+                    provider: 'greenapi',
+                    apiUrl,
+                    accessToken: '',
+                    dedupTtlSeconds: 300,
+                },
+                greenapi: {
+                    apiUrl: greenApiUrl,
+                    idInstance: '220002',
+                    apiTokenInstance: 'green-token-2',
+                },
+            },
+        }));
+        jest.doMock('../../config/logger', () => ({
+            __esModule: true,
+            default: {
+                info: jest.fn(),
+                warn: jest.fn(),
+                error: jest.fn(),
+                debug: jest.fn(),
+            },
+        }));
+        jest.doMock('../../config/redis', () => ({
+            __esModule: true,
+            getRedis: () => null,
+        }));
+        let WhatsAppHealthService;
+        jest.isolateModules(() => {
+            WhatsAppHealthService = require('../../services/whatsappHealth.service').WhatsAppHealthService;
+        });
+        const service = new WhatsAppHealthService();
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ success: true }),
+            text: async () => '',
+        });
+        const result = await service.checkConnection();
+        expect(result.connected).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        const [url] = mockFetch.mock.calls[0];
+        expect(url).toBe(`${greenApiUrl}/waInstance220002/getSettings/green-token-2`);
     });
 });
 //# sourceMappingURL=whatsapp-health.service.test.js.map

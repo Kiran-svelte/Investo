@@ -47,10 +47,7 @@ const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
 const router = (0, express_1.Router)();
 router.post('/', express_1.default.json({ limit: '1mb' }), async (req, res) => {
     const providedToken = extractAuthorizationToken(req.headers.authorization);
-    if (config_1.default.env === 'production' && !config_1.default?.whatsapp?.allowGreenapiInProd) {
-        res.status(404).json({ error: 'not_found' });
-        return;
-    }
+    // Removed production restriction for GreenAPI
     if (!providedToken) {
         res.status(401).json({ error: 'unauthorized' });
         return;
@@ -71,7 +68,7 @@ router.post('/', express_1.default.json({ limit: '1mb' }), async (req, res) => {
             return;
         }
         const [instanceId] = Array.from(instanceIds);
-        const companyResult = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(instanceId);
+        const companyResult = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(instanceId, 'greenapi', providedToken);
         if (!companyResult) {
             res.status(404).json({ error: 'company_not_found', code: 'greenapi_company_not_found' });
             return;

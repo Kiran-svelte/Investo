@@ -166,11 +166,11 @@ describe('WhatsAppService outbound provider routing', () => {
         expect(mockFetch).toHaveBeenCalledTimes(1);
         expect(mockFetch.mock.calls[0][0]).toBe('https://api.green-api.com/waInstance1100000001/getSettings/token-abc');
     });
-    test('production mode never uses GreenApi even if selected', async () => {
+    test('production mode uses explicitly selected GreenApi company config', async () => {
         const service = createServiceWithConfig({
             env: 'production',
             whatsapp: {
-                provider: 'greenapi',
+                provider: 'meta',
                 apiUrl: 'https://graph.facebook.com/v18.0',
             },
             greenapi: {
@@ -184,14 +184,17 @@ describe('WhatsAppService outbound provider routing', () => {
             json: async () => ({ messages: [{ id: 'wamid.999' }] }),
         });
         const ok = await service.sendMessage('+919876543210', 'Hello', {
-            phoneNumberId: '123456789',
-            accessToken: 'token',
+            provider: 'greenapi',
+            phoneNumberId: '',
+            accessToken: '',
             verifyToken: '',
+            idInstance: '1100000001',
+            apiTokenInstance: 'token-abc',
         });
         expect(ok).toBe(true);
         const [url] = mockFetch.mock.calls[0];
-        expect(String(url)).toContain('graph.facebook.com');
-        expect(String(url)).not.toContain('green-api.com');
+        expect(String(url)).toContain('green-api.com');
+        expect(String(url)).not.toContain('graph.facebook.com');
     });
     describe('meta-only advanced sends', () => {
         test('sendImage returns not supported when provider=greenapi', async () => {

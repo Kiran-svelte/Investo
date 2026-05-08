@@ -93,5 +93,44 @@ describe('WhatsAppService GreenAPI company resolution (fail closed)', () => {
         const result = await service.getCompanyByPhoneNumberId('999');
         expect(result).toBeNull();
     });
+    it('uses the webhook token to disambiguate duplicate GreenAPI instance mappings', async () => {
+        const companyA = {
+            id: 'a-company',
+            name: 'A Co',
+            whatsappPhone: null,
+            settings: {
+                whatsapp: {
+                    provider: 'greenapi',
+                    greenapi: {
+                        idInstance: '110',
+                        apiTokenInstance: 'token-a',
+                        webhookUrlToken: 'token-a',
+                    },
+                    webhookUrlToken: 'token-a',
+                },
+            },
+        };
+        const companyB = {
+            id: 'b-company',
+            name: 'B Co',
+            whatsappPhone: null,
+            settings: {
+                whatsapp: {
+                    provider: 'greenapi',
+                    greenapi: {
+                        idInstance: '110',
+                        apiTokenInstance: 'token-b',
+                        webhookUrlToken: 'token-b',
+                    },
+                    webhookUrlToken: 'token-b',
+                },
+            },
+        };
+        mockPrisma.company.findMany.mockResolvedValue([companyA, companyB]);
+        const service = new whatsapp_service_1.WhatsAppService();
+        const result = await service.getCompanyByPhoneNumberId('110', 'greenapi', 'Bearer token-b');
+        expect(result).not.toBeNull();
+        expect(result?.company.id).toBe('b-company');
+    });
 });
 //# sourceMappingURL=whatsapp.greenapi-company-resolution.test.js.map

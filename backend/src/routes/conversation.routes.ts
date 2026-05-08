@@ -39,7 +39,7 @@ function normalizeWhatsAppConfig(company: { settings: unknown; whatsappPhone: st
 
   return {
     provider: 'meta' as const,
-    phoneNumberId: meta.phoneNumberId || company.whatsappPhone || config.whatsapp.phoneNumberId,
+    phoneNumberId: meta.phoneNumberId || config.whatsapp.phoneNumberId,
     accessToken: meta.accessToken || config.whatsapp.accessToken,
     verifyToken: meta.verifyToken || config.whatsapp.verifyToken,
   };

@@ -99,6 +99,16 @@ declare const config: {
         perUser: number;
         perCompany: number;
     };
+    langgraph: {
+        enabled: boolean;
+        url: string;
+        mode: "augment" | "replace";
+        timeoutMs: number;
+    };
+    enterpriseAgent: {
+        enabled: boolean;
+        mode: "augment" | "replace";
+    };
 };
 export default config;
 //# sourceMappingURL=index.d.ts.map

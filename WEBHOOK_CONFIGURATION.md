@@ -7,7 +7,7 @@ This backend supports two WhatsApp integration tracks:
 
 ## Dual-track provider policy
 
-- **Production** (`NODE_ENV=production`): **Meta by default**. GreenAPI is disabled unless `WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true`.
+- **Production** (`NODE_ENV=production`): **Meta by default**. GreenAPI is disabled unless `WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION=true`, but an explicitly configured company-level GreenAPI provider is still honored.
 - **Non-production**: provider may be `meta` (default) or `greenapi`.
 
 Provider selection may be set:

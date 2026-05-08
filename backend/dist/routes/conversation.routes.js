@@ -37,7 +37,7 @@ function normalizeWhatsAppConfig(company) {
     const meta = whatsapp.meta || whatsapp;
     return {
         provider: 'meta',
-        phoneNumberId: meta.phoneNumberId || company.whatsappPhone || config_1.default.whatsapp.phoneNumberId,
+        phoneNumberId: meta.phoneNumberId || config_1.default.whatsapp.phoneNumberId,
         accessToken: meta.accessToken || config_1.default.whatsapp.accessToken,
         verifyToken: meta.verifyToken || config_1.default.whatsapp.verifyToken,
     };

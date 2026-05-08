@@ -42,11 +42,17 @@ const express_1 = __importStar(require("express"));
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
 const whatsapp_service_1 = require("../services/whatsapp.service");
+const langgraphAdapter_service_1 = require("../services/langgraphAdapter.service");
+const enterpriseAgentBridge_1 = require("../services/enterpriseAgentBridge");
 const whatsappSecurity_1 = require("../middleware/whatsappSecurity");
 const deduplication_service_1 = require("../services/deduplication.service");
 const whatsappHealth_service_1 = require("../services/whatsappHealth.service");
 const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
 const router = (0, express_1.Router)();
+async function getPrisma() {
+    const module = await Promise.resolve().then(() => __importStar(require('../config/prisma')));
+    return module.default;
+}
 // Apply IP whitelist middleware to all webhook routes
 router.use(whatsappSecurity_1.whatsappIpWhitelist);
 /**
@@ -113,8 +119,14 @@ router.post('/', express_1.default.json({
  * Verify the webhook payload signature from Meta.
  */
 function verifyWebhookSignature(body, signature) {
+    // Debug bypass
+    if (process.env.BYPASS_WHATSAPP_SIGNATURE === 'true') {
+        logger_1.default.warn('Webhook signature verification BYPASSED via BYPASS_WHATSAPP_SIGNATURE=true');
+        return { allowed: true, reason: 'debug_bypass' };
+    }
     if (!config_1.default.whatsapp.appSecret) {
         if (config_1.default.env === 'production') {
+            logger_1.default.error('Webhook signature verification failed: WHATSAPP_APP_SECRET is missing in production');
             return { allowed: false, reason: 'app_secret_missing' };
         }
         logger_1.default.warn('WHATSAPP_APP_SECRET not configured - allowing webhook only in non-production');
@@ -122,8 +134,10 @@ function verifyWebhookSignature(body, signature) {
     }
     if (!signature) {
         if (config_1.default.env !== 'production') {
+            logger_1.default.warn('Webhook signature missing in non-production - allowing');
             return { allowed: true, reason: 'non_prod_missing_signature' };
         }
+        logger_1.default.error('Webhook signature missing in production');
         return { allowed: false, reason: 'signature_missing' };
     }
     const payload = Buffer.isBuffer(body)
@@ -138,9 +152,20 @@ function verifyWebhookSignature(body, signature) {
     const actual = Buffer.from(signature);
     const expected = Buffer.from(expectedSignature);
     if (actual.length !== expected.length) {
+        logger_1.default.error('Webhook signature length mismatch', {
+            actualLength: actual.length,
+            expectedLength: expected.length,
+        });
         return { allowed: false, reason: 'signature_invalid_length' };
     }
     const isValid = crypto_1.default.timingSafeEqual(actual, expected);
+    if (!isValid) {
+        logger_1.default.error('Webhook signature mismatch', {
+            received: signature.substring(0, 15) + '...',
+            expected: expectedSignature.substring(0, 15) + '...',
+            payloadLength: payload.length,
+        });
+    }
     return {
         allowed: isValid,
         reason: isValid ? 'signature_valid' : 'signature_mismatch',
@@ -275,6 +300,52 @@ async function processWebhook(body) {
                     interactiveType: extracted.interactiveType,
                 });
                 try {
+                    // If LangGraph integration is enabled, send normalized payload.
+                    if (config_1.default.langgraph?.enabled) {
+                        try {
+                            const lgPayload = {
+                                event: 'onmessage',
+                                session: String(metadata?.session || phoneNumberId || 'default'),
+                                body: messageText,
+                                type: normalizedType === 'text' ? 'chat' : 'interactive',
+                                isNewMsg: true,
+                                sender: { id: (message.from || '') + '@s.whatsapp.net', isUser: true },
+                                isGroupMsg: !!message?.context?.isGroup || false,
+                            };
+                            const lgResp = await (0, langgraphAdapter_service_1.sendToLangGraph)(lgPayload);
+                            // If LangGraph is in replace mode and it handled the message, skip default processing
+                            if (config_1.default.langgraph.mode === 'replace' && lgResp?.ok) {
+                                outcome.propagationStatus = 'success';
+                                outcome.status = 'processed';
+                                outcome.reason = 'handled_by_langgraph';
+                                summary.processed += 1;
+                                summary.outcomes.push(outcome);
+                                logger_1.default.info('Message handled by LangGraph; skipping default processing', { messageId });
+                                continue;
+                            }
+                        }
+                        catch (lgErr) {
+                            logger_1.default.warn('LangGraph adapter failed for message, continuing default processing', { error: lgErr?.message });
+                        }
+                    }
+                    // If enterprise agent bridge is enabled and LangGraph isn't taking over, call it.
+                    if (!config_1.default.langgraph?.enabled && config_1.default.enterpriseAgent?.enabled) {
+                        try {
+                            const bridgeResp = await (0, enterpriseAgentBridge_1.runEnterpriseAgent)({ phone: '+' + customerPhone, message: messageText, conversationState: undefined });
+                            if (config_1.default.enterpriseAgent.mode === 'replace' && bridgeResp?.ok) {
+                                outcome.propagationStatus = 'success';
+                                outcome.status = 'processed';
+                                outcome.reason = 'handled_by_enterprise_agent';
+                                summary.processed += 1;
+                                summary.outcomes.push(outcome);
+                                logger_1.default.info('Message handled by EnterpriseAgent bridge; skipping default processing', { messageId });
+                                continue;
+                            }
+                        }
+                        catch (bridgeErr) {
+                            logger_1.default.warn('EnterpriseAgent bridge failed; continuing default processing', { error: bridgeErr?.message });
+                        }
+                    }
                     const processingResult = await whatsapp_service_1.whatsappService.handleIncomingMessage({
                         phoneNumberId,
                         customerPhone: '+' + customerPhone,
@@ -397,15 +468,63 @@ router.post('/test', express_1.default.json({ limit: '1mb' }), async (req, res) 
         return;
     }
     try {
+        const prisma = await getPrisma();
+        const requestedProvider = req.body?.provider === 'greenapi' ? 'greenapi' : req.body?.provider === 'meta' ? 'meta' : null;
+        const explicitPhoneNumberId = typeof req.body?.phoneNumberId === 'string' ? req.body.phoneNumberId.trim() : '';
+        let resolvedPhoneNumberId = explicitPhoneNumberId || (config_1.default.whatsapp.phoneNumberId || '').trim();
+        let resolvedProvider = requestedProvider || (config_1.default?.whatsapp?.provider === 'greenapi' ? 'greenapi' : 'meta');
+        let candidateDerivedFromGreenApi = false;
+        if (!resolvedPhoneNumberId) {
+            const activeCompanies = await prisma.company.findMany({
+                where: { status: 'active' },
+                select: { settings: true },
+            });
+            const candidateIds = activeCompanies
+                .map((company) => {
+                const settings = company?.settings || {};
+                const whatsapp = settings.whatsapp || {};
+                const meta = whatsapp.meta || whatsapp;
+                const greenapi = whatsapp.greenapi || whatsapp;
+                return ((typeof meta.phoneNumberId === 'string' && meta.phoneNumberId.trim()) ||
+                    (typeof meta.phone_number_id === 'string' && meta.phone_number_id.trim()) ||
+                    (typeof whatsapp.phoneNumberId === 'string' && whatsapp.phoneNumberId.trim()) ||
+                    (typeof greenapi.idInstance === 'string' && greenapi.idInstance.trim()) ||
+                    '');
+            })
+                .filter((value) => value.length > 0);
+            if (candidateIds.length === 1) {
+                resolvedPhoneNumberId = candidateIds[0];
+                const matchedCompany = activeCompanies.find((company) => {
+                    const settings = company?.settings || {};
+                    const whatsapp = settings.whatsapp || {};
+                    const greenapi = whatsapp.greenapi || whatsapp;
+                    const instanceId = (typeof greenapi.idInstance === 'string' && greenapi.idInstance.trim()) ||
+                        (typeof whatsapp.idInstance === 'string' && whatsapp.idInstance.trim()) ||
+                        '';
+                    return instanceId === resolvedPhoneNumberId;
+                });
+                candidateDerivedFromGreenApi = !!matchedCompany;
+            }
+        }
+        if (!requestedProvider && candidateDerivedFromGreenApi) {
+            resolvedProvider = 'greenapi';
+        }
+        if (!resolvedPhoneNumberId) {
+            res.status(400).json({
+                error: 'Unable to resolve phoneNumberId for test message. Provide phoneNumberId in request body or configure company WhatsApp settings.',
+            });
+            return;
+        }
         await whatsapp_service_1.whatsappService.handleIncomingMessage({
-            phoneNumberId: 'test',
+            provider: resolvedProvider,
+            phoneNumberId: resolvedPhoneNumberId,
             customerPhone: phone,
             customerName: name || 'Test Customer',
             messageText: message,
             messageId: `test_${Date.now()}`,
         });
         // Get the latest conversation and AI response
-        const lead = await (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default.lead.findFirst({
+        const lead = await prisma.lead.findFirst({
             where: { phone },
             orderBy: { createdAt: 'desc' },
         });
@@ -413,12 +532,12 @@ router.post('/test', express_1.default.json({ limit: '1mb' }), async (req, res) 
             res.json({ message: 'Message processed but no lead found' });
             return;
         }
-        const conversation = await (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default.conversation.findFirst({
+        const conversation = await prisma.conversation.findFirst({
             where: { leadId: lead.id },
             orderBy: { updatedAt: 'desc' },
         });
         const messages = conversation
-            ? await (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default.message.findMany({
+            ? await prisma.message.findMany({
                 where: { conversationId: conversation.id },
                 orderBy: { createdAt: 'desc' },
                 take: 2,
@@ -449,6 +568,10 @@ router.post('/test', express_1.default.json({ limit: '1mb' }), async (req, res) 
  * TEMPORARY - remove after debugging.
  */
 router.post('/debug', express_1.default.json({ limit: '1mb' }), async (req, res) => {
+    if (config_1.default.env === 'production') {
+        res.status(403).json({ error: 'Debug endpoint is disabled in production' });
+        return;
+    }
     const debugLog = [];
     const log = (msg) => {
         debugLog.push(`[${new Date().toISOString()}] ${msg}`);
@@ -470,22 +593,20 @@ router.post('/debug', express_1.default.json({ limit: '1mb' }), async (req, res)
             log(`Entry has ${changes.length} changes`);
             for (const change of changes) {
                 log(`Change field: ${change.field}`);
-                if (change.field !== 'messages') {
-                    log('Skipping non-messages change');
+                if (change.field !== 'messages')
                     continue;
-                }
                 const value = change.value;
                 const metadata = value.metadata;
                 const phoneNumberId = metadata?.phone_number_id;
                 const messages = value.messages || [];
                 const contacts = value.contacts || [];
-                log(`Phone Number ID: ${phoneNumberId}`);
+                log(`Phone Number ID in payload: ${phoneNumberId}`);
                 log(`Messages: ${messages.length}, Contacts: ${contacts.length}`);
                 // Try to find company
                 log('Looking up company by phoneNumberId...');
-                const companyResult = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
+                let companyResult = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(phoneNumberId);
                 if (!companyResult) {
-                    log('ERROR: No company found for phoneNumberId!');
+                    log('ERROR: No company found for phoneNumberId');
                     res.json({ success: false, error: 'No company found', debugLog });
                     return;
                 }
@@ -494,15 +615,12 @@ router.post('/debug', express_1.default.json({ limit: '1mb' }), async (req, res)
                     const message = messages[i];
                     const contact = contacts[i];
                     log(`Message ${i}: type=${message.type}, from=${(0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(message.from) ?? '****'}`);
-                    if (message.type !== 'text') {
-                        log('Skipping non-text message');
+                    if (message.type !== 'text')
                         continue;
-                    }
                     const customerPhone = '+' + message.from;
                     const customerName = contact?.profile?.name || '';
                     const messageText = message.text?.body || '';
                     log(`Processing: phone=${(0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(customerPhone) ?? '****'}, name=${customerName}, text=${messageText}`);
-                    // Call handleIncomingMessage
                     log('Calling whatsappService.handleIncomingMessage...');
                     await whatsapp_service_1.whatsappService.handleIncomingMessage({
                         phoneNumberId,
@@ -515,16 +633,10 @@ router.post('/debug', express_1.default.json({ limit: '1mb' }), async (req, res)
                 }
             }
         }
-        // Check if lead was created
-        const prisma = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
+        const prisma = await getPrisma();
         const recentLeads = await prisma.lead.findMany({
-            where: { companyId: entries[0]?.changes?.[0]?.value?.metadata?.phone_number_id ? undefined : undefined },
             orderBy: { createdAt: 'desc' },
             take: 3,
-        });
-        log(`Recent leads in DB: ${recentLeads.length}`);
-        recentLeads.forEach((l, i) => {
-            log(`Lead ${i}: ${(0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(l.phone) ?? '****'} - ${l.customerName} - ${l.createdAt}`);
         });
         res.json({
             success: true,

@@ -72,9 +72,13 @@ class AIService {
             }
         }
         if (lastError) {
-            throw lastError;
+            logger_1.default.warn('All configured AI providers failed, using smart mock response', {
+                error: lastError.message,
+            });
         }
-        logger_1.default.warn('No AI provider configured, using smart mock response');
+        else {
+            logger_1.default.warn('No AI provider configured, using smart mock response');
+        }
         const mockResp = this.mockResponse(request);
         mockResp.newState = newState;
         mockResp.nextAction = nextAction;

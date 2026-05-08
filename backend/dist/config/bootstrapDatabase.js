@@ -96,14 +96,14 @@ async function applyCompatibilityPatches() {
 }
 async function bootstrapDatabase(options) {
     const { autoMigrate, autoSeed } = options;
-    if (!autoMigrate && !autoSeed) {
-        return;
-    }
     try {
         await applyCompatibilityPatches();
     }
     catch (err) {
         logger_1.default.error('Compatibility schema patch failed', { error: err.message });
+        return;
+    }
+    if (!autoMigrate && !autoSeed) {
         return;
     }
     // Check if core tables exist via Prisma (adapter-neon path) to avoid relying on

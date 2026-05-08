@@ -38,9 +38,9 @@ export declare class WhatsAppService {
     private getOutboundProvider;
     /**
      * Get company by WhatsApp phone number ID.
-      * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
+     * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
      */
-    getCompanyByPhoneNumberId(phoneNumberId: string, providerHint?: 'meta' | 'greenapi'): Promise<{
+    getCompanyByPhoneNumberId(phoneNumberId: string, providerHint?: 'meta' | 'greenapi', webhookTokenHint?: string): Promise<{
         company: any;
         config: CompanyWhatsAppConfig | null;
     } | null>;

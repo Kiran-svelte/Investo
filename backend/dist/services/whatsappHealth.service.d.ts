@@ -67,6 +67,11 @@ export declare class WhatsAppHealthService {
      */
     getLastStatus(): HealthStatus | null;
     private getCompanyAccessToken;
+    private checkConfigCompleteness;
+    private resolveProvider;
+    private checkMetaConnection;
+    private checkGreenApiConnection;
+    private getGreenApiCredentials;
     private checkRedis;
     private getDeduplicationStats;
 }

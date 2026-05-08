@@ -59,6 +59,9 @@ export class WhatsAppHealthService {
     // Return a clear "not configured" status rather than "disconnected" noise.
     const configCheck = await this.checkConfigCompleteness(companyId);
     if (!configCheck.complete) {
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run1',hypothesisId:'H3',location:'whatsappHealth.service.ts:checkConnection-config-incomplete',message:'WhatsApp config incomplete before health check',data:{hasCompanyId:Number(Boolean(companyId)),reason:configCheck.reason},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const status: HealthStatus = {
         connected: false,
         responseTime: null,
@@ -72,6 +75,9 @@ export class WhatsAppHealthService {
     
     try {
       const provider = await this.resolveProvider(companyId);
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run1',hypothesisId:'H4',location:'whatsappHealth.service.ts:checkConnection-provider',message:'WhatsApp health check provider resolved',data:{provider,hasCompanyId:Number(Boolean(companyId))},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const response = provider === 'greenapi'
         ? await this.checkGreenApiConnection(companyId)
         : await this.checkMetaConnection(companyId);

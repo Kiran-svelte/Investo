@@ -53,7 +53,7 @@ features:
 
 acceptance_criteria:
   - "Production default is Meta: when NODE_ENV=production and WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION!='true', GreenAPI is disabled (fail-closed)."
-  - "Production GreenAPI is opt-in: when NODE_ENV=production and WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION='true', outbound sends and connection tests can route to GreenAPI for companies configured with provider='greenapi'."
+  - "Production GreenAPI is opt-in: when NODE_ENV=production and WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION='true', outbound sends and connection tests can route to GreenAPI for companies configured with provider='greenapi'; explicit company-level GreenAPI configs are also honored when selected."
   - "GreenAPI webhook is guarded: POST /api/greenapi/webhook returns 404 when GreenAPI is disabled in production, and requires Authorization when enabled."
   - "Outbound send routes by provider: provider='meta' uses Meta WhatsApp Cloud API; provider='greenapi' uses GreenAPI."
   - "Tenant mapping is fail-closed: provider identifier must map to exactly one active tenant; missing/unmapped/ambiguous mapping rejects processing."

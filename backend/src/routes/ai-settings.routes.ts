@@ -103,6 +103,9 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run1',hypothesisId:'H1',location:'ai-settings.routes.ts:whatsapp-test-entry',message:'WhatsApp test endpoint called',data:{provider,hasMetaPhone:Number(Boolean(req.body?.phone_number_id||req.body?.phoneNumberId)),hasMetaToken:Number(Boolean(req.body?.access_token||req.body?.accessToken)),hasGreenInstance:Number(Boolean(req.body?.id_instance||req.body?.idInstance)),hasGreenToken:Number(Boolean(req.body?.api_token_instance||req.body?.apiTokenInstance))},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
       if (provider === 'greenapi') {
         // Removed production restriction for GreenAPI
@@ -135,8 +138,14 @@ router.post(
         });
 
         if (result.success) {
+          // #region agent log
+          fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run1',hypothesisId:'H1',location:'ai-settings.routes.ts:whatsapp-test-greenapi-result',message:'GreenAPI test connection result',data:{success:1},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           res.json({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
         } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run1',hypothesisId:'H1',location:'ai-settings.routes.ts:whatsapp-test-greenapi-result',message:'GreenAPI test connection failed',data:{success:0,error:result.error||'unknown'},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           res.status(400).json({ success: false, provider: 'greenapi', error: result.error });
         }
 
