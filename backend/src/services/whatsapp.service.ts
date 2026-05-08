@@ -26,6 +26,8 @@ interface IncomingMessage {
   customerName: string;
   messageText: string;
   messageId: string;
+  /** Optional webhook auth token, used to disambiguate duplicated GreenAPI instance mappings. */
+  webhookTokenHint?: string;
   /** Button/List item ID for interactive responses */
   interactiveId?: string;
   /** Type of interactive response */
@@ -375,7 +377,11 @@ export class WhatsAppService {
     });
 
     // 1. Find company by WhatsApp phone number ID
-    const result = await this.getCompanyByPhoneNumberId(msg.phoneNumberId, inboundProvider);
+    const result = await this.getCompanyByPhoneNumberId(
+      msg.phoneNumberId,
+      inboundProvider,
+      msg.webhookTokenHint,
+    );
 
     if (!result) {
       // #region agent log

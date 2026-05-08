@@ -109,7 +109,7 @@ router.post(
     // Respond quickly; process async to avoid webhook retries.
     res.status(200).json({ status: 'received' });
 
-    processGreenApiWebhook(req.body)
+    processGreenApiWebhook(req.body, providedToken)
       .then((summary) => {
         logger.info('GreenAPI webhook processing summary', { summary: redactGreenApiSummaryForLogs(summary) });
       })
@@ -284,7 +284,10 @@ function extractIncomingTextNotifications(body: any): ExtractedIncomingText[] {
   return extracted;
 }
 
-async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcessSummary> {
+async function processGreenApiWebhook(
+  body: any,
+  webhookTokenHint?: string,
+): Promise<GreenApiWebhookProcessSummary> {
   const summary: GreenApiWebhookProcessSummary = {
     totalNotifications: Array.isArray(body) ? body.length : 1,
     totalMessages: 0,
@@ -361,6 +364,7 @@ async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcess
       const result = await whatsappService.handleIncomingMessage({
         provider: 'greenapi',
         phoneNumberId,
+        webhookTokenHint,
         customerPhone: msg.customerPhone,
         customerName: msg.customerName,
         messageText: msg.messageText,
