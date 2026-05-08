@@ -275,6 +275,9 @@ export default function PropertyImportPage() {
   );
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H1',location:'PropertyImportPage.tsx:mount-route',message:'Property import route mounted',data:{hasRouteDraftId:Number(Boolean(routeDraftId)),canManageProperties:Number(Boolean(canManageProperties))},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (!routeDraftId) {
       setDraft(null);
       setMarkPublishReady(false);
@@ -436,8 +439,14 @@ export default function PropertyImportPage() {
     let draftIdForUpload = draft?.id || '';
 
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H1',location:'PropertyImportPage.tsx:processFiles-start',message:'Upload pipeline started',data:{selectedFiles:selectedFiles.length,hasExistingDraft:Number(Boolean(draftIdForUpload))},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (!draftIdForUpload) {
         draftIdForUpload = await ensureDraftExists();
+        // #region agent log
+        fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H1',location:'PropertyImportPage.tsx:processFiles-draft-created',message:'Draft created before upload',data:{hasDraftId:Number(Boolean(draftIdForUpload))},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         navigate(`/properties/import/${draftIdForUpload}`, { replace: true });
       }
 
@@ -503,6 +512,9 @@ export default function PropertyImportPage() {
         }));
 
         const confirmed = await confirmPropertyImportUpload(draftIdForUpload, registered.upload.upload_token);
+        // #region agent log
+        fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H1',location:'PropertyImportPage.tsx:processFiles-confirmed',message:'Upload confirmed and extraction queued',data:{fileName:file.name,hasMediaId:Number(Boolean(confirmed.media?.id)),hasDraft:Number(Boolean(confirmed.draft?.id))},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         applyDraftUpdate(confirmed.draft);
 
         setUploadItems((items) => items.map((entry) => {
@@ -517,6 +529,9 @@ export default function PropertyImportPage() {
       await loadDraft(draftIdForUpload, true);
       setPageError('');
     } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H1',location:'PropertyImportPage.tsx:processFiles-error',message:'Upload pipeline failed',data:{error:parseUploadError(error)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       setPageError(parseUploadError(error));
       setUploadItems((items) => items.map((item) => (
         item.status === 'done'

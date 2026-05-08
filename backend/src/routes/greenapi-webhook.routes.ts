@@ -296,6 +296,9 @@ async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcess
   };
 
   const extracted = extractIncomingTextNotifications(body);
+  // #region agent log
+  fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H3',location:'greenapi-webhook.routes.ts:process-start',message:'GreenAPI webhook extracted incoming texts',data:{notifications:Array.isArray(body)?body.length:1,extracted:extracted.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 
   for (const msg of extracted) {
     summary.totalMessages += 1;
@@ -363,6 +366,9 @@ async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcess
         messageText: msg.messageText,
         messageId: msg.messageId,
       });
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H3',location:'greenapi-webhook.routes.ts:handleIncomingMessage-result',message:'GreenAPI message handling finished',data:{status:result.status,reason:result.reason||'',propagation:result.propagation.status},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
       outcome.propagationStatus = result.propagation.status;
 

@@ -378,6 +378,9 @@ export class WhatsAppService {
     const result = await this.getCompanyByPhoneNumberId(msg.phoneNumberId, inboundProvider);
 
     if (!result) {
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H3',location:'whatsapp.service.ts:company-resolution-failed',message:'Inbound message skipped because company mapping failed',data:{provider:inboundProvider,hasPhoneNumberId:Number(Boolean(msg.phoneNumberId))},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       logger.error('=== NO COMPANY FOUND ===', { phoneNumberId: msg.phoneNumberId });
       return {
         status: 'skipped',
@@ -561,6 +564,9 @@ export class WhatsAppService {
     // 4. If conversation is ai_active, generate AI response with state machine
     if (conversation.status === 'ai_active' && conversation.aiEnabled) {
       try {
+        // #region agent log
+        fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H4',location:'whatsapp.service.ts:ai-path-enter',message:'AI response path entered',data:{conversationStatus:conversation.status,aiEnabled:Number(Boolean(conversation.aiEnabled))},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         // Get AI settings for this company
         const aiSettings = await prisma.aiSetting.findUnique({
           where: { companyId },
@@ -683,7 +689,10 @@ export class WhatsAppService {
         }
 
         // Send via WhatsApp Cloud API using company-specific config
-        await this.sendMessage(msg.customerPhone, aiResponse.text, whatsappConfig!);
+        const sent = await this.sendMessage(msg.customerPhone, aiResponse.text, whatsappConfig!);
+        // #region agent log
+        fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H4',location:'whatsapp.service.ts:ai-response-send-result',message:'Attempted to send AI WhatsApp reply',data:{sent:Number(Boolean(sent)),provider:this.resolveOutboundProviderName(whatsappConfig||null)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
 
         // CHUNK 5: AI Rich Media Presentation
         // If AI recommended properties and they have media, send it automatically
@@ -720,6 +729,9 @@ export class WhatsAppService {
         logger.error('AI response generation failed', { error: err.message });
       }
     } else {
+      // #region agent log
+      fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H4',location:'whatsapp.service.ts:ai-path-skipped',message:'AI path skipped for conversation',data:{conversationStatus:conversation.status,aiEnabled:Number(Boolean(conversation.aiEnabled))},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       // Conversation is agent_active - AI does NOT send messages
       // Notify the assigned agent
       if (lead.assignedAgentId) {
