@@ -1,4 +1,3 @@
-import axios from 'axios';
 import config from '../config';
 import logger from '../config/logger';
 
@@ -21,13 +20,24 @@ export async function sendToLangGraph(payload: LangGraphPayload): Promise<any> {
   const url = `${config.langgraph.url.replace(/\/+$/,'')}/webhook`;
 
   try {
-    const resp = await axios.post(url, payload, {
-      timeout: config.langgraph.timeoutMs || 5000,
+    const controller = new AbortController();
+    const timeoutMs = config.langgraph.timeoutMs || 5000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(url, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      logger.error('LangGraph adapter non-2xx response', { status: resp.status });
+      return { skipped: false, ok: false, error: `HTTP ${resp.status}`, data };
+    }
     logger.info('LangGraph adapter received response', { status: resp.status });
-    return { skipped: false, ok: true, data: resp.data };
+    return { skipped: false, ok: true, data };
   } catch (err: any) {
     logger.error('LangGraph adapter request failed', { error: err.message });
     return { skipped: false, ok: false, error: err.message };
