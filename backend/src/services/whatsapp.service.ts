@@ -114,7 +114,7 @@ export class WhatsAppService {
     // Find all active companies
     const companies = await prisma.company.findMany({
       where: { status: 'active' },
-      select: { id: true, name: true, settings: true, whatsappPhone: true },
+      select: { id: true, name: true, settings: true, whatsappPhone: true, updatedAt: true },
     });
 
     const providerName = providerHint || this.resolveOutboundProviderName(null);
@@ -316,6 +316,45 @@ export class WhatsAppService {
       }
 
       if (matches.length > 1) {
+        const fallbackCompany = matches
+          .slice()
+          .sort((a, b) => {
+            const aTime = new Date(a.updatedAt || 0).getTime();
+            const bTime = new Date(b.updatedAt || 0).getTime();
+            return bTime - aTime;
+          })[0];
+
+        if (fallbackCompany) {
+          const settings = (fallbackCompany.settings as any) || {};
+          const whatsapp = (settings.whatsapp as any) || {};
+          const greenapi = (whatsapp.greenapi as any) || {};
+
+          const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
+          const apiTokenInstance =
+            normalizeStringLike(greenapi.apiTokenInstance) ||
+            normalizeStringLike(whatsapp.apiTokenInstance) ||
+            (config as any)?.greenapi?.apiTokenInstance ||
+            '';
+
+          logger.warn('GreenAPI company resolution fallback selected most recently updated company', {
+            instanceId: normalizedInstanceId,
+            selectedCompanyId: fallbackCompany.id,
+            matchingCompanyIds: matches.map((company) => company.id),
+          });
+
+          return {
+            company: fallbackCompany,
+            config: {
+              provider: 'greenapi',
+              phoneNumberId: '',
+              accessToken: '',
+              verifyToken: normalizeStringLike(whatsapp.verifyToken) || config.whatsapp.verifyToken,
+              idInstance,
+              apiTokenInstance,
+            },
+          };
+        }
+
         logger.error('GreenAPI company resolution failed: duplicate instance mapping', {
           instanceId: normalizedInstanceId,
           matchingCompanyIds: matches.map((company) => company.id),
