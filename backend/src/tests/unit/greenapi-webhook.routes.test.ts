@@ -281,6 +281,7 @@ describe('Green-API webhook route', () => {
       phoneNumberId: '110',
       customerPhone: '+919999999999',
       customerName: 'A User',
+      provider: 'greenapi',
       messageText: 'hello',
       messageId: 'green-msg-1',
     });

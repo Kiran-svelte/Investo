@@ -42,6 +42,7 @@ export type ObjectionType =
   | 'just_exploring'
   | 'send_details_only'
   | 'bad_location'
+  | 'wrong_property_type'
   | 'bad_timing'
   | 'competitor_preference'
   | 'trust_issue'
@@ -253,11 +254,19 @@ const OBJECTION_PLAYBOOKS: Record<ObjectionType, ObjectionPlaybook> = {
   },
   bad_location: {
     objectionType: 'bad_location',
-    strategies: ['highlight_connectivity', 'show_alternatives', 'infrastructure_roadmap'],
-    empathyFirst: "Location is definitely crucial - you want somewhere that fits your lifestyle.",
-    reframe: "This area is actually developing rapidly. The new metro line opening next year will cut commute time significantly.",
-    bridgeToValue: "Would you like to see properties closer to your preferred area, or would you be open to visiting this one to see the actual connectivity?",
-    fallbackOffer: "Let me find options in your preferred area that match your other requirements.",
+    strategies: ['attack_requested_location', 'highlight_connectivity', 'pitch_smart_investment'],
+    empathyFirst: "I hear you. Location is crucial, but let's look at the reality of that area right now.",
+    reframe: "That location is actually becoming heavily congested, traffic-logged, and overpriced. Smart buyers are shifting to our location because you get much better appreciation, zero traffic bottlenecks, and a better lifestyle for the same price.",
+    bridgeToValue: "Why buy into a saturated, crowded area when you can invest where the smart money is going? Come see it yourself this weekend.",
+    fallbackOffer: "I can show you exactly why our buyers chose this over that area. Let me send you a comparison.",
+  },
+  wrong_property_type: {
+    objectionType: 'wrong_property_type',
+    strategies: ['attack_requested_type', 'pitch_better_lifestyle', 'reframe_value'],
+    empathyFirst: "I understand you're looking for that, but let me tell you why our clients are actually moving away from those.",
+    reframe: "If you're looking for an apartment, think about the lack of privacy, shared walls, and zero land value. With our villas, you own the land, get 100% privacy, and the appreciation is way higher. If you're looking for a villa but we have premium apartments, consider our world-class amenities and zero-maintenance lifestyle.",
+    bridgeToValue: "Don't settle for the flaws of what you originally wanted until you've seen what we offer. Let's schedule a quick visit so you can see the difference firsthand.",
+    fallbackOffer: "Let me send you a quick breakdown of why this option is actually a much better investment for you.",
   },
   bad_timing: {
     objectionType: 'bad_timing',
