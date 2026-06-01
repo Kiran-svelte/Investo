@@ -143,6 +143,8 @@ ${stageConfig.promptFocus}
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
 
+${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
+
 ## CUSTOMER INFO
 - Name: ${lead.customerName || 'Unknown'}
 - Budget: ${lead.budgetMin ? `₹${formatPrice(lead.budgetMin)}-₹${formatPrice(lead.budgetMax)}` : 'Not shared yet'}
@@ -251,6 +253,8 @@ End your response with:
 
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties currently listed. Inform the customer that listings are being updated and ask for their preferences so you can notify them.'}
+
+${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 
 ## OPERATING AREAS
 ${locations || 'All major cities'}

@@ -71,6 +71,17 @@ class AutomationService {
         this.processFollowUps();
     }
     /**
+     * Schedule a WhatsApp follow-up ~24h after a completed site visit.
+     */
+    async scheduleVisitPostFollowUp(leadId, visitId) {
+        const executeAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await this.enqueueJob('visit_post_follow_up', `visit:${visitId}:post_feedback`, executeAt, {
+            leadId,
+            visitId,
+            reason: 'visit_post_feedback',
+        });
+    }
+    /**
      * Stop all scheduled jobs.
      */
     stop() {
@@ -301,6 +312,39 @@ class AutomationService {
                     reason: '7d_negotiation',
                 });
             }
+            const terminalStatuses = ['closed_won', 'closed_lost'];
+            const threshold3d = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+            const threshold7dNurture = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            const threshold30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            const nurtureCandidates = await prisma_1.default.lead.findMany({
+                where: {
+                    status: { notIn: [...terminalStatuses] },
+                    lastContactAt: { not: null },
+                },
+                include: { company: { select: { settings: true } } },
+                take: 500,
+            });
+            for (const lead of nurtureCandidates) {
+                const last = lead.lastContactAt.getTime();
+                if (last <= threshold30d.getTime()) {
+                    await this.enqueueJob('lead_nurture_30d', `lead:${lead.id}:nurture_30d`, now, {
+                        leadId: lead.id,
+                        reason: '30d_reengage',
+                    });
+                }
+                else if (last <= threshold7dNurture.getTime()) {
+                    await this.enqueueJob('lead_nurture_7d', `lead:${lead.id}:nurture_7d`, now, {
+                        leadId: lead.id,
+                        reason: '7d_urgency',
+                    });
+                }
+                else if (last <= threshold3d.getTime()) {
+                    await this.enqueueJob('lead_nurture_3d', `lead:${lead.id}:nurture_3d`, now, {
+                        leadId: lead.id,
+                        reason: '3d_reengage',
+                    });
+                }
+            }
         }
         catch (err) {
             logger_1.default.error('Follow-up processing failed', { error: err.message });
@@ -309,15 +353,43 @@ class AutomationService {
     /**
      * Send an automated follow-up message.
      */
+    nurtureMessage(lead, reason) {
+        const name = lead.customerName || 'there';
+        const area = lead.locationPreference || 'your preferred area';
+        const templates = {
+            '48h_no_activity': {
+                en: `Hi ${name}! 👋\n\nWe noticed you were looking at properties with us. Have you found what you're looking for?\n\nReply YES for fresh recommendations!`,
+                hi: `नमस्ते ${name}! 👋\n\nक्या आपको अपनी पसंद की प्रॉपर्टी मिल गई? नए विकल्पों के लिए YES लिखें!`,
+                kn: `ನಮಸ್ಕಾರ ${name}! 👋\n\nನಿಮಗೆ ಬೇಕಾದ ಆಸ್ತಿ ಸಿಕ್ಕಿತೇ? ಹೊಸ ಆಯ್ಕೆಗಳಿಗೆ YES ಎಂದು ಕಳುಹಿಸಿ!`,
+            },
+            '3d_reengage': {
+                en: `Hi ${name}! Still exploring? I have new options that may fit your criteria in ${area}. Reply YES to see your top 3 matches.`,
+                hi: `नमस्ते ${name}! ${area} में आपके मापदंड पर 3 नए विकल्प हैं। देखने के लिए YES लिखें।`,
+                kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ನಿಮಗೆ ಹೊಂದುವ 3 ಹೊಸ ಆಯ್ಕೆಗಳಿವೆ. ನೋಡಲು YES ಎಂದು ಕಳುಹಿಸಿ.`,
+            },
+            '7d_urgency': {
+                en: `Hi ${name}! Quick update: demand in ${area} has been strong. If you're still interested, I can hold a visit slot this week. Reply VISIT to book.`,
+                hi: `नमस्ते ${name}! ${area} में मांग अच्छी है। इस हफ्ते साइट विज़िट के लिए VISIT लिखें।`,
+                kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ಬೇಡಿಕೆ ಹೆಚ್ಚಿದೆ. ಈ ವಾರ ಸೈಟ್ ವಿಸಿಟ್‌ಗೆ VISIT ಎಂದು ಕಳುಹಿಸಿ.`,
+            },
+            '30d_reengage': {
+                en: `Hi ${name}! It's been a while. The market in ${area} has moved — want a quick update on what's available now? Reply YES and I'll share.`,
+                hi: `नमस्ते ${name}! ${area} में नई लिस्टिंग्स हैं। अपडेट के लिए YES लिखें।`,
+                kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ಹೊಸ ಲಿಸ್ಟಿಂಗ್‌ಗಳಿವೆ. ಅಪ್‌ಡೇಟ್‌ಗೆ YES ಎಂದು ಕಳುಹಿಸಿ.`,
+            },
+            visit_post_feedback: {
+                en: `Hi ${name}! 👋\n\nHow was your site visit yesterday? Reply with your feedback — loved it, need more options, or want to negotiate.`,
+                hi: `नमस्ते ${name}! 👋\n\nकल की साइट विज़िट कैसी रही? अपना फीडबैक भेजें — पसंद आया, और विकल्प चाहिए, या बातचीत करनी है।`,
+                kn: `ನಮಸ್ಕಾರ ${name}! 👋\n\nನಿನ್ನೆ ಸೈಟ್ ವಿಸಿಟ್ ಹೇಗಿತ್ತು? ಪ್ರತಿಕ್ರಿಯೆ ಕಳುಹಿಸಿ — ಇಷ್ಟವಾಯಿತು, ಇನ್ನೂ ಆಯ್ಕೆಗಳು ಬೇಕು, ಅಥವಾ ಚರ್ಚೆ ಮಾಡಬೇಕು.`,
+            },
+        };
+        const lang = lead.language || 'en';
+        const bucket = templates[reason] || templates['48h_no_activity'];
+        return bucket[lang] || bucket.en;
+    }
     async sendFollowUpMessage(lead, reason) {
         try {
-            const messages = {
-                en: `Hi ${lead.customerName || 'there'}! 👋\n\nWe noticed you were looking at properties with us. Have you found what you're looking for?\n\nWe have some great options that might interest you. Would you like me to share some recommendations?\n\nReply YES to see properties!`,
-                hi: `नमस्ते ${lead.customerName || ''}! 👋\n\nहमने देखा कि आप हमारे साथ प्रॉपर्टी देख रहे थे। क्या आपको अपनी पसंद की जगह मिली?\n\nहमारे पास कुछ बेहतरीन विकल्प हैं। क्या आप देखना चाहेंगे?\n\nप्रॉपर्टी देखने के लिए YES लिखें!`,
-                kn: `ಹಲೋ ${lead.customerName || ''}! 👋\n\nನೀವು ನಮ್ಮೊಂದಿಗೆ ಆಸ್ತಿಗಳನ್ನು ನೋಡುತ್ತಿದ್ದೀರಿ ಎಂದು ನಾವು ಗಮನಿಸಿದ್ದೇವೆ. ನಿಮಗೆ ಸೂಕ್ತವಾದದ್ದು ಸಿಕ್ಕಿದೆಯೇ?\n\nನಮ್ಮಲ್ಲಿ ಉತ್ತಮ ಆಯ್ಕೆಗಳಿವೆ. ನೋಡಲು ಬಯಸುವಿರಾ?\n\nಆಸ್ತಿಗಳನ್ನು ನೋಡಲು YES ಬರೆಯಿರಿ!`,
-            };
-            const lang = lead.language || 'en';
-            const message = messages[lang] || messages.en;
+            const message = this.nurtureMessage(lead, reason);
             if (!lead.phone) {
                 logger_1.default.debug('Follow-up skipped because lead phone is missing', { leadId: lead.id, reason });
                 return;
@@ -430,6 +502,12 @@ class AutomationService {
             case 'lead_follow_up_7d':
                 await this.executeNegotiationReminder(String(data.leadId));
                 return;
+            case 'lead_nurture_3d':
+            case 'lead_nurture_7d':
+            case 'lead_nurture_30d':
+            case 'visit_post_follow_up':
+                await this.executeFollowUp(String(data.leadId), String(data.reason || 'visit_post_feedback'));
+                return;
             case 'conversation_timeout_24h':
                 await this.executeConversationTimeout(String(data.conversationId));
                 return;
@@ -474,6 +552,17 @@ class AutomationService {
         });
         if (!lead) {
             logger_1.default.warn('Follow-up skipped because lead no longer exists', { leadId, reason });
+            return;
+        }
+        if (lead.status === 'closed_lost' || lead.status === 'closed_won') {
+            return;
+        }
+        const openConversation = await prisma_1.default.conversation.findFirst({
+            where: { leadId, status: { not: 'closed' } },
+            select: { id: true },
+        });
+        if (!openConversation && reason !== 'visit_post_feedback') {
+            logger_1.default.debug('Follow-up skipped — no active conversation', { leadId, reason });
             return;
         }
         await this.sendFollowUpMessage(lead, reason);

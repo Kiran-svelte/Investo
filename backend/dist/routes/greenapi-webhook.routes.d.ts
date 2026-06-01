@@ -34,7 +34,7 @@ type ExtractedIncomingText = {
     typeMessage: string | null;
 };
 declare function extractIncomingTextNotifications(body: any): ExtractedIncomingText[];
-declare function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcessSummary>;
+declare function processGreenApiWebhook(body: any, webhookTokenHint?: string, companyIdHint?: string): Promise<GreenApiWebhookProcessSummary>;
 export declare const greenApiWebhookRouteInternals: {
     extractAuthorizationToken: typeof extractAuthorizationToken;
     timingSafeEquals: typeof timingSafeEquals;

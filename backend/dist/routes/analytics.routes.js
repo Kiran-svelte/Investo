@@ -249,8 +249,11 @@ router.get('/upcoming-visits', (0, rbac_1.authorize)('analytics', 'read'), async
             orderBy: { scheduledAt: 'asc' },
             take: 10,
         });
-        const data = visits.map(({ lead, property, agent, ...v }) => ({
-            ...v,
+        const data = visits.map(({ lead, property, agent, scheduledAt, durationMinutes, ...v }) => ({
+            id: v.id,
+            status: v.status,
+            scheduled_at: scheduledAt.toISOString(),
+            duration_minutes: durationMinutes,
             customer_name: lead?.customerName || null,
             customer_phone: lead?.phone || null,
             property_name: property?.name || null,

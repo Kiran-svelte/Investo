@@ -10,25 +10,36 @@ const logger_1 = __importDefault(require("./config/logger"));
 const prisma_1 = __importDefault(require("./config/prisma"));
 const bootstrapDatabase_1 = require("./config/bootstrapDatabase");
 const automation_service_1 = require("./services/automation.service");
+const propertyImportWorker_service_1 = require("./services/propertyImportWorker.service");
 const socket_service_1 = require("./services/socket.service");
 let keepAliveTimer = null;
 let automationStarted = false;
+let propertyImportWorkerStarted = false;
 function startAutomationIfNeeded() {
     if (automationStarted)
         return;
     automation_service_1.automationService.start();
     automationStarted = true;
 }
+function startPropertyImportWorkerIfNeeded() {
+    if (propertyImportWorkerStarted)
+        return;
+    propertyImportWorker_service_1.propertyImportWorkerService.start();
+    propertyImportWorkerStarted = true;
+}
 async function start() {
     try {
-        if (!config_1.default.db.neonPoolerConfigured) {
-            logger_1.default.warn('DATABASE_URL is not using a Neon pooler host. Use a -pooler connection string for high concurrency.');
+        if (config_1.default.db.supabasePoolerConfigured) {
+            logger_1.default.info('Database pooler: Supabase transaction mode (port 6543)');
+        }
+        else if (!config_1.default.db.neonPoolerConfigured) {
+            logger_1.default.warn('DATABASE_URL is not using a pooled connection string. Use Supabase pooler (6543) or Neon -pooler for high concurrency.');
         }
         let dbConnectedAtStartup = false;
         // Test database connection via Prisma, but do not hard-fail local dev startup.
         try {
             await prisma_1.default.$queryRaw `SELECT 1`;
-            logger_1.default.info('Database connected (Prisma → Neon PostgreSQL)');
+            logger_1.default.info('Database connected (Prisma → PostgreSQL)');
             dbConnectedAtStartup = true;
             await (0, bootstrapDatabase_1.bootstrapDatabase)({
                 autoMigrate: config_1.default.db.autoMigrate,
@@ -56,6 +67,10 @@ async function start() {
                             logger_1.default.info('Dependencies healthy; starting automation service');
                             startAutomationIfNeeded();
                         }
+                        if (!propertyImportWorkerStarted) {
+                            logger_1.default.info('Dependencies healthy; starting property import worker');
+                            startPropertyImportWorkerIfNeeded();
+                        }
                     }
                     catch (err) {
                         logger_1.default.warn('Neon keep-alive ping failed', { error: err.message });
@@ -64,9 +79,11 @@ async function start() {
             }
             if (dbConnectedAtStartup) {
                 startAutomationIfNeeded();
+                startPropertyImportWorkerIfNeeded();
             }
             else {
                 logger_1.default.warn('Automation service delayed until database connectivity is healthy');
+                logger_1.default.warn('Property import worker delayed until database connectivity is healthy');
             }
         });
     }
@@ -85,6 +102,10 @@ process.on('SIGTERM', async () => {
         automation_service_1.automationService.stop();
         automationStarted = false;
     }
+    if (propertyImportWorkerStarted) {
+        propertyImportWorker_service_1.propertyImportWorkerService.stop();
+        propertyImportWorkerStarted = false;
+    }
     await prisma_1.default.$disconnect();
     process.exit(0);
 });
@@ -96,6 +117,10 @@ process.on('SIGINT', async () => {
     if (automationStarted) {
         automation_service_1.automationService.stop();
         automationStarted = false;
+    }
+    if (propertyImportWorkerStarted) {
+        propertyImportWorker_service_1.propertyImportWorkerService.stop();
+        propertyImportWorkerStarted = false;
     }
     await prisma_1.default.$disconnect();
     process.exit(0);

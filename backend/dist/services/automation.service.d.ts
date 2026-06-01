@@ -15,6 +15,10 @@ export declare class AutomationService {
      */
     start(): void;
     /**
+     * Schedule a WhatsApp follow-up ~24h after a completed site visit.
+     */
+    scheduleVisitPostFollowUp(leadId: string, visitId: string): Promise<void>;
+    /**
      * Stop all scheduled jobs.
      */
     stop(): void;
@@ -45,6 +49,7 @@ export declare class AutomationService {
     /**
      * Send an automated follow-up message.
      */
+    private nurtureMessage;
     private sendFollowUpMessage;
     /**
      * Process conversation timeouts (24h inactivity -> auto-close).

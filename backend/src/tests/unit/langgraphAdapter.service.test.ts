@@ -1,12 +1,5 @@
 /// <reference types="jest" />
 
-jest.mock('axios', () => ({
-  __esModule: true,
-  default: {
-    post: jest.fn(),
-  },
-}));
-
 jest.mock('../../config', () => ({
   __esModule: true,
   default: {
@@ -29,13 +22,15 @@ jest.mock('../../config/logger', () => ({
   },
 }));
 
-import axios from 'axios';
 import config from '../../config';
 import { sendToLangGraph } from '../../services/langgraphAdapter.service';
 
 describe('langgraphAdapter.service', () => {
+  const fetchMock = jest.fn();
+
   beforeEach(() => {
     jest.clearAllMocks();
+    (global as any).fetch = fetchMock;
     (config as any).langgraph.enabled = false;
     (config as any).langgraph.url = 'http://localhost:8000';
     (config as any).langgraph.timeoutMs = 5000;
@@ -53,12 +48,16 @@ describe('langgraphAdapter.service', () => {
     });
 
     expect(res).toEqual({ skipped: true });
-    expect((axios as any).post).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('posts payload and returns response when enabled', async () => {
     (config as any).langgraph.enabled = true;
-    (axios as any).post.mockResolvedValue({ status: 200, data: { status: 'aggregating' } });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'aggregating' }),
+    });
 
     const payload = {
       event: 'onmessage',
@@ -72,10 +71,12 @@ describe('langgraphAdapter.service', () => {
 
     const res = await sendToLangGraph(payload);
 
-    expect((axios as any).post).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8000/webhook',
-      payload,
-      expect.objectContaining({ timeout: 5000 }),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+      }),
     );
     expect(res).toEqual({ skipped: false, ok: true, data: { status: 'aggregating' } });
   });

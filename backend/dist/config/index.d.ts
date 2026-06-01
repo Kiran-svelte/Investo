@@ -1,6 +1,9 @@
 export declare function isNeonDatabaseUrl(databaseUrl: string): boolean;
 export declare function isPostgresDatabaseUrl(databaseUrl: string): boolean;
 export declare function isNeonPoolerDatabaseUrl(databaseUrl: string): boolean;
+export declare function isSupabaseDatabaseUrl(databaseUrl: string): boolean;
+export declare function isSupabasePoolerDatabaseUrl(databaseUrl: string): boolean;
+export declare function resolveDirectUrl(databaseUrl: string): string;
 export declare function resolveDatabaseUrl(): string;
 export declare function isAllowedCorsOrigin(origin?: string | null): boolean;
 export declare function assertValidDatabaseUrl(databaseUrl: string): void;
@@ -26,13 +29,20 @@ declare const config: {
     };
     db: {
         url: string;
+        directUrl: string;
+        ssl: boolean;
         poolMin: number;
         poolMax: number;
         neonPoolerConfigured: boolean;
+        supabasePoolerConfigured: boolean;
         keepAliveEnabled: boolean;
         keepAliveIntervalMs: number;
         autoMigrate: boolean;
         autoSeed: boolean;
+    };
+    supabase: {
+        url: string;
+        projectRef: string;
     };
     redis: {
         url: string;

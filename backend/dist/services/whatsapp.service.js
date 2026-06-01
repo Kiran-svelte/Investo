@@ -10,6 +10,10 @@ const logger_1 = __importDefault(require("../config/logger"));
 const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
 const ai_service_1 = require("./ai.service");
 const emi_service_1 = require("./emi.service");
+const conversionEngine_service_1 = require("./conversionEngine.service");
+const visitBooking_service_1 = require("./visitBooking.service");
+const alternativeInventory_service_1 = require("./alternativeInventory.service");
+const leadTransition_service_1 = require("./leadTransition.service");
 const socket_service_1 = require("./socket.service");
 const providers_1 = require("./whatsapp/providers");
 const conversationStateMachine_1 = require("./conversationStateMachine");
@@ -48,11 +52,11 @@ class WhatsAppService {
      * Get company by WhatsApp phone number ID.
      * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
      */
-    async getCompanyByPhoneNumberId(phoneNumberId, providerHint, webhookTokenHint) {
+    async getCompanyByPhoneNumberId(phoneNumberId, providerHint, companyIdHint, webhookTokenHint, customerPhoneHint) {
         // Find all active companies
         const companies = await prisma_1.default.company.findMany({
             where: { status: 'active' },
-            select: { id: true, name: true, settings: true, whatsappPhone: true },
+            select: { id: true, name: true, settings: true, whatsappPhone: true, updatedAt: true },
         });
         const providerName = providerHint || this.resolveOutboundProviderName(null);
         const normalizeStringLike = (value) => {
@@ -75,6 +79,7 @@ class WhatsAppService {
         // Fail closed if no company is explicitly mapped.
         if (providerName === 'greenapi') {
             const normalizedInstanceId = normalizeStringLike(phoneNumberId);
+            const normalizedCompanyIdHint = normalizeStringLike(companyIdHint);
             const normalizedWebhookToken = normalizeTokenLike(webhookTokenHint);
             if (!normalizedInstanceId) {
                 logger_1.default.error('GreenAPI company resolution failed: missing instance identifier (phoneNumberId)');
@@ -116,6 +121,75 @@ class WhatsAppService {
                     },
                 };
             }
+            if (matches.length > 1 && normalizedCompanyIdHint) {
+                const companyMatches = matches.filter((company) => company.id === normalizedCompanyIdHint);
+                if (companyMatches.length === 1) {
+                    const company = companyMatches[0];
+                    const settings = company.settings || {};
+                    const whatsapp = settings.whatsapp || {};
+                    const greenapi = whatsapp.greenapi || {};
+                    const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
+                    const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
+                        normalizeStringLike(whatsapp.apiTokenInstance) ||
+                        config_1.default?.greenapi?.apiTokenInstance ||
+                        '';
+                    return {
+                        company,
+                        config: {
+                            provider: 'greenapi',
+                            phoneNumberId: '',
+                            accessToken: '',
+                            verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
+                            idInstance,
+                            apiTokenInstance,
+                        },
+                    };
+                }
+            }
+            if (matches.length > 1 && normalizeStringLike(customerPhoneHint)) {
+                const digits = normalizeStringLike(customerPhoneHint).replace(/[^0-9]/g, '');
+                const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+                const phoneCandidates = Array.from(new Set([
+                    normalizeStringLike(customerPhoneHint),
+                    digits,
+                    last10 ? `+${last10}` : '',
+                    last10 ? `91${last10}` : '',
+                    last10 ? `+91${last10}` : '',
+                ].filter(Boolean)));
+                const leads = await prisma_1.default.lead.findMany({
+                    where: {
+                        companyId: { in: matches.map((company) => company.id) },
+                        OR: phoneCandidates.map((candidate) => ({ phone: { contains: candidate } })),
+                    },
+                    select: { companyId: true },
+                    take: 20,
+                });
+                const uniqueLeadCompanyIds = Array.from(new Set(leads.map((lead) => lead.companyId)));
+                if (uniqueLeadCompanyIds.length === 1) {
+                    const company = matches.find((item) => item.id === uniqueLeadCompanyIds[0]);
+                    if (company) {
+                        const settings = company.settings || {};
+                        const whatsapp = settings.whatsapp || {};
+                        const greenapi = whatsapp.greenapi || {};
+                        const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
+                        const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
+                            normalizeStringLike(whatsapp.apiTokenInstance) ||
+                            config_1.default?.greenapi?.apiTokenInstance ||
+                            '';
+                        return {
+                            company,
+                            config: {
+                                provider: 'greenapi',
+                                phoneNumberId: '',
+                                accessToken: '',
+                                verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
+                                idInstance,
+                                apiTokenInstance,
+                            },
+                        };
+                    }
+                }
+            }
             if (matches.length > 1 && normalizedWebhookToken) {
                 const tokenMatches = matches.filter((company) => {
                     const settings = company.settings || {};
@@ -148,6 +222,39 @@ class WhatsAppService {
                 }
             }
             if (matches.length > 1) {
+                const fallbackCompany = matches
+                    .slice()
+                    .sort((a, b) => {
+                    const aTime = new Date(a.updatedAt || 0).getTime();
+                    const bTime = new Date(b.updatedAt || 0).getTime();
+                    return bTime - aTime;
+                })[0];
+                if (fallbackCompany) {
+                    const settings = fallbackCompany.settings || {};
+                    const whatsapp = settings.whatsapp || {};
+                    const greenapi = whatsapp.greenapi || {};
+                    const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
+                    const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
+                        normalizeStringLike(whatsapp.apiTokenInstance) ||
+                        config_1.default?.greenapi?.apiTokenInstance ||
+                        '';
+                    logger_1.default.warn('GreenAPI company resolution fallback selected most recently updated company', {
+                        instanceId: normalizedInstanceId,
+                        selectedCompanyId: fallbackCompany.id,
+                        matchingCompanyIds: matches.map((company) => company.id),
+                    });
+                    return {
+                        company: fallbackCompany,
+                        config: {
+                            provider: 'greenapi',
+                            phoneNumberId: '',
+                            accessToken: '',
+                            verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
+                            idInstance,
+                            apiTokenInstance,
+                        },
+                    };
+                }
                 logger_1.default.error('GreenAPI company resolution failed: duplicate instance mapping', {
                     instanceId: normalizedInstanceId,
                     matchingCompanyIds: matches.map((company) => company.id),
@@ -273,8 +380,11 @@ class WhatsAppService {
             customerPhone: (0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(msg.customerPhone),
         });
         // 1. Find company by WhatsApp phone number ID
-        const result = await this.getCompanyByPhoneNumberId(msg.phoneNumberId, inboundProvider);
+        const result = await this.getCompanyByPhoneNumberId(msg.phoneNumberId, inboundProvider, msg.companyIdHint, msg.webhookTokenHint, msg.customerPhone);
         if (!result) {
+            // #region agent log
+            fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '765cca' }, body: JSON.stringify({ sessionId: '765cca', runId: 'run2', hypothesisId: 'H3', location: 'whatsapp.service.ts:company-resolution-failed', message: 'Inbound message skipped because company mapping failed', data: { provider: inboundProvider, hasPhoneNumberId: Number(Boolean(msg.phoneNumberId)) }, timestamp: Date.now() }) }).catch(() => { });
+            // #endregion
             logger_1.default.error('=== NO COMPANY FOUND ===', { phoneNumberId: msg.phoneNumberId });
             return {
                 status: 'skipped',
@@ -385,7 +495,7 @@ class WhatsAppService {
             trigger: 'customer_message',
         });
         // 3.5. Handle interactive button/list responses
-        if (msg.interactiveId) {
+        if (msg.interactiveId && conversation.status === 'ai_active' && conversation.aiEnabled) {
             const actionResult = await this.handleInteractiveAction({
                 interactiveId: msg.interactiveId,
                 interactiveType: msg.interactiveType,
@@ -410,15 +520,35 @@ class WhatsAppService {
                             stage: actionResult.newState.stage,
                             selectedPropertyId: actionResult.newState.selectedPropertyId || conversation.selectedPropertyId,
                             proposedVisitTime: actionResult.newState.proposedVisitTime || conversation.proposedVisitTime,
+                            ...(actionResult.newState.recommendedPropertyIds && {
+                                recommendedPropertyIds: actionResult.newState.recommendedPropertyIds,
+                            }),
                         },
                     });
                 }
-                // Update lead status if action provided new status
-                if (actionResult.leadStatus) {
-                    await prisma_1.default.lead.update({
-                        where: { id: lead.id },
-                        data: { status: actionResult.leadStatus },
-                    });
+                // Update lead status if action provided new status (state machine)
+                if (actionResult.leadStatus === 'visit_scheduled') {
+                    await (0, leadTransition_service_1.transitionLeadToVisitScheduled)(lead.id);
+                }
+                else if (actionResult.leadStatus) {
+                    await (0, leadTransition_service_1.transitionLeadStatus)(lead.id, actionResult.leadStatus);
+                }
+                // Send property media after shortlist (filter / list selection)
+                if (actionResult.newState?.stage === 'shortlist') {
+                    const recommendedIds = actionResult.newState.recommendedPropertyIds ||
+                        actionResult.newState.recommendedProperties ||
+                        [];
+                    if (recommendedIds.length > 0) {
+                        const mediaState = {
+                            ...conversationState,
+                            stage: 'shortlist',
+                            recommendedProperties: recommendedIds,
+                        };
+                        const properties = await prisma_1.default.property.findMany({
+                            where: { companyId, id: { in: recommendedIds } },
+                        });
+                        await this.sendPropertyMediaForStage(msg.customerPhone, whatsappConfig, mediaState, properties, lead, conversation.id);
+                    }
                 }
                 propagation = await this.propagateConversationUpdate({
                     companyId,
@@ -438,6 +568,9 @@ class WhatsAppService {
         // 4. If conversation is ai_active, generate AI response with state machine
         if (conversation.status === 'ai_active' && conversation.aiEnabled) {
             try {
+                // #region agent log
+                fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '765cca' }, body: JSON.stringify({ sessionId: '765cca', runId: 'run2', hypothesisId: 'H4', location: 'whatsapp.service.ts:ai-path-enter', message: 'AI response path entered', data: { conversationStatus: conversation.status, aiEnabled: Number(Boolean(conversation.aiEnabled)) }, timestamp: Date.now() }) }).catch(() => { });
+                // #endregion
                 // Get AI settings for this company
                 const aiSettings = await prisma_1.default.aiSetting.findUnique({
                     where: { companyId },
@@ -448,12 +581,18 @@ class WhatsAppService {
                     orderBy: { createdAt: 'asc' },
                     take: 30,
                 });
-                // Get matching properties
-                const properties = await prisma_1.default.property.findMany({
-                    where: { companyId, status: 'available' },
-                    take: 20,
-                });
-                // Generate AI response with state machine
+                const conversion = await (0, conversionEngine_service_1.buildConversionContext)(lead);
+                const propertyIdSet = [
+                    ...new Set([...conversion.exactPropertyIds, ...conversion.alternativePropertyIds]),
+                ];
+                const properties = propertyIdSet.length > 0
+                    ? await prisma_1.default.property.findMany({
+                        where: { companyId, status: 'available', id: { in: propertyIdSet } },
+                    })
+                    : await prisma_1.default.property.findMany({
+                        where: { companyId, status: 'available' },
+                        take: 20,
+                    });
                 const aiResponse = await ai_service_1.aiService.generateResponse({
                     customerMessage: msg.messageText,
                     conversationHistory: history,
@@ -461,7 +600,8 @@ class WhatsAppService {
                     properties,
                     aiSettings: aiSettings || {},
                     companyName: company.name,
-                    conversationState, // Pass the state machine state
+                    conversationState,
+                    conversionPromptBlock: conversion.promptBlock,
                 });
                 logger_1.default.info('AI response generated', {
                     conversationId: conversation.id,
@@ -553,7 +693,10 @@ class WhatsAppService {
                     await prisma_1.default.lead.update({ where: { id: lead.id }, data: { status: 'contacted' } });
                 }
                 // Send via WhatsApp Cloud API using company-specific config
-                await this.sendMessage(msg.customerPhone, aiResponse.text, whatsappConfig);
+                const sent = await this.sendMessage(msg.customerPhone, aiResponse.text, whatsappConfig);
+                // #region agent log
+                fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '765cca' }, body: JSON.stringify({ sessionId: '765cca', runId: 'run2', hypothesisId: 'H4', location: 'whatsapp.service.ts:ai-response-send-result', message: 'Attempted to send AI WhatsApp reply', data: { sent: Number(Boolean(sent)), provider: this.resolveOutboundProviderName(whatsappConfig || null) }, timestamp: Date.now() }) }).catch(() => { });
+                // #endregion
                 // CHUNK 5: AI Rich Media Presentation
                 // If AI recommended properties and they have media, send it automatically
                 if (aiResponse.newState && this.shouldSendPropertyMedia(aiResponse.newState, aiResponse.nextAction)) {
@@ -578,6 +721,9 @@ class WhatsAppService {
             }
         }
         else {
+            // #region agent log
+            fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '765cca' }, body: JSON.stringify({ sessionId: '765cca', runId: 'run2', hypothesisId: 'H4', location: 'whatsapp.service.ts:ai-path-skipped', message: 'AI path skipped for conversation', data: { conversationStatus: conversation.status, aiEnabled: Number(Boolean(conversation.aiEnabled)) }, timestamp: Date.now() }) }).catch(() => { });
+            // #endregion
             // Conversation is agent_active - AI does NOT send messages
             // Notify the assigned agent
             if (lead.assignedAgentId) {
@@ -1084,6 +1230,13 @@ class WhatsAppService {
                 sent++;
             }
             else {
+                if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
+                    const fallbackSent = await this.sendMessage(to, `📸 ${propertyName} — photo ${i + 1}: ${imagesToSend[i]}`, whatsappConfig);
+                    if (fallbackSent) {
+                        sent++;
+                        continue;
+                    }
+                }
                 errors.push(`Image ${i + 1}: ${result.error}`);
             }
             // Small delay between messages to avoid rate limiting
@@ -1106,7 +1259,14 @@ class WhatsAppService {
         }
         const filename = `${propertyName.replace(/[^a-zA-Z0-9]/g, '_')}_Brochure.pdf`;
         const caption = `📋 Brochure - ${propertyName}`;
-        return this.sendDocument(to, brochureUrl, filename, caption, whatsappConfig);
+        const docResult = await this.sendDocument(to, brochureUrl, filename, caption, whatsappConfig);
+        if (!docResult.success && this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
+            const fallbackSent = await this.sendMessage(to, `${caption}\n\nView brochure: ${brochureUrl}`, whatsappConfig);
+            if (fallbackSent) {
+                return { success: true, messageId: 'fallback-text-url' };
+            }
+        }
+        return docResult;
     }
     // ============================================================================
     // CHUNK 3: Interactive Button/List Action Handlers
@@ -1183,49 +1343,48 @@ class WhatsAppService {
         }
         // ---- Visit Time Selection ----
         if (interactiveId.startsWith('visit-time-')) {
-            // Parse: visit-time-{propertyId}-{slot}
-            const parts = interactiveId.replace('visit-time-', '').split('-');
-            const propertyId = parts[0];
-            const slot = parts.slice(1).join('-'); // tomorrow-10am, tomorrow-3pm, dayafter
-            const property = await prisma_1.default.property.findUnique({ where: { id: propertyId } });
-            // Calculate proposed time
-            let proposedTime = new Date();
-            if (slot.includes('tomorrow')) {
-                proposedTime.setDate(proposedTime.getDate() + 1);
-                if (slot.includes('10am'))
-                    proposedTime.setHours(10, 0, 0, 0);
-                else if (slot.includes('3pm'))
-                    proposedTime.setHours(15, 0, 0, 0);
+            const parsed = (0, visitBooking_service_1.parseVisitTimeInteractiveId)(interactiveId);
+            if (!parsed) {
+                await this.sendMessage(customerPhone, 'Sorry, I could not read that time slot. Please tap a visit time button again or tell me your preferred date.', whatsappConfig);
+                return { handled: true, action: 'visit-time-parse-failed' };
             }
-            else if (slot.includes('dayafter')) {
-                proposedTime.setDate(proposedTime.getDate() + 2);
-                proposedTime.setHours(11, 0, 0, 0);
-            }
-            // Confirm the visit
+            const { propertyId, slot } = parsed;
+            const proposedTime = (0, visitBooking_service_1.resolveVisitSlotToDate)(slot);
+            const property = await prisma_1.default.property.findFirst({
+                where: { id: propertyId, companyId: company.id },
+            });
+            const booking = await (0, visitBooking_service_1.scheduleVisitFromWhatsApp)({
+                companyId: company.id,
+                leadId: lead.id,
+                propertyId,
+                scheduledAt: proposedTime,
+            });
             const propertyName = property?.name || 'the property';
-            await this.sendMessage(customerPhone, `✅ *Visit Confirmed!*\n\n📍 Property: ${propertyName}\n📅 Date: ${proposedTime.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })}\n⏰ Time: ${proposedTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n\nOur representative will call you to confirm the details. Looking forward to seeing you! 🙏`, whatsappConfig);
-            // Notify assigned agent with urgency
-            if (lead.assignedAgentId) {
-                await prisma_1.default.notification.create({
-                    data: {
-                        companyId: company.id,
-                        userId: lead.assignedAgentId,
-                        type: 'visit_scheduled',
-                        title: '🎯 Visit Scheduled - Call Customer',
-                        message: `${lead.customerName || lead.phone} confirmed visit to ${propertyName} on ${proposedTime.toLocaleDateString()}`,
-                        data: {
-                            leadId: lead.id,
-                            propertyId,
-                            visitTime: proposedTime.toISOString(),
-                        },
-                    },
-                });
+            if (!booking.success) {
+                const conflictMsg = booking.error === 'agent_conflict'
+                    ? 'That slot is no longer available. Please pick another time or reply with your preferred date.'
+                    : booking.error === 'invalid_lead_transition'
+                        ? 'Your request is already with our sales team. They will confirm the next step with you directly.'
+                        : 'We could not confirm the visit right now. Our team will call you shortly.';
+                await this.sendMessage(customerPhone, conflictMsg, whatsappConfig);
+                return {
+                    handled: true,
+                    action: 'visit-schedule-failed',
+                    ...(booking.error !== 'invalid_lead_transition' && { leadStatus: 'contacted' }),
+                };
             }
+            const agent = booking.visit
+                ? await prisma_1.default.user.findUnique({ where: { id: booking.visit.agentId }, select: { name: true } })
+                : null;
+            await this.sendMessage(customerPhone, `✅ *Visit Confirmed!*\n\n📍 Property: ${propertyName}\n📅 Date: ${proposedTime.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })}\n⏰ Time: ${proposedTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n👤 Agent: ${agent?.name || 'Our sales team'}\n\nSee you at the site! 🙏`, whatsappConfig);
             return {
                 handled: true,
                 action: 'visit-scheduled',
-                newState: { stage: 'visit_booking', selectedPropertyId: propertyId, proposedVisitTime: proposedTime },
-                leadStatus: 'visit_scheduled',
+                newState: {
+                    stage: 'visit_booking',
+                    selectedPropertyId: propertyId,
+                    proposedVisitTime: proposedTime,
+                },
             };
         }
         // ---- Call Me / Callback Request ----
@@ -1424,22 +1583,46 @@ class WhatsAppService {
                     take: 10, // Get up to 10 matches
                     orderBy: { createdAt: 'desc' },
                 });
-                // Layer 4 (Resilient): Handle no results gracefully
                 if (properties.length === 0) {
-                    await this.sendMessage(customerPhone, `I couldn't find any ${filter.displayName} properties that match your criteria right now. ${updatedLead.budgetMin || updatedLead.budgetMax ? 'Would you like to adjust your budget or see other property types?' : 'Would you like to see other options?'}`, whatsappConfig);
-                    // Log no results
+                    const tiers = await (0, alternativeInventory_service_1.searchAlternativeTiers)({
+                        companyId: company.id,
+                        bedrooms: filter.bedrooms,
+                        propertyType: filter.propertyType,
+                        locationPreference: updatedLead.locationPreference,
+                        budgetMin: updatedLead.budgetMin ? Number(updatedLead.budgetMin) : null,
+                        budgetMax: updatedLead.budgetMax ? Number(updatedLead.budgetMax) : null,
+                    });
+                    const topHint = tiers[0]?.messageHint ||
+                        `No ${filter.displayName} matches right now — I can add you to our waitlist or show nearby options.`;
+                    let body = topHint;
+                    const altProp = tiers[0]?.properties?.[0];
+                    if (altProp) {
+                        body += `\n\nClosest option: *${altProp.name}* (${altProp.locationArea || altProp.locationCity}).`;
+                    }
+                    body += '\n\nReply *WAITLIST* to get alerted when a match is listed, or tell me another area/BHK.';
+                    await this.sendMessage(customerPhone, body, whatsappConfig);
+                    await prisma_1.default.conversation.update({
+                        where: { id: conversation.id },
+                        data: {
+                            commitments: {
+                                ...(conversation.commitments || {}),
+                                waitlist: true,
+                                waitlistCriteria: filter.displayName,
+                            },
+                        },
+                    });
                     await prisma_1.default.message.create({
                         data: {
                             conversationId: conversation.id,
                             senderType: 'ai',
-                            content: `No ${filter.displayName} properties found`,
+                            content: `No ${filter.displayName} exact match; alternatives offered`,
                             status: 'sent',
                         },
                     });
                     return {
                         handled: true,
-                        action: 'filter-no-results',
-                        newState: { stage: 'qualify' }, // Go back to qualify if no results
+                        action: 'filter-no-results-alternatives',
+                        newState: { stage: 'qualify' },
                     };
                 }
                 // Helper to format price for list row
@@ -1502,15 +1685,19 @@ class WhatsAppService {
                 return { handled: false };
             }
             // Use latitude/longitude from schema
-            const lat = property.latitude ? Number(property.latitude) : null;
-            const lng = property.longitude ? Number(property.longitude) : null;
+            const lat = property.latitude !== null && property.latitude !== undefined ? Number(property.latitude) : null;
+            const lng = property.longitude !== null && property.longitude !== undefined ? Number(property.longitude) : null;
             // Format address from available fields
             const formatAddress = (p) => {
                 const parts = [p.locationArea, p.locationCity, p.locationPincode].filter(Boolean);
                 return parts.length > 0 ? parts.join(', ') : '';
             };
-            if (lat && lng) {
-                await this.sendLocation(customerPhone, lat, lng, property.name, formatAddress(property), whatsappConfig);
+            if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
+                const locationResult = await this.sendLocation(customerPhone, lat, lng, property.name, formatAddress(property), whatsappConfig);
+                if (!locationResult.success) {
+                    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+                    await this.sendMessage(customerPhone, `Location: ${property.name}\n${formatAddress(property) || 'Address not available'}\n${mapsUrl}`, whatsappConfig);
+                }
             }
             else {
                 // No coordinates - send address as text
@@ -1557,14 +1744,20 @@ class WhatsAppService {
      * - AI is in 'commitment' or 'visit_booking' stages (deepening engagement)
      * - Recommended properties exist and have media
      */
-    shouldSendPropertyMedia(state, action) {
-        // Send media when presenting properties (shortlist stage)
-        if (state.stage === 'shortlist') {
-            return state.recommendedProperties && state.recommendedProperties.length > 0;
+    getRecommendedPropertyIds(state) {
+        if (state.recommendedProperties?.length) {
+            return state.recommendedProperties;
         }
-        // Also send when advancing to shortlist or commitment stages
+        const alt = state.recommendedPropertyIds;
+        return alt?.length ? alt : [];
+    }
+    shouldSendPropertyMedia(state, action) {
+        const ids = this.getRecommendedPropertyIds(state);
+        if (state.stage === 'shortlist' && ids.length > 0) {
+            return true;
+        }
         if (action?.action === 'advance_stage' && (action.targetStage === 'shortlist' || action.targetStage === 'commitment')) {
-            return state.recommendedProperties && state.recommendedProperties.length > 0;
+            return ids.length > 0;
         }
         return false;
     }
@@ -1581,7 +1774,7 @@ class WhatsAppService {
     async sendPropertyMediaForStage(customerPhone, whatsappConfig, state, allProperties, lead, conversationId) {
         try {
             // Get properties that were recommended
-            const recommendedIds = state.recommendedProperties || [];
+            const recommendedIds = this.getRecommendedPropertyIds(state);
             if (recommendedIds.length === 0)
                 return;
             // Limit to top 3 properties to avoid overwhelming user
@@ -1631,8 +1824,13 @@ class WhatsAppService {
             try {
                 // Send up to 3 photos
                 const imagesToSend = property.images.slice(0, 3);
-                await this.sendPropertyImages(customerPhone, imagesToSend, property.name, whatsappConfig);
-                mediasSent.push('images');
+                const imageResult = await this.sendPropertyImages(customerPhone, imagesToSend, property.name, whatsappConfig);
+                if (imageResult.sent > 0) {
+                    mediasSent.push('images');
+                }
+                if (!imageResult.success) {
+                    errors.push(`images: ${imageResult.errors.join('; ')}`);
+                }
             }
             catch (error) {
                 errors.push(`images: ${error.message}`);
@@ -1645,8 +1843,13 @@ class WhatsAppService {
         // 2. Send brochure if available (initial presentation or deeper interest)
         if (property.brochureUrl && (state.stage === 'shortlist' || state.stage === 'commitment')) {
             try {
-                await this.sendPropertyBrochure(customerPhone, property.brochureUrl, property.name, whatsappConfig);
-                mediasSent.push('brochure');
+                const brochureResult = await this.sendPropertyBrochure(customerPhone, property.brochureUrl, property.name, whatsappConfig);
+                if (brochureResult.success) {
+                    mediasSent.push('brochure');
+                }
+                else {
+                    errors.push(`brochure: ${brochureResult.error || 'send failed'}`);
+                }
             }
             catch (error) {
                 errors.push(`brochure: ${error.message}`);
@@ -1661,10 +1864,22 @@ class WhatsAppService {
             if (state.stage === 'commitment' || state.stage === 'visit_booking' || state.messageCount > 3) {
                 try {
                     // Send floor plans as documents
+                    let floorPlansSent = 0;
                     for (const floorPlanUrl of property.floorPlanUrls.slice(0, 3)) {
-                        await this.sendDocument(customerPhone, floorPlanUrl, `${property.name} - Floor Plan.pdf`, `Floor plan for ${property.name}`, whatsappConfig);
+                        const result = await this.sendDocument(customerPhone, floorPlanUrl, `${property.name} - Floor Plan.pdf`, `Floor plan for ${property.name}`, whatsappConfig);
+                        if (result.success) {
+                            floorPlansSent++;
+                        }
+                        else if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
+                            const fallbackSent = await this.sendMessage(customerPhone, `Floor plan for ${property.name}: ${floorPlanUrl}`, whatsappConfig);
+                            if (fallbackSent) {
+                                floorPlansSent++;
+                            }
+                        }
                     }
-                    mediasSent.push('floor_plans');
+                    if (floorPlansSent > 0) {
+                        mediasSent.push('floor_plans');
+                    }
                 }
                 catch (error) {
                     errors.push(`floor_plans: ${error.message}`);
@@ -1678,8 +1893,22 @@ class WhatsAppService {
         // 4. Send price list if available and appropriate stage
         if (property.priceListUrl && (state.stage === 'commitment' || state.stage === 'visit_booking')) {
             try {
-                await this.sendDocument(customerPhone, property.priceListUrl, `${property.name} - Price List.pdf`, `Complete pricing details for ${property.name}`, whatsappConfig);
-                mediasSent.push('price_list');
+                const priceListResult = await this.sendDocument(customerPhone, property.priceListUrl, `${property.name} - Price List.pdf`, `Complete pricing details for ${property.name}`, whatsappConfig);
+                if (priceListResult.success) {
+                    mediasSent.push('price_list');
+                }
+                else if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
+                    const fallbackSent = await this.sendMessage(customerPhone, `Complete pricing details for ${property.name}: ${property.priceListUrl}`, whatsappConfig);
+                    if (fallbackSent) {
+                        mediasSent.push('price_list');
+                    }
+                    else {
+                        errors.push(`price_list: ${priceListResult.error || 'send failed'}`);
+                    }
+                }
+                else {
+                    errors.push(`price_list: ${priceListResult.error || 'send failed'}`);
+                }
             }
             catch (error) {
                 errors.push(`price_list: ${error.message}`);
@@ -1690,15 +1919,32 @@ class WhatsAppService {
             }
         }
         // 5. Send location pin if property has coordinates
-        if (property.latitude && property.longitude) {
+        if (property.latitude !== null && property.latitude !== undefined && property.longitude !== null && property.longitude !== undefined) {
             try {
+                const latitude = Number(property.latitude);
+                const longitude = Number(property.longitude);
                 const address = [
                     property.locationArea,
                     property.locationCity,
                     property.locationPincode
                 ].filter(Boolean).join(', ');
-                await this.sendLocation(customerPhone, property.latitude, property.longitude, property.name, address || 'Property Location', whatsappConfig);
-                mediasSent.push('location');
+                const locationResult = await this.sendLocation(customerPhone, latitude, longitude, property.name, address || 'Property Location', whatsappConfig);
+                if (locationResult.success) {
+                    mediasSent.push('location');
+                }
+                else if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
+                    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+                    const fallbackSent = await this.sendMessage(customerPhone, `Location: ${property.name}\n${address || 'Property Location'}\n${mapsUrl}`, whatsappConfig);
+                    if (fallbackSent) {
+                        mediasSent.push('location');
+                    }
+                    else {
+                        errors.push(`location: ${locationResult.error || 'send failed'}`);
+                    }
+                }
+                else {
+                    errors.push(`location: ${locationResult.error || 'send failed'}`);
+                }
             }
             catch (error) {
                 errors.push(`location: ${error.message}`);

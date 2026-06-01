@@ -128,7 +128,7 @@ describe('WhatsAppService GreenAPI company resolution (fail closed)', () => {
         };
         mockPrisma.company.findMany.mockResolvedValue([companyA, companyB]);
         const service = new whatsapp_service_1.WhatsAppService();
-        const result = await service.getCompanyByPhoneNumberId('110', 'greenapi', 'Bearer token-b');
+        const result = await service.getCompanyByPhoneNumberId('110', 'greenapi', '', 'Bearer token-b');
         expect(result).not.toBeNull();
         expect(result?.company.id).toBe('b-company');
     });

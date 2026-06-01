@@ -34,9 +34,6 @@ function isProductionRuntime(): boolean {
 }
 
 function warnRedisUnavailable(operation: string, metadata?: Record<string, unknown>): void {
-  // #region agent log
-  fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run1',hypothesisId:'H2',location:'propertyImportQueue.service.ts:warnRedisUnavailable',message:'Redis unavailable, using memory fallback',data:{operation,hasMetadata:Number(Boolean(metadata))},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   logger.warn('Property import queue: Redis unavailable, using in-memory fallback (data will not survive restarts). Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for durable queueing.', {
     operation,
     ...metadata,

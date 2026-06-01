@@ -27,6 +27,7 @@ docs/plan/adhoc/
 # Temporary/debug scripts
 _tmp_*
 **/_tmp_*
+tmp/
 
 # Logs
 npm-debug.log*

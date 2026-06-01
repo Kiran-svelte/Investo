@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
-import { PrismaNeon } from '@prisma/adapter-neon';
+import { PrismaPg } from '@prisma/adapter-pg';
 declare const prisma: PrismaClient<{
-    adapter: PrismaNeon;
+    adapter: PrismaPg;
     log: ({
         level: "warn";
         emit: "event";

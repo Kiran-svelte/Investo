@@ -204,15 +204,17 @@ describe('Green-API webhook route', () => {
         expect(response.body.status).toBe('received');
         await flushAsyncWork();
         expect(dedup.claimMessageProcessing).toHaveBeenCalledWith('greenapi:110:green-msg-1');
-        expect(whatsappService.getCompanyByPhoneNumberId).toHaveBeenCalledWith('110', 'greenapi', 'token-1');
-        expect(whatsappService.handleIncomingMessage).toHaveBeenCalledWith({
+        expect(whatsappService.getCompanyByPhoneNumberId).toHaveBeenCalledWith('110', 'greenapi', '', 'token-1');
+        expect(whatsappService.handleIncomingMessage).toHaveBeenCalledWith(expect.objectContaining({
             provider: 'greenapi',
             phoneNumberId: '110',
             customerPhone: '+919999999999',
             customerName: 'A User',
             messageText: 'hello',
             messageId: 'green-msg-1',
-        });
+            companyIdHint: '',
+            webhookTokenHint: 'token-1',
+        }));
         expectLoggerNotToLeakRawValues(logger, ['+919999999999', '919999999999']);
     });
     test('fails closed with 404 when no company is mapped for the instance identifier', async () => {

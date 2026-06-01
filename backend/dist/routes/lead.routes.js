@@ -18,6 +18,7 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const notification_engine_1 = require("../services/notification.engine");
 const socket_service_1 = require("../services/socket.service");
+const leadAssignment_service_1 = require("../services/leadAssignment.service");
 const router = (0, express_1.Router)();
 function toIsoString(value) {
     return value ? value.toISOString() : null;
@@ -206,7 +207,7 @@ router.post('/', (0, rbac_1.authorize)('leads', 'create'), subscriptionEnforceme
         // After Zod validation, req.body uses snake_case field names
         let agentId = req.body.assigned_agent_id;
         if (!agentId) {
-            agentId = await assignLeadRoundRobin(companyId);
+            agentId = await (0, leadAssignment_service_1.assignLeadRoundRobin)(companyId);
         }
         const lead = await prisma_1.default.lead.create({
             data: {
@@ -433,7 +434,7 @@ router.post('/import/csv', (0, rbac_1.authorize)('leads', 'create'), (0, audit_1
                     status: 'new',
                 };
                 // Auto-assign agent using round-robin
-                const assignedAgentId = await assignLeadRoundRobin(companyId);
+                const assignedAgentId = await (0, leadAssignment_service_1.assignLeadRoundRobin)(companyId);
                 if (assignedAgentId) {
                     leadData.assignedAgentId = assignedAgentId;
                 }
@@ -545,39 +546,5 @@ router.get('/export/csv', (0, rbac_1.authorize)('leads', 'read'), rateLimiter_1.
         res.status(500).json({ error: 'Failed to export leads' });
     }
 });
-/**
- * Round-robin agent assignment
- */
-async function assignLeadRoundRobin(companyId) {
-    // Get all active sales agents for this company
-    const agents = await prisma_1.default.user.findMany({
-        where: { companyId, role: 'sales_agent', status: 'active' },
-        select: { id: true },
-    });
-    if (agents.length === 0)
-        return null;
-    // Count active leads per agent
-    const leadCounts = await prisma_1.default.lead.groupBy({
-        by: ['assignedAgentId'],
-        where: {
-            companyId,
-            status: { notIn: ['closed_won', 'closed_lost'] },
-            assignedAgentId: { in: agents.map((a) => a.id) },
-        },
-        _count: { id: true },
-    });
-    const countMap = new Map(leadCounts.map((l) => [l.assignedAgentId, l._count.id]));
-    // Find agent with least leads
-    let minAgent = agents[0].id;
-    let minCount = countMap.get(agents[0].id) || 0;
-    for (const agent of agents) {
-        const count = countMap.get(agent.id) || 0;
-        if (count < minCount) {
-            minCount = count;
-            minAgent = agent.id;
-        }
-    }
-    return minAgent;
-}
 exports.default = router;
 //# sourceMappingURL=lead.routes.js.map

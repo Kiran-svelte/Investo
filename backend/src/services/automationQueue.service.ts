@@ -7,6 +7,10 @@ export type AutomationJobType =
   | 'visit_agent_notification_15m'
   | 'lead_follow_up_48h'
   | 'lead_follow_up_7d'
+  | 'lead_nurture_3d'
+  | 'lead_nurture_7d'
+  | 'lead_nurture_30d'
+  | 'visit_post_follow_up'
   | 'conversation_timeout_24h';
 
 export interface AutomationJobPayload {

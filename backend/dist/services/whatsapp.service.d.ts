@@ -6,6 +6,10 @@ interface IncomingMessage {
     customerName: string;
     messageText: string;
     messageId: string;
+    /** Optional webhook auth token, used to disambiguate duplicated GreenAPI instance mappings. */
+    webhookTokenHint?: string;
+    /** Optional company id hint from tenant-scoped webhook URL. */
+    companyIdHint?: string;
     /** Button/List item ID for interactive responses */
     interactiveId?: string;
     /** Type of interactive response */
@@ -40,7 +44,7 @@ export declare class WhatsAppService {
      * Get company by WhatsApp phone number ID.
      * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
      */
-    getCompanyByPhoneNumberId(phoneNumberId: string, providerHint?: 'meta' | 'greenapi', webhookTokenHint?: string): Promise<{
+    getCompanyByPhoneNumberId(phoneNumberId: string, providerHint?: 'meta' | 'greenapi', companyIdHint?: string, webhookTokenHint?: string, customerPhoneHint?: string): Promise<{
         company: any;
         config: CompanyWhatsAppConfig | null;
     } | null>;
@@ -213,6 +217,7 @@ export declare class WhatsAppService {
      * - AI is in 'commitment' or 'visit_booking' stages (deepening engagement)
      * - Recommended properties exist and have media
      */
+    private getRecommendedPropertyIds;
     private shouldSendPropertyMedia;
     /**
      * CHUNK 5: Send property media (images, brochure, floor plans, location)

@@ -45,8 +45,9 @@ const deduplication_service_1 = require("../services/deduplication.service");
 const whatsapp_service_1 = require("../services/whatsapp.service");
 const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
 const router = (0, express_1.Router)();
-router.post('/', express_1.default.json({ limit: '1mb' }), async (req, res) => {
+router.post('/:companyId?', express_1.default.json({ limit: '1mb' }), async (req, res) => {
     const providedToken = extractAuthorizationToken(req.headers.authorization);
+    const companyIdHint = typeof req.params.companyId === 'string' ? req.params.companyId.trim() : '';
     // Removed production restriction for GreenAPI
     if (!providedToken) {
         res.status(401).json({ error: 'unauthorized' });
@@ -68,7 +69,7 @@ router.post('/', express_1.default.json({ limit: '1mb' }), async (req, res) => {
             return;
         }
         const [instanceId] = Array.from(instanceIds);
-        const companyResult = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(instanceId, 'greenapi', providedToken);
+        const companyResult = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(instanceId, 'greenapi', companyIdHint, providedToken);
         if (!companyResult) {
             res.status(404).json({ error: 'company_not_found', code: 'greenapi_company_not_found' });
             return;
@@ -103,7 +104,7 @@ router.post('/', express_1.default.json({ limit: '1mb' }), async (req, res) => {
     }
     // Respond quickly; process async to avoid webhook retries.
     res.status(200).json({ status: 'received' });
-    processGreenApiWebhook(req.body)
+    processGreenApiWebhook(req.body, providedToken, companyIdHint)
         .then((summary) => {
         logger_1.default.info('GreenAPI webhook processing summary', { summary: redactGreenApiSummaryForLogs(summary) });
     })
@@ -232,7 +233,7 @@ function extractIncomingTextNotifications(body) {
     }
     return extracted;
 }
-async function processGreenApiWebhook(body) {
+async function processGreenApiWebhook(body, webhookTokenHint, companyIdHint) {
     const summary = {
         totalNotifications: Array.isArray(body) ? body.length : 1,
         totalMessages: 0,
@@ -296,6 +297,8 @@ async function processGreenApiWebhook(body) {
             const result = await whatsapp_service_1.whatsappService.handleIncomingMessage({
                 provider: 'greenapi',
                 phoneNumberId,
+                webhookTokenHint,
+                companyIdHint,
                 customerPhone: msg.customerPhone,
                 customerName: msg.customerName,
                 messageText: msg.messageText,

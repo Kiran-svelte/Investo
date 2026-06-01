@@ -26,8 +26,10 @@ function startPropertyImportWorkerIfNeeded(): void {
 
 async function start() {
   try {
-    if (!config.db.neonPoolerConfigured) {
-      logger.warn('DATABASE_URL is not using a Neon pooler host. Use a -pooler connection string for high concurrency.');
+    if (config.db.supabasePoolerConfigured) {
+      logger.info('Database pooler: Supabase transaction mode (port 6543)');
+    } else if (!config.db.neonPoolerConfigured) {
+      logger.warn('DATABASE_URL is not using a pooled connection string. Use Supabase pooler (6543) or Neon -pooler for high concurrency.');
     }
 
     let dbConnectedAtStartup = false;
@@ -35,7 +37,7 @@ async function start() {
     // Test database connection via Prisma, but do not hard-fail local dev startup.
     try {
       await prisma.$queryRaw`SELECT 1`;
-      logger.info('Database connected (Prisma → Neon PostgreSQL)');
+      logger.info('Database connected (Prisma → PostgreSQL)');
       dbConnectedAtStartup = true;
 
       await bootstrapDatabase({

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const lead_routes_1 = require("../../routes/lead.routes");
 const property_routes_1 = require("../../routes/property.routes");
+const visit_routes_1 = require("../../routes/visit.routes");
 describe('route DTO mappers', () => {
     it('maps lead fields to snake_case including date fields', () => {
         const now = new Date('2026-04-08T10:00:00.000Z');
@@ -126,6 +127,32 @@ describe('route DTO mappers', () => {
         const dto = (0, property_routes_1.mapPropertyToSnakeCaseDTO)(property);
         expect(dto.latitude).toBe(0);
         expect(dto.longitude).toBe(0);
+    });
+    it('maps visit fields to snake_case for calendar API', () => {
+        const scheduledAt = new Date('2026-04-10T10:00:00.000Z');
+        const createdAt = new Date('2026-04-08T10:00:00.000Z');
+        const dto = (0, visit_routes_1.mapVisitToSnakeCaseDTO)({
+            id: 'visit-1',
+            companyId: 'co-1',
+            leadId: 'lead-1',
+            propertyId: 'prop-1',
+            agentId: 'agent-1',
+            scheduledAt,
+            durationMinutes: 60,
+            status: 'scheduled',
+            notes: null,
+            reminderSent: false,
+            createdAt,
+            updatedAt: createdAt,
+            lead: { customerName: 'Rahul', phone: '+919999999999' },
+            property: { name: 'Green Acres', locationArea: 'Whitefield' },
+            agent: { name: 'Agent A' },
+        });
+        expect(dto.scheduled_at).toBe('2026-04-10T10:00:00.000Z');
+        expect(dto.lead_id).toBe('lead-1');
+        expect(dto.customer_name).toBe('Rahul');
+        expect(dto.property_name).toBe('Green Acres');
+        expect(dto.agent_name).toBe('Agent A');
     });
 });
 //# sourceMappingURL=route-dto-mappers.test.js.map

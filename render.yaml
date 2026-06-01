@@ -16,8 +16,14 @@ services:
         sync: false
       - key: DIRECT_URL
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PROJECT_REF
+        sync: false
       - key: NEON_AUTH_URL
         value: https://ep-silent-cell-amwzz7s3.neonauth.c-5.us-east-1.aws.neon.tech/neondb/auth
+      - key: NEON_KEEPALIVE_ENABLED
+        value: false
       - key: UPSTASH_REDIS_REST_URL
         value: https://usw1-selected-corgi-34285.upstash.io
       - key: UPSTASH_REDIS_REST_TOKEN
@@ -99,8 +105,14 @@ services:
         sync: false
       - key: DIRECT_URL
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PROJECT_REF
+        sync: false
       - key: NEON_AUTH_URL
         value: https://ep-silent-cell-amwzz7s3.neonauth.c-5.us-east-1.aws.neon.tech/neondb/auth
+      - key: NEON_KEEPALIVE_ENABLED
+        value: false
       - key: UPSTASH_REDIS_REST_URL
         value: https://usw1-selected-corgi-34285.upstash.io
       - key: UPSTASH_REDIS_REST_TOKEN

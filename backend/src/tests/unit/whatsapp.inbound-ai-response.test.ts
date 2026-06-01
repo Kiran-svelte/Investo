@@ -61,6 +61,16 @@ jest.mock('../../services/ai.service', () => ({
   },
 }));
 
+jest.mock('../../services/conversionEngine.service', () => ({
+  __esModule: true,
+  buildConversionContext: jest.fn().mockResolvedValue({
+    exactPropertyIds: [],
+    alternativePropertyIds: [],
+    promptBlock: '',
+    emiSnippet: null,
+  }),
+}));
+
 jest.mock('../../services/socket.service', () => ({
   __esModule: true,
   socketService: {
@@ -174,14 +184,16 @@ describe('WhatsAppService AI response processing', () => {
       messageId: 'msg-1',
     });
 
-    expect(mockPrisma.lead.update).toHaveBeenCalledWith({
-      where: { id: 'lead-1' },
-      data: expect.objectContaining({
-        budgetMax: 5000000,
-        locationPreference: 'Bangalore',
-        propertyType: 'apartment',
+    expect(mockPrisma.lead.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'lead-1' },
+        data: expect.objectContaining({
+          budgetMax: 5000000,
+          locationPreference: 'Bangalore',
+          propertyType: 'apartment',
+        }),
       }),
-    });
+    );
     expect(result.status).toBe('processed');
     expect(service.sendMessage).toHaveBeenCalled();
   });

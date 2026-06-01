@@ -5,8 +5,12 @@
  * These tests verify the WhatsApp service media sending methods work correctly.
  * Note: These are unit tests that mock the fetch API, not integration tests with the real WhatsApp API.
  */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const whatsapp_service_1 = require("../../services/whatsapp.service");
+const prisma_1 = __importDefault(require("../../config/prisma"));
 // Mock fetch globally
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
@@ -31,6 +35,7 @@ jest.mock('../../config', () => ({
 }));
 // Mock prisma (not used in these tests but required by the service)
 jest.mock('../../config/prisma', () => ({
+    __esModule: true,
     default: {
         company: { findMany: jest.fn() },
         lead: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), groupBy: jest.fn() },
@@ -324,6 +329,49 @@ describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
             const result = await whatsappService.sendPropertyBrochure('+919876543210', '', 'Test Property', mockConfig);
             expect(result.success).toBe(false);
             expect(result.error).toBe('No brochure URL provided');
+        });
+    });
+    describe('property media set after shortlist', () => {
+        it('falls back to text URLs for Green API property media', async () => {
+            const sendMessageSpy = jest.spyOn(whatsappService, 'sendMessage').mockResolvedValue(true);
+            const greenConfig = {
+                provider: 'greenapi',
+                phoneNumberId: '',
+                accessToken: '',
+                verifyToken: '',
+                idInstance: '1100000001',
+                apiTokenInstance: 'token-abc',
+            };
+            await whatsappService.sendPropertyMediaSet('+919876543210', greenConfig, {
+                id: 'prop-1',
+                name: 'Equator View',
+                images: ['https://cdn.example.com/equator.jpg'],
+                brochureUrl: 'https://cdn.example.com/equator.pdf',
+                latitude: 0,
+                longitude: 77.5946,
+                locationArea: 'MG Road',
+                locationCity: 'Bangalore',
+            }, { stage: 'shortlist', messageCount: 1 }, 'conv-1');
+            expect(sendMessageSpy).toHaveBeenCalledWith('+919876543210', expect.stringContaining('https://cdn.example.com/equator.jpg'), greenConfig);
+            expect(sendMessageSpy).toHaveBeenCalledWith('+919876543210', expect.stringContaining('View brochure: https://cdn.example.com/equator.pdf'), greenConfig);
+            expect(sendMessageSpy).toHaveBeenCalledWith('+919876543210', expect.stringContaining('https://www.google.com/maps/search/?api=1&query=0,77.5946'), greenConfig);
+            expect(prisma_1.default.message.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    conversationId: 'conv-1',
+                    content: expect.stringContaining('images, brochure, location'),
+                }),
+            });
+        });
+        it('does not record media as sent when Meta media URLs fail validation', async () => {
+            await whatsappService.sendPropertyMediaSet('+919876543210', mockConfig, {
+                id: 'prop-2',
+                name: 'Bad Media',
+                images: ['http://cdn.example.com/image.jpg'],
+                brochureUrl: 'http://cdn.example.com/brochure.pdf',
+                latitude: null,
+                longitude: null,
+            }, { stage: 'shortlist', messageCount: 1 }, 'conv-2');
+            expect(prisma_1.default.message.create).not.toHaveBeenCalled();
         });
     });
 });

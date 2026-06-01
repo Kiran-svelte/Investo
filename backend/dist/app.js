@@ -16,6 +16,7 @@ const property_routes_1 = __importDefault(require("./routes/property.routes"));
 const visit_routes_1 = __importDefault(require("./routes/visit.routes"));
 const conversation_routes_1 = __importDefault(require("./routes/conversation.routes"));
 const ai_settings_routes_1 = __importDefault(require("./routes/ai-settings.routes"));
+const conversion_settings_routes_1 = __importDefault(require("./routes/conversion-settings.routes"));
 const webhook_routes_1 = __importDefault(require("./routes/webhook.routes"));
 const health_routes_1 = __importDefault(require("./routes/health.routes"));
 const analytics_routes_1 = __importDefault(require("./routes/analytics.routes"));
@@ -32,6 +33,9 @@ const finance_routes_1 = __importDefault(require("./routes/finance.routes"));
 const config_1 = require("./config");
 const greenapi_webhook_routes_1 = __importDefault(require("./routes/greenapi-webhook.routes"));
 const app = (0, express_1.default)();
+// Render/other reverse proxies forward client IP via X-Forwarded-For.
+// express-rate-limit requires trust proxy to be enabled to avoid ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', 1);
 // Security headers
 app.use((0, helmet_1.default)());
 // CORS
@@ -70,6 +74,7 @@ app.use('/api/property-imports', rateLimiter_1.companyRateLimiter, property_impo
 app.use('/api/visits', rateLimiter_1.companyRateLimiter, visit_routes_1.default);
 app.use('/api/conversations', rateLimiter_1.companyRateLimiter, conversation_routes_1.default);
 app.use('/api/ai-settings', rateLimiter_1.companyRateLimiter, ai_settings_routes_1.default);
+app.use('/api/conversion-settings', rateLimiter_1.companyRateLimiter, conversion_settings_routes_1.default);
 app.use('/api/analytics', rateLimiter_1.companyRateLimiter, analytics_routes_1.default);
 app.use('/api/notifications', rateLimiter_1.companyRateLimiter, notification_routes_1.default);
 app.use('/api/subscriptions', rateLimiter_1.companyRateLimiter, subscription_routes_1.default);

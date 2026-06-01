@@ -9,7 +9,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Prisma CLI uses direct/session URL for schema operations.
+    url: process.env["DIRECT_URL"] || process.env["DATABASE_URL"],
     directUrl: process.env["DIRECT_URL"],
   },
 });

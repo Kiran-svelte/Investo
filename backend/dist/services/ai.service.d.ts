@@ -7,6 +7,8 @@ interface AIRequest {
     aiSettings: any;
     companyName: string;
     conversationState?: ConversationState;
+    /** Grounded never-say-no block from conversionEngine.service */
+    conversionPromptBlock?: string;
 }
 interface AIResponse {
     text: string;

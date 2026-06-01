@@ -79,10 +79,23 @@ describe('CHUNK 5: AI Property Media Presentation', () => {
         // Spy on the media sending methods
         mockSendMessage = jest.spyOn(whatsappService, 'sendMessage').mockResolvedValue(undefined);
         mockSendImage = jest.spyOn(whatsappService, 'sendImage').mockResolvedValue(undefined);
-        mockSendDocument = jest.spyOn(whatsappService, 'sendDocument').mockResolvedValue(undefined);
-        mockSendLocation = jest.spyOn(whatsappService, 'sendLocation').mockResolvedValue(undefined);
-        mockSendPropertyImages = jest.spyOn(whatsappService, 'sendPropertyImages').mockResolvedValue(undefined);
-        mockSendPropertyBrochure = jest.spyOn(whatsappService, 'sendPropertyBrochure').mockResolvedValue(undefined);
+        mockSendPropertyImages = jest.spyOn(whatsappService, 'sendPropertyImages').mockResolvedValue({
+            success: true,
+            sent: 3,
+            errors: [],
+        });
+        mockSendPropertyBrochure = jest.spyOn(whatsappService, 'sendPropertyBrochure').mockResolvedValue({
+            success: true,
+            messageId: 'wamid.brochure',
+        });
+        mockSendDocument = jest.spyOn(whatsappService, 'sendDocument').mockResolvedValue({
+            success: true,
+            messageId: 'wamid.doc',
+        });
+        mockSendLocation = jest.spyOn(whatsappService, 'sendLocation').mockResolvedValue({
+            success: true,
+            messageId: 'wamid.loc',
+        });
         prisma_1.default.message.create.mockResolvedValue({});
     });
     afterEach(() => {
