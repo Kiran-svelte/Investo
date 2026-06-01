@@ -443,6 +443,20 @@ export class AutomationService {
 
   private async sendFollowUpMessage(lead: any, reason: string): Promise<void> {
     try {
+      // Guard against spam: only allow one re-engagement per type per 24 hours
+      const isReEngagement = reason.includes('reengage') || reason.includes('urgency');
+      if (isReEngagement && lead.reEngagementSentAt) {
+        const hoursSinceLast =
+          (Date.now() - new Date(lead.reEngagementSentAt).getTime()) / (1000 * 60 * 60);
+        if (hoursSinceLast < 24) {
+          logger.debug('Re-engagement suppressed — too recent', {
+            leadId: lead.id,
+            hoursSinceLast: Math.round(hoursSinceLast),
+          });
+          return;
+        }
+      }
+
       const message = this.nurtureMessage(lead, reason);
 
       if (!lead.phone) {
@@ -475,16 +489,26 @@ export class AutomationService {
 
       if (!sent) {
         logger.warn('Follow-up WhatsApp send failed', { leadId: lead.id, reason });
+        const { tryCrossChannelFollowUp } = await import('./crossChannelFollowUp.service');
+        await tryCrossChannelFollowUp(lead.id, reason, message);
         return;
       }
 
-      // Update last contact
+      // Update last contact and re-engagement tracking
       await prisma.lead.update({
         where: { id: lead.id },
-        data: { lastContactAt: new Date() },
+        data: {
+          lastContactAt: new Date(),
+          ...(isReEngagement
+            ? {
+                reEngagementSentAt: new Date(),
+                reEngagementCount: { increment: 1 },
+              }
+            : {}),
+        },
       });
 
-      logger.info('Follow-up message sent', { leadId: lead.id, reason });
+      logger.info('Follow-up message sent', { leadId: lead.id, reason, isReEngagement });
     } catch (err: any) {
       logger.error('Failed to send follow-up', { leadId: lead.id, error: err.message });
     }

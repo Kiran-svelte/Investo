@@ -2,16 +2,94 @@ import { Router, Request, Response } from 'express';
 import { authService } from '../services/auth.service';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { loginSchema } from '../models/validation';
+import { loginSchema, selfServiceSignupSchema } from '../models/validation';
 import logger from '../config/logger';
 import prisma from '../config/prisma';
 import config from '../config';
+import { registerSelfServiceTenant } from '../services/selfServiceSignup.service';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { normalizeAuthEmail } from '../services/auth.service';
 import { emailService } from '../services/email.service';
 
+
 const router = Router();
+
+/**
+ * GET /api/auth/signup-enabled
+ * Public flag for the signup page.
+ */
+router.get('/signup-enabled', (_req: Request, res: Response) => {
+  res.json({
+    data: {
+      enabled: config.selfService.signupEnabled,
+    },
+  });
+});
+
+/**
+ * POST /api/auth/signup
+ * Self-service agency registration (company + company_admin).
+ */
+router.post('/signup', validate(selfServiceSignupSchema), async (req: Request, res: Response) => {
+  if (!config.selfService.signupEnabled) {
+    res.status(403).json({ message: 'Self-service signup is not enabled on this environment' });
+    return;
+  }
+
+  try {
+    const { company_name, admin_name, email, password, whatsapp_phone } = req.body;
+    const result = await registerSelfServiceTenant({
+      companyName: company_name,
+      adminName: admin_name,
+      email,
+      password,
+      whatsappPhone: whatsapp_phone,
+    });
+
+    const tokens = await authService.login(normalizeAuthEmail(email), password);
+    const user = await prisma.user.findFirst({
+      where: { email: normalizeAuthEmail(email), status: 'active' },
+      select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Account created successfully',
+      data: {
+        company: { id: result.companyId, slug: result.slug },
+        user: {
+          id: user!.id,
+          company_id: user!.companyId,
+          email: user!.email,
+          role: user!.role,
+          name: user!.name,
+          must_change_password: user!.mustChangePassword,
+        },
+        tokens: {
+          access_token: tokens.accessToken,
+          refresh_token: tokens.refreshToken,
+        },
+      },
+    });
+  } catch (err: any) {
+    const message = String(err?.message || '');
+    if (message === 'Email already registered') {
+      res.status(409).json({ message });
+      return;
+    }
+    if (message.includes('WhatsApp number already in use') || message.includes('E.164')) {
+      res.status(400).json({ message });
+      return;
+    }
+    if (isDatabaseConnectivityError(err)) {
+      res.status(503).json({ message: 'Registration temporarily unavailable. Please try again shortly.' });
+      return;
+    }
+    logger.error('Self-service signup failed', { error: message });
+    res.status(500).json({ message: 'Failed to create account' });
+  }
+});
 
 function isDatabaseConnectivityError(err: any): boolean {
   const message = String(err?.message || '').toLowerCase();

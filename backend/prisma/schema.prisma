@@ -169,6 +169,10 @@ model Lead {
   createdAt           DateTime     @default(now()) @map("created_at")
   updatedAt           DateTime     @updatedAt @map("updated_at")
   lastContactAt       DateTime?    @map("last_contact_at")
+  /// Tracks last time an automated re-engagement message was sent (to prevent spam)
+  reEngagementSentAt  DateTime?    @map("re_engagement_sent_at")
+  /// Number of re-engagement messages sent to this lead
+  reEngagementCount   Int          @default(0) @map("re_engagement_count")
 
   company         Company       @relation(fields: [companyId], references: [id])
   assignedAgent   User?         @relation("AgentLeads", fields: [assignedAgentId], references: [id])
@@ -178,6 +182,7 @@ model Lead {
   @@index([companyId, status])
   @@index([companyId, assignedAgentId])
   @@index([phone])
+  @@index([companyId, lastContactAt])
   @@map("leads")
 }
 
@@ -436,6 +441,27 @@ model AiSetting {
   persuasionLevel     Int          @default(7) @map("persuasion_level")
   autoDetectLanguage  Boolean      @default(true) @map("auto_detect_language")
   defaultLanguage     String       @default("en") @map("default_language") @db.VarChar(5)
+
+  // ─── Never-Say-No Company Brain ────────────────────────────────────
+  /// Business model: residential_sale | rental | mixed | commercial | fractional
+  businessType        String       @default("mixed") @map("business_type") @db.VarChar(50)
+  /// JSON: partner company IDs within Investo (for cross-referral)
+  partnerCompanyIds   Json         @default("[]") @map("partner_company_ids")
+  /// JSON: current special offers/schemes injected into AI prompt
+  specialOffers       Json         @default("[]") @map("special_offers")
+  /// JSON: custom fallback rules e.g. [{"trigger":"no_inventory","action":"offer_fractional"}]
+  conversionRules     Json         @default("[]") @map("conversion_rules")
+  /// Weeks until next inventory launch (used for pre-launch waitlist offer)
+  launchWeeksFromNow  Int?         @map("launch_weeks_from_now")
+  /// Human escalation contact (name + phone shown to AI when escalating)
+  operatorContact     Json         @default("{}") @map("operator_contact")
+  /// Whether to offer fractional ownership when budget is below threshold
+  offerFractional     Boolean      @default(true) @map("offer_fractional")
+  /// Whether to offer rent-to-own when rental company gets buy request
+  offerRentToOwn      Boolean      @default(true) @map("offer_rent_to_own")
+  /// Budget stretch percentage (default 15%)
+  budgetStretchPct    Int          @default(15) @map("budget_stretch_pct")
+
   createdAt           DateTime     @default(now()) @map("created_at")
   updatedAt           DateTime     @updatedAt @map("updated_at")
 

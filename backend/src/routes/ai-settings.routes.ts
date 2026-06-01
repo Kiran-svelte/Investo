@@ -12,6 +12,31 @@ import logger from '../config/logger';
 
 const router = Router();
 
+async function markWhatsAppVerified(companyId: string): Promise<void> {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { settings: true },
+  });
+  if (!company) {
+    return;
+  }
+
+  const settings = (company.settings && typeof company.settings === 'object')
+    ? { ...(company.settings as Record<string, unknown>) }
+    : {};
+  const whatsapp = (settings.whatsapp && typeof settings.whatsapp === 'object')
+    ? { ...(settings.whatsapp as Record<string, unknown>) }
+    : {};
+
+  whatsapp.verifiedAt = new Date().toISOString();
+  settings.whatsapp = whatsapp;
+
+  await prisma.company.update({
+    where: { id: companyId },
+    data: { settings: settings as Parameters<typeof prisma.company.update>[0]['data']['settings'] },
+  });
+}
+
 router.use(authenticate);
 router.use(tenantIsolation);
 router.use(requireFeature('ai_bot'));
@@ -102,6 +127,7 @@ router.post(
   authorize('ai_settings', 'update'),
   async (req: AuthRequest, res: Response) => {
     try {
+      const companyId = getCompanyId(req);
       const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';
 
       if (provider === 'greenapi') {
@@ -134,11 +160,12 @@ router.post(
           apiTokenInstance,
         });
 
-        if (result.success) {
-          res.json({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
-        } else {
-          res.status(400).json({ success: false, provider: 'greenapi', error: result.error });
-        }
+      if (result.success) {
+        await markWhatsAppVerified(companyId);
+        res.json({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
+      } else {
+        res.status(400).json({ success: false, provider: 'greenapi', error: result.error });
+      }
 
         return;
       }
@@ -159,6 +186,7 @@ router.post(
       });
 
       if (result.success) {
+        await markWhatsAppVerified(companyId);
         res.json({ success: true, provider: 'meta', message: 'WhatsApp connection successful' });
       } else {
         res.status(400).json({ success: false, provider: 'meta', error: result.error });

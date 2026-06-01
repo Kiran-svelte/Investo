@@ -4,7 +4,9 @@ import logger from '../config/logger';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { aiService } from './ai.service';
 import { calculateEmi } from './emi.service';
-import { buildConversionContext } from './conversionEngine.service';
+import { buildNeverSayNoContext } from './neverSayNoEngine.service';
+import { criteriaFromLead } from './alternativeInventory.service';
+
 import {
   parseVisitTimeInteractiveId,
   resolveVisitSlotToDate,
@@ -75,20 +77,9 @@ export class WhatsAppService {
   private resolveOutboundProviderName(whatsappConfig?: CompanyWhatsAppConfig | null): 'meta' | 'greenapi' {
     const explicitProvider = whatsappConfig?.provider;
     const requested = explicitProvider || (config as any)?.whatsapp?.provider;
-    const provider = requested === 'greenapi' ? 'greenapi' : 'meta';
-
-    // Keep the ambient default conservative in production, but honor an explicit
-    // company-level Green-API selection so configured tenants can actually use it.
-    if (
-      provider === 'greenapi' &&
-      config.env === 'production' &&
-      !(config as any)?.whatsapp?.allowGreenapiInProd &&
-      explicitProvider !== 'greenapi'
-    ) {
-      return 'meta';
-    }
-
-    return provider;
+    // Always respect the explicit company-level provider selection.
+    // The production restriction has been removed — GreenAPI is fully supported.
+    return requested === 'greenapi' ? 'greenapi' : 'meta';
   }
 
   private getOutboundProvider(providerName: 'meta' | 'greenapi'): WhatsAppOutboundProvider {
@@ -749,14 +740,21 @@ export class WhatsAppService {
           take: 30,
         });
 
-        const conversion = await buildConversionContext(lead);
+        const neverSayNoCtx = await buildNeverSayNoContext(companyId, criteriaFromLead(lead), {
+          customerMessage: msg.messageText,
+          customerName: lead.customerName,
+          language: lead.language,
+        });
         const propertyIdSet = [
-          ...new Set([...conversion.exactPropertyIds, ...conversion.alternativePropertyIds]),
+          ...new Set([
+            ...neverSayNoCtx.exactPropertyIds,
+            ...neverSayNoCtx.alternativePropertyIds,
+          ]),
         ];
         const properties =
           propertyIdSet.length > 0
             ? await prisma.property.findMany({
-                where: { companyId, status: 'available', id: { in: propertyIdSet } },
+                where: { companyId, id: { in: propertyIdSet } },
               })
             : await prisma.property.findMany({
                 where: { companyId, status: 'available' },
@@ -771,7 +769,9 @@ export class WhatsAppService {
           aiSettings: aiSettings || {},
           companyName: company.name,
           conversationState,
-          conversionPromptBlock: conversion.promptBlock,
+          conversionPromptBlock: neverSayNoCtx.promptBlock,
+          neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
+          neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
         });
 
         logger.info('AI response generated', {
