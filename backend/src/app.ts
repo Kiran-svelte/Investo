@@ -15,6 +15,7 @@ import aiSettingsRoutes from './routes/ai-settings.routes';
 import conversionSettingsRoutes from './routes/conversion-settings.routes';
 import webhookRoutes from './routes/webhook.routes';
 import healthRoutes from './routes/health.routes';
+import readinessRoutes from './routes/readiness.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import notificationRoutes from './routes/notification.routes';
 import subscriptionRoutes from './routes/subscription.routes';
@@ -55,6 +56,7 @@ app.use(
 
 // Health check (no auth required)
 app.use('/api/health', healthRoutes);
+app.use('/api/readiness', readinessRoutes);
 
 // Webhook routes (no rate limiting - verified by signature)
 // IMPORTANT: This must run before global JSON parsing so we can verify signatures against raw request bytes.
