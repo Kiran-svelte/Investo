@@ -6,6 +6,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { ROLES, normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
 import { authService, normalizeAuthEmail } from '../services/auth.service';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 
 const router = Router();
 
@@ -18,7 +19,7 @@ const DEFAULT_FEATURES = [
   'property_management', 'audit_logs', 'csv_export',
 ];
 const SYSTEM_ROLES = new Set<string>(ROLES as readonly string[]);
-const ONBOARDING_MUTATION_ROLES = ['company_admin', 'super_admin'] as const;
+const ONBOARDING_MUTATION_ROLES = ['company_admin'] as const;
 const ALLOWED_DEFAULT_ONBOARDING_ROLES = new Set<string>(['sales_agent', 'operations', 'viewer']);
 const ALLOWED_PERMISSION_ACTIONS = new Set<string>(['create', 'read', 'update', 'delete']);
 const ALLOWED_PERMISSION_RESOURCES = new Set<string>([
@@ -296,6 +297,7 @@ router.post(
   '/setup',
   hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const company = await updateCompanySetup(companyId, req.body);
@@ -320,6 +322,7 @@ router.put(
   '/setup',
   hasRole(...ONBOARDING_MUTATION_ROLES),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const company = await updateCompanySetup(companyId, req.body);
@@ -342,6 +345,7 @@ router.put(
 router.get(
   '/setup',
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const company = await prisma.company.findUnique({

@@ -179,10 +179,6 @@ router.post(
         companyId = getCompanyId(req);
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',location:'user.routes.ts:create',message:'create user company resolved',data:{actorRole:req.user?.role,companyId,usedTarget:Boolean(req.user?.role==='super_admin'&&resolvedTargetCompanyId),role},timestamp:Date.now(),hypothesisId:'H-user-company'})}).catch(()=>{});
-      // #endregion
-
       // Company admin cannot create super_admin role
       if (req.user!.role === 'company_admin' && role === 'super_admin') {
         res.status(403).json({ error: 'Cannot create super admin users' });

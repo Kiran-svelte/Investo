@@ -15,9 +15,11 @@ Step-by-step flows for production. Navigation rules: `docs/ROLE_NAVIGATION.md`.
 | 3 | System seeds tenant | Features, roles, AI stub, onboarding step 0 (automatic) |
 | 4 | Invite company admin | Companies row → **person+** icon → name, email, temp password |
 | 5 | Hand off credentials | Send admin email + password securely (not via chat) |
-| 6 | Optional | Audit logs, **Settings** (account only — password; no tenant feature toggles) |
+| 6 | Optional | Audit logs, **Settings** (account only — change password; **no** Company Profile / Roles / Feature Toggles) |
 
-**Do not:** Upload properties, message as buyer, or use Leads/Agents (not in sidebar).
+**Settings UI:** Account card + change-password link only. Backend returns 403 on `/api/features` for super_admin.
+
+**Do not:** Upload properties, message as buyer, or use Leads/Agents (not in sidebar). Do not use `/onboarding` (company_admin only).
 
 ---
 
@@ -38,6 +40,7 @@ Step-by-step flows for production. Navigation rules: `docs/ROLE_NAVIGATION.md`.
 | 9 | AI settings | WhatsApp Cloud / GreenAPI credentials |
 | 10 | Agents | Add sales_agent / operations |
 | 11 | Day-to-day | Leads, conversations, calendar, analytics, billing |
+| 12 | Settings | Company profile, **Conversion**, roles, feature toggles (full tenant settings) |
 
 **Gate:** Incomplete property catalog can block other APIs until listings are complete (`423`); finish import on Properties.
 
@@ -88,20 +91,56 @@ See `docs/ZERO_UI_BUYER.md`.
 
 ---
 
+## Settings tabs by role
+
+| Tab | super_admin | company_admin | sales_agent / operations / viewer |
+|-----|-------------|---------------|----------------------------------|
+| Company profile | — | ✓ | — |
+| Conversion | — | ✓ | — |
+| Roles management | — | ✓ | — |
+| Feature toggles | — | ✓ | — |
+| Account / password | ✓ | ✓ (via same page when no tenant tabs) | ✓ (account only) |
+
+Feature keys (company_admin): `ai_bot`, `analytics`, `visit_scheduling`, `notifications`, `agent_management`, `conversation_center`, `lead_automation`, `property_management`, `audit_logs`, `csv_export`. Disabled toggles hide matching sidebar routes (except super_admin nav).
+
+---
+
 ## Defaults & selections
 
 | Area | Default |
 |------|---------|
-| New company plan | First subscription plan if none selected |
-| New company features | All core modules enabled |
+| New company plan | Cheapest subscription plan (`priceMonthly` asc) if none selected |
+| New company modal plan | First plan in list when opening **New company** |
+| New company features | All core modules enabled (`companyProvisioning.service`) |
 | Onboarding features UI | All core toggles ON |
-| Invite temp password | `Welcome@123` suggested (company admin invite modal) |
+| Invite temp password | `Welcome@123` suggested (Companies invite + onboarding step 5) |
 | Company admin first login | Forced onboarding until step 6 complete |
+| Operations login home | `/calendar` |
+| Viewer login home | `/leads` |
+| Super admin login home | `/companies` |
 
 ---
 
-## Known fixes in this release
+## Production verification checklist
 
-- Super admin **invite admin** on Companies (body `target_company_id`, not query-only).
-- New companies **provisioned** with features + onboarding record.
+1. **Super admin** — `/settings` shows account only; `/companies` works; `/leads` redirects home; `GET /api/features` returns **403**.
+2. **Company admin** — onboarding → settings toggles persist; nav respects disabled features.
+3. **Sales agent** — cannot open `/agents` or `/ai-settings`; can book visits.
+4. **Health** — `GET /api/health` returns 200 on Render backend.
+5. **30-day readiness** — see `docs/PRODUCTION_READINESS.md`.
+
+---
+
+## “Ready” definition (agency can run 30 days)
+
+Investo is **ready for a pilot agency** when they can: connect WhatsApp, load projects, book visits from buyer chats, and managers see pipeline in one place—without manual DB edits. Detailed criterion map: `docs/PRODUCTION_READINESS.md`.
+
+---
+
+## Implementation notes (this release)
+
+- Super admin **invite admin** on Companies (`target_company_id` in POST body).
+- New companies **provisioned** with features, roles, AI stub, onboarding step 0.
 - Property upload: **company_admin only**; DB-backed browser upload by default.
+- **Tenant settings APIs** return 403 for `super_admin` (features, roles, conversion, onboarding setup).
+- Platform **Settings** UI: account + password only for super admin and non-admin staff.

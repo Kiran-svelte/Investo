@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 
@@ -69,6 +70,7 @@ router.put(
   '/:key',
   authorize('ai_settings', 'update'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { key } = req.params;
@@ -115,6 +117,7 @@ router.put(
   '/',
   authorize('ai_settings', 'update'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { features } = req.body;

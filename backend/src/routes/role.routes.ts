@@ -4,6 +4,7 @@ import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 
 const router = Router();
 
@@ -37,6 +38,7 @@ router.get(
   '/',
   authorize('users', 'read'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const roles = await prisma.companyRole.findMany({
@@ -66,6 +68,7 @@ router.post(
   '/',
   authorize('users', 'create'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { role_name, display_name, permissions } = req.body;
@@ -120,6 +123,7 @@ router.put(
   '/:id',
   authorize('users', 'update'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
@@ -166,6 +170,7 @@ router.delete(
   '/:id',
   authorize('users', 'delete'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;

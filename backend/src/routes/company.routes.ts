@@ -160,10 +160,6 @@ router.post(
 
       await provisionNewCompany(company.id, company.name);
 
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',location:'company.routes.ts:create',message:'company provisioned',data:{companyId:company.id,hasPlan:Boolean(resolvedPlanId)},timestamp:Date.now(),hypothesisId:'H-company-seed'})}).catch(()=>{});
-      // #endregion
-
       res.status(201).json({ data: company, id: company.id });
     } catch (err: any) {
       logger.error('Failed to create company', { error: err.message });

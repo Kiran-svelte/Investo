@@ -394,12 +394,6 @@ const SettingsPage: React.FC = () => {
     ];
   }, [capabilities.canManageTenantSettings, t]);
 
-  useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',location:'SettingsPage.tsx:mount',message:'settings view resolved',data:{role:user?.role,tenantTabs:tabConfig.length,isPlatformAdmin:capabilities.isPlatformAdmin},timestamp:Date.now(),hypothesisId:'H-settings-role'})}).catch(()=>{});
-    // #endregion
-  }, [user?.role, tabConfig.length, capabilities.isPlatformAdmin]);
-
   if (!capabilities.canManageTenantSettings) {
     return (
       <div className="p-4 md:p-6 space-y-6 max-w-xl">

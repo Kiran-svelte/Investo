@@ -6,6 +6,7 @@ import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import logger from '../config/logger';
 import {
   getConversionSettings,
@@ -46,6 +47,7 @@ router.get(
   '/',
   authorize('ai_settings', 'read'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const data = await getConversionSettings(getCompanyId(req));
       res.json({ data });
@@ -62,6 +64,7 @@ router.put(
   validate(conversionSettingsSchema),
   auditLog('update', 'ai_settings'),
   async (req: AuthRequest, res: Response) => {
+    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const body = req.body as z.infer<typeof conversionSettingsSchema>;
       const patch: ConversionSettingsPatch = {};
