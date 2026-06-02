@@ -251,4 +251,3 @@ router.patch('/:id/activate', (0, rbac_1.hasRole)('super_admin'), (0, audit_1.au
     }
 });
 exports.default = router;
-//# sourceMappingURL=company.routes.js.map

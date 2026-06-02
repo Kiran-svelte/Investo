@@ -111,4 +111,3 @@ const cleanupInterval = setInterval(() => {
 }, 5 * 60 * 1000);
 // Do not keep Node process alive solely for this timer (helps tests/shutdown).
 cleanupInterval.unref?.();
-//# sourceMappingURL=rateLimiter.js.map

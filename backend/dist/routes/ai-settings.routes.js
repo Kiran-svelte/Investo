@@ -48,6 +48,27 @@ const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const router = (0, express_1.Router)();
+async function markWhatsAppVerified(companyId) {
+    const company = await prisma_1.default.company.findUnique({
+        where: { id: companyId },
+        select: { settings: true },
+    });
+    if (!company) {
+        return;
+    }
+    const settings = (company.settings && typeof company.settings === 'object')
+        ? { ...company.settings }
+        : {};
+    const whatsapp = (settings.whatsapp && typeof settings.whatsapp === 'object')
+        ? { ...settings.whatsapp }
+        : {};
+    whatsapp.verifiedAt = new Date().toISOString();
+    settings.whatsapp = whatsapp;
+    await prisma_1.default.company.update({
+        where: { id: companyId },
+        data: { settings: settings },
+    });
+}
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
 router.use((0, featureGate_1.requireFeature)('ai_bot'));
@@ -130,6 +151,7 @@ router.put('/', (0, rbac_1.authorize)('ai_settings', 'update'), (0, validate_1.v
  */
 router.post('/whatsapp/test', (0, rbac_1.authorize)('ai_settings', 'update'), async (req, res) => {
     try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
         const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';
         if (provider === 'greenapi') {
             // Removed production restriction for GreenAPI
@@ -155,6 +177,7 @@ router.post('/whatsapp/test', (0, rbac_1.authorize)('ai_settings', 'update'), as
                 apiTokenInstance,
             });
             if (result.success) {
+                await markWhatsAppVerified(companyId);
                 res.json({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
             }
             else {
@@ -175,6 +198,7 @@ router.post('/whatsapp/test', (0, rbac_1.authorize)('ai_settings', 'update'), as
             verifyToken: '',
         });
         if (result.success) {
+            await markWhatsAppVerified(companyId);
             res.json({ success: true, provider: 'meta', message: 'WhatsApp connection successful' });
         }
         else {
@@ -187,4 +211,3 @@ router.post('/whatsapp/test', (0, rbac_1.authorize)('ai_settings', 'update'), as
     }
 });
 exports.default = router;
-//# sourceMappingURL=ai-settings.routes.js.map

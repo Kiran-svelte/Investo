@@ -489,4 +489,3 @@ router.post('/geocode-all', (0, rbac_1.authorize)('properties', 'update'), async
     }
 });
 exports.default = router;
-//# sourceMappingURL=property.routes.js.map

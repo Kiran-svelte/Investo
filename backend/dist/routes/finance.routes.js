@@ -42,4 +42,3 @@ router.post('/calculate-emi', (0, validate_1.validate)(validation_1.calculateEmi
     }
 });
 exports.default = router;
-//# sourceMappingURL=finance.routes.js.map

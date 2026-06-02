@@ -193,4 +193,3 @@ router.post('/drafts/:id/cancel', (0, rbac_1.authorize)('properties', 'update'),
     }
 });
 exports.default = router;
-//# sourceMappingURL=property-import.routes.js.map

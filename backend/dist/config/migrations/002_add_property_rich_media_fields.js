@@ -23,4 +23,3 @@ async function down(knex) {
         t.dropColumn('longitude');
     });
 }
-//# sourceMappingURL=002_add_property_rich_media_fields.js.map

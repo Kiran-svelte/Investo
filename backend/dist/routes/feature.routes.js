@@ -125,4 +125,3 @@ router.put('/', (0, rbac_1.authorize)('ai_settings', 'update'), async (req, res)
     }
 });
 exports.default = router;
-//# sourceMappingURL=feature.routes.js.map

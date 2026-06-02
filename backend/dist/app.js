@@ -19,6 +19,7 @@ const ai_settings_routes_1 = __importDefault(require("./routes/ai-settings.route
 const conversion_settings_routes_1 = __importDefault(require("./routes/conversion-settings.routes"));
 const webhook_routes_1 = __importDefault(require("./routes/webhook.routes"));
 const health_routes_1 = __importDefault(require("./routes/health.routes"));
+const readiness_routes_1 = __importDefault(require("./routes/readiness.routes"));
 const analytics_routes_1 = __importDefault(require("./routes/analytics.routes"));
 const notification_routes_1 = __importDefault(require("./routes/notification.routes"));
 const subscription_routes_1 = __importDefault(require("./routes/subscription.routes"));
@@ -51,6 +52,7 @@ app.use((0, cors_1.default)({
 }));
 // Health check (no auth required)
 app.use('/api/health', health_routes_1.default);
+app.use('/api/readiness', readiness_routes_1.default);
 // Webhook routes (no rate limiting - verified by signature)
 // IMPORTANT: This must run before global JSON parsing so we can verify signatures against raw request bytes.
 app.use('/api/webhook', webhook_routes_1.default);
@@ -94,4 +96,3 @@ app.use((err, _req, res, _next) => {
     res.status(500).json({ error: 'Internal server error' });
 });
 exports.default = app;
-//# sourceMappingURL=app.js.map

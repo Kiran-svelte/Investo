@@ -327,4 +327,3 @@ class AutomationQueueService {
 }
 exports.AutomationQueueService = AutomationQueueService;
 exports.automationQueueService = new AutomationQueueService();
-//# sourceMappingURL=automationQueue.service.js.map

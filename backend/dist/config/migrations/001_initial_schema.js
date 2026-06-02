@@ -207,4 +207,3 @@ async function down(knex) {
         await knex.schema.dropTableIfExists(table);
     }
 }
-//# sourceMappingURL=001_initial_schema.js.map

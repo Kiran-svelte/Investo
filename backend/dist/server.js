@@ -12,14 +12,23 @@ const bootstrapDatabase_1 = require("./config/bootstrapDatabase");
 const automation_service_1 = require("./services/automation.service");
 const propertyImportWorker_service_1 = require("./services/propertyImportWorker.service");
 const socket_service_1 = require("./services/socket.service");
+const cron_scheduler_service_1 = require("./services/agent/cron-scheduler.service");
+const agent_memory_service_1 = require("./services/agent/agent-memory.service");
 let keepAliveTimer = null;
 let automationStarted = false;
+let agentCronStarted = false;
 let propertyImportWorkerStarted = false;
 function startAutomationIfNeeded() {
     if (automationStarted)
         return;
     automation_service_1.automationService.start();
     automationStarted = true;
+}
+function startAgentCronIfNeeded() {
+    if (agentCronStarted || !config_1.default.agentAi?.enabled || !config_1.default.agentAi?.cronEnabled)
+        return;
+    (0, cron_scheduler_service_1.startCronScheduler)();
+    agentCronStarted = true;
 }
 function startPropertyImportWorkerIfNeeded() {
     if (propertyImportWorkerStarted)
@@ -67,6 +76,10 @@ async function start() {
                             logger_1.default.info('Dependencies healthy; starting automation service');
                             startAutomationIfNeeded();
                         }
+                        if (!agentCronStarted) {
+                            logger_1.default.info('Dependencies healthy; starting Agent AI cron scheduler');
+                            startAgentCronIfNeeded();
+                        }
                         if (!propertyImportWorkerStarted) {
                             logger_1.default.info('Dependencies healthy; starting property import worker');
                             startPropertyImportWorkerIfNeeded();
@@ -79,10 +92,12 @@ async function start() {
             }
             if (dbConnectedAtStartup) {
                 startAutomationIfNeeded();
+                startAgentCronIfNeeded();
                 startPropertyImportWorkerIfNeeded();
             }
             else {
                 logger_1.default.warn('Automation service delayed until database connectivity is healthy');
+                logger_1.default.warn('Agent AI cron scheduler delayed until database connectivity is healthy');
                 logger_1.default.warn('Property import worker delayed until database connectivity is healthy');
             }
         });
@@ -102,10 +117,15 @@ process.on('SIGTERM', async () => {
         automation_service_1.automationService.stop();
         automationStarted = false;
     }
+    if (agentCronStarted) {
+        (0, cron_scheduler_service_1.stopCronScheduler)();
+        agentCronStarted = false;
+    }
     if (propertyImportWorkerStarted) {
         propertyImportWorker_service_1.propertyImportWorkerService.stop();
         propertyImportWorkerStarted = false;
     }
+    await (0, agent_memory_service_1.destroyCheckpointer)();
     await prisma_1.default.$disconnect();
     process.exit(0);
 });
@@ -118,12 +138,16 @@ process.on('SIGINT', async () => {
         automation_service_1.automationService.stop();
         automationStarted = false;
     }
+    if (agentCronStarted) {
+        (0, cron_scheduler_service_1.stopCronScheduler)();
+        agentCronStarted = false;
+    }
     if (propertyImportWorkerStarted) {
         propertyImportWorker_service_1.propertyImportWorkerService.stop();
         propertyImportWorkerStarted = false;
     }
+    await (0, agent_memory_service_1.destroyCheckpointer)();
     await prisma_1.default.$disconnect();
     process.exit(0);
 });
 start();
-//# sourceMappingURL=server.js.map

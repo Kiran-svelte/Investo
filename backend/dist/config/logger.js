@@ -27,4 +27,3 @@ logger.on('data', (info) => {
     }
 });
 exports.default = logger;
-//# sourceMappingURL=logger.js.map

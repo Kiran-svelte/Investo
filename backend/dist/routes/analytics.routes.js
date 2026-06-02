@@ -314,4 +314,3 @@ router.get('/trends', (0, rbac_1.authorize)('analytics', 'read'), async (req, re
     }
 });
 exports.default = router;
-//# sourceMappingURL=analytics.routes.js.map

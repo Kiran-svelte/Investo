@@ -331,4 +331,3 @@ router.put('/:id', (0, rbac_1.authorize)('visits', 'update'), (0, audit_1.auditL
     }
 });
 exports.default = router;
-//# sourceMappingURL=visit.routes.js.map

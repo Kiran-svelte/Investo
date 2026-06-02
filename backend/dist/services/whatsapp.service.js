@@ -10,9 +10,10 @@ const logger_1 = __importDefault(require("../config/logger"));
 const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
 const ai_service_1 = require("./ai.service");
 const emi_service_1 = require("./emi.service");
-const conversionEngine_service_1 = require("./conversionEngine.service");
-const visitBooking_service_1 = require("./visitBooking.service");
+const neverSayNoEngine_service_1 = require("./neverSayNoEngine.service");
 const alternativeInventory_service_1 = require("./alternativeInventory.service");
+const visitBooking_service_1 = require("./visitBooking.service");
+const alternativeInventory_service_2 = require("./alternativeInventory.service");
 const leadTransition_service_1 = require("./leadTransition.service");
 const socket_service_1 = require("./socket.service");
 const providers_1 = require("./whatsapp/providers");
@@ -24,16 +25,9 @@ class WhatsAppService {
     resolveOutboundProviderName(whatsappConfig) {
         const explicitProvider = whatsappConfig?.provider;
         const requested = explicitProvider || config_1.default?.whatsapp?.provider;
-        const provider = requested === 'greenapi' ? 'greenapi' : 'meta';
-        // Keep the ambient default conservative in production, but honor an explicit
-        // company-level Green-API selection so configured tenants can actually use it.
-        if (provider === 'greenapi' &&
-            config_1.default.env === 'production' &&
-            !config_1.default?.whatsapp?.allowGreenapiInProd &&
-            explicitProvider !== 'greenapi') {
-            return 'meta';
-        }
-        return provider;
+        // Always respect the explicit company-level provider selection.
+        // The production restriction has been removed — GreenAPI is fully supported.
+        return requested === 'greenapi' ? 'greenapi' : 'meta';
     }
     getOutboundProvider(providerName) {
         const cached = this.outboundProviders[providerName];
@@ -581,13 +575,20 @@ class WhatsAppService {
                     orderBy: { createdAt: 'asc' },
                     take: 30,
                 });
-                const conversion = await (0, conversionEngine_service_1.buildConversionContext)(lead);
+                const neverSayNoCtx = await (0, neverSayNoEngine_service_1.buildNeverSayNoContext)(companyId, (0, alternativeInventory_service_1.criteriaFromLead)(lead), {
+                    customerMessage: msg.messageText,
+                    customerName: lead.customerName,
+                    language: lead.language,
+                });
                 const propertyIdSet = [
-                    ...new Set([...conversion.exactPropertyIds, ...conversion.alternativePropertyIds]),
+                    ...new Set([
+                        ...neverSayNoCtx.exactPropertyIds,
+                        ...neverSayNoCtx.alternativePropertyIds,
+                    ]),
                 ];
                 const properties = propertyIdSet.length > 0
                     ? await prisma_1.default.property.findMany({
-                        where: { companyId, status: 'available', id: { in: propertyIdSet } },
+                        where: { companyId, id: { in: propertyIdSet } },
                     })
                     : await prisma_1.default.property.findMany({
                         where: { companyId, status: 'available' },
@@ -601,7 +602,9 @@ class WhatsAppService {
                     aiSettings: aiSettings || {},
                     companyName: company.name,
                     conversationState,
-                    conversionPromptBlock: conversion.promptBlock,
+                    conversionPromptBlock: neverSayNoCtx.promptBlock,
+                    neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
+                    neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
                 });
                 logger_1.default.info('AI response generated', {
                     conversationId: conversation.id,
@@ -767,6 +770,39 @@ class WhatsAppService {
             });
             return { status: 'failed', reason: 'socket_emit_exception' };
         }
+    }
+    async sendCompanyTextMessage(to, text, companyId) {
+        const company = await prisma_1.default.company.findUnique({
+            where: { id: companyId },
+            select: { settings: true },
+        });
+        const normalizeStringLike = (value) => {
+            if (typeof value === 'string')
+                return value.trim();
+            if (typeof value === 'number' && Number.isFinite(value))
+                return String(value);
+            return '';
+        };
+        const settings = company?.settings || {};
+        const whatsapp = settings.whatsapp || {};
+        const meta = whatsapp.meta || {};
+        const greenapi = whatsapp.greenapi || {};
+        const provider = normalizeStringLike(whatsapp.provider);
+        const whatsappConfig = {
+            provider: provider || undefined,
+            phoneNumberId: normalizeStringLike(meta.phoneNumberId) ||
+                normalizeStringLike(whatsapp.phoneNumberId) ||
+                config_1.default.whatsapp.phoneNumberId,
+            accessToken: normalizeStringLike(meta.accessToken) ||
+                normalizeStringLike(whatsapp.accessToken) ||
+                config_1.default.whatsapp.accessToken,
+            verifyToken: normalizeStringLike(meta.verifyToken) ||
+                normalizeStringLike(whatsapp.verifyToken) ||
+                config_1.default.whatsapp.verifyToken,
+            idInstance: normalizeStringLike(greenapi.idInstance),
+            apiTokenInstance: normalizeStringLike(greenapi.apiTokenInstance),
+        };
+        return this.sendMessage(to, text, whatsappConfig);
     }
     /**
      * Send a message via WhatsApp Cloud API.
@@ -1584,7 +1620,7 @@ class WhatsAppService {
                     orderBy: { createdAt: 'desc' },
                 });
                 if (properties.length === 0) {
-                    const tiers = await (0, alternativeInventory_service_1.searchAlternativeTiers)({
+                    const tiers = await (0, alternativeInventory_service_2.searchAlternativeTiers)({
                         companyId: company.id,
                         bedrooms: filter.bedrooms,
                         propertyType: filter.propertyType,
@@ -2135,4 +2171,3 @@ function normalizeLeadPropertyType(value) {
     return null;
 }
 exports.whatsappService = new WhatsAppService();
-//# sourceMappingURL=whatsapp.service.js.map

@@ -387,4 +387,3 @@ router.post('/:id/messages', (0, rbac_1.authorize)('conversations', 'read'), sen
 // Backward-compatible alias for older clients.
 router.post('/:id/message', (0, rbac_1.authorize)('conversations', 'read'), sendConversationMessageHandler);
 exports.default = router;
-//# sourceMappingURL=conversation.routes.js.map

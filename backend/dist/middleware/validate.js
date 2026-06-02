@@ -28,4 +28,3 @@ function validate(schema) {
         }
     };
 }
-//# sourceMappingURL=validate.js.map

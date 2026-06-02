@@ -209,4 +209,3 @@ function isPropertyImportReviewApproved(draftData) {
 function hasPropertyImportMappingMetadata(draftData) {
     return Boolean(normalizePropertyImportMappingProfile(draftData?.import_mapping ?? draftData?.importMapping));
 }
-//# sourceMappingURL=propertyImport.metadata.js.map

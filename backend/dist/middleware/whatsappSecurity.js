@@ -187,4 +187,3 @@ function isMetaIp(ip) {
 function getMetaIpRanges() {
     return [...META_IP_RANGES];
 }
-//# sourceMappingURL=whatsappSecurity.js.map

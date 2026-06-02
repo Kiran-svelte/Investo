@@ -197,4 +197,3 @@ router.post('/select-plan', (0, rbac_1.hasRole)('super_admin', 'company_admin'),
     }
 });
 exports.default = router;
-//# sourceMappingURL=subscription.routes.js.map

@@ -174,4 +174,3 @@ router.delete('/:id', (0, rbac_1.authorize)('users', 'delete'), async (req, res)
     }
 });
 exports.default = router;
-//# sourceMappingURL=role.routes.js.map

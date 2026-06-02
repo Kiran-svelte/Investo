@@ -142,4 +142,3 @@ function hasRole(...roles) {
         next();
     };
 }
-//# sourceMappingURL=rbac.js.map

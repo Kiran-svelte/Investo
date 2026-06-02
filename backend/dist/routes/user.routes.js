@@ -294,4 +294,3 @@ router.patch('/:id/deactivate', (0, rbac_1.authorize)('users', 'delete'), (0, au
     }
 });
 exports.default = router;
-//# sourceMappingURL=user.routes.js.map

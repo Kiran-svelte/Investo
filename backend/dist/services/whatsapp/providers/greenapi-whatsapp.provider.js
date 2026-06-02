@@ -64,4 +64,3 @@ function normalizePhoneToChatId(input) {
     }
     return `${digits}@c.us`;
 }
-//# sourceMappingURL=greenapi-whatsapp.provider.js.map

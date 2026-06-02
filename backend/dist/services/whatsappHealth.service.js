@@ -364,4 +364,3 @@ exports.checkWhatsAppConnection = checkWhatsAppConnection;
  */
 const getWhatsAppHealth = () => exports.whatsappHealthService.getHealthStatus();
 exports.getWhatsAppHealth = getWhatsAppHealth;
-//# sourceMappingURL=whatsappHealth.service.js.map

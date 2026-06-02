@@ -44,4 +44,3 @@ const dbConfig = {
 exports.dbConfig = dbConfig;
 const db = (0, knex_1.default)(dbConfig);
 exports.default = db;
-//# sourceMappingURL=database.js.map

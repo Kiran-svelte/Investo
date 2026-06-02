@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -389,6 +422,18 @@ class AutomationService {
     }
     async sendFollowUpMessage(lead, reason) {
         try {
+            // Guard against spam: only allow one re-engagement per type per 24 hours
+            const isReEngagement = reason.includes('reengage') || reason.includes('urgency');
+            if (isReEngagement && lead.reEngagementSentAt) {
+                const hoursSinceLast = (Date.now() - new Date(lead.reEngagementSentAt).getTime()) / (1000 * 60 * 60);
+                if (hoursSinceLast < 24) {
+                    logger_1.default.debug('Re-engagement suppressed — too recent', {
+                        leadId: lead.id,
+                        hoursSinceLast: Math.round(hoursSinceLast),
+                    });
+                    return;
+                }
+            }
             const message = this.nurtureMessage(lead, reason);
             if (!lead.phone) {
                 logger_1.default.debug('Follow-up skipped because lead phone is missing', { leadId: lead.id, reason });
@@ -415,14 +460,24 @@ class AutomationService {
             });
             if (!sent) {
                 logger_1.default.warn('Follow-up WhatsApp send failed', { leadId: lead.id, reason });
+                const { tryCrossChannelFollowUp } = await Promise.resolve().then(() => __importStar(require('./crossChannelFollowUp.service')));
+                await tryCrossChannelFollowUp(lead.id, reason, message);
                 return;
             }
-            // Update last contact
+            // Update last contact and re-engagement tracking
             await prisma_1.default.lead.update({
                 where: { id: lead.id },
-                data: { lastContactAt: new Date() },
+                data: {
+                    lastContactAt: new Date(),
+                    ...(isReEngagement
+                        ? {
+                            reEngagementSentAt: new Date(),
+                            reEngagementCount: { increment: 1 },
+                        }
+                        : {}),
+                },
             });
-            logger_1.default.info('Follow-up message sent', { leadId: lead.id, reason });
+            logger_1.default.info('Follow-up message sent', { leadId: lead.id, reason, isReEngagement });
         }
         catch (err) {
             logger_1.default.error('Failed to send follow-up', { leadId: lead.id, error: err.message });
@@ -610,4 +665,3 @@ class AutomationService {
 }
 exports.AutomationService = AutomationService;
 exports.automationService = new AutomationService();
-//# sourceMappingURL=automation.service.js.map

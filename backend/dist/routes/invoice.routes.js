@@ -426,4 +426,3 @@ router.post('/generate-monthly', (0, rbac_1.hasRole)('super_admin'), (0, audit_1
     }
 });
 exports.default = router;
-//# sourceMappingURL=invoice.routes.js.map

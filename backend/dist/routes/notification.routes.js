@@ -109,4 +109,3 @@ const markAllReadHandler = async (req, res) => {
 router.patch('/read-all', markAllReadHandler);
 router.put('/read-all', markAllReadHandler);
 exports.default = router;
-//# sourceMappingURL=notification.routes.js.map

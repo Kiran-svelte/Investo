@@ -161,4 +161,3 @@ exports.SOCKET_EVENTS = {
     // Dashboard updates
     DASHBOARD_REFRESH: 'dashboard:refresh',
 };
-//# sourceMappingURL=socket.service.js.map

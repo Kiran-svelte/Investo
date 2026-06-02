@@ -42,4 +42,3 @@ process.on('SIGINT', () => {
     void shutdown('SIGINT');
 });
 void startWorker();
-//# sourceMappingURL=worker.js.map

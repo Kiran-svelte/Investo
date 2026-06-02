@@ -89,6 +89,28 @@ class EmailService {
             userEmail: params.toEmail,
         });
     }
+    async sendReEngagementEmail(params) {
+        const smtp = resolveSmtpConfig();
+        if (!isSmtpConfigured(smtp) || !config_1.default.mail.from) {
+            logger_1.default.warn('Re-engagement email skipped: SMTP not configured', {
+                userEmail: params.toEmail,
+                smtp: sanitizeSmtpConfigForLogs(smtp),
+            });
+            return false;
+        }
+        const greetingName = (params.toName || '').trim() || 'there';
+        const text = `Hi ${greetingName},\n\n${params.bodyText}`;
+        const html = `<p>Hi ${escapeHtml(greetingName)},</p><p>${escapeHtml(params.bodyText).replace(/\n/g, '<br>')}</p>`;
+        await this.getTransporter().sendMail({
+            from: config_1.default.mail.from,
+            to: params.toEmail,
+            subject: params.subject,
+            text,
+            html,
+        });
+        logger_1.default.info('Re-engagement email sent', { userEmail: params.toEmail });
+        return true;
+    }
 }
 exports.EmailService = EmailService;
 function escapeHtml(input) {
@@ -103,4 +125,3 @@ function escapeHtmlAttr(input) {
     return escapeHtml(input).replace(/\n/g, '');
 }
 exports.emailService = new EmailService();
-//# sourceMappingURL=email.service.js.map

@@ -33,4 +33,3 @@ function tenantIsolation(req, res, next) {
 function getCompanyId(req) {
     return req.companyId || req.user?.company_id;
 }
-//# sourceMappingURL=tenant.js.map

@@ -28,4 +28,3 @@ prisma.$on('error', (e) => {
     logger_1.default.error('Prisma error', { message: e.message });
 });
 exports.default = prisma;
-//# sourceMappingURL=prisma.js.map

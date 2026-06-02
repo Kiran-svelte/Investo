@@ -499,4 +499,3 @@ exports.PropertyImportWorkerService = PropertyImportWorkerService;
 exports.propertyImportWorkerService = new PropertyImportWorkerService({
     pollIntervalMs: Number(process.env.PROPERTY_IMPORT_WORKER_POLL_MS || DEFAULT_POLL_INTERVAL_MS),
 });
-//# sourceMappingURL=propertyImportWorker.service.js.map

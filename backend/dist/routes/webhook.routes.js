@@ -300,6 +300,17 @@ async function processWebhook(body) {
                     interactiveType: extracted.interactiveType,
                 });
                 try {
+                    const { agentRouterService } = await Promise.resolve().then(() => __importStar(require('../services/agent/agent-router.service')));
+                    const agentRouted = await agentRouterService.routeIfInternalUser('+' + customerPhone, messageText);
+                    if (agentRouted) {
+                        outcome.propagationStatus = 'success';
+                        outcome.status = 'processed';
+                        outcome.reason = 'handled_by_agent_ai';
+                        summary.processed += 1;
+                        summary.outcomes.push(outcome);
+                        logger_1.default.info('Message handled by Agent AI; skipping customer flow', { messageId });
+                        continue;
+                    }
                     // If LangGraph integration is enabled, send normalized payload.
                     if (config_1.default.langgraph?.enabled) {
                         try {
@@ -313,7 +324,6 @@ async function processWebhook(body) {
                                 isGroupMsg: !!message?.context?.isGroup || false,
                             };
                             const lgResp = await (0, langgraphAdapter_service_1.sendToLangGraph)(lgPayload);
-                            // If LangGraph is in replace mode and it handled the message, skip default processing
                             if (config_1.default.langgraph.mode === 'replace' && lgResp?.ok) {
                                 outcome.propagationStatus = 'success';
                                 outcome.status = 'processed';
@@ -328,7 +338,6 @@ async function processWebhook(body) {
                             logger_1.default.warn('LangGraph adapter failed for message, continuing default processing', { error: lgErr?.message });
                         }
                     }
-                    // If enterprise agent bridge is enabled and LangGraph isn't taking over, call it.
                     if (!config_1.default.langgraph?.enabled && config_1.default.enterpriseAgent?.enabled) {
                         try {
                             const bridgeResp = await (0, enterpriseAgentBridge_1.runEnterpriseAgent)({ phone: '+' + customerPhone, message: messageText, conversationState: undefined });
@@ -655,4 +664,3 @@ router.post('/debug', express_1.default.json({ limit: '1mb' }), async (req, res)
     }
 });
 exports.default = router;
-//# sourceMappingURL=webhook.routes.js.map

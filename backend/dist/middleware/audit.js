@@ -45,4 +45,3 @@ function auditLog(action, resourceType) {
         next();
     };
 }
-//# sourceMappingURL=audit.js.map

@@ -458,4 +458,3 @@ function formatPrice(value) {
     return value.toString();
 }
 exports.aiService = new AIService();
-//# sourceMappingURL=ai.service.js.map

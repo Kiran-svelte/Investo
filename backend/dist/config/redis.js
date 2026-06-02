@@ -106,4 +106,3 @@ function getCacheType() {
     return upstashAvailable ? 'upstash' : 'memory';
 }
 exports.default = getRedis;
-//# sourceMappingURL=redis.js.map

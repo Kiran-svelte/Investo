@@ -138,4 +138,3 @@ router.get('/:id', (0, rbac_1.authorize)('audit_logs', 'read'), async (req, res)
     }
 });
 exports.default = router;
-//# sourceMappingURL=audit.routes.js.map

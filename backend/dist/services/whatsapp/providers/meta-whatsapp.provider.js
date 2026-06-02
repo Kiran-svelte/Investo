@@ -58,4 +58,3 @@ class MetaWhatsAppProvider {
     }
 }
 exports.MetaWhatsAppProvider = MetaWhatsAppProvider;
-//# sourceMappingURL=meta-whatsapp.provider.js.map

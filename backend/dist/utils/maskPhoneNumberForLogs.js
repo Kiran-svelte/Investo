@@ -18,4 +18,3 @@ function maskPhoneNumberForLogs(value) {
     const maskedLen = Math.max(0, digits.length - keepPrefixLen - 4);
     return `+${prefix}${'*'.repeat(maskedLen)}${last4}`;
 }
-//# sourceMappingURL=maskPhoneNumberForLogs.js.map

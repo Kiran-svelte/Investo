@@ -56,4 +56,3 @@ function requireFeature(featureKey) {
         next();
     };
 }
-//# sourceMappingURL=featureGate.js.map

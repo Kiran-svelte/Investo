@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
+exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
 exports.normalizeIndianPhoneNumber = normalizeIndianPhoneNumber;
 exports.isIndianE164Phone = isIndianE164Phone;
 exports.isValidTransition = isValidTransition;
@@ -101,6 +101,13 @@ exports.registerSchema = zod_1.z.object({
 exports.loginSchema = zod_1.z.object({
     email: emailSchema,
     password: zod_1.z.string().min(1),
+});
+exports.selfServiceSignupSchema = zod_1.z.object({
+    company_name: zod_1.z.string().min(1).max(255),
+    admin_name: zod_1.z.string().min(1).max(255),
+    email: emailSchema,
+    password: zod_1.z.string().min(8).max(128),
+    whatsapp_phone: optionalPhone,
 });
 exports.createCompanySchema = zod_1.z.object({
     name: zod_1.z.string().min(1).max(255),
@@ -249,4 +256,3 @@ function isValidTransition(transitions, from, to) {
     const allowed = transitions[from];
     return allowed ? allowed.includes(to) : false;
 }
-//# sourceMappingURL=validation.js.map
