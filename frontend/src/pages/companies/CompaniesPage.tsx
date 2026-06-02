@@ -93,13 +93,26 @@ const CompaniesPage: React.FC = () => {
 
       if (editingCompany) {
         await api.put(`/companies/${editingCompany.id}`, submitData);
+        setShowModal(false);
+        setEditingCompany(null);
+        setFormData({ name: '', slug: '', whatsapp_phone: '', plan_id: '' });
+        await loadData();
       } else {
-        await api.post('/companies', submitData);
+        const createRes = await api.post('/companies', submitData);
+        const created = createRes.data.data as Company;
+        setShowModal(false);
+        setEditingCompany(null);
+        setFormData({ name: '', slug: '', whatsapp_phone: '', plan_id: '' });
+        await loadData();
+        setInviteCompany({
+          ...created,
+          whatsappPhone: created.whatsappPhone ?? submitData.whatsapp_phone ?? null,
+          plan_name: plans.find((p) => p.id === created.planId)?.name ?? null,
+          agent_count: 0,
+        });
+        setInviteError('');
+        setInviteSuccess('Company created. Now create the company admin account below.');
       }
-      setShowModal(false);
-      setEditingCompany(null);
-      setFormData({ name: '', slug: '', whatsapp_phone: '', plan_id: '' });
-      loadData();
     } catch (err: any) {
       console.error('Company save error:', err.response?.data);
       const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save company';
@@ -189,6 +202,11 @@ const CompaniesPage: React.FC = () => {
           <p className="text-gray-500 text-sm">
             Create agencies, assign a plan, then invite each company&apos;s admin to onboard their team.
           </p>
+          <ol className="mt-2 text-sm text-blue-900 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 list-decimal list-inside space-y-1">
+            <li>Click <strong>New company</strong>, fill the form, and save.</li>
+            <li>In the table <strong>Actions</strong> column, click <strong>Invite admin</strong> (person + icon).</li>
+            <li>Enter admin name, email, and temporary password — they log in and complete the 6-step onboarding.</li>
+          </ol>
         </div>
         <button
           onClick={() => {
@@ -298,15 +316,17 @@ const CompaniesPage: React.FC = () => {
                       <div className="flex items-center gap-2">
                         {isPlatformAdmin && (
                           <button
+                            type="button"
                             onClick={() => {
                               setInviteCompany(company);
                               setInviteError('');
                               setInviteSuccess('');
                             }}
-                            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                            className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors"
                             title="Invite company admin"
                           >
-                            <UserPlus className="h-4 w-4" />
+                            <UserPlus className="h-4 w-4 shrink-0" />
+                            <span className="hidden sm:inline">Invite admin</span>
                           </button>
                         )}
                         <button

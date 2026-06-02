@@ -13,7 +13,7 @@ Step-by-step flows for production. Navigation rules: `docs/ROLE_NAVIGATION.md`.
 | 1 | Log in | `/login` → lands on **Companies** |
 | 2 | Create company | Companies → **New company** → name, slug, WhatsApp number, **plan** (defaults to first plan) |
 | 3 | System seeds tenant | Features, roles, AI stub, onboarding step 0 (automatic) |
-| 4 | Invite company admin | Companies row → **person+** icon → name, email, temp password |
+| 4 | Invite company admin | After save, invite modal opens automatically — or click **Invite admin** in the row **Actions** column → name, email, temp password (welcome email if SMTP is configured) |
 | 5 | Hand off credentials | Send admin email + password securely (not via chat) |
 | 6 | Optional | Audit logs, **Settings** (account only — change password; **no** Company Profile / Roles / Feature Toggles) |
 

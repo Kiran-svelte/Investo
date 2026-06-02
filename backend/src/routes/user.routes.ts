@@ -8,6 +8,8 @@ import { requireFeature } from '../middleware/featureGate';
 import { requireActivePaidSubscription } from '../middleware/subscriptionEnforcement';
 import { createUserSchema } from '../models/validation';
 import { authService } from '../services/auth.service';
+import { emailService } from '../services/email.service';
+import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 
@@ -216,6 +218,23 @@ router.post(
         company_id: companyId,
         must_change_password,
       });
+
+      if (role === 'company_admin') {
+        const company = await prisma.company.findUnique({
+          where: { id: companyId },
+          select: { name: true },
+        });
+        const loginUrl = `${config.frontend.baseUrl.replace(/\/$/, '')}/login`;
+        void emailService.sendWelcomeInviteEmail({
+          toEmail: email,
+          toName: name,
+          loginUrl,
+          temporaryPassword: password,
+          companyName: company?.name,
+        }).catch((mailErr: Error) => {
+          logger.warn('Welcome invite email failed', { error: mailErr.message, email });
+        });
+      }
 
       res.status(201).json({ data: result, id: result.id });
     } catch (err: any) {
