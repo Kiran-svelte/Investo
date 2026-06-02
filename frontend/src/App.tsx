@@ -32,6 +32,7 @@ import {
   getOnboardingCompletionFromCache,
   setOnboardingCompletionCache,
 } from './utils/onboardingCompletionCache';
+import { getRoleHomePath, isPathAllowedForRole } from './config/navigation.config';
 
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin', 'super_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
@@ -124,10 +125,46 @@ export const OnboardingGuard: React.FC = () => {
 };
 
 const PublicRoute: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   if (isLoading) return <LoadingScreen />;
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  if (isAuthenticated) return <Navigate to={getRoleHomePath(user?.role)} replace />;
   return <Outlet />;
+};
+
+/** Redirects authenticated users away from routes their role cannot access. */
+export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
+  const { user } = useAuth();
+  const { loading, isFeatureEnabled } = useCompanyFeatures();
+  const role = user?.role;
+
+  if (!role) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (loading && role !== 'super_admin') {
+    return <LoadingScreen />;
+  }
+
+  if (!isPathAllowedForRole(path, role, isFeatureEnabled)) {
+    return <Navigate to={getRoleHomePath(role)} replace />;
+  }
+
+  return <Outlet />;
+};
+
+export const RoleAwareIndex: React.FC = () => {
+  const { user } = useAuth();
+  if (user?.role === 'super_admin') {
+    return <Navigate to="/companies" replace />;
+  }
+  return <DashboardPage />;
+};
+
+const RoleAwareNotFound: React.FC = () => {
+  const { user, isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <LoadingScreen />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <Navigate to={getRoleHomePath(user?.role)} replace />;
 };
 
 export const OnboardingAccessRoute: React.FC = () => {
@@ -184,46 +221,76 @@ const App: React.FC = () => {
               {/* Dashboard routes - check onboarding first for company admins */}
               <Route element={<OnboardingGuard />}>
                 <Route path="/" element={<DashboardLayout />}>
-                  <Route index element={<DashboardPage />} />
-                  <Route element={<FeatureRoute featureKey="lead_automation" />}>
-                    <Route path="leads" element={<LeadsPage />} />
-                    <Route path="leads/:id" element={<LeadDetailPage />} />
+                  <Route index element={<RoleAwareIndex />} />
+                  <Route element={<RoleRoute path="/leads" />}>
+                    <Route element={<FeatureRoute featureKey="lead_automation" />}>
+                      <Route path="leads" element={<LeadsPage />} />
+                      <Route path="leads/:id" element={<LeadDetailPage />} />
+                    </Route>
                   </Route>
-                  <Route element={<FeatureRoute featureKey={PROPERTY_MANAGEMENT_FEATURE_KEY} />}>
-                    <Route path="properties" element={<PropertiesPage />} />
-                    <Route path="properties/import" element={<PropertyImportPage />} />
-                    <Route path="properties/import/:draftId" element={<PropertyImportPage />} />
+                  <Route element={<RoleRoute path="/properties" />}>
+                    <Route element={<FeatureRoute featureKey={PROPERTY_MANAGEMENT_FEATURE_KEY} />}>
+                      <Route path="properties" element={<PropertiesPage />} />
+                    </Route>
                   </Route>
-                  <Route element={<FeatureRoute featureKey="visit_scheduling" />}>
-                    <Route path="calendar" element={<CalendarPage />} />
+                  <Route element={<RoleRoute path="/properties/import" />}>
+                    <Route element={<FeatureRoute featureKey={PROPERTY_MANAGEMENT_FEATURE_KEY} />}>
+                      <Route path="properties/import" element={<PropertyImportPage />} />
+                      <Route path="properties/import/:draftId" element={<PropertyImportPage />} />
+                    </Route>
                   </Route>
-                  <Route element={<FeatureRoute featureKey="conversation_center" />}>
-                    <Route path="conversations" element={<ConversationsPage />} />
+                  <Route element={<RoleRoute path="/calendar" />}>
+                    <Route element={<FeatureRoute featureKey="visit_scheduling" />}>
+                      <Route path="calendar" element={<CalendarPage />} />
+                    </Route>
                   </Route>
-                  <Route element={<FeatureRoute featureKey="agent_management" />}>
-                    <Route path="agents" element={<AgentsPage />} />
+                  <Route element={<RoleRoute path="/conversations" />}>
+                    <Route element={<FeatureRoute featureKey="conversation_center" />}>
+                      <Route path="conversations" element={<ConversationsPage />} />
+                    </Route>
                   </Route>
-                  <Route element={<FeatureRoute featureKey="analytics" />}>
-                    <Route path="analytics" element={<AnalyticsPage />} />
+                  <Route element={<RoleRoute path="/agents" />}>
+                    <Route element={<FeatureRoute featureKey="agent_management" />}>
+                      <Route path="agents" element={<AgentsPage />} />
+                    </Route>
                   </Route>
-                  <Route element={<FeatureRoute featureKey="ai_bot" />}>
-                    <Route path="ai-settings" element={<AISettingsPage />} />
+                  <Route element={<RoleRoute path="/analytics" />}>
+                    <Route element={<FeatureRoute featureKey="analytics" />}>
+                      <Route path="analytics" element={<AnalyticsPage />} />
+                    </Route>
                   </Route>
-                  <Route path="emi-calculator" element={<EmiCalculatorPage />} />
-                  <Route path="settings" element={<SettingsPage />} />
-                  <Route element={<FeatureRoute featureKey="notifications" />}>
-                    <Route path="notifications" element={<NotificationsPage />} />
+                  <Route element={<RoleRoute path="/ai-settings" />}>
+                    <Route element={<FeatureRoute featureKey="ai_bot" />}>
+                      <Route path="ai-settings" element={<AISettingsPage />} />
+                    </Route>
                   </Route>
-                  <Route path="companies" element={<CompaniesPage />} />
-                  <Route path="billing" element={<BillingPage />} />
-                  <Route element={<FeatureRoute featureKey="audit_logs" />}>
-                    <Route path="audit-logs" element={<AuditLogsPage />} />
+                  <Route element={<RoleRoute path="/emi-calculator" />}>
+                    <Route path="emi-calculator" element={<EmiCalculatorPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/settings" />}>
+                    <Route path="settings" element={<SettingsPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/notifications" />}>
+                    <Route element={<FeatureRoute featureKey="notifications" />}>
+                      <Route path="notifications" element={<NotificationsPage />} />
+                    </Route>
+                  </Route>
+                  <Route element={<RoleRoute path="/companies" />}>
+                    <Route path="companies" element={<CompaniesPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/billing" />}>
+                    <Route path="billing" element={<BillingPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/audit-logs" />}>
+                    <Route element={<FeatureRoute featureKey="audit_logs" />}>
+                      <Route path="audit-logs" element={<AuditLogsPage />} />
+                    </Route>
                   </Route>
                 </Route>
               </Route>
             </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<RoleAwareNotFound />} />
           </Routes>
         </SocketProvider>
       </AuthProvider>

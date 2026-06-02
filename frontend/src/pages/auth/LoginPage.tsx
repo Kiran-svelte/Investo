@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleHomePath } from '../../config/navigation.config';
 import { AxiosError } from 'axios';
 import { Loader2, Building2 } from 'lucide-react';
 import LanguageSelector from '../../components/common/LanguageSelector';
@@ -31,8 +32,8 @@ const LoginPage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await login(email, password);
-      navigate('/', { replace: true });
+      const loggedInUser = await login(email, password);
+      navigate(getRoleHomePath(loggedInUser.role), { replace: true });
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
       setError(

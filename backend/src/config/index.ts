@@ -429,6 +429,8 @@ const config = {
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean),
+    /** Browser uploads use API DB blobs by default (avoids R2 CORS issues from Vercel). Set false to prefer R2 presigned PUT. */
+    propertyImportUseDbUpload: process.env.PROPERTY_IMPORT_DB_UPLOAD !== 'false',
   },
 
   geocoding: {

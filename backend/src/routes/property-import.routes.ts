@@ -16,12 +16,14 @@ import {
 } from '../models/validation';
 import logger from '../config/logger';
 import { PropertyImportError, propertyImportService } from '../services/propertyImport.service';
+import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher';
 
 const router = Router();
 
 router.use(authenticate);
 router.use(tenantIsolation);
 router.use(requireFeature('property_management'));
+router.use(requirePropertyPublisher);
 
 type StatusCodedError = { statusCode: number; message: string };
 

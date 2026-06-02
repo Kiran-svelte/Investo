@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
 import {
   Search, Plus, MapPin, Bed, IndianRupee, Building2,
@@ -64,6 +65,7 @@ const PropertiesPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const capabilities = getRoleCapabilities(user?.role);
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -121,13 +123,11 @@ const PropertiesPage: React.FC = () => {
     return `Up to ₹${fmt(max!)}`;
   };
 
-  const isAdmin = user?.role === 'company_admin' || user?.role === 'super_admin';
-
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <h1 className="text-2xl font-bold text-gray-900">{t('properties.title')}</h1>
-        {isAdmin && (
+        {capabilities.canUploadProperties && (
           <div className="flex flex-wrap gap-3">
             <button
               onClick={() => navigate('/properties/import')}
@@ -142,6 +142,11 @@ const PropertiesPage: React.FC = () => {
           </div>
         )}
       </div>
+      {capabilities.isPlatformAdmin && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          Platform admin: manage tenants under <strong>Companies</strong>. Property uploads are done by each agency&apos;s <strong>Company Admin</strong>.
+        </p>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -187,7 +192,7 @@ const PropertiesPage: React.FC = () => {
                       <h3 className="font-semibold text-gray-900 mb-1">{property.name}</h3>
                       {property.builder && <p className="text-xs text-gray-500 mb-2">by {property.builder}</p>}
                     </div>
-                    {isAdmin && (
+                    {capabilities.canManageProperties && (
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                         <button onClick={() => handleEdit(property)} title="Edit property" aria-label="Edit property" className="p-1.5 hover:bg-gray-100 rounded"><Edit3 className="h-3.5 w-3.5 text-gray-500" /></button>
                         <button onClick={() => handleDelete(property.id)} disabled={deleting === property.id}

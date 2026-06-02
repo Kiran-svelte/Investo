@@ -143,7 +143,8 @@ export interface UserCatalogBlock {
   promptMessage: string;
 }
 
-const ACTIVE_DRAFT_STATUSES = ['draft', 'extracting', 'review_ready', 'publish_ready', 'failed'] as const;
+/** Only block other app areas when admin must fix data before publish — not while still uploading/extracting. */
+const BLOCKING_DRAFT_STATUSES = ['review_ready', 'publish_ready'] as const;
 
 export async function getUserCatalogCompletenessBlock(
   companyId: string,
@@ -155,7 +156,7 @@ export async function getUserCatalogCompletenessBlock(
     where: {
       companyId,
       createdByUserId: userId,
-      status: { in: [...ACTIVE_DRAFT_STATUSES] },
+      status: { in: [...BLOCKING_DRAFT_STATUSES] },
     },
     select: { id: true, draftData: true, status: true },
     take: 20,
@@ -238,4 +239,25 @@ export function propertyToCompletenessInput(property: Property): PropertyLike {
 export function formatCompletenessForAgentTool(result: PropertyCompletenessResult): string {
   if (result.isPublishable) return 'Property is publishable.';
   return `Not publishable. Missing: ${result.humanMissing.join(', ')}`;
+}
+
+/** Notify the brochure uploader (company admin) to complete missing fields. */
+export async function notifyUploaderOfMissingFields(
+  companyId: string,
+  userId: string,
+  draftId: string,
+  assessment: PropertyCompletenessResult,
+): Promise<void> {
+  if (assessment.isPublishable) return;
+
+  await prisma.notification.create({
+    data: {
+      companyId,
+      userId,
+      type: 'system',
+      title: 'Complete property details',
+      message: `Your property import needs: ${assessment.humanMissing.join(', ')}. Update the draft in Properties → Import. Until this is complete, other CRM actions may be limited.`,
+      data: { draftId, missingFields: assessment.humanMissing },
+    },
+  });
 }

@@ -39,6 +39,21 @@ function toDatabaseBytes(buffer: Buffer): Uint8Array<ArrayBuffer> {
 
 const router = Router();
 
+router.use((req, res, next) => {
+  const origin = req.header('origin');
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 function isMissingBlobTableError(err: any): boolean {
   return (
     err?.code === 'P2021'

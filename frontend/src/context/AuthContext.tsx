@@ -36,7 +36,7 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   mustChangePassword: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   refreshToken: () => Promise<void>;
   clearPasswordChangeRequirement: () => void;
@@ -105,6 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setTokens(tokens.access_token, tokens.refresh_token);
     setUser(loggedInUser);
+    return loggedInUser;
   }, []);
 
   // ── Logout ───────────────────────────────────

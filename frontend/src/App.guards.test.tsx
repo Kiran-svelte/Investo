@@ -11,6 +11,7 @@ import {
   OnboardingGuard,
   ProtectedRoute,
   PROPERTY_MANAGEMENT_FEATURE_KEY,
+  RoleRoute,
 } from './App';
 import { getOnboardingCompletionCacheKey } from './utils/onboardingCompletionCache';
 
@@ -67,6 +68,24 @@ describe('route guard behavior', () => {
     authState.mustChangePassword = false;
     featureState.loading = false;
     featureState.isFeatureEnabled.mockReturnValue(true);
+  });
+
+  it('blocks tenant leads route for super_admin', () => {
+    authState.user.role = 'super_admin';
+
+    render(
+      <MemoryRouter initialEntries={['/leads']}>
+        <Routes>
+          <Route element={<RoleRoute path="/leads" />}>
+            <Route path="/leads" element={<div>Leads page</div>} />
+          </Route>
+          <Route path="/companies" element={<div>Companies page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText('Leads page')).not.toBeInTheDocument();
+    expect(screen.getByText('Companies page')).toBeInTheDocument();
   });
 
   it('blocks onboarding route for disallowed roles', () => {

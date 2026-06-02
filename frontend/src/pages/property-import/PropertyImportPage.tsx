@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleCapabilities } from '../../config/navigation.config';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -170,7 +171,8 @@ export default function PropertyImportPage() {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const canManageProperties = user?.role === 'super_admin' || user?.role === 'company_admin';
+  const capabilities = getRoleCapabilities(user?.role);
+  const canManageProperties = capabilities.canUploadProperties;
   const [draft, setDraft] = useState<PropertyImportDraft | null>(null);
   const [formValues, setFormValues] = useState<PropertyImportFormValues>(PROPERTY_IMPORT_DEFAULT_FORM_VALUES);
   const [isDirty, setIsDirty] = useState(false);
@@ -646,7 +648,7 @@ export default function PropertyImportPage() {
           </div>
           <h1 className="mt-3 text-2xl font-bold text-gray-900">Property media import</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Your role does not have permission to create or publish property imports.
+            Only <strong>Company Admin</strong> can upload brochures and publish properties. The AI will ask the uploader (via dashboard notifications) for any missing project details. Sales agents and operations can view listings; buyers use WhatsApp only.
           </p>
           <button
             type="button"

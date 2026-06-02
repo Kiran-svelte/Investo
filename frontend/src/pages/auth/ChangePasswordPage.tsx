@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleHomePath } from '../../config/navigation.config';
 import api from '../../services/api';
 
 export default function ChangePasswordPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { clearPasswordChangeRequirement } = useAuth();
+  const { user, clearPasswordChangeRequirement } = useAuth();
   
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -32,7 +33,7 @@ export default function ChangePasswordPage() {
       setLoading(true);
       await api.post('/auth/change-password', { new_password: newPassword });
       clearPasswordChangeRequirement();
-      navigate('/');
+      navigate(getRoleHomePath(user?.role));
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to change password');
     } finally {

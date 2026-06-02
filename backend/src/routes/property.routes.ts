@@ -15,6 +15,7 @@ import {
   assessPropertyCompleteness,
   getUserCatalogCompletenessBlock,
 } from '../services/propertyCompleteness.service';
+import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher';
 
 const router = Router();
 
@@ -236,6 +237,7 @@ router.get(
 router.post(
   '/',
   authorize('properties', 'create'),
+  requirePropertyPublisher,
   requireActivePaidSubscription,
   enforcePlanLimit('properties'),
   validate(createPropertySchema),
@@ -311,6 +313,7 @@ router.post(
 router.post(
   '/upload-url',
   authorize('properties', 'update'),
+  requirePropertyPublisher,
   validate(createPropertyAssetUploadSchema),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -368,6 +371,7 @@ router.post(
 router.put(
   '/:id',
   authorize('properties', 'update'),
+  requirePropertyPublisher,
   auditLog('update', 'properties'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -460,6 +464,7 @@ router.put(
 router.delete(
   '/:id',
   authorize('properties', 'delete'),
+  requirePropertyPublisher,
   auditLog('delete', 'properties'),
   async (req: AuthRequest, res: Response) => {
     try {

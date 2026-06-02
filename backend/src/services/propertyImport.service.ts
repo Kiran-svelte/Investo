@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
+import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { storageService } from './storage.service';
@@ -202,6 +203,7 @@ export class PropertyImportService {
     }
 
     const uploadToken = crypto.randomBytes(24).toString('hex');
+    const baseUrl = options?.baseUrl;
 
     let mediaId: string | undefined;
     let upload: {
@@ -212,36 +214,43 @@ export class PropertyImportService {
       contentType: string;
     };
 
-    try {
-      upload = await storageService.createPropertyUploadUrl({
-        companyId,
-        propertyId: `draft-${draftId}`,
-        fileName: input.fileName,
-        mimeType: input.mimeType,
-        fileSize: input.fileSize,
-        assetType: input.assetType === 'video' ? 'image' : input.assetType,
-      });
-    } catch (err: any) {
-      const message = err instanceof Error ? err.message : '';
-      if (message.startsWith('R2 storage is not configured')) {
-        const baseUrl = options?.baseUrl;
-        if (!baseUrl) {
+    const buildDbBackedUpload = () => {
+      if (!baseUrl) {
+        throw new PropertyImportError('Server base URL is required for property media upload', 500);
+      }
+      mediaId = crypto.randomUUID();
+      const storageKey = `db/property-import-media/${mediaId}`;
+      const endpointUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, baseUrl).toString();
+      return {
+        key: storageKey,
+        uploadUrl: endpointUrl,
+        publicUrl: endpointUrl,
+        expiresInSeconds: 15 * 60,
+        contentType: input.mimeType,
+      };
+    };
+
+    const preferDbUpload = config.storage.propertyImportUseDbUpload === true;
+
+    if (preferDbUpload) {
+      upload = buildDbBackedUpload();
+    } else {
+      try {
+        upload = await storageService.createPropertyUploadUrl({
+          companyId,
+          propertyId: `draft-${draftId}`,
+          fileName: input.fileName,
+          mimeType: input.mimeType,
+          fileSize: input.fileSize,
+          assetType: input.assetType === 'video' ? 'image' : input.assetType,
+        });
+      } catch (err: any) {
+        const message = err instanceof Error ? err.message : '';
+        if (message.startsWith('R2 storage is not configured')) {
+          upload = buildDbBackedUpload();
+        } else {
           throw err;
         }
-
-        mediaId = crypto.randomUUID();
-        const storageKey = `db/property-import-media/${mediaId}`;
-        const endpointUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, baseUrl).toString();
-
-        upload = {
-          key: storageKey,
-          uploadUrl: endpointUrl,
-          publicUrl: endpointUrl,
-          expiresInSeconds: 15 * 60,
-          contentType: input.mimeType,
-        };
-      } else {
-        throw err;
       }
     }
 

@@ -14,6 +14,7 @@
     "billing": "Billing",
     "audit_logs": "Audit Logs",
     "notifications": "Notifications",
+    "emi_calculator": "EMI Calculator",
     "logout": "Logout"
   },
   "auth": {
@@ -171,6 +172,8 @@
     "edit": "Edit",
     "search": "Search",
     "filter": "Filter",
+    "all_statuses": "All statuses",
+    "create": "Create",
     "export": "Export",
     "loading": "Loading...",
     "no_data": "No data available",

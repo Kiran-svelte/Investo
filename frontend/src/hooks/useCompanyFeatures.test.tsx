@@ -57,6 +57,7 @@ describe('useCompanyFeatures', () => {
 
     expect(result.current.isFeatureEnabled('analytics')).toBe(true);
     expect(result.current.isFeatureEnabled('property_management')).toBe(false);
+    expect(result.current.isFeatureEnabled(undefined)).toBe(true);
   });
 
   it('returns explicit error and denies features when fetch fails', async () => {

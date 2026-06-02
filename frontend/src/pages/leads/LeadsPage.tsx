@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
 import {
   Search, Plus, Phone, MapPin, User, ChevronLeft, ChevronRight,
@@ -44,6 +45,7 @@ const LEAD_SOURCES = ['whatsapp', 'manual', 'website', 'referral'];
 const LeadsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const capabilities = getRoleCapabilities(user?.role);
   const navigate = useNavigate();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,12 +81,12 @@ const LeadsPage: React.FC = () => {
   }, [loadLeads]);
 
   useEffect(() => {
-    if (user?.role === 'company_admin' || user?.role === 'super_admin') {
+    if (capabilities.canAssignLeads) {
       api.get('/users?role=sales_agent').then(res => {
         setAgents(res.data.data || []);
       }).catch(() => {});
     }
-  }, [user]);
+  }, [capabilities.canAssignLeads]);
 
   const handleExportCSV = async () => {
     try {
@@ -131,23 +133,23 @@ const LeadsPage: React.FC = () => {
           <p className="text-sm text-gray-500">{total} total leads</p>
         </div>
         <div className="flex gap-2">
-          {(user?.role === 'company_admin' || user?.role === 'super_admin') && (
-            <>
-              <button
-                onClick={handleExportCSV}
-                className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <Download className="h-4 w-4" />
-                Export
-              </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="h-4 w-4" />
-                {t('leads.new_lead')}
-              </button>
-            </>
+          {capabilities.canExportLeads && (
+            <button
+              onClick={handleExportCSV}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Download className="h-4 w-4" />
+              {t('common.export')}
+            </button>
+          )}
+          {capabilities.canCreateLeads && !capabilities.isReadOnly && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              {t('leads.new_lead')}
+            </button>
           )}
         </div>
       </div>

@@ -70,7 +70,7 @@ export const useCompanyFeatures = () => {
   const isFeatureEnabled = useMemo(() => {
     return (featureKey?: string): boolean => {
       if (!featureKey) {
-        return false;
+        return true;
       }
       if (user?.role === 'super_admin') {
         return true;

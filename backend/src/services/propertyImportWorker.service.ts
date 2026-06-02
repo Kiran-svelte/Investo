@@ -374,6 +374,32 @@ export class PropertyImportWorkerService {
 
       await this.reconcileDraftStatus(jobRecord.draft.id);
 
+      try {
+        const { assessDraftCompleteness, notifyUploaderOfMissingFields } = await import(
+          './propertyCompleteness.service'
+        );
+        const freshDraft = await this.deps.db.propertyImportDraft.findUnique({
+          where: { id: jobRecord.draftId },
+          select: { id: true, companyId: true, createdByUserId: true, draftData: true },
+        });
+        if (freshDraft) {
+          const assessment = assessDraftCompleteness(
+            (freshDraft.draftData as Record<string, unknown>) || {},
+          );
+          await notifyUploaderOfMissingFields(
+            freshDraft.companyId,
+            freshDraft.createdByUserId,
+            freshDraft.id,
+            assessment,
+          );
+        }
+      } catch (notifyErr: unknown) {
+        logger.warn('Failed to notify uploader of missing property fields', {
+          draftId: jobRecord.draftId,
+          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+        });
+      }
+
       logger.info('Property import extraction job succeeded', {
         jobId: jobRecord.id,
         draftId: jobRecord.draftId,
