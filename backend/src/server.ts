@@ -43,33 +43,42 @@ async function start() {
 
     let dbConnectedAtStartup = false;
 
-    // Test database connection via Prisma, but do not hard-fail local dev startup.
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      logger.info('Database connected (Prisma → PostgreSQL)');
-      dbConnectedAtStartup = true;
-
-      await bootstrapDatabase({
-        autoMigrate: config.db.autoMigrate,
-        autoSeed: config.db.autoSeed,
-      });
-    } catch (err: any) {
-      logger.warn('Database check failed at startup; continuing in development mode', {
-        error: err.message,
-      });
-    }
-
-    // Create HTTP server
+    // Create HTTP server and bind immediately so Render health checks pass while DB warms up.
     const httpServer = createServer(app);
-    
-    // Initialize WebSocket
     socketService.initialize(httpServer);
 
-    httpServer.listen(config.port, () => {
-      logger.info(`Investo API server running on port ${config.port} [${config.env}]`);
-      logger.info('WebSocket enabled for real-time updates');
+    await new Promise<void>((resolve, reject) => {
+      httpServer.listen(config.port, () => {
+        logger.info(`Investo API server running on port ${config.port} [${config.env}]`);
+        logger.info('WebSocket enabled for real-time updates');
+        resolve();
+      });
+      httpServer.once('error', reject);
+    });
 
-      if (config.db.keepAliveEnabled) {
+    // Warm database and bootstrap in the background.
+    void (async () => {
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+        logger.info('Database connected (Prisma → PostgreSQL)');
+        dbConnectedAtStartup = true;
+
+        await bootstrapDatabase({
+          autoMigrate: config.db.autoMigrate,
+          autoSeed: config.db.autoSeed,
+        });
+
+        startAutomationIfNeeded();
+        startAgentCronIfNeeded();
+        startPropertyImportWorkerIfNeeded();
+      } catch (err: any) {
+        logger.warn('Database warmup failed at startup; API remains available for health checks', {
+          error: err.message,
+        });
+      }
+    })();
+
+    if (config.db.keepAliveEnabled) {
         keepAliveTimer = setInterval(async () => {
           try {
             await prisma.$queryRaw`SELECT 1`;
@@ -91,17 +100,6 @@ async function start() {
           }
         }, Math.max(config.db.keepAliveIntervalMs, 60_000));
       }
-
-      if (dbConnectedAtStartup) {
-        startAutomationIfNeeded();
-        startAgentCronIfNeeded();
-        startPropertyImportWorkerIfNeeded();
-      } else {
-        logger.warn('Automation service delayed until database connectivity is healthy');
-        logger.warn('Agent AI cron scheduler delayed until database connectivity is healthy');
-        logger.warn('Property import worker delayed until database connectivity is healthy');
-      }
-    });
   } catch (err: any) {
     logger.error('Failed to start server', { error: err.message });
     process.exit(1);

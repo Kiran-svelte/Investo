@@ -26,8 +26,9 @@ router.get('/', async (_req, res) => {
     }
     catch (err) {
         logger_1.default.error('Health check failed', { error: err.message });
-        res.status(503).json({
-            status: 'error',
+        // Render health checks require HTTP 200; report degraded state in JSON.
+        res.status(200).json({
+            status: 'degraded',
             timestamp: new Date().toISOString(),
             environment: config_1.default.env,
             dependencies: {
