@@ -121,6 +121,24 @@ describe('route guard behavior', () => {
     expect(screen.getByText('Onboarding page')).toBeInTheDocument();
   });
 
+  it('blocks onboarding route for super_admin', () => {
+    authState.user.role = 'super_admin';
+
+    render(
+      <MemoryRouter initialEntries={['/onboarding']}>
+        <Routes>
+          <Route element={<OnboardingAccessRoute />}>
+            <Route path="/onboarding" element={<div>Onboarding page</div>} />
+          </Route>
+          <Route path="/" element={<div>Home page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText('Onboarding page')).not.toBeInTheDocument();
+    expect(screen.getByText('Home page')).toBeInTheDocument();
+  });
+
   it('blocks property import route when property management feature is disabled', () => {
     featureState.isFeatureEnabled.mockImplementation((featureKey?: string) => featureKey === 'analytics');
 

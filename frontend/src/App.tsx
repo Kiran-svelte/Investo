@@ -34,7 +34,7 @@ import {
 } from './utils/onboardingCompletionCache';
 import { getRoleHomePath, isPathAllowedForRole } from './config/navigation.config';
 
-export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin', 'super_admin']);
+export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
 
 export const LoadingScreen: React.FC = () => (

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getRoleCapabilities,
   getRoleHomePath,
   getNavItemForPath,
   getVisibleNavItems,
@@ -40,5 +41,17 @@ describe('navigation.config', () => {
   it('property import is company_admin only', () => {
     const spec = getNavItemForPath('/properties/import');
     expect(spec?.roles).toEqual(['company_admin']);
+  });
+
+  it('super_admin cannot manage tenant settings UI', () => {
+    const caps = getRoleCapabilities('super_admin');
+    expect(caps.canManageTenantSettings).toBe(false);
+    expect(caps.isPlatformAdmin).toBe(true);
+  });
+
+  it('company_admin can manage tenant settings', () => {
+    const caps = getRoleCapabilities('company_admin');
+    expect(caps.canManageTenantSettings).toBe(true);
+    expect(caps.canUploadProperties).toBe(true);
   });
 });
