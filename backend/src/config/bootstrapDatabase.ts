@@ -100,6 +100,18 @@ async function applyCompatibilityPatches(): Promise<void> {
     END $$;
   `);
 
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'AgentSessionStatus') THEN
+        CREATE TYPE "AgentSessionStatus" AS ENUM ('active', 'inactive');
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PendingActionStatus') THEN
+        CREATE TYPE "PendingActionStatus" AS ENUM ('awaiting', 'confirmed', 'rejected', 'expired');
+      END IF;
+    END $$;
+  `);
+
   // Agent AI sessions for WhatsApp-first internal-user workflows.
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS agent_sessions (
@@ -108,7 +120,7 @@ async function applyCompatibilityPatches(): Promise<void> {
       company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
       phone VARCHAR(20) NOT NULL,
       thread_id VARCHAR(100) NOT NULL UNIQUE,
-      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      status "AgentSessionStatus" NOT NULL DEFAULT 'active',
       last_active_at TIMESTAMP NOT NULL DEFAULT now(),
       created_at TIMESTAMP NOT NULL DEFAULT now(),
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
@@ -117,6 +129,24 @@ async function applyCompatibilityPatches(): Promise<void> {
   `);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS agent_sessions_phone_idx ON agent_sessions(phone)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS agent_sessions_company_status_idx ON agent_sessions(company_id, status)`);
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'agent_sessions'
+          AND column_name = 'status'
+          AND udt_name <> 'AgentSessionStatus'
+      ) THEN
+        ALTER TABLE agent_sessions ALTER COLUMN status DROP DEFAULT;
+        ALTER TABLE agent_sessions
+          ALTER COLUMN status TYPE "AgentSessionStatus"
+          USING status::text::"AgentSessionStatus";
+        ALTER TABLE agent_sessions ALTER COLUMN status SET DEFAULT 'active'::"AgentSessionStatus";
+      END IF;
+    END $$;
+  `);
 
   // Pending confirmations for destructive agent actions.
   await prisma.$executeRawUnsafe(`
@@ -126,7 +156,7 @@ async function applyCompatibilityPatches(): Promise<void> {
       action_type VARCHAR(100) NOT NULL,
       action_params JSONB NOT NULL DEFAULT '{}'::jsonb,
       display_message TEXT NOT NULL,
-      status VARCHAR(20) NOT NULL DEFAULT 'awaiting',
+      status "PendingActionStatus" NOT NULL DEFAULT 'awaiting',
       expires_at TIMESTAMP NOT NULL,
       resolved_at TIMESTAMP NULL,
       created_at TIMESTAMP NOT NULL DEFAULT now()
@@ -134,6 +164,24 @@ async function applyCompatibilityPatches(): Promise<void> {
   `);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_session_status_idx ON pending_actions(session_id, status)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_expires_idx ON pending_actions(expires_at)`);
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'pending_actions'
+          AND column_name = 'status'
+          AND udt_name <> 'PendingActionStatus'
+      ) THEN
+        ALTER TABLE pending_actions ALTER COLUMN status DROP DEFAULT;
+        ALTER TABLE pending_actions
+          ALTER COLUMN status TYPE "PendingActionStatus"
+          USING status::text::"PendingActionStatus";
+        ALTER TABLE pending_actions ALTER COLUMN status SET DEFAULT 'awaiting'::"PendingActionStatus";
+      END IF;
+    END $$;
+  `);
 }
 
 export async function bootstrapDatabase(options: BootstrapOptions): Promise<void> {
