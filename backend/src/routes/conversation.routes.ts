@@ -4,6 +4,7 @@ import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { requireFeature } from '../middleware/featureGate';
+import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import { sendConversationMessageSchema } from '../models/validation';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
@@ -15,6 +16,7 @@ const router = Router();
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use(propertyCompletenessGate);
 router.use(requireFeature('conversation_center'));
 
 function normalizeWhatsAppConfig(company: { settings: unknown; whatsappPhone: string | null }) {

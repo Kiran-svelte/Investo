@@ -10,6 +10,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from '../services/notification.engine';
 import { scheduleVisit } from '../services/visitBooking.service';
+import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import { transitionLeadStatus } from '../services/leadTransition.service';
 import { automationService } from '../services/automation.service';
 
@@ -57,6 +58,7 @@ export function mapVisitToSnakeCaseDTO(visit: VisitWithRelations) {
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use(propertyCompletenessGate);
 router.use(requireFeature('visit_scheduling'));
 
 /**

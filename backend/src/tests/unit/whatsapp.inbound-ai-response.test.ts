@@ -71,6 +71,17 @@ jest.mock('../../services/conversionEngine.service', () => ({
   }),
 }));
 
+jest.mock('../../services/neverSayNoEngine.service', () => ({
+  __esModule: true,
+  buildNeverSayNoContext: jest.fn().mockResolvedValue({
+    promptBlock: '',
+    exactPropertyIds: [],
+    alternativePropertyIds: [],
+    fallbackCta: 'Reply with your budget and area.',
+    hasInventoryAlternatives: false,
+  }),
+}));
+
 jest.mock('../../services/socket.service', () => ({
   __esModule: true,
   socketService: {
@@ -143,6 +154,7 @@ describe('WhatsAppService AI response processing', () => {
     ]);
 
     mockPrisma.aiSetting.findUnique.mockResolvedValue({ responseTone: 'friendly' });
+    mockPrisma.user.findMany.mockResolvedValue([]);
     mockPrisma.property.findMany.mockResolvedValue([]);
     mockPrisma.message.create.mockResolvedValue({ id: 'message-1' });
     mockPrisma.lead.update.mockResolvedValue({ id: 'lead-1' });

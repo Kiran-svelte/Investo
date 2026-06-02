@@ -4,6 +4,10 @@ import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-too
 import { ToolContext } from '../agent-state';
 import { formatCurrencyINR, getStatusEmoji, isAdminRole } from './format-helpers';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
+import {
+  assessPropertyCompleteness,
+  formatCompletenessForAgentTool,
+} from '../../propertyCompleteness.service';
 
 const propertyType = z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']);
 const propertyStatus = z.enum(['available', 'sold', 'upcoming']);
@@ -74,6 +78,18 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
         if (!Object.keys(data).length) return 'No fields provided.';
         await prisma.property.update({ where: { id: propertyId }, data });
         return `Property updated: ${Object.keys(data).join(', ')}`;
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'checkPropertyCompleteness',
+      description: 'Check if a property has all required fields for customer-facing AI (publishable).',
+      schema: z.object({ propertyId: z.string().uuid() }),
+      func: async ({ propertyId }) => {
+        const property = await prisma.property.findFirst({
+          where: { id: propertyId, companyId: context.companyId },
+        });
+        if (!property) return 'Property not found.';
+        return formatCompletenessForAgentTool(assessPropertyCompleteness(property));
       },
     }),
     new DynamicStructuredTool({

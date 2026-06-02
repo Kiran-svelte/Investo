@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
+import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 
@@ -9,6 +10,7 @@ const router = Router();
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use(propertyCompletenessGate);
 router.use(requireFeature('notifications'));
 
 /**

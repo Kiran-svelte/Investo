@@ -6,6 +6,12 @@ import { aiService } from './ai.service';
 import { calculateEmi } from './emi.service';
 import { buildNeverSayNoContext } from './neverSayNoEngine.service';
 import { criteriaFromLead } from './alternativeInventory.service';
+import { enforceNeverSayNoResponse } from './neverSayNoResponseGuard.service';
+import { polishOutboundMessage } from './messagePolish.service';
+import { buildGroundedFactsBlock } from './groundingGuard.service';
+import { propertyToCompletenessInput } from './propertyCompleteness.service';
+import { normalizeInboundWhatsAppPhone, phonesMatchLast10 } from '../utils/phoneMatch';
+import { findCompanyUserByPhone } from './inboundWhatsAppRouting.service';
 
 import {
   parseVisitTimeInteractiveId,
@@ -530,11 +536,44 @@ export class WhatsAppService {
 
     const { company, config: whatsappConfig } = result;
     const companyId = company.id;
+    const customerPhone = normalizeInboundWhatsAppPhone(msg.customerPhone);
 
-    // 2. Find or create lead and conversation
-    let lead = await prisma.lead.findFirst({
-      where: { companyId, phone: msg.customerPhone },
-    });
+    const companyStaff = await findCompanyUserByPhone(customerPhone, companyId);
+    if (companyStaff) {
+      logger.warn('Customer AI path reached for company staff phone; skipping', {
+        userId: companyStaff.userId,
+        role: companyStaff.userRole,
+      });
+      return {
+        status: 'processed',
+        reason: 'company_staff_excluded_from_customer_ai',
+        companyId,
+        propagation: notAttempted,
+      };
+    }
+
+    // 2. Find or create lead and conversation (normalized E.164)
+    let lead =
+      (await prisma.lead.findFirst({
+        where: { companyId, phone: customerPhone },
+      })) ?? null;
+
+    if (!lead) {
+      const leads = await prisma.lead.findMany({
+        where: { companyId },
+        select: { id: true, phone: true },
+        take: 500,
+        orderBy: { updatedAt: 'desc' },
+      });
+      const matched = leads.find((row) => phonesMatchLast10(row.phone, customerPhone));
+      if (matched) {
+        lead = await prisma.lead.findUnique({ where: { id: matched.id } });
+        if (lead && lead.phone !== customerPhone) {
+          await prisma.lead.update({ where: { id: lead.id }, data: { phone: customerPhone } });
+          lead = { ...lead, phone: customerPhone };
+        }
+      }
+    }
 
     if (!lead) {
       // Auto-create lead
@@ -544,7 +583,7 @@ export class WhatsAppService {
         data: {
           companyId,
           customerName: msg.customerName || null,
-          phone: msg.customerPhone,
+          phone: customerPhone,
           source: 'whatsapp',
           status: 'new',
           assignedAgentId: agentId,
@@ -577,7 +616,7 @@ export class WhatsAppService {
         data: {
           companyId,
           leadId: lead.id,
-          whatsappPhone: msg.customerPhone,
+          whatsappPhone: customerPhone,
           status: 'ai_active',
           language: 'en',
           aiEnabled: true,
@@ -646,7 +685,7 @@ export class WhatsAppService {
         conversation,
         company,
         whatsappConfig: whatsappConfig!,
-        customerPhone: msg.customerPhone,
+        customerPhone,
       });
 
       // If action was fully handled, don't proceed to AI response
@@ -695,9 +734,9 @@ export class WhatsAppService {
               where: { companyId, id: { in: recommendedIds } },
             });
             await this.sendPropertyMediaForStage(
-              msg.customerPhone,
-              whatsappConfig!,
-              mediaState,
+            customerPhone,
+            whatsappConfig!,
+            mediaState,
               properties,
               lead,
               conversation.id,
@@ -761,6 +800,9 @@ export class WhatsAppService {
                 take: 20,
               });
 
+        const customerMessageCount =
+          history.filter((m) => m.senderType === 'customer').length + 1;
+
         const aiResponse = await aiService.generateResponse({
           customerMessage: msg.messageText,
           conversationHistory: history,
@@ -772,12 +814,35 @@ export class WhatsAppService {
           conversionPromptBlock: neverSayNoCtx.promptBlock,
           neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
           neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
+          customerMessageCount,
         });
+
+        const groundedProperties = properties.map(propertyToCompletenessInput);
+        const groundedFactsBlock = buildGroundedFactsBlock(
+          groundedProperties,
+          neverSayNoCtx.promptBlock,
+        );
+        const guarded = enforceNeverSayNoResponse({
+          text: aiResponse.text,
+          hasInventoryAlternatives: neverSayNoCtx.hasInventoryAlternatives,
+          fallbackCta: neverSayNoCtx.fallbackCta,
+          groundedProperties,
+          conversionPromptBlock: neverSayNoCtx.promptBlock,
+        });
+        const polished = await polishOutboundMessage({
+          rawText: guarded.text,
+          groundedFactsBlock,
+          channel: 'whatsapp',
+          language: aiResponse.detectedLanguage,
+        });
+        const outboundText = polished.text;
 
         logger.info('AI response generated', {
           conversationId: conversation.id,
           stage: aiResponse.newState?.stage,
           action: aiResponse.nextAction?.action,
+          polishMode: polished.mode,
+          guardApplied: guarded.guardApplied,
         });
 
         // Store AI response
@@ -785,7 +850,7 @@ export class WhatsAppService {
           data: {
             conversationId: conversation.id,
             senderType: 'ai',
-            content: aiResponse.text,
+            content: outboundText,
             language: aiResponse.detectedLanguage,
             status: 'sent',
           },
@@ -867,7 +932,7 @@ export class WhatsAppService {
         }
 
         // Send via WhatsApp Cloud API using company-specific config
-        const sent = await this.sendMessage(msg.customerPhone, aiResponse.text, whatsappConfig!);
+        const sent = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
         // #region agent log
         fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H4',location:'whatsapp.service.ts:ai-response-send-result',message:'Attempted to send AI WhatsApp reply',data:{sent:Number(Boolean(sent)),provider:this.resolveOutboundProviderName(whatsappConfig||null)},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
@@ -876,7 +941,7 @@ export class WhatsAppService {
         // If AI recommended properties and they have media, send it automatically
         if (aiResponse.newState && this.shouldSendPropertyMedia(aiResponse.newState, aiResponse.nextAction)) {
           await this.sendPropertyMediaForStage(
-            msg.customerPhone,
+            customerPhone,
             whatsappConfig!,
             aiResponse.newState,
             properties,
@@ -889,7 +954,7 @@ export class WhatsAppService {
         // If AI is qualifying and lead hasn't specified preference, send filter buttons
         if (aiResponse.newState && this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction)) {
           await this.sendPropertyTypeFilters(
-            msg.customerPhone,
+            customerPhone,
             whatsappConfig!,
             {
               leadId: lead.id,
@@ -905,13 +970,20 @@ export class WhatsAppService {
         });
       } catch (err: any) {
         logger.error('AI response generation failed', { error: err.message });
+        const fallbackText =
+          `Hi! Thanks for messaging *${company.name}*. I'm here to help you find the right property.\n\n` +
+          `Could you share your preferred *area*, *budget*, and *BHK*? I'll suggest options from our listings.`;
+        try {
+          await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
+        } catch (sendErr: any) {
+          logger.error('Failed to send AI fallback WhatsApp message', { error: sendErr?.message });
+        }
       }
     } else {
       // #region agent log
       fetch('http://127.0.0.1:7571/ingest/b04febcc-8277-456d-aee1-de68df62bb9e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'765cca'},body:JSON.stringify({sessionId:'765cca',runId:'run2',hypothesisId:'H4',location:'whatsapp.service.ts:ai-path-skipped',message:'AI path skipped for conversation',data:{conversationStatus:conversation.status,aiEnabled:Number(Boolean(conversation.aiEnabled))},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
-      // Conversation is agent_active - AI does NOT send messages
-      // Notify the assigned agent
+      // Conversation is agent_active - AI does NOT auto-reply; notify human agent
       if (lead.assignedAgentId) {
         await prisma.notification.create({
           data: {

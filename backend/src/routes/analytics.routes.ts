@@ -3,6 +3,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
+import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { cacheGet, cacheSet, getCacheType } from '../config/redis';
@@ -11,6 +12,7 @@ const router = Router();
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use(propertyCompletenessGate);
 router.use(requireFeature('analytics'));
 
 /**

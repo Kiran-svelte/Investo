@@ -1,6 +1,10 @@
 import config from '../config';
 import logger from '../config/logger';
 import {
+  resolveCustomerDisclaimer,
+  shouldAppendDisclaimer,
+} from '../constants/legalDisclaimer.constants';
+import {
   ConversationState,
   ConversationStage,
   NextBestAction,
@@ -23,6 +27,8 @@ interface AIRequest {
   conversionPromptBlock?: string;
   neverSayNoFallbackCta?: string;
   neverSayNoHasAlternatives?: boolean;
+  /** Customer messages so far (for first-contact disclaimer). */
+  customerMessageCount?: number;
 }
 
 interface AIResponse {
@@ -134,6 +140,15 @@ export class AIService {
    * Build a goal-directed prompt using Policy Brain decisions.
    * This is the LANGUAGE BRAIN - it crafts the actual message.
    */
+  private disclaimerPromptLine(request: AIRequest): string {
+    const count = request.customerMessageCount ?? 1;
+    if (!shouldAppendDisclaimer({ customerMessageCount: count })) {
+      return '';
+    }
+    const disclaimer = resolveCustomerDisclaimer(request.aiSettings);
+    return `\n## DISCLAIMER (include once naturally at end)\n${disclaimer}`;
+  }
+
   private buildGoalDirectedPrompt(
     request: AIRequest,
     state: ConversationState,
@@ -183,12 +198,14 @@ ${stageConfig.promptFocus}
 ## ABSOLUTE RULES
 1. RESPOND IN THE CUSTOMER'S LANGUAGE (detect automatically)
 2. NEVER discuss non-real-estate topics. Bridge back immediately.
-3. NEVER make promises about exact prices without property data below.
-4. LEGAL SAFETY: only state property facts that appear in AVAILABLE PROPERTIES or the NEVER-SAY-NO block. Do not invent builder, RERA, approvals, possession date, availability, amenities, discount, ROI, or price.
-5. If a required property fact is missing, say it is not in our current records and offer to connect an agent or share the brochure/source.
-6. ONE clear call-to-action per message.
-7. Keep responses under 200 words.
-8. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : 'Move toward booking'}
+3. NEVER state prices, BHK, area, amenities, RERA, possession, discounts, ROI, loan amounts, or comparisons unless they appear verbatim in AVAILABLE PROPERTIES or the NEVER-SAY-NO block below.
+4. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet (deterministic calculator output).
+5. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
+6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
+7. ONE clear call-to-action per message.
+8. Keep responses under 200 words.
+9. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : 'Move toward booking'}
+${this.disclaimerPromptLine(request)}
 
 ## TONE: ${tone.toUpperCase()}
 - Persuasion Level: ${aiSettings.persuasionLevel || 7}/10
@@ -284,9 +301,11 @@ End your response with:
 2. ALWAYS detect the customer's language and respond in the SAME language. You support: ${Object.values(SUPPORTED_LANGUAGES).join(', ')}. If they write in mixed languages (Hinglish, etc.), respond in the dominant language.
 3. NEVER make promises about exact prices or availability without referencing the property database below.
 4. NEVER share information about other companies or other customers.
-5. LEGAL SAFETY: only state property facts that appear in AVAILABLE PROPERTIES or the NEVER-SAY-NO block. Do not invent builder, RERA, approvals, possession date, availability, amenities, discount, ROI, or price.
-6. If a required property fact is missing, say it is not in our current records and offer to connect an agent or share the brochure/source.
-7. Your SOLE purpose is to: understand needs → match properties → convince them to book a site visit.
+5. LEGAL SAFETY: only state property facts that appear in AVAILABLE PROPERTIES or the NEVER-SAY-NO block. Do not invent builder, RERA, approvals, possession date, availability, amenities, discount %, ROI, loan amounts, or price.
+6. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet.
+7. If a required property fact is missing, say it is not in our current records and offer to connect an agent or share the brochure/source.
+8. Your SOLE purpose is to: understand needs → match properties → convince them to book a site visit.
+${this.disclaimerPromptLine(request)}
 
 ## YOUR PERSONALITY
 - Tone: ${tone}

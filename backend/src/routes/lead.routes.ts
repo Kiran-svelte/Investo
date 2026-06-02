@@ -7,6 +7,7 @@ import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
 import { exportRateLimiter } from '../middleware/rateLimiter';
 import { enforcePlanLimit, requireActivePaidSubscription } from '../middleware/subscriptionEnforcement';
+import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import { createLeadSchema, updateLeadStatusSchema, isValidTransition, LEAD_TRANSITIONS, LeadStatus } from '../models/validation';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
@@ -110,6 +111,7 @@ function mapLeadTimelineToSnakeCaseDTO(entry: LeadTimelineRow) {
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use(propertyCompletenessGate);
 router.use(requireFeature('lead_automation'));
 
 /**

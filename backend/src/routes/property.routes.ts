@@ -11,6 +11,10 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { storageService } from '../services/storage.service';
 import { geocodingService, buildAddressFromProperty } from '../services/geocoding.service';
+import {
+  assessPropertyCompleteness,
+  getUserCatalogCompletenessBlock,
+} from '../services/propertyCompleteness.service';
 
 const router = Router();
 
@@ -89,6 +93,26 @@ router.use(tenantIsolation);
 router.use(requireFeature('property_management'));
 
 /**
+ * GET /api/properties/catalog-status
+ * Whether the current user is blocked until property catalog is complete.
+ */
+router.get('/catalog-status', authorize('properties', 'read'), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = getCompanyId(req);
+    const userId = req.user!.id;
+    const block = await getUserCatalogCompletenessBlock(companyId, userId);
+    res.json({
+      blocked: Boolean(block),
+      message: block?.promptMessage ?? null,
+      reasons: block?.reasons ?? [],
+    });
+  } catch (err: any) {
+    logger.error('Catalog status check failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to check catalog status' });
+  }
+});
+
+/**
  * GET /api/properties
  * List properties for the company with search/filter.
  */
@@ -147,6 +171,35 @@ router.get(
       res.status(500).json({ error: 'Failed to fetch properties' });
     }
   }
+);
+
+/**
+ * GET /api/properties/:id/completeness
+ */
+router.get(
+  '/:id/completeness',
+  authorize('properties', 'read'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const property = await prisma.property.findFirst({
+        where: { id: req.params.id, companyId },
+      });
+      if (!property) {
+        res.status(404).json({ error: 'Property not found' });
+        return;
+      }
+      const assessment = assessPropertyCompleteness(property);
+      res.json({
+        is_publishable: assessment.isPublishable,
+        missing_fields: assessment.missingFields,
+        missing_labels: assessment.humanMissing,
+      });
+    } catch (err: any) {
+      logger.error('Property completeness check failed', { error: err.message });
+      res.status(500).json({ error: 'Failed to check property completeness' });
+    }
+  },
 );
 
 /**
