@@ -63,4 +63,64 @@ describe('AIService fallback behavior', () => {
     expect(response.text).toContain('Great! Based on your interest');
     expect(response.detectedLanguage).toBe('en');
   });
+
+  test('sends legal grounding rules in the LLM system prompt', async () => {
+    (global as any).fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: 'Grounded response\n###EXTRACT###\n{"language":"en"}',
+            },
+          },
+        ],
+      }),
+    });
+
+    const aiService = loadAiService({
+      ai: {
+        provider: 'openai',
+        openaiApiKey: 'test-openai-key',
+        openaiModel: 'gpt-4o',
+        kimiApiKey: '',
+        claudeApiKey: '',
+      },
+    });
+
+    await aiService.generateResponse({
+      customerMessage: 'Do you have 3BHK with RERA details?',
+      conversationHistory: [],
+      lead: {
+        customerName: 'Rajesh Kumar',
+        budgetMin: null,
+        budgetMax: null,
+        locationPreference: null,
+        propertyType: null,
+      },
+      properties: [
+        {
+          name: 'Palm Villa',
+          status: 'available',
+          locationArea: 'Whitefield',
+          locationCity: 'Bengaluru',
+          priceMin: 8500000,
+          priceMax: 12500000,
+          bedrooms: 3,
+          propertyType: 'villa',
+          amenities: ['Pool'],
+        },
+      ],
+      aiSettings: {},
+      companyName: 'Investo',
+      conversationState: undefined,
+    });
+
+    const body = JSON.parse((global as any).fetch.mock.calls[0][1].body);
+    const systemPrompt = body.messages[0].content;
+
+    expect(systemPrompt).toContain('LEGAL SAFETY');
+    expect(systemPrompt).toContain('Do not invent builder, RERA, approvals, possession date, availability, amenities, discount, ROI, or price.');
+    expect(systemPrompt).toContain('If a required property fact is missing, say it is not in our current records');
+  });
 });

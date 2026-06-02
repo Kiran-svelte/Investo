@@ -220,20 +220,44 @@ export async function uploadPropertyImportFile(
   contentType: string,
   onProgress?: (progress: PropertyImportUploadProgress) => void,
 ): Promise<void> {
-  await axios.put(uploadUrl, file, {
-    headers: {
-      'Content-Type': contentType,
-    },
-    onUploadProgress: (event) => {
-      if (!onProgress || !event.total) {
-        return;
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await axios.put(uploadUrl, file, {
+        headers: {
+          'Content-Type': contentType,
+        },
+        onUploadProgress: (event) => {
+          if (!onProgress || !event.total) {
+            return;
+          }
+
+          onProgress({
+            percent: Math.round((event.loaded / event.total) * 100),
+          });
+        },
+      });
+      return;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const payload = error.response?.data as { error?: string; message?: string } | undefined;
+        const serverMessage = payload?.error || payload?.message || '';
+
+        if (error.response?.status === 409 && /already been completed/i.test(serverMessage)) {
+          return;
+        }
+
+        const isNetworkOnlyError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
+        if (isNetworkOnlyError && attempt < maxAttempts) {
+          await new Promise((resolve) => window.setTimeout(resolve, 750 * attempt));
+          continue;
+        }
       }
 
-      onProgress({
-        percent: Math.round((event.loaded / event.total) * 100),
-      });
-    },
-  });
+      throw error;
+    }
+  }
 }
 
 export async function confirmPropertyImportUpload(draftId: string, uploadToken: string) {
