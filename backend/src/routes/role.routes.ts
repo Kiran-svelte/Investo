@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
@@ -10,6 +10,10 @@ const router = Router();
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (rejectPlatformAdminTenantApi(req, res)) return;
+  next();
+});
 
 // Available permission resources and actions
 const VALID_RESOURCES = [
@@ -38,7 +42,6 @@ router.get(
   '/',
   authorize('users', 'read'),
   async (req: AuthRequest, res: Response) => {
-    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const roles = await prisma.companyRole.findMany({
@@ -68,7 +71,6 @@ router.post(
   '/',
   authorize('users', 'create'),
   async (req: AuthRequest, res: Response) => {
-    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { role_name, display_name, permissions } = req.body;
@@ -123,7 +125,6 @@ router.put(
   '/:id',
   authorize('users', 'update'),
   async (req: AuthRequest, res: Response) => {
-    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
@@ -170,7 +171,6 @@ router.delete(
   '/:id',
   authorize('users', 'delete'),
   async (req: AuthRequest, res: Response) => {
-    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;

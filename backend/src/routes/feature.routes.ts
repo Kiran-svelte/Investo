@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
@@ -10,6 +10,10 @@ const router = Router();
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (rejectPlatformAdminTenantApi(req, res)) return;
+  next();
+});
 
 // All available features
 const ALL_FEATURES = [
@@ -70,7 +74,6 @@ router.put(
   '/:key',
   authorize('ai_settings', 'update'),
   async (req: AuthRequest, res: Response) => {
-    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { key } = req.params;
@@ -117,7 +120,6 @@ router.put(
   '/',
   authorize('ai_settings', 'update'),
   async (req: AuthRequest, res: Response) => {
-    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const companyId = getCompanyId(req);
       const { features } = req.body;

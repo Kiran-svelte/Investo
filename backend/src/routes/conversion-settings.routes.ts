@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
@@ -41,6 +41,10 @@ const conversionSettingsSchema = z.object({
 
 router.use(authenticate);
 router.use(tenantIsolation);
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (rejectPlatformAdminTenantApi(req, res)) return;
+  next();
+});
 router.use(requireFeature('ai_bot'));
 
 router.get(
@@ -64,7 +68,6 @@ router.put(
   validate(conversionSettingsSchema),
   auditLog('update', 'ai_settings'),
   async (req: AuthRequest, res: Response) => {
-    if (rejectPlatformAdminTenantApi(req, res)) return;
     try {
       const body = req.body as z.infer<typeof conversionSettingsSchema>;
       const patch: ConversionSettingsPatch = {};
