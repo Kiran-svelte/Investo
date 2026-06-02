@@ -1,9 +1,9 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { ToolContext } from '../agent-state';
 import { formatCurrencyINR } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
-export function createEmiTools(_context: ToolContext): DynamicStructuredTool[] {
+export function createEmiTools(_context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'calculateEmi',

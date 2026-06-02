@@ -963,6 +963,45 @@ export class WhatsAppService {
     }
   }
 
+  async sendCompanyTextMessage(to: string, text: string, companyId: string): Promise<boolean> {
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { settings: true },
+    });
+
+    const normalizeStringLike = (value: unknown): string => {
+      if (typeof value === 'string') return value.trim();
+      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+      return '';
+    };
+
+    const settings = (company?.settings as any) || {};
+    const whatsapp = (settings.whatsapp as any) || {};
+    const meta = (whatsapp.meta as any) || {};
+    const greenapi = (whatsapp.greenapi as any) || {};
+    const provider = normalizeStringLike(whatsapp.provider) as 'meta' | 'greenapi' | '';
+
+    const whatsappConfig: CompanyWhatsAppConfig = {
+      provider: provider || undefined,
+      phoneNumberId:
+        normalizeStringLike(meta.phoneNumberId) ||
+        normalizeStringLike(whatsapp.phoneNumberId) ||
+        config.whatsapp.phoneNumberId,
+      accessToken:
+        normalizeStringLike(meta.accessToken) ||
+        normalizeStringLike(whatsapp.accessToken) ||
+        config.whatsapp.accessToken,
+      verifyToken:
+        normalizeStringLike(meta.verifyToken) ||
+        normalizeStringLike(whatsapp.verifyToken) ||
+        config.whatsapp.verifyToken,
+      idInstance: normalizeStringLike(greenapi.idInstance),
+      apiTokenInstance: normalizeStringLike(greenapi.apiTokenInstance),
+    };
+
+    return this.sendMessage(to, text, whatsappConfig);
+  }
+
   /**
    * Send a message via WhatsApp Cloud API.
    * Uses company-specific config for multi-tenant support.

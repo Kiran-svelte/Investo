@@ -310,6 +310,10 @@ const config = {
     baseUrl: (process.env.FRONTEND_BASE_URL || 'http://localhost:3000').replace(/\/+$/, ''),
   },
 
+  selfService: {
+    signupEnabled: process.env.SELF_SERVICE_SIGNUP_ENABLED === 'true',
+  },
+
   mail: {
     // Email "From" address for transactional emails (password reset, invites, etc.)
     from: (process.env.MAIL_FROM || '').trim(),

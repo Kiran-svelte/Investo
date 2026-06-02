@@ -1,9 +1,3 @@
-import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatOpenAI } from '@langchain/openai';
-import { END, MessagesAnnotation, START, StateGraph } from '@langchain/langgraph';
-import { ToolNode } from '@langchain/langgraph/prebuilt';
 import config from '../../config';
 import logger from '../../config/logger';
 import { MAX_TOOL_CALLS_PER_MESSAGE } from '../../constants/agent-ai.constants';
@@ -13,6 +7,14 @@ import { buildSystemPrompt } from './prompts/system-prompt';
 import { getToolsForRole } from './tools';
 import { formatDateIST, formatTimeIST } from './response-formatter.service';
 
+const { AIMessage, HumanMessage, SystemMessage } = require('@langchain/core/messages');
+const { ChatAnthropic } = require('@langchain/anthropic');
+const { ChatOpenAI } = require('@langchain/openai');
+const { END, MessagesAnnotation, START, StateGraph } = require('@langchain/langgraph');
+const { ToolNode } = require('@langchain/langgraph/prebuilt');
+
+type BaseMessageLike = any;
+
 export interface InvokeAgentParams {
   messageText: string;
   threadId: string;
@@ -20,7 +22,7 @@ export interface InvokeAgentParams {
   companyName: string;
 }
 
-function createModel(): BaseChatModel {
+function createModel(): any {
   if (config.agentAi.provider === 'anthropic') {
     return new ChatAnthropic({
       model: config.agentAi.model || 'claude-sonnet-4-6',
@@ -36,18 +38,18 @@ function createModel(): BaseChatModel {
   });
 }
 
-function hasToolCalls(message: BaseMessage): boolean {
+function hasToolCalls(message: BaseMessageLike): boolean {
   return message instanceof AIMessage && Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
 }
 
-function toolCallCount(messages: BaseMessage[]): number {
+function toolCallCount(messages: BaseMessageLike[]): number {
   return messages.reduce((count, message) => {
     if (message instanceof AIMessage && Array.isArray(message.tool_calls)) return count + message.tool_calls.length;
     return count;
   }, 0);
 }
 
-function extractText(message: BaseMessage): string {
+function extractText(message: BaseMessageLike): string {
   if (typeof message.content === 'string') return message.content;
   if (Array.isArray(message.content)) {
     return message.content.map((part: any) => part?.text ?? '').filter(Boolean).join('\n');
@@ -68,7 +70,7 @@ export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
     currentTimeIST: formatTimeIST(now),
   });
 
-  async function agentNode(state: typeof MessagesAnnotation.State) {
+  async function agentNode(state: any) {
     const messages = [
       new SystemMessage(systemPrompt),
       ...state.messages.slice(-config.agentAi.messageWindowSize),
@@ -77,7 +79,7 @@ export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
     return { messages: [response] };
   }
 
-  function shouldContinue(state: typeof MessagesAnnotation.State): 'tools' | typeof END {
+  function shouldContinue(state: any): 'tools' | typeof END {
     const last = state.messages[state.messages.length - 1];
     if (!hasToolCalls(last)) return END;
     if (toolCallCount(state.messages) >= MAX_TOOL_CALLS_PER_MESSAGE) {

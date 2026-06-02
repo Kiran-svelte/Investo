@@ -1,9 +1,9 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { DEFAULT_AUDIT_LOG_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { formatDateIST, isAdminRole, truncate } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 function adminOnly(context: ToolContext): string | null {
   return isAdminRole(context.userRole) ? null : 'Only admins can use this tool.';
@@ -13,7 +13,7 @@ function objectValue(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-export function createAdminTools(context: ToolContext): DynamicStructuredTool[] {
+export function createAdminTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'getCompanySettings',

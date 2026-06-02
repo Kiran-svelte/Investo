@@ -8,6 +8,13 @@ export type PasswordResetEmailParams = {
   resetUrl: string;
 };
 
+export type ReEngagementEmailParams = {
+  toEmail: string;
+  toName?: string | null;
+  subject: string;
+  bodyText: string;
+};
+
 type SmtpConfig = {
   host: string;
   port: number;
@@ -114,6 +121,33 @@ export class EmailService {
     logger.info('Password reset email sent', {
       userEmail: params.toEmail,
     });
+  }
+
+  async sendReEngagementEmail(params: ReEngagementEmailParams): Promise<boolean> {
+    const smtp = resolveSmtpConfig();
+
+    if (!isSmtpConfigured(smtp) || !config.mail.from) {
+      logger.warn('Re-engagement email skipped: SMTP not configured', {
+        userEmail: params.toEmail,
+        smtp: sanitizeSmtpConfigForLogs(smtp),
+      });
+      return false;
+    }
+
+    const greetingName = (params.toName || '').trim() || 'there';
+    const text = `Hi ${greetingName},\n\n${params.bodyText}`;
+    const html = `<p>Hi ${escapeHtml(greetingName)},</p><p>${escapeHtml(params.bodyText).replace(/\n/g, '<br>')}</p>`;
+
+    await this.getTransporter().sendMail({
+      from: config.mail.from,
+      to: params.toEmail,
+      subject: params.subject,
+      text,
+      html,
+    });
+
+    logger.info('Re-engagement email sent', { userEmail: params.toEmail });
+    return true;
   }
 }
 

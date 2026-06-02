@@ -1,8 +1,8 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { ToolContext } from '../agent-state';
 import { formatCurrencyINR, getISTDayBounds, getTodayIST, isAdminRole } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 const rangeSchema = z.object({ startDate: z.string().optional(), endDate: z.string().optional() }).optional();
 
@@ -21,7 +21,7 @@ function visitScope(context: ToolContext, agentId?: string): any {
   return { companyId: context.companyId, ...(context.userRole === 'sales_agent' ? { agentId: context.userId } : agentId ? { agentId } : {}) };
 }
 
-export function createAnalyticsTools(context: ToolContext): DynamicStructuredTool[] {
+export function createAnalyticsTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'getDashboardStats',

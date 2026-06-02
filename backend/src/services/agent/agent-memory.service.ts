@@ -1,17 +1,19 @@
-import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
 import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import config from '../../config';
 
-let checkpointer: PostgresSaver | null = null;
+type Checkpointer = any;
+
+let checkpointer: Checkpointer | null = null;
 let attempted = false;
 
-export async function getCheckpointer(): Promise<PostgresSaver | null> {
+export async function getCheckpointer(): Promise<Checkpointer | null> {
   if (checkpointer) return checkpointer;
   if (attempted) return null;
   attempted = true;
 
   try {
+    const { PostgresSaver } = require('@langchain/langgraph-checkpoint-postgres');
     const saver = PostgresSaver.fromConnString(config.db.url);
     await saver.setup();
     checkpointer = saver;

@@ -1,11 +1,11 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { MAX_LIST_LIMIT, SLOT_DURATION_MINUTES, SLOT_END_HOUR, SLOT_START_HOUR } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { buildAgentScopeFilter, formatDateIST, getISTDayBounds } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
-export function createCalendarTools(context: ToolContext): DynamicStructuredTool[] {
+export function createCalendarTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'getCalendarEvents',

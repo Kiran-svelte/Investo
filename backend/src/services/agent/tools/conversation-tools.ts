@@ -1,15 +1,15 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { DEFAULT_LIST_LIMIT, DEFAULT_MESSAGE_LIMIT, MAX_LIST_LIMIT, MAX_MESSAGE_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { formatDateIST, maskPhone, truncate } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 function scope(context: ToolContext): any {
   return { companyId: context.companyId, ...(context.userRole === 'sales_agent' ? { lead: { assignedAgentId: context.userId } } : {}) };
 }
 
-export function createConversationTools(context: ToolContext): DynamicStructuredTool[] {
+export function createConversationTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'listConversations',

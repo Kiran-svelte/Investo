@@ -1,18 +1,18 @@
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { BCRYPT_SALT_ROUNDS, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
 import { isAdminRole, maskPhone } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 function adminOnly(context: ToolContext): string | null {
   return isAdminRole(context.userRole) ? null : 'Only admins can use this tool.';
 }
 
-export function createUserTools(context: ToolContext): DynamicStructuredTool[] {
+export function createUserTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'listAgents',

@@ -132,6 +132,14 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+export const selfServiceSignupSchema = z.object({
+  company_name: z.string().min(1).max(255),
+  admin_name: z.string().min(1).max(255),
+  email: emailSchema,
+  password: z.string().min(8).max(128),
+  whatsapp_phone: optionalPhone,
+});
+
 export const createCompanySchema = z.object({
   name: z.string().min(1).max(255),
   slug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),

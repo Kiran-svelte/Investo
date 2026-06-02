@@ -1,9 +1,9 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { formatCurrencyINR, getStatusEmoji, isAdminRole } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 const propertyType = z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']);
 const propertyStatus = z.enum(['available', 'sold', 'upcoming']);
@@ -26,7 +26,7 @@ function formatProperty(property: any): string {
   ].filter(Boolean).join('\n');
 }
 
-export function createPropertyTools(context: ToolContext): DynamicStructuredTool[] {
+export function createPropertyTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'listProperties',

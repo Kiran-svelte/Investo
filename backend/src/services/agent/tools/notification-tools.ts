@@ -1,15 +1,15 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { DEFAULT_NOTIFICATION_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { formatDateIST, isAdminRole, truncate } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 function scope(context: ToolContext): any {
   return isAdminRole(context.userRole) ? { companyId: context.companyId } : { userId: context.userId };
 }
 
-export function createNotificationTools(context: ToolContext): DynamicStructuredTool[] {
+export function createNotificationTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'listNotifications',

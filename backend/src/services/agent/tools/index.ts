@@ -1,5 +1,5 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { ToolContext } from '../agent-state';
+import { type AgentTool } from './langchain-runtime';
 import { createAdminTools } from './admin-tools';
 import { createAnalyticsTools } from './analytics-tools';
 import { createCalendarTools } from './calendar-tools';
@@ -15,8 +15,8 @@ function isAdminRole(role: string): boolean {
   return role === 'company_admin' || role === 'super_admin';
 }
 
-export function getToolsForRole(context: ToolContext): DynamicStructuredTool[] {
-  const tools: DynamicStructuredTool[] = [
+export function getToolsForRole(context: ToolContext): AgentTool[] {
+  const tools: AgentTool[] = [
     ...createPropertyTools(context),
     ...createNotificationTools(context),
     ...createEmiTools(context),

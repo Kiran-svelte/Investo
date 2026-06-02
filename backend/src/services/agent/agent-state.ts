@@ -1,4 +1,3 @@
-import { BaseMessage } from '@langchain/core/messages';
 import { UserRole } from '@prisma/client';
 
 export interface ToolContext {
@@ -10,7 +9,7 @@ export interface ToolContext {
 }
 
 export interface AgentState {
-  messages: BaseMessage[];
+  messages: unknown[];
   userId: string;
   companyId: string;
   userRole: UserRole;

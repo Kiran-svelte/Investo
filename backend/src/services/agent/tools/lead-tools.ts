@@ -1,10 +1,10 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
 import { buildAgentScopeFilter, formatCurrencyINR, formatDateIST, getStatusEmoji, maskPhone, truncate } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 const leadStatus = z.enum(['new', 'contacted', 'visit_scheduled', 'visited', 'negotiation', 'closed_won', 'closed_lost']);
 
@@ -19,7 +19,7 @@ function leadScope(context: ToolContext): Record<string, unknown> {
   return buildAgentScopeFilter(context.companyId, context.userRole, context.userId);
 }
 
-export function createLeadTools(context: ToolContext): DynamicStructuredTool[] {
+export function createLeadTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'listLeads',

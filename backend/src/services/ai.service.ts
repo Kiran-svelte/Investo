@@ -21,6 +21,8 @@ interface AIRequest {
   conversationState?: ConversationState;
   /** Grounded never-say-no block from conversionEngine.service */
   conversionPromptBlock?: string;
+  neverSayNoFallbackCta?: string;
+  neverSayNoHasAlternatives?: boolean;
 }
 
 interface AIResponse {

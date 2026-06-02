@@ -1,10 +1,10 @@
-import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { DEFAULT_LIST_LIMIT, LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
 import { buildAgentScopeFilter, formatDateIST, getISTDayBounds, getStatusEmoji, getTodayIST, maskPhone } from './format-helpers';
+import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 const visitStatus = z.enum(['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show']);
 
@@ -28,7 +28,7 @@ const include = {
   agent: { select: { name: true } },
 };
 
-export function createVisitTools(context: ToolContext): DynamicStructuredTool[] {
+export function createVisitTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'listVisitsToday',

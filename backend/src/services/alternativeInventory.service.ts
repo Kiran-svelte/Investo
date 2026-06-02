@@ -13,6 +13,7 @@ export interface PropertySearchCriteria {
   /** From company.settings.conversion (Phase 2) */
   budgetStretchPercent?: number;
   upsellEnabled?: boolean;
+  preferReadyToMove?: boolean;
 }
 
 export type AlternativeTierKind =
@@ -21,6 +22,9 @@ export type AlternativeTierKind =
   | 'nearby_area'
   | 'budget_stretch'
   | 'type_pivot'
+  | 'plot_pivot'
+  | 'commercial_pivot'
+  | 'ready_to_move'
   | 'waitlist';
 
 export interface AlternativeTier {
