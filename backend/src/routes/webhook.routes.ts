@@ -302,6 +302,18 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
         });
 
         try {
+          const { agentRouterService } = await import('../services/agent/agent-router.service');
+          const agentRouted = await agentRouterService.routeIfInternalUser('+' + customerPhone, messageText);
+          if (agentRouted) {
+            outcome.propagationStatus = 'success';
+            outcome.status = 'processed';
+            outcome.reason = 'handled_by_agent_ai';
+            summary.processed += 1;
+            summary.outcomes.push(outcome);
+            logger.info('Message handled by Agent AI; skipping customer flow', { messageId });
+            continue;
+          }
+
           const processingResult = await whatsappService.handleIncomingMessage({
             phoneNumberId,
             customerPhone: '+' + customerPhone,

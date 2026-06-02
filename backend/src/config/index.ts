@@ -333,6 +333,18 @@ const config = {
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
   },
 
+  agentAi: {
+    enabled: process.env.AGENT_AI_ENABLED !== 'false',
+    provider: (process.env.AGENT_AI_PROVIDER || 'openai').toLowerCase(),
+    model: process.env.AGENT_AI_MODEL || 'gpt-4o',
+    maxToolCalls: parseInt(process.env.AGENT_AI_MAX_TOOL_CALLS || '10', 10),
+    threadTtlHours: parseInt(process.env.AGENT_AI_THREAD_TTL_HOURS || '24', 10),
+    confirmationTtlMinutes: parseInt(process.env.AGENT_AI_CONFIRMATION_TTL_MINUTES || '5', 10),
+    messageWindowSize: parseInt(process.env.AGENT_AI_MESSAGE_WINDOW || '20', 10),
+    cronEnabled: process.env.AGENT_AI_CRON_ENABLED !== 'false',
+    temperature: parseFloat(process.env.AGENT_AI_TEMPERATURE || '0.1'),
+  },
+
   storage: {
     provider: process.env.STORAGE_PROVIDER || 'r2',
     // Optional: override the S3 endpoint completely (useful for MinIO / other S3-compatible providers).

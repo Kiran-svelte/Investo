@@ -324,6 +324,20 @@ async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcess
     }
 
     try {
+      const { agentRouterService } = await import('../services/agent/agent-router.service');
+      const agentRouted = await agentRouterService.routeIfInternalUser(
+        msg.customerPhone,
+        msg.messageText,
+      );
+      if (agentRouted) {
+        outcome.propagationStatus = 'success';
+        outcome.status = 'processed';
+        outcome.reason = 'handled_by_agent_ai';
+        summary.processed += 1;
+        summary.outcomes.push(outcome);
+        continue;
+      }
+
       const result = await whatsappService.handleIncomingMessage({
         phoneNumberId,
         customerPhone: msg.customerPhone,

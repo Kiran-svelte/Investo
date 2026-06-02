@@ -56,6 +56,7 @@ model Company {
   propertyImportMedia  PropertyImportMedia[]
   propertyImportJobs   PropertyImportJob[]
   propertyImportMediaBlobs PropertyImportMediaBlob[]
+  agentSessions     AgentSession[]
 
   @@map("companies")
 }
@@ -87,9 +88,51 @@ model User {
   customRoleId        String?      @map("custom_role_id") @db.Uuid
   createdPropertyImportDrafts PropertyImportDraft[] @relation("PropertyImportCreatedBy")
   reviewedPropertyImportDrafts PropertyImportDraft[] @relation("PropertyImportReviewedBy")
+  agentSessions       AgentSession[]
 
   @@index([companyId, role])
   @@map("users")
+}
+
+// ─── Agent Sessions (WhatsApp AI for internal users) ────────────────
+model AgentSession {
+  id           String             @id @default(uuid()) @db.Uuid
+  userId       String             @map("user_id") @db.Uuid
+  companyId    String             @map("company_id") @db.Uuid
+  phone        String             @db.VarChar(20)
+  threadId     String             @unique @map("thread_id") @db.VarChar(100)
+  status       AgentSessionStatus @default(active)
+  lastActiveAt DateTime           @default(now()) @map("last_active_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  user          User            @relation(fields: [userId], references: [id])
+  company       Company         @relation(fields: [companyId], references: [id])
+  pendingActions PendingAction[]
+
+  @@unique([userId, phone])
+  @@index([phone])
+  @@index([companyId, status])
+  @@map("agent_sessions")
+}
+
+// ─── Pending Confirmations ──────────────────────────────────────────
+model PendingAction {
+  id             String              @id @default(uuid()) @db.Uuid
+  sessionId      String              @map("session_id") @db.Uuid
+  actionType     String              @map("action_type") @db.VarChar(100)
+  actionParams   Json                @map("action_params") @default("{}")
+  displayMessage String              @map("display_message") @db.Text
+  status         PendingActionStatus @default(awaiting)
+  expiresAt      DateTime            @map("expires_at")
+  resolvedAt     DateTime?           @map("resolved_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  session AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, status])
+  @@index([expiresAt])
+  @@map("pending_actions")
 }
 
 // ─── Refresh Tokens ─────────────────────────────────────────────────
@@ -587,6 +630,18 @@ enum UserRole {
 enum UserStatus {
   active
   inactive
+}
+
+enum AgentSessionStatus {
+  active
+  inactive
+}
+
+enum PendingActionStatus {
+  awaiting
+  confirmed
+  rejected
+  expired
 }
 
 enum LeadStatus {

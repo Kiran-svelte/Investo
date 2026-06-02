@@ -6,14 +6,23 @@ import prisma from './config/prisma';
 import { bootstrapDatabase } from './config/bootstrapDatabase';
 import { automationService } from './services/automation.service';
 import { socketService } from './services/socket.service';
+import { startCronScheduler, stopCronScheduler } from './services/agent/cron-scheduler.service';
+import { destroyCheckpointer } from './services/agent/agent-memory.service';
 
 let keepAliveTimer: NodeJS.Timeout | null = null;
 let automationStarted = false;
+let agentCronStarted = false;
 
 function startAutomationIfNeeded(): void {
   if (automationStarted) return;
   automationService.start();
   automationStarted = true;
+}
+
+function startAgentCronIfNeeded(): void {
+  if (agentCronStarted || !config.agentAi.enabled || !config.agentAi.cronEnabled) return;
+  startCronScheduler();
+  agentCronStarted = true;
 }
 
 async function start() {
@@ -59,6 +68,10 @@ async function start() {
               logger.info('Dependencies healthy; starting automation service');
               startAutomationIfNeeded();
             }
+            if (!agentCronStarted) {
+              logger.info('Dependencies healthy; starting Agent AI cron scheduler');
+              startAgentCronIfNeeded();
+            }
           } catch (err: any) {
             logger.warn('Neon keep-alive ping failed', { error: err.message });
           }
@@ -67,8 +80,10 @@ async function start() {
 
       if (dbConnectedAtStartup) {
         startAutomationIfNeeded();
+        startAgentCronIfNeeded();
       } else {
         logger.warn('Automation service delayed until database connectivity is healthy');
+        logger.warn('Agent AI cron scheduler delayed until database connectivity is healthy');
       }
     });
   } catch (err: any) {
@@ -87,6 +102,11 @@ process.on('SIGTERM', async () => {
     automationService.stop();
     automationStarted = false;
   }
+  if (agentCronStarted) {
+    stopCronScheduler();
+    agentCronStarted = false;
+  }
+  await destroyCheckpointer();
   await prisma.$disconnect();
   process.exit(0);
 });
@@ -100,6 +120,11 @@ process.on('SIGINT', async () => {
     automationService.stop();
     automationStarted = false;
   }
+  if (agentCronStarted) {
+    stopCronScheduler();
+    agentCronStarted = false;
+  }
+  await destroyCheckpointer();
   await prisma.$disconnect();
   process.exit(0);
 });

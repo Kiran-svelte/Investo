@@ -99,6 +99,41 @@ async function applyCompatibilityPatches(): Promise<void> {
       END IF;
     END $$;
   `);
+
+  // Agent AI sessions for WhatsApp-first internal-user workflows.
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      phone VARCHAR(20) NOT NULL,
+      thread_id VARCHAR(100) NOT NULL UNIQUE,
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      last_active_at TIMESTAMP NOT NULL DEFAULT now(),
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now(),
+      UNIQUE (user_id, phone)
+    )
+  `);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS agent_sessions_phone_idx ON agent_sessions(phone)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS agent_sessions_company_status_idx ON agent_sessions(company_id, status)`);
+
+  // Pending confirmations for destructive agent actions.
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS pending_actions (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      session_id UUID NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      action_type VARCHAR(100) NOT NULL,
+      action_params JSONB NOT NULL DEFAULT '{}'::jsonb,
+      display_message TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'awaiting',
+      expires_at TIMESTAMP NOT NULL,
+      resolved_at TIMESTAMP NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_session_status_idx ON pending_actions(session_id, status)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_expires_idx ON pending_actions(expires_at)`);
 }
 
 export async function bootstrapDatabase(options: BootstrapOptions): Promise<void> {

@@ -5,7 +5,7 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: cd backend && npm install && npm run build
+    buildCommand: cd backend && npm install && NODE_OPTIONS=--max-old-space-size=4096 npm run build
     startCommand: cd backend && npm run start
     envVars:
       - key: NODE_ENV
@@ -52,6 +52,24 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4o
+      - key: AGENT_AI_ENABLED
+        value: true
+      - key: AGENT_AI_PROVIDER
+        value: openai
+      - key: AGENT_AI_MODEL
+        value: gpt-4o
+      - key: AGENT_AI_MAX_TOOL_CALLS
+        value: 10
+      - key: AGENT_AI_THREAD_TTL_HOURS
+        value: 24
+      - key: AGENT_AI_CONFIRMATION_TTL_MINUTES
+        value: 5
+      - key: AGENT_AI_MESSAGE_WINDOW
+        value: 20
+      - key: AGENT_AI_CRON_ENABLED
+        value: true
+      - key: AGENT_AI_TEMPERATURE
+        value: 0.1
       - key: CORS_ORIGINS
         value: https://frontend-navy-eight-37.vercel.app,http://localhost:3000,http://localhost:5173
       - key: FRONTEND_BASE_URL
@@ -90,7 +108,7 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: cd backend && npm install && npm run build
+    buildCommand: cd backend && npm install && NODE_OPTIONS=--max-old-space-size=4096 npm run build
     startCommand: cd backend && npm run start:worker
     envVars:
       - key: NODE_ENV
