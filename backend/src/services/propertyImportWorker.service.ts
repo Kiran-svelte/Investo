@@ -378,9 +378,9 @@ export class PropertyImportWorkerService {
         const { assessDraftCompleteness, notifyUploaderOfMissingFields } = await import(
           './propertyCompleteness.service'
         );
-        const freshDraft = await this.deps.db.propertyImportDraft.findUnique({
-          where: { id: jobRecord.draftId },
-          select: { id: true, companyId: true, createdByUserId: true, draftData: true },
+        const prismaClient = (await import('../config/prisma')).default;
+        const freshDraft = await prismaClient.propertyImportDraft.findUnique({
+          where: { id: jobRecord.draft.id },
         });
         if (freshDraft) {
           const assessment = assessDraftCompleteness(
