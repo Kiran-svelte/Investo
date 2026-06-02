@@ -89,20 +89,19 @@ const AgentsPage: React.FC = () => {
     setError('');
 
     try {
-      // Build URL with target_company_id for super_admin
-      let url = '/users';
-      if (user?.role === 'super_admin' && formData.company_id) {
-        url = `/users?target_company_id=${formData.company_id}`;
-      }
-      
-      await api.post(url, {
+      const payload: Record<string, unknown> = {
         name: formData.name,
         email: formData.email,
         password: formData.password,
         phone: formData.phone || null,
         role: formData.role,
         must_change_password: formData.must_change_password,
-      });
+      };
+      if (user?.role === 'super_admin' && formData.company_id) {
+        payload.target_company_id = formData.company_id;
+      }
+
+      await api.post('/users', payload);
       setShowModal(false);
       setFormData({ name: '', email: '', password: '', phone: '', role: 'sales_agent', company_id: '', must_change_password: true });
       loadData();

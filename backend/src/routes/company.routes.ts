@@ -7,6 +7,7 @@ import { validate } from '../middleware/validate';
 import { createCompanySchema, normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { provisionNewCompany } from '../services/companyProvisioning.service';
 
 const router = Router();
 
@@ -139,15 +140,29 @@ router.post(
         }
       }
 
+      let resolvedPlanId = plan_id || null;
+      if (!resolvedPlanId) {
+        const defaultPlan = await prisma.subscriptionPlan.findFirst({
+          orderBy: { priceMonthly: 'asc' },
+        });
+        resolvedPlanId = defaultPlan?.id ?? null;
+      }
+
       const company = await prisma.company.create({
         data: {
           name,
           slug,
           whatsappPhone: whatsapp_phone || null,
-          planId: plan_id || null,
+          planId: resolvedPlanId,
           status: 'active',
         },
       });
+
+      await provisionNewCompany(company.id, company.name);
+
+      // #region agent log
+      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',location:'company.routes.ts:create',message:'company provisioned',data:{companyId:company.id,hasPlan:Boolean(resolvedPlanId)},timestamp:Date.now(),hypothesisId:'H-company-seed'})}).catch(()=>{});
+      // #endregion
 
       res.status(201).json({ data: company, id: company.id });
     } catch (err: any) {

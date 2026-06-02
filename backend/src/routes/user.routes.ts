@@ -166,15 +166,22 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const { name, email, password, phone, role, target_company_id, must_change_password } = req.body;
-      
+      const queryTargetCompanyId =
+        typeof req.query.target_company_id === 'string' ? req.query.target_company_id : undefined;
+      const resolvedTargetCompanyId = target_company_id || queryTargetCompanyId;
+
       // Determine which company to create user in
-      // Super admin can specify target_company_id, others use their own company
+      // Super admin can specify target_company_id (body or query), others use their own company
       let companyId: string;
-      if (req.user!.role === 'super_admin' && target_company_id) {
-        companyId = target_company_id;
+      if (req.user!.role === 'super_admin' && resolvedTargetCompanyId) {
+        companyId = resolvedTargetCompanyId;
       } else {
         companyId = getCompanyId(req);
       }
+
+      // #region agent log
+      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',location:'user.routes.ts:create',message:'create user company resolved',data:{actorRole:req.user?.role,companyId,usedTarget:Boolean(req.user?.role==='super_admin'&&resolvedTargetCompanyId),role},timestamp:Date.now(),hypothesisId:'H-user-company'})}).catch(()=>{});
+      // #endregion
 
       // Company admin cannot create super_admin role
       if (req.user!.role === 'company_admin' && role === 'super_admin') {

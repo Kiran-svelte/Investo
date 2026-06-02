@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
 import {
   Building2, Plus, Search, Users, Check, X,
-  Edit2, Power, PowerOff
+  Edit2, Power, PowerOff, UserPlus,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 interface Company {
   id: string;
@@ -29,6 +30,8 @@ interface SubscriptionPlan {
 
 const CompaniesPage: React.FC = () => {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isPlatformAdmin = user?.role === 'super_admin';
   const [companies, setCompanies] = useState<Company[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +46,16 @@ const CompaniesPage: React.FC = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [inviteCompany, setInviteCompany] = useState<Company | null>(null);
+  const [inviteForm, setInviteForm] = useState({
+    name: '',
+    email: '',
+    password: 'Welcome@123',
+    must_change_password: true,
+  });
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+  const [inviteSuccess, setInviteSuccess] = useState('');
 
   const loadData = async () => {
     try {
@@ -50,8 +63,12 @@ const CompaniesPage: React.FC = () => {
         api.get('/companies'),
         api.get('/subscriptions/plans'),
       ]);
+      const planList = plansRes.data.data || [];
       setCompanies(companiesRes.data.data || []);
-      setPlans(plansRes.data.data || []);
+      setPlans(planList);
+      if (planList.length > 0 && !formData.plan_id) {
+        setFormData((prev) => ({ ...prev, plan_id: prev.plan_id || planList[0].id }));
+      }
     } catch (err) {
       console.error('Failed to load companies', err);
     } finally {
@@ -106,6 +123,32 @@ const CompaniesPage: React.FC = () => {
     setShowModal(true);
   };
 
+  const handleInviteAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteCompany) return;
+    setInviteSubmitting(true);
+    setInviteError('');
+    setInviteSuccess('');
+    try {
+      await api.post('/users', {
+        name: inviteForm.name,
+        email: inviteForm.email,
+        password: inviteForm.password,
+        role: 'company_admin',
+        target_company_id: inviteCompany.id,
+        must_change_password: inviteForm.must_change_password,
+      });
+      setInviteSuccess(
+        `Company admin created. They should log in and complete the 6-step onboarding wizard.`,
+      );
+      setInviteForm({ name: '', email: '', password: 'Welcome@123', must_change_password: true });
+    } catch (err: any) {
+      setInviteError(err.response?.data?.error || 'Failed to create company admin');
+    } finally {
+      setInviteSubmitting(false);
+    }
+  };
+
   const handleToggleStatus = async (company: Company) => {
     try {
       if (company.status === 'active') {
@@ -147,7 +190,7 @@ const CompaniesPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{t('companies.title')}</h1>
           <p className="text-gray-500 text-sm">
-            Manage all registered companies on the platform
+            Create agencies, assign a plan, then invite each company&apos;s admin to onboard their team.
           </p>
         </div>
         <button
@@ -251,6 +294,19 @@ const CompaniesPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
+                        {isPlatformAdmin && (
+                          <button
+                            onClick={() => {
+                              setInviteCompany(company);
+                              setInviteError('');
+                              setInviteSuccess('');
+                            }}
+                            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                            title="Invite company admin"
+                          >
+                            <UserPlus className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleEdit(company)}
                           className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -282,6 +338,70 @@ const CompaniesPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {inviteCompany && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setInviteCompany(null)} />
+          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">Invite company admin</h2>
+            <p className="text-sm text-gray-500 mb-4">{inviteCompany.name}</p>
+            {inviteError && (
+              <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{inviteError}</div>
+            )}
+            {inviteSuccess && (
+              <div className="mb-3 p-3 bg-green-50 border border-green-200 text-green-800 rounded-lg text-sm">{inviteSuccess}</div>
+            )}
+            <form onSubmit={handleInviteAdmin} className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Admin name *</label>
+                <input
+                  required
+                  value={inviteForm.name}
+                  onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <input
+                  type="email"
+                  required
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Temporary password *</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={inviteForm.password}
+                  onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={inviteForm.must_change_password}
+                  onChange={(e) => setInviteForm({ ...inviteForm, must_change_password: e.target.checked })}
+                />
+                Require password change on first login
+              </label>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setInviteCompany(null)} className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg">
+                  {t('common.cancel')}
+                </button>
+                <button type="submit" disabled={inviteSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                  {inviteSubmitting ? t('common.loading') : 'Create admin'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (
