@@ -66,9 +66,6 @@ const CompaniesPage: React.FC = () => {
       const planList = plansRes.data.data || [];
       setCompanies(companiesRes.data.data || []);
       setPlans(planList);
-      if (planList.length > 0 && !formData.plan_id) {
-        setFormData((prev) => ({ ...prev, plan_id: prev.plan_id || planList[0].id }));
-      }
     } catch (err) {
       console.error('Failed to load companies', err);
     } finally {
@@ -196,7 +193,12 @@ const CompaniesPage: React.FC = () => {
         <button
           onClick={() => {
             setEditingCompany(null);
-            setFormData({ name: '', slug: '', whatsapp_phone: '', plan_id: '' });
+            setFormData({
+              name: '',
+              slug: '',
+              whatsapp_phone: '',
+              plan_id: plans[0]?.id || '',
+            });
             setShowModal(true);
           }}
           className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

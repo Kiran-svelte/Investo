@@ -15,7 +15,7 @@ Step-by-step flows for production. Navigation rules: `docs/ROLE_NAVIGATION.md`.
 | 3 | System seeds tenant | Features, roles, AI stub, onboarding step 0 (automatic) |
 | 4 | Invite company admin | Companies row → **person+** icon → name, email, temp password |
 | 5 | Hand off credentials | Send admin email + password securely (not via chat) |
-| 6 | Optional | Audit logs, Settings (profile) |
+| 6 | Optional | Audit logs, **Settings** (account only — password; no tenant feature toggles) |
 
 **Do not:** Upload properties, message as buyer, or use Leads/Agents (not in sidebar).
 

@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
 import {
   Settings, Building2, Shield, ToggleLeft, Save, Plus, Pencil, Trash2,
-  X, Loader2, Lock, Users
+  X, Loader2, Lock, Users, Sparkles,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────
@@ -200,7 +202,9 @@ const RoleModal: React.FC<RoleModalProps> = ({ role, onClose, onSaved }) => {
 
 const SettingsPage: React.FC = () => {
   const { t } = useTranslation();
-  useAuth();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const capabilities = getRoleCapabilities(user?.role);
   const [activeTab, setActiveTab] = useState<Tab>('company');
 
   // Company profile state
@@ -380,11 +384,60 @@ const SettingsPage: React.FC = () => {
 
   const allRoles = [...roles.systemRoles, ...roles.customRoles];
 
-  const tabConfig = [
-    { key: 'company' as Tab, label: t('settings.companyProfile'), icon: Building2 },
-    { key: 'roles' as Tab, label: t('settings.rolesManagement'), icon: Shield },
-    { key: 'features' as Tab, label: t('settings.featureToggles'), icon: ToggleLeft },
-  ];
+  const tabConfig = useMemo(() => {
+    if (!capabilities.canManageTenantSettings) return [];
+    return [
+      { key: 'company' as Tab, label: t('settings.companyProfile'), icon: Building2 },
+      { key: 'conversion' as Tab, label: 'Conversion', icon: Sparkles },
+      { key: 'roles' as Tab, label: t('settings.rolesManagement'), icon: Shield },
+      { key: 'features' as Tab, label: t('settings.featureToggles'), icon: ToggleLeft },
+    ];
+  }, [capabilities.canManageTenantSettings, t]);
+
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',location:'SettingsPage.tsx:mount',message:'settings view resolved',data:{role:user?.role,tenantTabs:tabConfig.length,isPlatformAdmin:capabilities.isPlatformAdmin},timestamp:Date.now(),hypothesisId:'H-settings-role'})}).catch(()=>{});
+    // #endregion
+  }, [user?.role, tabConfig.length, capabilities.isPlatformAdmin]);
+
+  if (!capabilities.canManageTenantSettings) {
+    return (
+      <div className="p-4 md:p-6 space-y-6 max-w-xl">
+        <div className="flex items-center gap-3">
+          <Settings className="h-7 w-7 text-gray-700" />
+          <h1 className="text-2xl font-bold text-gray-900">{t('nav.settings')}</h1>
+        </div>
+        {capabilities.isPlatformAdmin && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+            Platform admin: manage agencies under <strong>Companies</strong>. Tenant profile, roles, and feature toggles are configured by each agency&apos;s <strong>Company Admin</strong> during onboarding.
+          </p>
+        )}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
+          <h2 className="font-semibold text-gray-900">Your account</h2>
+          <div>
+            <p className="text-sm text-gray-500">Name</p>
+            <p className="font-medium text-gray-900">{user?.name}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-500">Email</p>
+            <p className="font-medium text-gray-900">{user?.email}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-500">Role</p>
+            <p className="font-medium text-gray-900">{user?.role?.replace('_', ' ')}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/change-password')}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Lock className="h-4 w-4" />
+            Change password
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -395,7 +448,7 @@ const SettingsPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+      <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1">
         {tabConfig.map(tab => {
           const Icon = tab.icon;
           return (

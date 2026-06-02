@@ -224,6 +224,7 @@ export function getRoleCapabilities(role: UserRole | undefined) {
     canManageProperties: isCompanyAdmin,
     canManageBilling: isCompanyAdmin,
     canManageAiSettings: isCompanyAdmin,
+    canManageTenantSettings: isCompanyAdmin,
     canCreateLeads: isCompanyAdmin || isSalesAgent,
     canExportLeads: isCompanyAdmin,
     canAssignLeads: isCompanyAdmin,
