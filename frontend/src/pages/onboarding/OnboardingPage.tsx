@@ -381,6 +381,8 @@ const OnboardingPage: React.FC = () => {
     try {
       if (validInvites.length > 0) {
         await api.post('/onboarding/invite', { invites: validInvites });
+      } else {
+        await api.post('/onboarding/invite', { invites: [] });
       }
       markStepComplete(5);
       setCurrentStep(6);

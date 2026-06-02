@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
 exports.normalizeIndianPhoneNumber = normalizeIndianPhoneNumber;
 exports.isIndianE164Phone = isIndianE164Phone;
+exports.whatsappPhoneLookupVariants = whatsappPhoneLookupVariants;
 exports.isValidTransition = isValidTransition;
 const zod_1 = require("zod");
 const INDIAN_E164_REGEX = /^\+91\d{10}$/;
@@ -40,6 +41,12 @@ function normalizeIndianPhoneNumber(input) {
 }
 function isIndianE164Phone(value) {
     return INDIAN_E164_REGEX.test(value);
+}
+/** DB lookup variants for legacy rows stored as 10-digit or 91-prefixed values. */
+function whatsappPhoneLookupVariants(e164) {
+    const digits = e164.replace(/\D/g, '');
+    const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+    return Array.from(new Set([e164, `+91${last10}`, last10, `91${last10}`].filter(Boolean)));
 }
 // Phone number: E.164 format for Indian numbers
 const phoneSchema = zod_1.z.preprocess(normalizeIndianPhoneNumber, zod_1.z.string().regex(INDIAN_E164_REGEX, 'Phone must be in E.164 format: +91XXXXXXXXXX'));

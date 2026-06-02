@@ -4,7 +4,12 @@ import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { hasRole } from '../middleware/rbac';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
-import { ROLES, normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
+import {
+  ROLES,
+  normalizeIndianPhoneNumber,
+  isIndianE164Phone,
+  whatsappPhoneLookupVariants,
+} from '../models/validation';
 import { authService, normalizeAuthEmail } from '../services/auth.service';
 import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { mapPrismaError } from '../utils/prismaErrors';
@@ -180,7 +185,10 @@ async function updateCompanySetup(companyId: string, body: any) {
 
   if (normalizedWhatsAppPhone) {
     const conflict = await prisma.company.findFirst({
-      where: { whatsappPhone: normalizedWhatsAppPhone, NOT: { id: companyId } },
+      where: {
+        whatsappPhone: { in: whatsappPhoneLookupVariants(normalizedWhatsAppPhone) },
+        NOT: { id: companyId },
+      },
       select: { name: true },
     });
     if (conflict) {
@@ -651,11 +659,29 @@ router.post(
       const members = req.body.members || req.body.invites;
 
       // members/invites: [{ name, email, role, password }]
-      if (!Array.isArray(members) || members.length === 0) {
+      if (!Array.isArray(members)) {
         res.status(400).json({
           error: 'members/invites must be an array',
           example: '[{ "name": "John", "email": "john@co.com", "role": "sales_agent" }]',
         });
+        return;
+      }
+
+      if (members.length === 0) {
+        await prisma.companyOnboarding.upsert({
+          where: { companyId },
+          create: {
+            companyId,
+            stepCompleted: 5,
+            companyProfile: true,
+            rolesConfigured: true,
+            featuresSelected: true,
+            aiConfigured: true,
+            teamInvited: true,
+          },
+          update: { stepCompleted: 5, teamInvited: true },
+        });
+        res.json({ data: [], step: 5, message: 'Team step skipped' });
         return;
       }
 

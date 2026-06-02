@@ -11,6 +11,8 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const validation_1 = require("../models/validation");
 const auth_service_1 = require("../services/auth.service");
+const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
+const prismaErrors_1 = require("../utils/prismaErrors");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
@@ -20,7 +22,7 @@ const DEFAULT_FEATURES = [
     'property_management', 'audit_logs', 'csv_export',
 ];
 const SYSTEM_ROLES = new Set(validation_1.ROLES);
-const ONBOARDING_MUTATION_ROLES = ['company_admin', 'super_admin'];
+const ONBOARDING_MUTATION_ROLES = ['company_admin'];
 const ALLOWED_DEFAULT_ONBOARDING_ROLES = new Set(['sales_agent', 'operations', 'viewer']);
 const ALLOWED_PERMISSION_ACTIONS = new Set(['create', 'read', 'update', 'delete']);
 const ALLOWED_PERMISSION_RESOURCES = new Set([
@@ -140,18 +142,38 @@ async function updateCompanySetup(companyId, body) {
             normalizedWhatsAppPhone = normalized;
         }
         else {
-            throw new Error('Phone must be in E.164 format: +91XXXXXXXXXX');
+            throw new Error('Phone must be in E.164 format: +91XXXXXXXXXX (10 digits after +91)');
         }
     }
+    if (normalizedWhatsAppPhone) {
+        const conflict = await prisma_1.default.company.findFirst({
+            where: {
+                whatsappPhone: { in: (0, validation_1.whatsappPhoneLookupVariants)(normalizedWhatsAppPhone) },
+                NOT: { id: companyId },
+            },
+            select: { name: true },
+        });
+        if (conflict) {
+            throw new Error(`This WhatsApp number is already used by "${conflict.name}". Each agency needs its own business WhatsApp number.`);
+        }
+    }
+    const existing = await prisma_1.default.company.findUnique({
+        where: { id: companyId },
+        select: { settings: true },
+    });
+    const prevSettings = existing?.settings && typeof existing.settings === 'object' && !Array.isArray(existing.settings)
+        ? existing.settings
+        : {};
     const company = await prisma_1.default.company.update({
         where: { id: companyId },
         data: {
             name,
             ...(whatsapp_phone !== undefined && { whatsappPhone: normalizedWhatsAppPhone }),
             settings: {
-                logo_url: logo_url || null,
-                primary_color: primary_color || '#3B82F6',
-                description: description || '',
+                ...prevSettings,
+                logo_url: logo_url ?? prevSettings.logo_url ?? null,
+                primary_color: primary_color || prevSettings.primary_color || '#3B82F6',
+                description: description ?? prevSettings.description ?? '',
             },
         },
     });
@@ -250,6 +272,8 @@ router.get('/status', async (req, res) => {
  * Step 1: Company profile setup
  */
 router.post('/setup', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async (req, res) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
         const company = await updateCompanySetup(companyId, req.body);
@@ -257,7 +281,14 @@ router.post('/setup', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async (
     }
     catch (err) {
         logger_1.default.error('Failed to setup company', { error: err.message });
-        if (err.message === 'Company name is required' || err.message.includes('Phone must be in E.164')) {
+        const prismaMsg = (0, prismaErrors_1.mapPrismaError)(err);
+        if (prismaMsg) {
+            res.status(409).json({ error: prismaMsg });
+            return;
+        }
+        if (err.message === 'Company name is required' ||
+            err.message.includes('Phone must be in E.164') ||
+            err.message.includes('already used by')) {
             res.status(400).json({ error: err.message });
             return;
         }
@@ -269,6 +300,8 @@ router.post('/setup', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async (
  * Alias used by settings page for company profile updates
  */
 router.put('/setup', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async (req, res) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
         const company = await updateCompanySetup(companyId, req.body);
@@ -276,7 +309,14 @@ router.put('/setup', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async (r
     }
     catch (err) {
         logger_1.default.error('Failed to update onboarding setup', { error: err.message });
-        if (err.message === 'Company name is required' || err.message.includes('Phone must be in E.164')) {
+        const prismaMsg = (0, prismaErrors_1.mapPrismaError)(err);
+        if (prismaMsg) {
+            res.status(409).json({ error: prismaMsg });
+            return;
+        }
+        if (err.message === 'Company name is required' ||
+            err.message.includes('Phone must be in E.164') ||
+            err.message.includes('already used by')) {
             res.status(400).json({ error: err.message });
             return;
         }
@@ -288,6 +328,8 @@ router.put('/setup', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async (r
  * Used by settings page to fetch current company setup values
  */
 router.get('/setup', async (req, res) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
         const company = await prisma_1.default.company.findUnique({
@@ -520,11 +562,28 @@ router.post('/invite', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async 
         await assertStepPrerequisites(companyId, 5);
         const members = req.body.members || req.body.invites;
         // members/invites: [{ name, email, role, password }]
-        if (!Array.isArray(members) || members.length === 0) {
+        if (!Array.isArray(members)) {
             res.status(400).json({
                 error: 'members/invites must be an array',
                 example: '[{ "name": "John", "email": "john@co.com", "role": "sales_agent" }]',
             });
+            return;
+        }
+        if (members.length === 0) {
+            await prisma_1.default.companyOnboarding.upsert({
+                where: { companyId },
+                create: {
+                    companyId,
+                    stepCompleted: 5,
+                    companyProfile: true,
+                    rolesConfigured: true,
+                    featuresSelected: true,
+                    aiConfigured: true,
+                    teamInvited: true,
+                },
+                update: { stepCompleted: 5, teamInvited: true },
+            });
+            res.json({ data: [], step: 5, message: 'Team step skipped' });
             return;
         }
         const created = [];

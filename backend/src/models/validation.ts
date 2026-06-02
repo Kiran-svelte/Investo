@@ -46,6 +46,15 @@ export function isIndianE164Phone(value: string): boolean {
   return INDIAN_E164_REGEX.test(value);
 }
 
+/** DB lookup variants for legacy rows stored as 10-digit or 91-prefixed values. */
+export function whatsappPhoneLookupVariants(e164: string): string[] {
+  const digits = e164.replace(/\D/g, '');
+  const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+  return Array.from(
+    new Set([e164, `+91${last10}`, last10, `91${last10}`].filter(Boolean)),
+  );
+}
+
 // Phone number: E.164 format for Indian numbers
 const phoneSchema = z.preprocess(
   normalizeIndianPhoneNumber,

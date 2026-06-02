@@ -18,6 +18,11 @@ type MockPrisma = {
     findUnique: jest.Mock;
     upsert: jest.Mock;
   };
+  company: {
+    findFirst: jest.Mock;
+    findUnique: jest.Mock;
+    update: jest.Mock;
+  };
   companyRole: {
     findUnique: jest.Mock;
     create: jest.Mock;
@@ -35,6 +40,13 @@ function createOnboardingApp(role: string, onboardingState: OnboardingState): { 
     companyOnboarding: {
       findUnique: jest.fn().mockResolvedValue({ companyId: 'company-1', ...onboardingState }),
       upsert: jest.fn().mockResolvedValue({ companyId: 'company-1', stepCompleted: 6 }),
+    },
+    company: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findUnique: jest.fn().mockResolvedValue({ settings: {} }),
+      update: jest.fn().mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'company-1', ...data }),
+      ),
     },
     companyRole: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -83,6 +95,7 @@ function createOnboardingApp(role: string, onboardingState: OnboardingState): { 
     ROLES: ['super_admin', 'company_admin', 'sales_agent', 'operations', 'viewer'],
     normalizeIndianPhoneNumber: jest.fn((value: string) => value),
     isIndianE164Phone: jest.fn(() => true),
+    whatsappPhoneLookupVariants: jest.fn((value: string) => [value]),
   }));
 
   jest.doMock('../../services/auth.service', () => ({
@@ -109,6 +122,36 @@ describe('onboarding route hardening', () => {
   afterEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
+  });
+
+  test('allows skipping team invites with an empty array', async () => {
+    const { app, mockPrisma } = createOnboardingApp('company_admin', {
+      companyProfile: true,
+      rolesConfigured: true,
+      featuresSelected: true,
+      aiConfigured: true,
+    });
+
+    const response = await request(app).post('/api/onboarding/invite').send({ invites: [] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.step).toBe(5);
+    expect(mockPrisma.companyOnboarding.upsert).toHaveBeenCalled();
+  });
+
+  test('rejects duplicate WhatsApp phone during company setup', async () => {
+    const { app, mockPrisma } = createOnboardingApp('company_admin', {});
+
+    mockPrisma.company.findFirst.mockResolvedValueOnce({ name: 'Continuum' });
+
+    const response = await request(app).post('/api/onboarding/setup').send({
+      name: 'Geeky',
+      whatsapp_phone: '+919036165603',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('already used by');
+    expect(mockPrisma.company.update).not.toHaveBeenCalled();
   });
 
   test('rejects onboarding mutation for non-admin roles', async () => {
