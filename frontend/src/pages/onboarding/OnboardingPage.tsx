@@ -8,6 +8,9 @@ import {
   Building2, Shield, ToggleLeft, Bot, Users, CheckCircle2,
   Plus, Trash2, Loader2, ChevronLeft, ChevronRight, Check,
 } from 'lucide-react';
+import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
+
+export { formatIndianPhoneForApi, stripIndianCountryCode };
 
 // ── Types ──────────────────────────────────────
 
@@ -267,7 +270,7 @@ const OnboardingPage: React.FC = () => {
         const cd = status.companyData;
         if (cd.name) setCompanyName(cd.name);
         if (cd.description) setCompanyDesc(cd.description);
-        if (cd.whatsapp_phone) setWhatsappPhone(cd.whatsapp_phone);
+        if (cd.whatsapp_phone) setWhatsappPhone(stripIndianCountryCode(cd.whatsapp_phone));
         if (cd.primary_color) setPrimaryColor(cd.primary_color);
       }
     } catch {
@@ -304,7 +307,7 @@ const OnboardingPage: React.FC = () => {
       await api.post('/onboarding/setup', {
         name: companyName,
         description: companyDesc,
-        whatsapp_phone: whatsappPhone,
+        whatsapp_phone: formatIndianPhoneForApi(whatsappPhone),
         primary_color: primaryColor,
       });
       markStepComplete(1);
@@ -555,11 +558,15 @@ const OnboardingPage: React.FC = () => {
           <span className="text-sm text-gray-500 bg-gray-100 px-3 py-2 rounded-lg">+91</span>
           <input
             value={whatsappPhone}
-            onChange={e => setWhatsappPhone(e.target.value)}
+            onChange={e => setWhatsappPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+            inputMode="numeric"
             className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="9876543210"
           />
         </div>
+        <p className="mt-1 text-xs text-gray-500">
+          Your agency&apos;s dedicated business WhatsApp number. It must be unique — not used by another agency on Investo.
+        </p>
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Primary Color</label>

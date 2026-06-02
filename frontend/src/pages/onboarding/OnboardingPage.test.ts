@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
 import { buildOnboardingAiPayload, buildSafeOnboardingRolesPayload, getApiErrorMessage } from './OnboardingPage';
 
 describe('OnboardingPage helpers', () => {
@@ -37,6 +38,12 @@ describe('OnboardingPage helpers', () => {
       greeting_template: 'Hello',
       default_language: 'en',
     });
+  });
+
+  it('formats Indian phone for API', () => {
+    expect(formatIndianPhoneForApi('9036165603')).toBe('+919036165603');
+    expect(formatIndianPhoneForApi('')).toBeNull();
+    expect(stripIndianCountryCode('+919036165603')).toBe('9036165603');
   });
 
   it('prefers backend error key and falls back to message', () => {

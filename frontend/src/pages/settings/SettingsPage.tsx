@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
 import {
   Settings, Building2, Shield, ToggleLeft, Save, Plus, Pencil, Trash2,
   X, Loader2, Lock, Users, Sparkles,
@@ -246,7 +247,7 @@ const SettingsPage: React.FC = () => {
       setCompany({
         name: d.name || '',
         description: d.description || '',
-        whatsapp_phone: d.whatsapp_phone || '',
+        whatsapp_phone: d.whatsapp_phone ? stripIndianCountryCode(d.whatsapp_phone) : '',
         primary_color: d.primary_color || '#3B82F6',
       });
     } catch {
@@ -345,7 +346,10 @@ const SettingsPage: React.FC = () => {
     setCompanySaving(true);
     setCompanyMsg('');
     try {
-      await api.put('/onboarding/setup', company);
+      await api.put('/onboarding/setup', {
+        ...company,
+        whatsapp_phone: formatIndianPhoneForApi(company.whatsapp_phone),
+      });
       setCompanyMsg('Settings saved successfully');
     } catch (err: any) {
       setCompanyMsg(err.response?.data?.message || 'Failed to save');

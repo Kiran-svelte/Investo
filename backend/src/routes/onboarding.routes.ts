@@ -7,6 +7,7 @@ import logger from '../config/logger';
 import { ROLES, normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
 import { authService, normalizeAuthEmail } from '../services/auth.service';
 import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
+import { mapPrismaError } from '../utils/prismaErrors';
 
 const router = Router();
 
@@ -173,9 +174,30 @@ async function updateCompanySetup(companyId: string, body: any) {
     } else if (typeof normalized === 'string' && isIndianE164Phone(normalized)) {
       normalizedWhatsAppPhone = normalized;
     } else {
-      throw new Error('Phone must be in E.164 format: +91XXXXXXXXXX');
+      throw new Error('Phone must be in E.164 format: +91XXXXXXXXXX (10 digits after +91)');
     }
   }
+
+  if (normalizedWhatsAppPhone) {
+    const conflict = await prisma.company.findFirst({
+      where: { whatsappPhone: normalizedWhatsAppPhone, NOT: { id: companyId } },
+      select: { name: true },
+    });
+    if (conflict) {
+      throw new Error(
+        `This WhatsApp number is already used by "${conflict.name}". Each agency needs its own business WhatsApp number.`,
+      );
+    }
+  }
+
+  const existing = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { settings: true },
+  });
+  const prevSettings =
+    existing?.settings && typeof existing.settings === 'object' && !Array.isArray(existing.settings)
+      ? (existing.settings as Record<string, unknown>)
+      : {};
 
   const company = await prisma.company.update({
     where: { id: companyId },
@@ -183,9 +205,10 @@ async function updateCompanySetup(companyId: string, body: any) {
       name,
       ...(whatsapp_phone !== undefined && { whatsappPhone: normalizedWhatsAppPhone }),
       settings: {
-        logo_url: logo_url || null,
-        primary_color: primary_color || '#3B82F6',
-        description: description || '',
+        ...prevSettings,
+        logo_url: logo_url ?? prevSettings.logo_url ?? null,
+        primary_color: primary_color || prevSettings.primary_color || '#3B82F6',
+        description: description ?? prevSettings.description ?? '',
       },
     },
   });
@@ -305,7 +328,16 @@ router.post(
       res.json({ data: company, step: 1, message: 'Company profile updated' });
     } catch (err: any) {
       logger.error('Failed to setup company', { error: err.message });
-      if (err.message === 'Company name is required' || err.message.includes('Phone must be in E.164')) {
+      const prismaMsg = mapPrismaError(err);
+      if (prismaMsg) {
+        res.status(409).json({ error: prismaMsg });
+        return;
+      }
+      if (
+        err.message === 'Company name is required' ||
+        err.message.includes('Phone must be in E.164') ||
+        err.message.includes('already used by')
+      ) {
         res.status(400).json({ error: err.message });
         return;
       }
@@ -329,7 +361,16 @@ router.put(
       res.json({ data: company, step: 1, message: 'Company profile updated' });
     } catch (err: any) {
       logger.error('Failed to update onboarding setup', { error: err.message });
-      if (err.message === 'Company name is required' || err.message.includes('Phone must be in E.164')) {
+      const prismaMsg = mapPrismaError(err);
+      if (prismaMsg) {
+        res.status(409).json({ error: prismaMsg });
+        return;
+      }
+      if (
+        err.message === 'Company name is required' ||
+        err.message.includes('Phone must be in E.164') ||
+        err.message.includes('already used by')
+      ) {
         res.status(400).json({ error: err.message });
         return;
       }
