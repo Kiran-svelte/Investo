@@ -332,15 +332,45 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
         });
 
         try {
-          const { agentRouterService } = await import('../services/agent/agent-router.service');
-          const agentRouted = await agentRouterService.routeIfInternalUser('+' + customerPhone, messageText);
-          if (agentRouted) {
+          const customerPhoneE164 = '+' + customerPhone;
+          const companyResolution = await whatsappService.getCompanyByPhoneNumberId(
+            phoneNumberId,
+            'meta',
+            undefined,
+            undefined,
+            customerPhoneE164,
+          );
+
+          if (!companyResolution) {
+            outcome.status = 'skipped';
+            outcome.reason = 'company_not_found';
+            summary.skipped += 1;
+            summary.outcomes.push(outcome);
+            logger.error('Inbound Meta message skipped: company not resolved', { phoneNumberId, messageId });
+            continue;
+          }
+
+          const { inboundWhatsAppRoutingService } = await import(
+            '../services/inboundWhatsAppRouting.service'
+          );
+          const scopedRoute = await inboundWhatsAppRoutingService.routeCompanyScopedInbound({
+            senderPhone: customerPhoneE164,
+            messageText,
+            companyId: companyResolution.company.id,
+          });
+          if (scopedRoute.handled) {
             outcome.propagationStatus = 'success';
             outcome.status = 'processed';
-            outcome.reason = 'handled_by_agent_ai';
+            outcome.reason =
+              scopedRoute.route.kind === 'agent_copilot'
+                ? 'handled_by_agent_ai'
+                : 'handled_as_company_staff';
             summary.processed += 1;
             summary.outcomes.push(outcome);
-            logger.info('Message handled by Agent AI; skipping customer flow', { messageId });
+            logger.info('Message handled by company-scoped routing; skipping customer flow', {
+              messageId,
+              route: scopedRoute.route.kind,
+            });
             continue;
           }
 

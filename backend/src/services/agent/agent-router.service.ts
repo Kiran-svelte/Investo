@@ -1,60 +1,13 @@
-import { UserRole } from '@prisma/client';
 import config from '../../config';
 import logger from '../../config/logger';
 import { maskPhoneNumberForLogs } from '../../utils/maskPhoneNumberForLogs';
+import { normalizeInboundWhatsAppPhone } from '../../utils/phoneMatch';
+import type { CompanyUserMatch } from '../inboundWhatsAppRouting.service';
 import { ToolContext } from './agent-state';
-
-const ELIGIBLE_ROLES: ReadonlySet<UserRole> = new Set(['super_admin', 'company_admin', 'sales_agent', 'operations']);
-
-interface InternalUserMatch {
-  userId: string;
-  companyId: string;
-  companyName: string;
-  userRole: UserRole;
-  userName: string;
-  phone: string;
-}
 
 async function getPrisma() {
   const module = await import('../../config/prisma');
   return module.default;
-}
-
-function digits(phone: string): string {
-  return phone.replace(/\D/g, '');
-}
-
-async function findInternalUserByPhone(senderPhone: string): Promise<InternalUserMatch | null> {
-  const prisma = await getPrisma();
-  const rawDigits = digits(senderPhone);
-  const last10 = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
-  const candidates = Array.from(new Set([senderPhone, rawDigits, `+${rawDigits}`, last10, `+91${last10}`, `91${last10}`].filter(Boolean)));
-
-  const user = await prisma.user.findFirst({
-    where: {
-      status: 'active',
-      role: { in: Array.from(ELIGIBLE_ROLES) },
-      OR: candidates.map((candidate) => ({ phone: { contains: candidate } })),
-    },
-    select: {
-      id: true,
-      companyId: true,
-      role: true,
-      name: true,
-      phone: true,
-      company: { select: { name: true, status: true } },
-    },
-  });
-
-  if (!user || user.company.status !== 'active') return null;
-  return {
-    userId: user.id,
-    companyId: user.companyId,
-    companyName: user.company.name,
-    userRole: user.role,
-    userName: user.name,
-    phone: user.phone ?? senderPhone,
-  };
 }
 
 async function sendWhatsAppResponse(phone: string, companyId: string, message: string): Promise<void> {
@@ -80,7 +33,7 @@ async function sendWhatsAppResponse(phone: string, companyId: string, message: s
   await (whatsappService as any).sendMessage(phone, message, outboundConfig);
 }
 
-async function handleAgentMessage(user: InternalUserMatch, messageText: string): Promise<string> {
+async function handleAgentMessage(user: CompanyUserMatch, messageText: string): Promise<string> {
   const prisma = await getPrisma();
   const { getOrCreateThreadId } = await import('./agent-memory.service');
   const { checkAndResolvePendingConfirmation, executePendingAction } = await import('./confirmation.service');
@@ -117,15 +70,20 @@ async function handleAgentMessage(user: InternalUserMatch, messageText: string):
   });
 }
 
-export async function routeIfInternalUser(senderPhone: string, messageText: string, _webhookCompanyId?: string): Promise<boolean> {
+/**
+ * Agent copilot for a known company user (caller must verify company membership).
+ */
+export async function routeIfInternalUserForCompany(
+  senderPhone: string,
+  messageText: string,
+  user: CompanyUserMatch,
+): Promise<boolean> {
   if (!config.agentAi?.enabled || !messageText.trim()) return false;
 
-  const user = await findInternalUserByPhone(senderPhone);
-  if (!user) return false;
-
   try {
+    const normalizedPhone = normalizeInboundWhatsAppPhone(senderPhone);
     const response = await handleAgentMessage(user, messageText);
-    await sendWhatsAppResponse(senderPhone, user.companyId, response);
+    await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
     return true;
   } catch (error: any) {
     logger.error('Agent AI routing failed', {
@@ -133,9 +91,41 @@ export async function routeIfInternalUser(senderPhone: string, messageText: stri
       userId: user.userId,
       error: error?.message,
     });
-    await sendWhatsAppResponse(senderPhone, user.companyId, 'I hit an issue processing that request. Please try again.');
+    await sendWhatsAppResponse(
+      normalizeInboundWhatsAppPhone(senderPhone),
+      user.companyId,
+      'I hit an issue processing that request. Please try again.',
+    );
     return true;
   }
 }
 
-export const agentRouterService = { routeIfInternalUser };
+/**
+ * @deprecated Use inboundWhatsAppRouting.routeCompanyScopedInbound with companyId.
+ * Kept for backward compatibility in tests; requires companyId when possible.
+ */
+export async function routeIfInternalUser(
+  senderPhone: string,
+  messageText: string,
+  companyId?: string,
+): Promise<boolean> {
+  if (!companyId) {
+    logger.warn('routeIfInternalUser called without companyId; skipping global agent match');
+    return false;
+  }
+
+  const { findCompanyUserByPhone, routeCompanyScopedInbound } = await import(
+    '../inboundWhatsAppRouting.service'
+  );
+  const user = await findCompanyUserByPhone(senderPhone, companyId);
+  if (!user) return false;
+
+  const result = await routeCompanyScopedInbound({
+    senderPhone,
+    messageText,
+    companyId,
+  });
+  return result.handled;
+}
+
+export const agentRouterService = { routeIfInternalUser, routeIfInternalUserForCompany };
