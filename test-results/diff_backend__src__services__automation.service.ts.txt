@@ -1,0 +1,94 @@
+diff --git a/backend/src/services/automation.service.ts b/backend/src/services/automation.service.ts
+index a6bff7a..507003a 100644
+--- a/backend/src/services/automation.service.ts
++++ b/backend/src/services/automation.service.ts
+@@ -6,23 +6,42 @@ import { whatsappService } from './whatsapp.service';
+ import { automationQueueService, AutomationJobType } from './automationQueue.service';
+ 
+ function getCompanyWhatsAppConfig(company: any): {
++  provider: string;
+   phoneNumberId: string;
+   accessToken: string;
+   verifyToken: string;
++  greenApiIdInstance: string;
++  greenApiApiTokenInstance: string;
++  greenApiApiUrl: string;
+   isCompanyConfigured: boolean;
+ } {
+   const settings = (company?.settings as any) || {};
+   const whatsapp = settings.whatsapp || {};
+ 
++  const provider = (whatsapp.provider || config.whatsapp.provider || 'meta').toString().toLowerCase();
++
+   const phoneNumberId = whatsapp.phoneNumberId || config.whatsapp.phoneNumberId;
+   const accessToken = whatsapp.accessToken || config.whatsapp.accessToken;
+   const verifyToken = whatsapp.verifyToken || config.whatsapp.verifyToken;
+ 
++  const greenApiIdInstance = whatsapp.greenApi?.idInstance || config.greenapi.idInstance;
++  const greenApiApiTokenInstance = whatsapp.greenApi?.apiTokenInstance || config.greenapi.apiTokenInstance;
++  const greenApiApiUrl = whatsapp.greenApi?.apiUrl || config.greenapi.apiUrl;
++
++  const isCompanyConfigured =
++    provider === 'greenapi'
++      ? Boolean(greenApiIdInstance && greenApiApiTokenInstance)
++      : Boolean(whatsapp.phoneNumberId && whatsapp.accessToken);
++
+   return {
++    provider,
+     phoneNumberId,
+     accessToken,
+     verifyToken,
+-    isCompanyConfigured: Boolean(whatsapp.phoneNumberId && whatsapp.accessToken),
++    greenApiIdInstance,
++    greenApiApiTokenInstance,
++    greenApiApiUrl,
++    isCompanyConfigured,
+   };
+ }
+ 
+@@ -212,7 +231,7 @@ export class AutomationService {
+       }
+ 
+       const whatsappConfig = getCompanyWhatsAppConfig(visit.company);
+-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
++      if (!whatsappConfig.isCompanyConfigured) {
+         logger.debug('Visit reminder skipped because company WhatsApp is not configured', {
+           visitId: visit.id,
+           timing,
+@@ -221,9 +240,13 @@ export class AutomationService {
+       }
+ 
+       const sent = await whatsappService.sendMessage(customerPhone, message, {
++        provider: whatsappConfig.provider,
+         phoneNumberId: whatsappConfig.phoneNumberId,
+         accessToken: whatsappConfig.accessToken,
+         verifyToken: whatsappConfig.verifyToken,
++        greenApiIdInstance: whatsappConfig.greenApiIdInstance,
++        greenApiApiTokenInstance: whatsappConfig.greenApiApiTokenInstance,
++        greenApiApiUrl: whatsappConfig.greenApiApiUrl,
+       });
+ 
+       if (!sent) {
+@@ -346,7 +369,7 @@ export class AutomationService {
+       }
+ 
+       const whatsappConfig = getCompanyWhatsAppConfig(lead.company);
+-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
++      if (!whatsappConfig.isCompanyConfigured) {
+         logger.debug('Follow-up skipped because company WhatsApp is not configured', {
+           leadId: lead.id,
+           reason,
+@@ -355,9 +378,13 @@ export class AutomationService {
+       }
+ 
+       const sent = await whatsappService.sendMessage(lead.phone, message, {
++        provider: whatsappConfig.provider,
+         phoneNumberId: whatsappConfig.phoneNumberId,
+         accessToken: whatsappConfig.accessToken,
+         verifyToken: whatsappConfig.verifyToken,
++        greenApiIdInstance: whatsappConfig.greenApiIdInstance,
++        greenApiApiTokenInstance: whatsappConfig.greenApiApiTokenInstance,
++        greenApiApiUrl: whatsappConfig.greenApiApiUrl,
+       });
+ 
+       if (!sent) {

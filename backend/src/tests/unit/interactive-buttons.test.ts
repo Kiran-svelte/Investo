@@ -14,6 +14,7 @@ jest.mock('../../config/prisma', () => ({
     },
     property: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
     },
     lead: {
@@ -24,6 +25,9 @@ jest.mock('../../config/prisma', () => ({
     },
     conversation: {
       update: jest.fn(),
+    },
+    user: {
+      findUnique: jest.fn(),
     },
   },
 }));
@@ -51,6 +55,26 @@ jest.mock('../../services/ai.service', () => ({
   aiService: {
     generateResponse: jest.fn(),
   },
+}));
+
+jest.mock('../../services/visitBooking.service', () => {
+  const actual = jest.requireActual('../../services/visitBooking.service');
+  return {
+    ...actual,
+    scheduleVisitFromWhatsApp: jest.fn().mockResolvedValue({
+      success: true,
+      visit: {
+        id: 'visit-1',
+        scheduledAt: new Date('2026-06-02T10:00:00.000Z'),
+        agentId: 'agent-1',
+        propertyId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      },
+    }),
+  };
+});
+
+jest.mock('../../services/alternativeInventory.service', () => ({
+  searchAlternativeTiers: jest.fn().mockResolvedValue([]),
 }));
 
 // Now import after mocks are set up
@@ -85,6 +109,7 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
     leadId: 'lead-1',
     selectedPropertyId: null,
     proposedVisitTime: null,
+    commitments: {},
   };
 
   const mockCompany = {
@@ -92,8 +117,10 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
     name: 'Test Realty',
   };
 
+  const mockPropertyId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+
   const mockProperty = {
-    id: 'prop-1',
+    id: mockPropertyId,
     name: 'Sunshine Apartments',
     description: 'Beautiful 2BHK in Whitefield',
     propertyType: 'apartment',
@@ -161,11 +188,11 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
 
   describe('handleInteractiveAction - Visit Time Selection', () => {
     it('handles visit time selection and schedules visit', async () => {
-      (prisma.property.findUnique as jest.Mock).mockResolvedValue(mockProperty);
-      (prisma.notification.create as jest.Mock).mockResolvedValue({});
+      (prisma.property.findFirst as jest.Mock).mockResolvedValue(mockProperty);
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ name: 'Agent One' });
 
       const result = await whatsappService.handleInteractiveAction({
-        interactiveId: 'visit-time-prop-1-tomorrow-10am',
+        interactiveId: `visit-time-${mockPropertyId}-tomorrow-10am`,
         interactiveType: 'button_reply',
         lead: mockLead,
         conversation: mockConversation,
@@ -178,7 +205,7 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
       expect(result.action).toBe('visit-scheduled');
       expect(result.newState?.stage).toBe('visit_booking');
       expect(result.newState?.proposedVisitTime).toBeInstanceOf(Date);
-      expect(result.leadStatus).toBe('visit_scheduled');
+      // Lead status is updated inside scheduleVisitFromWhatsApp via leadTransition.service
     });
   });
 
@@ -273,7 +300,7 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
       });
 
       expect(result.handled).toBe(true);
-      expect(result.action).toBe('filter-no-results');
+      expect(result.action).toBe('filter-no-results-alternatives');
     });
   });
 

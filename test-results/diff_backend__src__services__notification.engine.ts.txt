@@ -1,0 +1,96 @@
+diff --git a/backend/src/services/notification.engine.ts b/backend/src/services/notification.engine.ts
+index 51202be..57f113b 100644
+--- a/backend/src/services/notification.engine.ts
++++ b/backend/src/services/notification.engine.ts
+@@ -18,19 +18,43 @@ interface NotifyOptions {
+   data?: Record<string, any>;
+ }
+ 
+-function getCompanyWhatsAppConfig(company: any): { phoneNumberId: string; accessToken: string; verifyToken: string; isCompanyConfigured: boolean } {
++function getCompanyWhatsAppConfig(company: any): {
++  provider: string;
++  phoneNumberId: string;
++  accessToken: string;
++  verifyToken: string;
++  greenApiIdInstance: string;
++  greenApiApiTokenInstance: string;
++  greenApiApiUrl: string;
++  isCompanyConfigured: boolean;
++} {
+   const settings = (company?.settings as any) || {};
+   const whatsapp = settings.whatsapp || {};
+ 
++  const provider = (whatsapp.provider || config.whatsapp.provider || 'meta').toString().toLowerCase();
++
+   const phoneNumberId = whatsapp.phoneNumberId || config.whatsapp.phoneNumberId;
+   const accessToken = whatsapp.accessToken || config.whatsapp.accessToken;
+   const verifyToken = whatsapp.verifyToken || config.whatsapp.verifyToken;
+ 
++  const greenApiIdInstance = whatsapp.greenApi?.idInstance || config.greenapi.idInstance;
++  const greenApiApiTokenInstance = whatsapp.greenApi?.apiTokenInstance || config.greenapi.apiTokenInstance;
++  const greenApiApiUrl = whatsapp.greenApi?.apiUrl || config.greenapi.apiUrl;
++
++  const isCompanyConfigured =
++    provider === 'greenapi'
++      ? Boolean(greenApiIdInstance && greenApiApiTokenInstance)
++      : Boolean(whatsapp.phoneNumberId && whatsapp.accessToken);
++
+   return {
++    provider,
+     phoneNumberId,
+     accessToken,
+     verifyToken,
+-    isCompanyConfigured: Boolean(whatsapp.phoneNumberId && whatsapp.accessToken),
++    greenApiIdInstance,
++    greenApiApiTokenInstance,
++    greenApiApiUrl,
++    isCompanyConfigured,
+   };
+ }
+ 
+@@ -222,7 +246,7 @@ class NotificationEngine {
+     // Send WhatsApp to customer
+     if (lead?.phone) {
+       const whatsappConfig = getCompanyWhatsAppConfig(company);
+-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
++      if (!whatsappConfig.isCompanyConfigured) {
+         logger.debug('Skipping WhatsApp visit notification (company not configured)', {
+           companyId: visit.companyId,
+           visitId: visit.id,
+@@ -245,9 +269,13 @@ class NotificationEngine {
+       if (whatsappMsg) {
+         try {
+           const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
++            provider: whatsappConfig.provider,
+             phoneNumberId: whatsappConfig.phoneNumberId,
+             accessToken: whatsappConfig.accessToken,
+             verifyToken: whatsappConfig.verifyToken,
++            greenApiIdInstance: whatsappConfig.greenApiIdInstance,
++            greenApiApiTokenInstance: whatsappConfig.greenApiApiTokenInstance,
++            greenApiApiUrl: whatsappConfig.greenApiApiUrl,
+           });
+           if (!sent) {
+             logger.warn('Failed to send WhatsApp visit notification', {
+@@ -301,7 +329,7 @@ class NotificationEngine {
+     // Send WhatsApp to customer
+     if (lead?.phone) {
+       const whatsappConfig = getCompanyWhatsAppConfig(company);
+-      if (!whatsappConfig.isCompanyConfigured || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
++      if (!whatsappConfig.isCompanyConfigured) {
+         logger.debug('Skipping WhatsApp reschedule notification (company not configured)', {
+           companyId: visit.companyId,
+           visitId: visit.id,
+@@ -314,9 +342,13 @@ class NotificationEngine {
+ 
+       try {
+         const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
++          provider: whatsappConfig.provider,
+           phoneNumberId: whatsappConfig.phoneNumberId,
+           accessToken: whatsappConfig.accessToken,
+           verifyToken: whatsappConfig.verifyToken,
++          greenApiIdInstance: whatsappConfig.greenApiIdInstance,
++          greenApiApiTokenInstance: whatsappConfig.greenApiApiTokenInstance,
++          greenApiApiUrl: whatsappConfig.greenApiApiUrl,
+         });
+         if (!sent) {
+           logger.warn('Failed to send WhatsApp reschedule notification', {

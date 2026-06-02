@@ -1,0 +1,177 @@
+{
+  "timestamp": "2026-04-11T15:38:01.503Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app/",
+  "evidenceDir": "D:\\Investo\\frontend\\..\\test-results\\ui-smoke-reverify-20260411-210800",
+  "flows": {
+    "login": {
+      "ok": true,
+      "finalUrl": "https://frontend-navy-eight-37.vercel.app/",
+      "shellVisible": true,
+      "screenshots": [
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\01-login.png",
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\02-after-login.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "dashboard": {
+      "ok": true,
+      "widgetsLoaded": true,
+      "screenshots": [
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\03-dashboard.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 4,
+        "failingResponses": 0
+      }
+    },
+    "leadsList": {
+      "ok": true,
+      "listLoaded": true,
+      "emptyState": false,
+      "leadRowCount": 6,
+      "screenshots": [
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\04-leads-list.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "leadDetail": {
+      "ok": true,
+      "opened": true,
+      "url": "https://frontend-navy-eight-37.vercel.app/leads/dfa5dbd1-db12-425b-9846-659c43dafa1f",
+      "skipped": false,
+      "skippedReason": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\05-lead-detail.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "visits": {
+      "ok": true,
+      "rendered": true,
+      "skipped": false,
+      "skippedReason": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\06-visits.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "properties": {
+      "ok": true,
+      "rendered": true,
+      "screenshots": [
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\07-properties.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 0,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 0
+      }
+    },
+    "propertyImportSmallPdf": {
+      "ok": false,
+      "draftUrl": null,
+      "draftId": null,
+      "uploadStatus": null,
+      "registerUploadFailedTextVisible": false,
+      "observedRegisterUpload500": false,
+      "errorBanner": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\93-property-import-failure.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 1,
+        "consoleWarnings": 0,
+        "pageErrors": 0,
+        "networkFailures": 0,
+        "failingResponses": 1
+      }
+    },
+    "webhookVerify": {
+      "ok": true,
+      "url": "https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=test123",
+      "status": 200,
+      "expectedBodyExact": "test123",
+      "bodyPath": "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\10-webhook-verify.txt",
+      "bodyActualPreview": "test123"
+    }
+  },
+  "runtime": {
+    "consoleErrors": [
+      {
+        "text": "Failed to load resource: the server responded with a status of 429 ()"
+      }
+    ],
+    "consoleWarnings": [],
+    "pageErrors": [],
+    "networkFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/auth/me",
+        "status": 429,
+        "method": "GET",
+        "bodyPath": "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210800\\fail-response-1.txt",
+        "bodySnippet": "{\n  \"error\": \"Too many attempts. Please try again in a minute.\",\n  \"retryAfter\": 60\n}"
+      }
+    ]
+  },
+  "failures": [
+    {
+      "flow": "propertyImportSmallPdf",
+      "details": "Unexpected redirect to /login (lost auth?)"
+    },
+    {
+      "flow": "propertyImportSmallPdf",
+      "details": "Unexpected auth redirect to /login"
+    }
+  ]
+}

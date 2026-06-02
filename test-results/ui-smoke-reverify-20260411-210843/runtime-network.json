@@ -1,0 +1,12 @@
+{
+  "networkFailures": [],
+  "failingResponses": [
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/auth/login",
+      "status": 429,
+      "method": "POST",
+      "bodyPath": "D:\\Investo\\test-results\\ui-smoke-reverify-20260411-210843\\fail-response-1.txt",
+      "bodySnippet": "{\n  \"error\": \"Too many attempts. Please try again in a minute.\",\n  \"retryAfter\": 60\n}"
+    }
+  ]
+}

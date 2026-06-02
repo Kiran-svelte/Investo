@@ -1,0 +1,74 @@
+{
+  "timestamp": "2026-04-12T18:21:26.986Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app/",
+  "evidenceDir": "..\\test-results\\whatsapp-providers-proof-20260412-235126",
+  "bypassHeaderConfigured": false,
+  "login": {
+    "ok": true,
+    "finalUrl": "https://frontend-navy-eight-37.vercel.app/",
+    "error": null
+  },
+  "whatsapp": {
+    "pageLoaded": true,
+    "providerSelectPresent": false,
+    "meta": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "phoneNumberIdPresent": false,
+      "accessTokenPresent": false,
+      "verifyTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    },
+    "greenapi": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "idInstancePresent": false,
+      "apiTokenInstancePresent": false,
+      "webhookTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    }
+  },
+  "runtime": {
+    "consoleErrors": [],
+    "pageErrors": [],
+    "requestFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": []
+  },
+  "screenshots": [
+    "01-login.png",
+    "02-after-login.png",
+    "03-ai-settings.png",
+    "98-whatsapp-provider-missing.png"
+  ],
+  "failures": [
+    {
+      "step": "whatsapp.ui",
+      "details": "Provider selector not found. Deployed frontend may not include the dual-provider UI yet."
+    }
+  ]
+}

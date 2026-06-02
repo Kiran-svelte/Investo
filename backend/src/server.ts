@@ -5,6 +5,7 @@ import logger from './config/logger';
 import prisma from './config/prisma';
 import { bootstrapDatabase } from './config/bootstrapDatabase';
 import { automationService } from './services/automation.service';
+import { propertyImportWorkerService } from './services/propertyImportWorker.service';
 import { socketService } from './services/socket.service';
 import { startCronScheduler, stopCronScheduler } from './services/agent/cron-scheduler.service';
 import { destroyCheckpointer } from './services/agent/agent-memory.service';
@@ -12,6 +13,7 @@ import { destroyCheckpointer } from './services/agent/agent-memory.service';
 let keepAliveTimer: NodeJS.Timeout | null = null;
 let automationStarted = false;
 let agentCronStarted = false;
+let propertyImportWorkerStarted = false;
 
 function startAutomationIfNeeded(): void {
   if (automationStarted) return;
@@ -20,15 +22,23 @@ function startAutomationIfNeeded(): void {
 }
 
 function startAgentCronIfNeeded(): void {
-  if (agentCronStarted || !config.agentAi.enabled || !config.agentAi.cronEnabled) return;
+  if (agentCronStarted || !config.agentAi?.enabled || !config.agentAi?.cronEnabled) return;
   startCronScheduler();
   agentCronStarted = true;
 }
 
+function startPropertyImportWorkerIfNeeded(): void {
+  if (propertyImportWorkerStarted) return;
+  propertyImportWorkerService.start();
+  propertyImportWorkerStarted = true;
+}
+
 async function start() {
   try {
-    if (!config.db.neonPoolerConfigured) {
-      logger.warn('DATABASE_URL is not using a Neon pooler host. Use a -pooler connection string for high concurrency.');
+    if (config.db.supabasePoolerConfigured) {
+      logger.info('Database pooler: Supabase transaction mode (port 6543)');
+    } else if (!config.db.neonPoolerConfigured) {
+      logger.warn('DATABASE_URL is not using a pooled connection string. Use Supabase pooler (6543) or Neon -pooler for high concurrency.');
     }
 
     let dbConnectedAtStartup = false;
@@ -36,7 +46,7 @@ async function start() {
     // Test database connection via Prisma, but do not hard-fail local dev startup.
     try {
       await prisma.$queryRaw`SELECT 1`;
-      logger.info('Database connected (Prisma → Neon PostgreSQL)');
+      logger.info('Database connected (Prisma → PostgreSQL)');
       dbConnectedAtStartup = true;
 
       await bootstrapDatabase({
@@ -72,6 +82,10 @@ async function start() {
               logger.info('Dependencies healthy; starting Agent AI cron scheduler');
               startAgentCronIfNeeded();
             }
+            if (!propertyImportWorkerStarted) {
+              logger.info('Dependencies healthy; starting property import worker');
+              startPropertyImportWorkerIfNeeded();
+            }
           } catch (err: any) {
             logger.warn('Neon keep-alive ping failed', { error: err.message });
           }
@@ -81,9 +95,11 @@ async function start() {
       if (dbConnectedAtStartup) {
         startAutomationIfNeeded();
         startAgentCronIfNeeded();
+        startPropertyImportWorkerIfNeeded();
       } else {
         logger.warn('Automation service delayed until database connectivity is healthy');
         logger.warn('Agent AI cron scheduler delayed until database connectivity is healthy');
+        logger.warn('Property import worker delayed until database connectivity is healthy');
       }
     });
   } catch (err: any) {
@@ -106,6 +122,10 @@ process.on('SIGTERM', async () => {
     stopCronScheduler();
     agentCronStarted = false;
   }
+  if (propertyImportWorkerStarted) {
+    propertyImportWorkerService.stop();
+    propertyImportWorkerStarted = false;
+  }
   await destroyCheckpointer();
   await prisma.$disconnect();
   process.exit(0);
@@ -123,6 +143,10 @@ process.on('SIGINT', async () => {
   if (agentCronStarted) {
     stopCronScheduler();
     agentCronStarted = false;
+  }
+  if (propertyImportWorkerStarted) {
+    propertyImportWorkerService.stop();
+    propertyImportWorkerStarted = false;
   }
   await destroyCheckpointer();
   await prisma.$disconnect();

@@ -1,0 +1,101 @@
+{
+  "timestamp": "2026-04-09T17:00:04.516Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app",
+  "evidenceDir": "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend",
+  "flows": {
+    "login": {
+      "ok": true,
+      "finalUrl": "https://frontend-navy-eight-37.vercel.app/",
+      "shellVisible": true,
+      "pageErrors": [],
+      "consoleErrors": [
+        {
+          "text": "Failed to load resource: the server responded with a status of 500 ()"
+        },
+        {
+          "text": "Failed to load resource: the server responded with a status of 500 ()"
+        }
+      ],
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\03-frontend-login.png",
+        "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\04-frontend-after-login.png"
+      ]
+    },
+    "propertyImportSmallPdf": {
+      "ok": false,
+      "draftUrl": "https://frontend-navy-eight-37.vercel.app/properties/import/8b6d3432-397a-404c-a133-da94ff97f2dd",
+      "draftId": "8b6d3432-397a-404c-a133-da94ff97f2dd",
+      "uploadStatus": "failed",
+      "registerUploadFailedTextVisible": false,
+      "errorBanner": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\05-property-import-before.png",
+        "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\06-property-import-after.png"
+      ]
+    },
+    "propertyImportLargePdf": {
+      "ok": false,
+      "draftUrl": "https://frontend-navy-eight-37.vercel.app/properties/import/12b0f8ef-b2e5-4101-afc9-573602c6ad43",
+      "draftId": "12b0f8ef-b2e5-4101-afc9-573602c6ad43",
+      "uploadStatus": "failed",
+      "registerUploadFailedTextVisible": false,
+      "errorBanner": null,
+      "screenshots": [
+        "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\08-property-import-before.png",
+        "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\09-property-import-after.png"
+      ]
+    }
+  },
+  "runtime": {
+    "networkFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/property-imports/drafts/8b6d3432-397a-404c-a133-da94ff97f2dd/uploads",
+        "status": 500,
+        "method": "POST",
+        "bodyPath": "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\fail-response-1.txt",
+        "bodySnippet": "{\n  \"error\": \"Failed to register upload\"\n}"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/property-imports/drafts/12b0f8ef-b2e5-4101-afc9-573602c6ad43/uploads",
+        "status": 500,
+        "method": "POST",
+        "bodyPath": "D:\\Investo\\test-results\\prod-flows-20260409-222235\\frontend\\fail-response-2.txt",
+        "bodySnippet": "{\n  \"error\": \"Failed to register upload\"\n}"
+      }
+    ]
+  },
+  "failures": [
+    {
+      "flow": "propertyImportSmallPdf",
+      "stage": "upload_or_processing",
+      "details": "Upload did not complete successfully (status=failed, failedRegisterText=false)"
+    },
+    {
+      "flow": "propertyImportLargePdf",
+      "stage": "upload_or_processing",
+      "details": "Upload did not complete successfully (status=failed, failedRegisterText=false)"
+    }
+  ]
+}

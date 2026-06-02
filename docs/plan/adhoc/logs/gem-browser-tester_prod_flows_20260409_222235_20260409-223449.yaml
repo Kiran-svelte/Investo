@@ -1,0 +1,89 @@
+task_id: prod_flows_20260409_222235
+plan_id: adhoc
+timestamp: 2026-04-09T17:00:04.516Z
+status: failed
+evidence_root: test-results/prod-flows-20260409-222235/
+
+flows:
+  - id: backend_health
+    status: passed
+    request:
+      method: GET
+      url: https://investo-backend-v2.onrender.com/api/health
+    response:
+      status: 200
+      body_path: test-results/prod-flows-20260409-222235/01-backend-health.json
+      body_json:
+        status: ok
+        timestamp: 2026-04-09T16:52:36.630Z
+        environment: production
+
+  - id: whatsapp_webhook_verification
+    status: passed
+    request:
+      method: GET
+      url: https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=test123
+    response:
+      status: 200
+      expected_body_exact: test123
+      actual_body_path: test-results/prod-flows-20260409-222235/02-webhook-verify.txt
+
+  - id: frontend_login_ui
+    status: passed_with_warnings
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - test-results/prod-flows-20260409-222235/frontend/03-frontend-login.png
+      - test-results/prod-flows-20260409-222235/frontend/04-frontend-after-login.png
+    notes:
+      final_url: https://frontend-navy-eight-37.vercel.app/
+      page_errors: 0
+      console_error_count: 2
+      console_errors:
+        - Failed to load resource: the server responded with a status of 500 ()
+        - Failed to load resource: the server responded with a status of 500 ()
+
+  - id: property_import_ui
+    status: failed
+    base_url: https://frontend-navy-eight-37.vercel.app
+    evidence:
+      - test-results/prod-flows-20260409-222235/frontend/05-property-import-before.png
+      - test-results/prod-flows-20260409-222235/frontend/06-property-import-after.png
+      - test-results/prod-flows-20260409-222235/frontend/08-property-import-before.png
+      - test-results/prod-flows-20260409-222235/frontend/09-property-import-after.png
+      - test-results/prod-flows-20260409-222235/frontend/fail-response-1.txt
+      - test-results/prod-flows-20260409-222235/frontend/fail-response-2.txt
+      - test-results/prod-flows-20260409-222235/03-register-upload-debug.json
+    failures:
+      - scenario: small_pdf_upload
+        ui_status: failed
+        failing_request:
+          method: POST
+          url: https://investo-backend-v2.onrender.com/api/property-imports/drafts/8b6d3432-397a-404c-a133-da94ff97f2dd/uploads
+          status: 500
+          response_body_json:
+            error: Failed to register upload
+      - scenario: large_pdf_upload_13mb
+        ui_status: failed
+        failing_request:
+          method: POST
+          url: https://investo-backend-v2.onrender.com/api/property-imports/drafts/12b0f8ef-b2e5-4101-afc9-573602c6ad43/uploads
+          status: 500
+          response_body_json:
+            error: Failed to register upload
+      - scenario: api_register_upload_debug
+        status: failed
+        failing_request:
+          method: POST
+          url: https://investo-backend-v2.onrender.com/api/property-imports/drafts/aae4815a-4d4c-40bd-bfa6-6cd544114d25/uploads
+          status: 500
+          response_body_json:
+            error: Failed to register upload
+
+lighthouse:
+  url: https://frontend-navy-eight-37.vercel.app/login
+  report_path: test-results/prod-flows-20260409-222235/lighthouse-login.json
+  scores:
+    accessibility: 1.0
+    seo: 1.0
+    best_practices: 0.96
+    performance: 0.98

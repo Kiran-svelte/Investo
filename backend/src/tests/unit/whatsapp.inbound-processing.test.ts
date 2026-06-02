@@ -252,4 +252,32 @@ describe('WhatsAppService inbound operational behavior', () => {
       reason: 'socket_emit_exception',
     });
   });
+
+  it('does not run interactive automation after agent takeover', async () => {
+    mockPrisma.lead.findFirst.mockResolvedValueOnce({
+      ...lead,
+      assignedAgentId: 'agent-1',
+    });
+    const interactiveSpy = jest.spyOn(service, 'handleInteractiveAction');
+
+    const result = await service.handleIncomingMessage({
+      phoneNumberId: 'pnid-1',
+      customerPhone: '+919999999999',
+      customerName: 'A User',
+      messageText: 'Book visit',
+      messageId: 'wamid-interactive-1',
+      interactiveId: 'book-visit-prop-1',
+      interactiveType: 'button_reply',
+    });
+
+    expect(interactiveSpy).not.toHaveBeenCalled();
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        companyId: 'company-1',
+        userId: 'agent-1',
+        type: 'agent_takeover',
+      }),
+    });
+    expect(result.status).toBe('processed');
+  });
 });

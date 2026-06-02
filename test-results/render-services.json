@@ -1,0 +1,172 @@
+[
+  {
+    "autoDeploy": "yes",
+    "autoDeployTrigger": "commit",
+    "branch": "main",
+    "createdAt": "2026-04-06T04:03:16.469682Z",
+    "dashboardUrl": "https://dashboard.render.com/static/srv-d79j10uuk2gs73eeb550",
+    "id": "srv-d79j10uuk2gs73eeb550",
+    "name": "investo-frontend-v2",
+    "notifyOnFail": "default",
+    "ownerId": "tea-d79i6k7pm1nc73cqt2ig",
+    "repo": "https://github.com/Kiran-svelte/Investo",
+    "rootDir": "frontend",
+    "serviceDetails": {
+      "buildCommand": "npm install && npm run build",
+      "buildPlan": "starter",
+      "ipAllowList": [
+        {
+          "cidrBlock": "0.0.0.0/0",
+          "description": "everywhere"
+        }
+      ],
+      "previews": {
+        "generation": "off"
+      },
+      "publishPath": "dist",
+      "pullRequestPreviewsEnabled": "no",
+      "url": "https://investo-frontend-v2.onrender.com"
+    },
+    "slug": "investo-frontend-v2",
+    "suspended": "not_suspended",
+    "suspenders": [],
+    "type": "static_site",
+    "updatedAt": "2026-04-06T10:35:11.926625Z"
+  },
+  {
+    "autoDeploy": "yes",
+    "autoDeployTrigger": "commit",
+    "branch": "main",
+    "createdAt": "2026-04-06T03:55:55.980231Z",
+    "dashboardUrl": "https://dashboard.render.com/web/srv-d79itik50q8c73fjqi7g",
+    "id": "srv-d79itik50q8c73fjqi7g",
+    "name": "investo-backend-v2",
+    "notifyOnFail": "default",
+    "ownerId": "tea-d79i6k7pm1nc73cqt2ig",
+    "repo": "https://github.com/Kiran-svelte/Investo",
+    "rootDir": "backend",
+    "serviceDetails": {
+      "buildPlan": "starter",
+      "cache": {
+        "profile": "no-cache"
+      },
+      "env": "node",
+      "envSpecificDetails": {
+        "buildCommand": "npm install --include=dev && npx prisma generate && npm run build",
+        "startCommand": "npm start"
+      },
+      "healthCheckPath": "/api/health",
+      "ipAllowList": [
+        {
+          "cidrBlock": "0.0.0.0/0",
+          "description": "everywhere"
+        }
+      ],
+      "maintenanceMode": {
+        "enabled": false,
+        "uri": ""
+      },
+      "numInstances": 1,
+      "openPorts": null,
+      "plan": "free",
+      "previews": {
+        "generation": "off"
+      },
+      "pullRequestPreviewsEnabled": "no",
+      "region": "oregon",
+      "runtime": "node",
+      "sshAddress": "srv-d79itik50q8c73fjqi7g@ssh.oregon.render.com",
+      "url": "https://investo-backend-v2.onrender.com"
+    },
+    "slug": "investo-backend-v2",
+    "suspended": "not_suspended",
+    "suspenders": [],
+    "type": "web_service",
+    "updatedAt": "2026-04-07T13:18:53.803297Z"
+  },
+  {
+    "autoDeploy": "yes",
+    "autoDeployTrigger": "commit",
+    "branch": "main",
+    "createdAt": "2026-04-06T03:42:21.368091Z",
+    "dashboardUrl": "https://dashboard.render.com/static/srv-d79in73uibrs73c7cr50",
+    "id": "srv-d79in73uibrs73c7cr50",
+    "name": "investo-frontend",
+    "notifyOnFail": "default",
+    "ownerId": "tea-d79i6k7pm1nc73cqt2ig",
+    "repo": "https://github.com/Kiran-svelte/Investo",
+    "rootDir": "frontend",
+    "serviceDetails": {
+      "buildCommand": "npm install && npm run build",
+      "buildPlan": "starter",
+      "ipAllowList": [
+        {
+          "cidrBlock": "0.0.0.0/0",
+          "description": "everywhere"
+        }
+      ],
+      "previews": {
+        "generation": "off"
+      },
+      "publishPath": "dist",
+      "pullRequestPreviewsEnabled": "no",
+      "url": "https://investo-frontend-in3m.onrender.com"
+    },
+    "slug": "investo-frontend-in3m",
+    "suspended": "not_suspended",
+    "suspenders": [],
+    "type": "static_site",
+    "updatedAt": "2026-04-06T10:35:12.891717Z"
+  },
+  {
+    "autoDeploy": "yes",
+    "autoDeployTrigger": "commit",
+    "branch": "main",
+    "createdAt": "2026-04-06T03:42:04.675655Z",
+    "dashboardUrl": "https://dashboard.render.com/web/srv-d79in2uuk2gs73ee6pfg",
+    "id": "srv-d79in2uuk2gs73ee6pfg",
+    "name": "investo-backend",
+    "notifyOnFail": "default",
+    "ownerId": "tea-d79i6k7pm1nc73cqt2ig",
+    "repo": "https://github.com/Kiran-svelte/Investo",
+    "rootDir": "backend",
+    "serviceDetails": {
+      "buildPlan": "starter",
+      "cache": {
+        "profile": "no-cache"
+      },
+      "env": "node",
+      "envSpecificDetails": {
+        "buildCommand": "npm install --include=dev && npx prisma generate",
+        "startCommand": "npm run dev"
+      },
+      "healthCheckPath": "/api/health",
+      "ipAllowList": [
+        {
+          "cidrBlock": "0.0.0.0/0",
+          "description": "everywhere"
+        }
+      ],
+      "maintenanceMode": {
+        "enabled": false,
+        "uri": ""
+      },
+      "numInstances": 1,
+      "openPorts": null,
+      "plan": "free",
+      "previews": {
+        "generation": "off"
+      },
+      "pullRequestPreviewsEnabled": "no",
+      "region": "oregon",
+      "runtime": "node",
+      "sshAddress": "srv-d79in2uuk2gs73ee6pfg@ssh.oregon.render.com",
+      "url": "https://investo-backend-dfqh.onrender.com"
+    },
+    "slug": "investo-backend-dfqh",
+    "suspended": "not_suspended",
+    "suspenders": [],
+    "type": "web_service",
+    "updatedAt": "2026-04-06T04:08:31.606253Z"
+  }
+]

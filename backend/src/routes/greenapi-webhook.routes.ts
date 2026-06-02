@@ -32,21 +32,19 @@ interface GreenApiWebhookProcessSummary {
 }
 
 router.post(
-  '/',
+  '/:companyId?',
   express.json({ limit: '1mb' }),
   async (req: Request, res: Response) => {
-    const expectedToken = extractAuthorizationToken(config.greenapi.webhookUrlToken);
-    if (!expectedToken) {
-      logger.error('GreenAPI webhook token not configured');
-      res.status(500).json({ error: 'webhook_token_not_configured' });
-      return;
-    }
-
     const providedToken = extractAuthorizationToken(req.headers.authorization);
-    if (!providedToken || !timingSafeEquals(providedToken, expectedToken)) {
+    const companyIdHint = typeof req.params.companyId === 'string' ? req.params.companyId.trim() : '';
+    // Removed production restriction for GreenAPI
+
+    if (!providedToken) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
+
+    const globalToken = extractAuthorizationToken(config.greenapi.webhookUrlToken);
 
     // Fail closed in GreenAPI mode: require deterministic instance→company mapping before ack.
     const extracted = extractIncomingTextNotifications(req.body);
@@ -68,9 +66,48 @@ router.post(
       }
 
       const [instanceId] = Array.from(instanceIds);
-      const companyResult = await whatsappService.getCompanyByPhoneNumberId(instanceId);
+      const companyResult = await whatsappService.getCompanyByPhoneNumberId(
+        instanceId,
+        'greenapi',
+        companyIdHint,
+        providedToken,
+      );
       if (!companyResult) {
         res.status(404).json({ error: 'company_not_found', code: 'greenapi_company_not_found' });
+        return;
+      }
+
+      const companySettings = (companyResult.company?.settings as any) || {};
+      const companyWhatsapp = (companySettings.whatsapp as any) || {};
+      const companyGreenApi = (companyWhatsapp.greenapi as any) || {};
+      const companyToken = extractAuthorizationToken(
+        companyGreenApi.webhookUrlToken || companyWhatsapp.webhookUrlToken || undefined,
+      );
+
+      const effectiveExpectedToken = companyToken || globalToken;
+      if (!effectiveExpectedToken) {
+        logger.error('GreenAPI webhook token not configured');
+        res.status(500).json({ error: 'webhook_token_not_configured' });
+        return;
+      }
+
+      const authorized =
+        timingSafeEquals(providedToken, effectiveExpectedToken) ||
+        (globalToken ? timingSafeEquals(providedToken, globalToken) : false);
+
+      if (!authorized) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+    } else {
+      if (!globalToken) {
+        logger.error('GreenAPI webhook token not configured');
+        res.status(500).json({ error: 'webhook_token_not_configured' });
+        return;
+      }
+
+      if (!timingSafeEquals(providedToken, globalToken)) {
+        res.status(401).json({ error: 'unauthorized' });
         return;
       }
     }
@@ -78,7 +115,7 @@ router.post(
     // Respond quickly; process async to avoid webhook retries.
     res.status(200).json({ status: 'received' });
 
-    processGreenApiWebhook(req.body)
+    processGreenApiWebhook(req.body, providedToken, companyIdHint)
       .then((summary) => {
         logger.info('GreenAPI webhook processing summary', { summary: redactGreenApiSummaryForLogs(summary) });
       })
@@ -253,7 +290,11 @@ function extractIncomingTextNotifications(body: any): ExtractedIncomingText[] {
   return extracted;
 }
 
-async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcessSummary> {
+async function processGreenApiWebhook(
+  body: any,
+  webhookTokenHint?: string,
+  companyIdHint?: string,
+): Promise<GreenApiWebhookProcessSummary> {
   const summary: GreenApiWebhookProcessSummary = {
     totalNotifications: Array.isArray(body) ? body.length : 1,
     totalMessages: 0,
@@ -339,7 +380,10 @@ async function processGreenApiWebhook(body: any): Promise<GreenApiWebhookProcess
       }
 
       const result = await whatsappService.handleIncomingMessage({
+        provider: 'greenapi',
         phoneNumberId,
+        webhookTokenHint,
+        companyIdHint,
         customerPhone: msg.customerPhone,
         customerName: msg.customerName,
         messageText: msg.messageText,

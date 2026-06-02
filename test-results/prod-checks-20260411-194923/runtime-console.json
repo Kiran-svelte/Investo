@@ -1,0 +1,16 @@
+{
+  "consoleErrors": [
+    {
+      "text": "Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Bpath%2C%20method%2C%20params%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.\n    at ga (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:38:6314)\n    at w (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:38:11369)\n    at ze (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:1475)\n    at ph (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:45668)\n    at ch (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:39727)\n    at ey (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:39655)\n    at hi (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:39508)\n    at Bl (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:35875)\n    at ih (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:40:34826)\n    at k (https://frontend-navy-eight-37.vercel.app/assets/index-CoaYFW_E.js:25:1567)"
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 ()"
+    }
+  ],
+  "consoleWarnings": [],
+  "pageErrors": [
+    {
+      "message": "Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Bpath%2C%20method%2C%20params%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings."
+    }
+  ]
+}

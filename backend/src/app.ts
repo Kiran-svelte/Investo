@@ -12,6 +12,7 @@ import propertyRoutes from './routes/property.routes';
 import visitRoutes from './routes/visit.routes';
 import conversationRoutes from './routes/conversation.routes';
 import aiSettingsRoutes from './routes/ai-settings.routes';
+import conversionSettingsRoutes from './routes/conversion-settings.routes';
 import webhookRoutes from './routes/webhook.routes';
 import healthRoutes from './routes/health.routes';
 import analyticsRoutes from './routes/analytics.routes';
@@ -29,6 +30,10 @@ import { isAllowedCorsOrigin } from './config';
 import greenApiWebhookRoutes from './routes/greenapi-webhook.routes';
 
 const app = express();
+
+// Render/other reverse proxies forward client IP via X-Forwarded-For.
+// express-rate-limit requires trust proxy to be enabled to avoid ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmet());
@@ -55,10 +60,8 @@ app.use('/api/health', healthRoutes);
 // IMPORTANT: This must run before global JSON parsing so we can verify signatures against raw request bytes.
 app.use('/api/webhook', webhookRoutes);
 
-// GreenAPI webhook route (non-production only, and only when configured as the active provider)
-if (config.env !== 'production' && config.whatsapp.provider === 'greenapi') {
-  app.use('/api/greenapi/webhook', greenApiWebhookRoutes);
-}
+// GreenAPI webhook route (guarded internally for production)
+app.use('/api/greenapi/webhook', greenApiWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));
@@ -81,6 +84,7 @@ app.use('/api/property-imports', companyRateLimiter, propertyImportRoutes);
 app.use('/api/visits', companyRateLimiter, visitRoutes);
 app.use('/api/conversations', companyRateLimiter, conversationRoutes);
 app.use('/api/ai-settings', companyRateLimiter, aiSettingsRoutes);
+app.use('/api/conversion-settings', companyRateLimiter, conversionSettingsRoutes);
 app.use('/api/analytics', companyRateLimiter, analyticsRoutes);
 app.use('/api/notifications', companyRateLimiter, notificationRoutes);
 app.use('/api/subscriptions', companyRateLimiter, subscriptionRoutes);

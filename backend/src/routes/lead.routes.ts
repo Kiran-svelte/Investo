@@ -12,6 +12,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from '../services/notification.engine';
 import { socketService, SOCKET_EVENTS } from '../services/socket.service';
+import { assignLeadRoundRobin } from '../services/leadAssignment.service';
 
 const router = Router();
 
@@ -667,44 +668,5 @@ router.get(
     }
   }
 );
-
-/**
- * Round-robin agent assignment
- */
-async function assignLeadRoundRobin(companyId: string): Promise<string | null> {
-  // Get all active sales agents for this company
-  const agents = await prisma.user.findMany({
-    where: { companyId, role: 'sales_agent', status: 'active' },
-    select: { id: true },
-  });
-
-  if (agents.length === 0) return null;
-
-  // Count active leads per agent
-  const leadCounts = await prisma.lead.groupBy({
-    by: ['assignedAgentId'],
-    where: {
-      companyId,
-      status: { notIn: ['closed_won', 'closed_lost'] },
-      assignedAgentId: { in: agents.map((a) => a.id) },
-    },
-    _count: { id: true },
-  });
-
-  const countMap = new Map(leadCounts.map((l) => [l.assignedAgentId, l._count.id]));
-
-  // Find agent with least leads
-  let minAgent = agents[0].id;
-  let minCount = countMap.get(agents[0].id) || 0;
-  for (const agent of agents) {
-    const count = countMap.get(agent.id) || 0;
-    if (count < minCount) {
-      minCount = count;
-      minAgent = agent.id;
-    }
-  }
-
-  return minAgent;
-}
 
 export default router;

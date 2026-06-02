@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-04-11T15:43:04.973Z",
+  "baseURL": "https://frontend-navy-eight-37.vercel.app/",
+  "evidenceDir": "D:\\Investo\\frontend\\..\\test-results\\lead-detail-reverify-20260411-211304",
+  "bypassHeaderConfigured": true,
+  "login": {
+    "ok": true,
+    "finalUrl": "https://frontend-navy-eight-37.vercel.app/",
+    "error": null
+  },
+  "leadDetail": {
+    "ok": true,
+    "opened": true,
+    "url": "https://frontend-navy-eight-37.vercel.app/leads/dfa5dbd1-db12-425b-9846-659c43dafa1f",
+    "crash": false,
+    "crashSignals": [],
+    "error": null
+  },
+  "runtime": {
+    "consoleErrors": [],
+    "pageErrors": [],
+    "requestFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": []
+  },
+  "screenshots": [
+    "D:\\Investo\\test-results\\lead-detail-reverify-20260411-211304\\01-login.png",
+    "D:\\Investo\\test-results\\lead-detail-reverify-20260411-211304\\02-after-login.png",
+    "D:\\Investo\\test-results\\lead-detail-reverify-20260411-211304\\03-leads-list.png",
+    "D:\\Investo\\test-results\\lead-detail-reverify-20260411-211304\\05-lead-detail.png"
+  ],
+  "failures": [],
+  "bypassCookieNames": []
+}

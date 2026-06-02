@@ -111,7 +111,7 @@ export const exportRateLimiter: RateLimitRequestHandler = rateLimit({
 });
 
 // Cleanup old entries periodically (every 5 minutes)
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, value] of companyRequestCounts.entries()) {
     if (now > value.resetTime) {
@@ -119,3 +119,6 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000);
+
+// Do not keep Node process alive solely for this timer (helps tests/shutdown).
+cleanupInterval.unref?.();

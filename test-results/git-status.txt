@@ -1,0 +1,14 @@
+ M WEBHOOK_CONFIGURATION.md
+ M backend/src/app.ts
+ M backend/src/config/index.ts
+ M backend/src/routes/conversation.routes.ts
+ M backend/src/services/automation.service.ts
+ M backend/src/services/notification.engine.ts
+ M backend/src/services/whatsapp.service.ts
+?? backend/src/routes/greenapi-webhook.routes.ts
+?? backend/src/tests/unit/greenapi-webhook.routes.test.ts
+?? frontend/page.html
+?? frontend/verify_vercel.ps1
+?? id1.txt
+?? out1.html
+?? out2.html

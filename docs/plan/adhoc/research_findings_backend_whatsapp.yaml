@@ -1,0 +1,759 @@
+plan_id: adhoc
+objective: Map current backend WhatsApp integration (Meta webhook + outbound sends), locate provider-selection hooks, and capture divergence from archived Green-API dual-provider proposal.
+focus_area: backend WhatsApp integration (Meta webhook + outbound send paths)
+created_at: "2026-04-12"
+created_by: GitHub Copilot (GPT-5.2)
+status: completed
+
+tldr: |
+  - Meta webhook is mounted at `/api/webhook` before global JSON parsing to preserve raw request bytes for signature verification (backend/src/app.ts:49-58).
+  - Webhook POST uses an `express.json` verify hook to stash `rawBody`, then `verifyWebhookSignature` enforces `WHATSAPP_APP_SECRET` + `x-hub-signature-256` in production; non-production allows missing secret/signature (backend/src/routes/webhook.routes.ts:41-84,89-138; backend/src/config/index.ts:283-294).
+  - IP whitelist middleware `whatsappIpWhitelist` is applied to all webhook routes; enablement is controlled by `WHATSAPP_IP_WHITELIST_ENABLED` and `SKIP_IP_WHITELIST` and allows local/private IPs in non-production (backend/src/routes/webhook.routes.ts:13; backend/src/middleware/whatsappSecurity.ts:112-205; backend/src/config/index.ts:290-294).
+  - Webhook router also exposes `GET /api/webhook/health`, returning WhatsApp API connectivity + Redis/deduplication metrics via `whatsappHealthService.getHealthStatus` (backend/src/routes/webhook.routes.ts:393-418; backend/src/services/whatsappHealth.service.ts:133-148,251-269).
+  - Outbound sends from conversation center, automation, and notifications call `whatsappService.sendMessage` (Meta Graph API); conversation center also uses Meta-only rich send methods (`sendDocument`, `sendInteractiveButtons`) (backend/src/routes/conversation.routes.ts:326-405; backend/src/services/automation.service.ts:223,357; backend/src/services/notification.engine.ts:247,316; backend/src/services/whatsapp.service.ts:552-633).
+  - A Green-API provider plan exists only as diff artifacts under `test-results/` (env `WHATSAPP_PROVIDER`, `GREENAPI_*`, route `/api/greenapi/webhook`, and `type WhatsAppProvider`) and is absent from current backend source (test-results/diff_backend__src__config__index.ts.txt:10-24; test-results/diff_backend__src__app.ts.txt:9-18; test-results/diff_backend__src__services__whatsapp.service.ts.txt:9-39; research: grep_search `WHATSAPP_PROVIDER|GREENAPI_` in `backend/src/**` returned no matches on 2026-04-12).
+
+research_metadata:
+  methodology: "Hybrid retrieval: grep_search for key symbols/paths + targeted read_file for verification; relationship discovery by tracing call sites into services; physical line counts via ReadAllText split on \\n for file inventory. Included includeIgnoredFiles=true to inspect test-results diff artifacts."
+  scope: "Focused on backend Meta webhook ingestion, webhook security middleware, deduplication + health endpoints under the webhook router, WhatsApp service inbound/outbound logic (including socket propagation), outbound call sites (conversation/automation/notifications), setup docs, unit tests around webhook security/reliability and WhatsApp rich messaging, and archived diff artifacts proposing Green-API provider selection."
+  confidence: high
+  coverage: 85
+  decision_blockers: 2
+  research_blockers: 1
+
+files_analyzed:
+  - file: index.ts
+    path: backend/src/config/index.ts
+    purpose: Central runtime configuration (env, ports, WhatsApp credentials/security flags, AI provider config).
+    key_elements:
+      - element: config.port
+        type: variable
+        location: backend/src/config/index.ts:235
+        description: "Server port derived from `process.env.PORT` with default `3001`."
+      - element: config.whatsapp
+        type: variable
+        location: backend/src/config/index.ts:283-294
+        description: "Meta WhatsApp Cloud API config (apiUrl/verifyToken/appSecret/accessToken/phoneNumberId) plus whitelist flags and webhook/dedup settings."
+      - element: config.ai.provider
+        type: variable
+        location: backend/src/config/index.ts:296-309
+        description: "AI provider selection via `AI_PROVIDER` (used as precedent for provider-style config)."
+    language: TypeScript
+    lines: 352
+
+  - file: app.ts
+    path: backend/src/app.ts
+    purpose: Express app wiring and route mounting order (webhook before global body parser).
+    key_elements:
+      - element: app.use('/api/webhook', webhookRoutes)
+        type: pattern
+        location: backend/src/app.ts:49-58
+        description: "Mounts webhook router before global JSON parsing to allow raw-body signature verification."
+    language: TypeScript
+    lines: 100
+
+  - file: webhook.routes.ts
+    path: backend/src/routes/webhook.routes.ts
+    purpose: Meta webhook verification (GET) and ingestion (POST) with signature checks, deduplication, and dev helpers.
+    key_elements:
+      - element: router.use(whatsappIpWhitelist)
+        type: pattern
+        location: backend/src/routes/webhook.routes.ts:13
+        description: "Applies IP whitelist middleware to all webhook endpoints in this router."
+      - element: GET /
+        type: function
+        location: backend/src/routes/webhook.routes.ts:20-38
+        description: "Webhook verification endpoint comparing `hub.verify_token` to `config.whatsapp.verifyToken`."
+      - element: POST /
+        type: function
+        location: backend/src/routes/webhook.routes.ts:41-84
+        description: "Uses `express.json` with a `verify` hook to stash `(req as any).rawBody`, verifies signature, responds 200 quickly, then processes asynchronously."
+      - element: GET /health
+        type: function
+        location: backend/src/routes/webhook.routes.ts:393-418
+        description: "Returns `whatsappHealthService.getHealthStatus()` and maps `health.whatsapp.connected` to HTTP status 200 vs 503."
+      - element: verifyWebhookSignature
+        type: function
+        location: backend/src/routes/webhook.routes.ts:89-138
+        description: "HMAC-SHA256 verification of request body against `x-hub-signature-256`, with non-production allowances for missing secret/signature."
+      - element: processWebhook
+        type: function
+        location: backend/src/routes/webhook.routes.ts:159
+        description: "Extracts message events, uses `deduplicationService.claimMessageProcessing`, and calls `whatsappService.handleIncomingMessage` (see call at backend/src/routes/webhook.routes.ts:293)."
+      - element: POST /test
+        type: function
+        location: backend/src/routes/webhook.routes.ts:419-476
+        description: "Development-only endpoint (`config.env !== 'development'` returns 403) simulating inbound messages by calling `whatsappService.handleIncomingMessage`."
+      - element: POST /debug
+        type: function
+        location: backend/src/routes/webhook.routes.ts:488-584
+        description: "Debug endpoint labeled TEMPORARY; processes webhook body synchronously and calls `whatsappService.getCompanyByPhoneNumberId` and `handleIncomingMessage` without signature verification."
+    language: TypeScript
+    lines: 595
+
+  - file: whatsappSecurity.ts
+    path: backend/src/middleware/whatsappSecurity.ts
+    purpose: Meta webhook IP allowlist enforcement, proxy-aware IP extraction, and bypass controls.
+    key_elements:
+      - element: META_IP_RANGES
+        type: variable
+        location: backend/src/middleware/whatsappSecurity.ts:9-26
+        description: "Hard-coded CIDR ranges for Meta webhook IPs."
+      - element: isWhitelistEnabled
+        type: function
+        location: backend/src/middleware/whatsappSecurity.ts:112-137
+        description: "Whitelist enablement logic based on `config.env`, `config.whatsapp.ipWhitelistEnabled`, and `config.whatsapp.skipIpWhitelist`."
+      - element: whatsappIpWhitelist
+        type: function
+        location: backend/src/middleware/whatsappSecurity.ts:159-205
+        description: "Middleware enforcing Meta IP ranges (with non-production local/private IP allowance)."
+    language: TypeScript
+    lines: 212
+
+  - file: redis.ts
+    path: backend/src/config/redis.ts
+    purpose: Upstash Redis client initialization and in-memory cache fallback utilities.
+    key_elements:
+      - element: getRedis
+        type: function
+        location: backend/src/config/redis.ts:11-34
+        description: "Initializes Upstash Redis when `config.redis.url` and `config.redis.token` exist; otherwise returns null and logs a warning."
+      - element: cacheGet/cacheSet/cacheDel
+        type: function
+        location: backend/src/config/redis.ts:52-88
+        description: "Cache helpers with TTL that prefer Upstash after a one-time ping, with in-memory Map fallback."
+      - element: getCacheType
+        type: function
+        location: backend/src/config/redis.ts:90-92
+        description: "Reports cache type as `upstash` vs `memory` based on connectivity test."
+    language: TypeScript
+    lines: 95
+
+  - file: deduplication.service.ts
+    path: backend/src/services/deduplication.service.ts
+    purpose: Redis-backed message deduplication for webhook ingestion with in-memory fallback.
+    key_elements:
+      - element: DeduplicationService
+        type: class
+        location: backend/src/services/deduplication.service.ts:25
+        description: "Claims message processing using Redis `SET NX` with TTL; falls back to in-memory Map if Redis is unavailable."
+      - element: ttlSeconds default
+        type: variable
+        location: backend/src/services/deduplication.service.ts:29
+        description: "TTL defaults to `config.whatsapp.dedupTtlSeconds ?? 300` when not provided."
+      - element: claimMessageProcessing
+        type: function
+        location: backend/src/services/deduplication.service.ts:52-86
+        description: "Atomic Redis claim via `redis.set(key,'1',{ nx:true, ex: ttlSeconds })` with memory fallback."
+      - element: release
+        type: function
+        location: backend/src/services/deduplication.service.ts:114-142
+        description: "Releases a message claim by deleting Redis key (or memory key) to allow retry after failure."
+      - element: deduplicationService
+        type: variable
+        location: backend/src/services/deduplication.service.ts:251-257
+        description: "Default service instance exported for use by webhook routes and health checks."
+    language: TypeScript
+    lines: 266
+
+  - file: whatsappHealth.service.ts
+    path: backend/src/services/whatsappHealth.service.ts
+    purpose: Health checks for WhatsApp API connectivity plus Redis/deduplication status.
+    key_elements:
+      - element: WhatsAppHealthService
+        type: class
+        location: backend/src/services/whatsappHealth.service.ts:38
+        description: "Tracks last health status and performs connectivity checks against the configured Meta Graph API base URL."
+      - element: checkConnection
+        type: function
+        location: backend/src/services/whatsappHealth.service.ts:55-118
+        description: "Calls `${apiUrl}/me?access_token=...` and reports connected/responseTime/error."
+      - element: getHealthStatus
+        type: function
+        location: backend/src/services/whatsappHealth.service.ts:133-148
+        description: "Aggregates WhatsApp status, Redis ping, and deduplication stats into `SystemHealth`."
+      - element: getDeduplicationStats
+        type: function
+        location: backend/src/services/whatsappHealth.service.ts:251-269
+        description: "Dynamically imports deduplication service and returns processedCount plus TTL seconds."
+      - element: whatsappHealthService
+        type: variable
+        location: backend/src/services/whatsappHealth.service.ts:276
+        description: "Default health service instance exported for webhook routes."
+    language: TypeScript
+    lines: 287
+
+  - file: whatsapp.service.ts
+    path: backend/src/services/whatsapp.service.ts
+    purpose: Inbound WhatsApp message processing (multi-tenant lookup, lead/conversation/message creation, AI response) and outbound sending via Meta Graph API.
+    key_elements:
+      - element: CompanyWhatsAppConfig
+        type: interface
+        location: backend/src/services/whatsapp.service.ts:18-22
+        description: "WhatsApp config shape used across service methods (phoneNumberId/accessToken/verifyToken)."
+      - element: getCompanyByPhoneNumberId
+        type: function
+        location: backend/src/services/whatsapp.service.ts:51-134
+        description: "Resolves company config from `company.settings.whatsapp.phoneNumberId`, with legacy and fallback behaviors."
+      - element: handleIncomingMessage
+        type: function
+        location: backend/src/services/whatsapp.service.ts:145-519
+        description: "Inbound pipeline: company lookup, lead+conversation upsert, message persistence, AI response generation, and outbound send via `this.sendMessage`."
+      - element: propagateConversationUpdate
+        type: function
+        location: backend/src/services/whatsapp.service.ts:519-549
+        description: "Emits `SOCKET_EVENTS.CONVERSATION_UPDATED` via `socketService.emitToCompany` and returns a propagation status object."
+      - element: sendMessage
+        type: function
+        location: backend/src/services/whatsapp.service.ts:552-590
+        description: "Sends text via Meta Graph API `${config.whatsapp.apiUrl}/${phoneNumberId}/messages` with Bearer access token."
+      - element: testConnection
+        type: function
+        location: backend/src/services/whatsapp.service.ts:593-633
+        description: "Connectivity check calling Meta `${config.whatsapp.apiUrl}/${phoneNumberId}` with Bearer access token."
+    language: TypeScript
+    lines: 2113
+
+  - file: socket.service.ts
+    path: backend/src/services/socket.service.ts
+    purpose: WebSocket server initialization and helper emit methods for user/company rooms.
+    key_elements:
+      - element: SocketService.initialize
+        type: function
+        location: backend/src/services/socket.service.ts:19-120
+        description: "Initializes Socket.IO server with JWT-auth middleware and joins sockets to `company:{companyId}` and `user:{userId}` rooms."
+      - element: socketService.emitToCompany
+        type: function
+        location: backend/src/services/socket.service.ts:137-145
+        description: "Emits an event to all sockets in a company room and returns boolean based on server availability."
+      - element: SOCKET_EVENTS
+        type: variable
+        location: backend/src/services/socket.service.ts:171-175
+        description: "Exports event name constants used by other services."
+    language: TypeScript
+    lines: 196
+
+  - file: conversation.routes.ts
+    path: backend/src/routes/conversation.routes.ts
+    purpose: Conversation center routes; includes agent outbound WhatsApp messaging.
+    key_elements:
+      - element: normalizeWhatsAppConfig
+        type: function
+        location: backend/src/routes/conversation.routes.ts:20-61
+        description: "Builds WhatsApp config from `company.settings.whatsapp` with env fallbacks."
+      - element: sendConversationMessageHandler
+        type: function
+        location: backend/src/routes/conversation.routes.ts:326-430
+        description: "Agent outbound sends branch on payload mode and call `whatsappService.sendMessage`, `sendDocument`, or `sendInteractiveButtons`."
+    language: TypeScript
+    lines: 461
+
+  - file: automation.service.ts
+    path: backend/src/services/automation.service.ts
+    purpose: Automated reminders/notifications; uses WhatsAppService for outbound messaging.
+    key_elements:
+      - element: getCompanyWhatsAppConfig
+        type: function
+        location: backend/src/services/automation.service.ts:8
+        description: "Normalizes WhatsApp config from company settings with env fallbacks."
+      - element: whatsappService.sendMessage call sites
+        type: pattern
+        location: backend/src/services/automation.service.ts:223,357
+        description: "Outbound WhatsApp reminder sends via `whatsappService.sendMessage`."
+    language: TypeScript
+    lines: 575
+
+  - file: notification.engine.ts
+    path: backend/src/services/notification.engine.ts
+    purpose: Notification engine; sends WhatsApp messages for visit-related events.
+    key_elements:
+      - element: getCompanyWhatsAppConfig
+        type: function
+        location: backend/src/services/notification.engine.ts:21
+        description: "Normalizes WhatsApp config from company settings with env fallbacks."
+      - element: whatsappService.sendMessage call sites
+        type: pattern
+        location: backend/src/services/notification.engine.ts:247,316
+        description: "Outbound WhatsApp visit-status notifications via `whatsappService.sendMessage`."
+    language: TypeScript
+    lines: 335
+
+  - file: ai-settings.routes.ts
+    path: backend/src/routes/ai-settings.routes.ts
+    purpose: AI settings management; includes WhatsApp connection test endpoint.
+    key_elements:
+      - element: POST /api/ai-settings/whatsapp/test
+        type: function
+        location: backend/src/routes/ai-settings.routes.ts:96-132
+        description: "Calls `whatsappService.testConnection` with request-provided `phone_number_id` and `access_token`."
+    language: TypeScript
+    lines: 131
+
+  - file: server.ts
+    path: backend/src/server.ts
+    purpose: HTTP server bootstrap and port binding.
+    key_elements:
+      - element: httpServer.listen(config.port)
+        type: pattern
+        location: backend/src/server.ts:49-50
+        description: "Binds server to `config.port`."
+    language: TypeScript
+    lines: 108
+
+  - file: WEBHOOK_CONFIGURATION.md
+    path: WEBHOOK_CONFIGURATION.md
+    purpose: Deployment and localhost setup instructions for the Meta webhook.
+    key_elements:
+      - element: Localhost Webhook URL documentation
+        type: pattern
+        location: WEBHOOK_CONFIGURATION.md:4
+        description: "Documents localhost webhook as `http://localhost:3000/api/webhook` (contrast: backend default port is 3001 in backend/src/config/index.ts:235)."
+      - element: Test endpoint documentation
+        type: pattern
+        location: WEBHOOK_CONFIGURATION.md:67-74
+        description: "Documents `POST http://localhost:3000/api/webhook/test` with `Authorization: Bearer <YOUR_JWT_TOKEN>` (contrast: backend/src/routes/webhook.routes.ts:419-424 has no auth middleware and only env-gates by `config.env`)."
+      - element: SKIP_IP_WHITELIST documentation
+        type: pattern
+        location: WEBHOOK_CONFIGURATION.md:109-126
+        description: "States `SKIP_IP_WHITELIST=true` is development-only; code disables whitelist whenever `config.whatsapp.skipIpWhitelist === true` (backend/src/middleware/whatsappSecurity.ts:124-131)."
+    language: Markdown
+    lines: 248
+
+  - file: package.json
+    path: backend/package.json
+    purpose: Backend scripts and dependency versions.
+    key_elements:
+      - element: scripts.test / scripts.test:unit / scripts.proof:webhook
+        type: variable
+        location: backend/package.json:9-16
+        description: "Jest unit/integration scripts and `proof:webhook` for signature verification proof."
+      - element: dependencies (express/jest/supertest/etc.)
+        type: variable
+        location: backend/package.json:18-64
+        description: "Declares Express, Prisma, Socket.IO, Jest, Supertest, Zod and related tooling used by WhatsApp integration codepaths."
+    language: JSON
+    lines: 66
+
+  - file: webhook.routes.security.test.ts
+    path: backend/src/tests/unit/webhook.routes.security.test.ts
+    purpose: Unit tests for webhook verification, signature checks, and IP whitelist behavior.
+    key_elements:
+      - element: createWebhookApp
+        type: function
+        location: backend/src/tests/unit/webhook.routes.security.test.ts:25-103
+        description: "Builds an Express app mounting the webhook router; sets env vars like `NODE_ENV`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_IP_WHITELIST_ENABLED`."
+      - element: POST raw-body signature test
+        type: pattern
+        location: backend/src/tests/unit/webhook.routes.security.test.ts:168-201
+        description: "Validates signature is computed over raw JSON body (whitespace tolerant)."
+    language: TypeScript
+    lines: 265
+
+  - file: webhook.routes.reliability.test.ts
+    path: backend/src/tests/unit/webhook.routes.reliability.test.ts
+    purpose: Unit tests for webhook processing reliability behavior (dedup claim/release + service dispatch outcomes).
+    key_elements:
+      - element: createTestApp
+        type: function
+        location: backend/src/tests/unit/webhook.routes.reliability.test.ts:49-140
+        description: "Builds an Express app with mocked config/logger/dedup/whatsapp services under a controlled `NODE_ENV`."
+      - element: dedup claim expectations
+        type: pattern
+        location: backend/src/tests/unit/webhook.routes.reliability.test.ts:227
+        description: "Asserts webhook processing calls `dedup.claimMessageProcessing` with extracted message IDs."
+    language: TypeScript
+    lines: 448
+
+  - file: whatsapp-security.middleware.test.ts
+    path: backend/src/tests/unit/whatsapp-security.middleware.test.ts
+    purpose: Unit tests for IP whitelist middleware allow/deny behavior across environments.
+    key_elements:
+      - element: createSecurityApp
+        type: function
+        location: backend/src/tests/unit/whatsapp-security.middleware.test.ts:34-81
+        description: "Builds an Express app mounting `whatsappIpWhitelist` with mocked env/config."
+      - element: production deny vs Meta IP allow
+        type: pattern
+        location: backend/src/tests/unit/whatsapp-security.middleware.test.ts:95-114
+        description: "Asserts localhost is blocked in production and Meta CIDR IP is allowed."
+    language: TypeScript
+    lines: 120
+
+  - file: whatsapp.inbound-processing.test.ts
+    path: backend/src/tests/unit/whatsapp.inbound-processing.test.ts
+    purpose: Unit tests for WhatsAppService inbound behavior (persistence, config selection, propagation).
+    key_elements:
+      - element: prisma mock + socketService mock
+        type: pattern
+        location: backend/src/tests/unit/whatsapp.inbound-processing.test.ts:3-78
+        description: "Mocks Prisma client, config.whatsapp defaults, AI service, and socket emission used by inbound pipeline."
+    language: TypeScript
+    lines: 222
+
+  - file: whatsapp-media.test.ts
+    path: backend/src/tests/unit/whatsapp-media.test.ts
+    purpose: Unit tests for WhatsAppService rich media/interactive send methods (fetch mocked).
+    key_elements:
+      - element: global.fetch mock
+        type: pattern
+        location: backend/src/tests/unit/whatsapp-media.test.ts:13-19
+        description: "Mocks fetch and asserts payloads for media send helpers (image/document/location/interactive)."
+    language: TypeScript
+    lines: 548
+
+  - file: interactive-buttons.test.ts
+    path: backend/src/tests/unit/interactive-buttons.test.ts
+    purpose: Unit tests for interactive button webhook extraction and action handling.
+    key_elements:
+      - element: WhatsAppService.handleInteractiveAction
+        type: pattern
+        location: backend/src/tests/unit/interactive-buttons.test.ts:130-336
+        description: "Calls `handleInteractiveAction` against Meta-shaped interactive payloads with Prisma mocked."
+    language: TypeScript
+    lines: 400
+
+  - file: diff_backend__src__config__index.ts.txt
+    path: test-results/diff_backend__src__config__index.ts.txt
+    purpose: Archived/unmerged diff proposing WhatsApp provider selection + Green-API env vars.
+    key_elements:
+      - element: WHATSAPP_PROVIDER
+        type: variable
+        location: test-results/diff_backend__src__config__index.ts.txt:10
+        description: "Adds `provider: (process.env.WHATSAPP_PROVIDER || 'meta').trim().toLowerCase(),` under WhatsApp config."
+      - element: GREENAPI_* env vars
+        type: variable
+        location: test-results/diff_backend__src__config__index.ts.txt:19-24
+        description: "Adds Green-API config fields `GREENAPI_API_URL`, `GREENAPI_ID_INSTANCE`, `GREENAPI_API_TOKEN_INSTANCE`, `GREENAPI_WEBHOOK_URL_TOKEN`."
+    language: Diff/Text
+    lines: 30
+
+  - file: diff_backend__src__app.ts.txt
+    path: test-results/diff_backend__src__app.ts.txt
+    purpose: Archived/unmerged diff proposing a Green-API webhook router mount.
+    key_elements:
+      - element: /api/greenapi/webhook mount
+        type: pattern
+        location: test-results/diff_backend__src__app.ts.txt:9-18
+        description: "Imports `greenApiWebhookRoutes` and mounts `app.use('/api/greenapi/webhook', greenApiWebhookRoutes)`."
+    language: Diff/Text
+    lines: 23
+
+  - file: diff_backend__src__services__whatsapp.service.ts.txt
+    path: test-results/diff_backend__src__services__whatsapp.service.ts.txt
+    purpose: Archived/unmerged diff proposing provider union and branching in WhatsAppService.
+    key_elements:
+      - element: type WhatsAppProvider
+        type: type
+        location: test-results/diff_backend__src__services__whatsapp.service.ts.txt:9
+        description: "Defines `type WhatsAppProvider = 'meta' | 'greenapi'`."
+      - element: resolveProvider
+        type: function
+        location: test-results/diff_backend__src__services__whatsapp.service.ts.txt:39
+        description: "Adds provider-resolution helper based on config/provider string."
+    language: Diff/Text
+    lines: 382
+
+  - file: diff_WEBHOOK_CONFIGURATION.md.txt
+    path: test-results/diff_WEBHOOK_CONFIGURATION.md.txt
+    purpose: Archived/unmerged doc diff adding Green-API webhook and env var documentation.
+    key_elements:
+      - element: /api/greenapi/webhook URLs
+        type: pattern
+        location: test-results/diff_WEBHOOK_CONFIGURATION.md.txt:12-14
+        description: "Adds production and localhost Green-API webhook URL examples."
+      - element: GREENAPI_* env vars documentation
+        type: pattern
+        location: test-results/diff_WEBHOOK_CONFIGURATION.md.txt:55-62
+        description: "Documents `WHATSAPP_PROVIDER=greenapi` and required `GREENAPI_*` env vars."
+    language: Diff/Text
+    lines: 105
+
+patterns_found:
+  - category: architecture
+    pattern: "Webhook mounted before global JSON parsing to preserve raw bytes"
+    description: "Webhook router is mounted before the global `express.json` body parser so the webhook route can capture `rawBody` for signature verification."
+    examples:
+      - file: backend/src/app.ts
+        location: backend/src/app.ts:49-60
+        snippet: "app.use('/api/webhook', webhookRoutes);\n\n// Body parsing (for all non-webhook routes)\napp.use(express.json({ limit: '10mb' }));"
+    prevalence: common
+
+  - category: structure
+    pattern: "Webhook POST uses request-body verify hook for signature validation"
+    description: "Webhook POST handler uses `express.json({ verify })` to store `(req as any).rawBody` for HMAC verification."
+    examples:
+      - file: backend/src/routes/webhook.routes.ts
+        location: backend/src/routes/webhook.routes.ts:41-54
+        snippet: "express.json({\n  limit: '1mb',\n  verify: (req, _res, buf) => {\n    (req as any).rawBody = buf;\n  },\n}),"
+    prevalence: common
+
+  - category: architecture
+    pattern: "Layered webhook hardening: IP whitelist + signature verification (prod strict, non-prod permissive)"
+    description: "All webhook routes pass through IP whitelist middleware; signature verification rejects missing/invalid signature in production but allows missing secret/signature in non-production."
+    examples:
+      - file: backend/src/routes/webhook.routes.ts
+        location: backend/src/routes/webhook.routes.ts:13,89-127
+        snippet: "router.use(whatsappIpWhitelist);\n\nif (!config.whatsapp.appSecret) {\n  if (config.env === 'production') {\n    return { allowed: false, reason: 'app_secret_missing' };\n  }\n\n  logger.warn('WHATSAPP_APP_SECRET not configured - allowing webhook only in non-production');\n  return { allowed: true, reason: 'non_prod_missing_app_secret' };\n}"
+      - file: backend/src/middleware/whatsappSecurity.ts
+        location: backend/src/middleware/whatsappSecurity.ts:112-137
+        snippet: "if (config.whatsapp.skipIpWhitelist === true) {\n  logger.warn('IP whitelist bypassed via SKIP_IP_WHITELIST=true');\n  return false;\n}"
+    prevalence: common
+
+  - category: structure
+    pattern: "Single service owns inbound processing + outbound messaging"
+    description: "`WhatsAppService` contains multi-tenant lookup, lead/conversation/message persistence, AI response generation, and Meta Graph API sends in one class."
+    examples:
+      - file: backend/src/services/whatsapp.service.ts
+        location: backend/src/services/whatsapp.service.ts:455-459
+        snippet: "// Send via WhatsApp Cloud API using company-specific config\nawait this.sendMessage(msg.customerPhone, aiResponse.text, whatsappConfig!);"
+    prevalence: common
+
+  - category: architecture
+    pattern: "Redis-backed webhook message deduplication with in-memory fallback"
+    description: "Webhook ingestion relies on a deduplication service that claims message IDs atomically in Redis (SET NX + TTL) and falls back to an in-memory Map when Redis is unavailable."
+    examples:
+      - file: backend/src/services/deduplication.service.ts
+        location: backend/src/services/deduplication.service.ts:52-86
+        snippet: "async claimMessageProcessing(messageId: string, ttlSeconds = this.ttlSeconds): Promise<boolean> {\n  const redis = getRedis();\n  const key = `${DEDUP_KEY_PREFIX}${messageId}`;\n\n  if (redis) {\n    try {\n      const result = await redis.set(key, '1', {\n        nx: true,\n        ex: ttlSeconds,\n      });\n\n      const claimed = result === 'OK';\n\n      logger.debug('Deduplication claim (Redis)', {\n        messageId,\n        claimed,\n        ttlSeconds,\n      });\n\n      return claimed;\n    } catch (err: any) {\n      logger.warn('Redis deduplication claim failed, falling back to memory', {\n        messageId,\n        error: err.message,\n      });\n    }\n  }\n\n  return this.memoryClaimMessage(messageId, ttlSeconds);\n}"
+    prevalence: common
+
+  - category: structure
+    pattern: "Health endpoint under webhook router returns WhatsApp/Redis/dedup metrics"
+    description: "Webhook router includes `GET /health` which calls `whatsappHealthService.getHealthStatus()` and maps WhatsApp connectivity to 200 vs 503."
+    examples:
+      - file: backend/src/routes/webhook.routes.ts
+        location: backend/src/routes/webhook.routes.ts:393-418
+        snippet: "router.get('/health', async (req: Request, res: Response) => {\n  try {\n    const health = await whatsappHealthService.getHealthStatus();\n\n    // Return appropriate status code based on WhatsApp connection\n    const statusCode = health.whatsapp.connected ? 200 : 503;\n\n    res.status(statusCode).json(health);\n  } catch (err: any) {\n    logger.error('Health check failed', { error: err.message });\n    res.status(500).json({\n      error: 'Health check failed',\n      message: err.message,\n    });\n  }\n});"
+    prevalence: occasional
+
+  - category: testing
+    pattern: "Jest isolates webhook router and mocks heavy dependencies"
+    description: "Unit tests reset modules/env, mock logger + services (WhatsApp, deduplication, health), mount router in an Express app, and validate security behavior with Supertest."
+    examples:
+      - file: backend/src/tests/unit/webhook.routes.security.test.ts
+        location: backend/src/tests/unit/webhook.routes.security.test.ts:25-103
+        snippet: "jest.doMock('../../services/whatsapp.service', () => ({\n  __esModule: true,\n  whatsappService: {\n    handleIncomingMessage: jest.fn().mockResolvedValue({\n      status: 'skipped',\n      reason: 'test_stub',\n      propagation: { status: 'not_attempted' },\n    }),\n    getCompanyByPhoneNumberId: jest.fn().mockResolvedValue(null),\n  },\n}));\n\nlet router: any;\njest.isolateModules(() => {\n  router = require('../../routes/webhook.routes').default;\n});\n\nconst app = express();\napp.use('/api/webhook', router);"
+    prevalence: common
+
+  - category: testing
+    pattern: "WhatsAppService unit tests mock global fetch for Meta API calls"
+    description: "Service-level unit tests replace `global.fetch` to validate payload structure and success/failure handling for text, media, and interactive methods."
+    examples:
+      - file: backend/src/tests/unit/whatsapp-media.test.ts
+        location: backend/src/tests/unit/whatsapp-media.test.ts:11-12
+        snippet: "const mockFetch = jest.fn();\nglobal.fetch = mockFetch;"
+      - file: backend/src/tests/unit/interactive-buttons.test.ts
+        location: backend/src/tests/unit/interactive-buttons.test.ts:60-62
+        snippet: "// Mock fetch for WhatsApp API calls\nconst mockFetch = jest.fn();\nglobal.fetch = mockFetch;"
+    prevalence: common
+
+related_architecture:
+  components_relevant_to_domain:
+    - component: webhookRoutes
+      responsibility: "Receives Meta webhook verification (GET) and ingestion (POST), performs signature verification and deduplication, dispatches to WhatsAppService."
+      location: backend/src/routes/webhook.routes.ts
+      relationship_to_domain: "domain entrypoint"
+    - component: whatsappIpWhitelist
+      responsibility: "Guards webhook endpoints by validating request IPs against Meta CIDR ranges with non-production allowances."
+      location: backend/src/middleware/whatsappSecurity.ts
+      relationship_to_domain: "domain depends on this"
+    - component: DeduplicationService
+      responsibility: "Claims message IDs to prevent duplicate webhook processing, using Redis with in-memory fallback."
+      location: backend/src/services/deduplication.service.ts
+      relationship_to_domain: "domain depends on this"
+    - component: WhatsAppHealthService
+      responsibility: "Aggregates WhatsApp connectivity, Redis availability, and deduplication stats for `/api/webhook/health`."
+      location: backend/src/services/whatsappHealth.service.ts
+      relationship_to_domain: "domain depends on this"
+    - component: WhatsAppService
+      responsibility: "Processes inbound messages and sends outbound WhatsApp messages via Meta Graph API; also triggers AI response flow and socket propagation."
+      location: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: "domain core"
+    - component: Conversation routes (agent send)
+      responsibility: "Agent-facing outbound messaging endpoints; calls WhatsAppService send methods."
+      location: backend/src/routes/conversation.routes.ts
+      relationship_to_domain: "this uses domain outputs"
+    - component: Automation service
+      responsibility: "Automated reminder sends via WhatsAppService."
+      location: backend/src/services/automation.service.ts
+      relationship_to_domain: "this uses domain outputs"
+    - component: Notification engine
+      responsibility: "Event-driven WhatsApp notifications via WhatsAppService."
+      location: backend/src/services/notification.engine.ts
+      relationship_to_domain: "this uses domain outputs"
+
+  interfaces_used_by_domain:
+    - interface: whatsappHealthService.getHealthStatus
+      location: backend/src/services/whatsappHealth.service.ts:133
+      usage_pattern: "Called by `GET /api/webhook/health` (backend/src/routes/webhook.routes.ts:397-418)."
+    - interface: deduplicationService.claimMessageProcessing
+      location: backend/src/services/deduplication.service.ts:52
+      usage_pattern: "Called by `processWebhook` for message ID claims before dispatch (backend/src/routes/webhook.routes.ts:269-323)."
+    - interface: whatsappService.handleIncomingMessage
+      location: backend/src/services/whatsapp.service.ts:145
+      usage_pattern: "Called by webhook ingestion and dev/test endpoints (backend/src/routes/webhook.routes.ts:293,432,560)."
+    - interface: whatsappService.sendMessage
+      location: backend/src/services/whatsapp.service.ts:552
+      usage_pattern: "Called by conversation routes and automation/notification services (backend/src/routes/conversation.routes.ts:375; backend/src/services/automation.service.ts:223,357; backend/src/services/notification.engine.ts:247,316)."
+    - interface: whatsappService.testConnection
+      location: backend/src/services/whatsapp.service.ts:593
+      usage_pattern: "Called by AI settings WhatsApp test route (backend/src/routes/ai-settings.routes.ts:112-117)."
+
+  data_flow_involving_domain: |
+    1) Meta sends webhook GET/POST to `/api/webhook` (backend/src/app.ts:49-58; backend/src/routes/webhook.routes.ts:20-84).
+    2) Router applies IP whitelist (backend/src/routes/webhook.routes.ts:13; backend/src/middleware/whatsappSecurity.ts:159-205) and verifies signature in POST handler (backend/src/routes/webhook.routes.ts:58-74,89-138).
+    3) `processWebhook` extracts message events, applies dedup claim/release, then calls `whatsappService.handleIncomingMessage` (backend/src/routes/webhook.routes.ts:159,269-323; backend/src/services/whatsapp.service.ts:145-519).
+    4) Service upserts lead+conversation+message, optionally generates AI response, and sends outbound text via Meta Graph API; propagation status is emitted via `propagateConversationUpdate` (backend/src/services/whatsapp.service.ts:145-549,552-590).
+    5) Health checks call `whatsappHealthService.getHealthStatus()` via `GET /api/webhook/health` (backend/src/routes/webhook.routes.ts:393-418; backend/src/services/whatsappHealth.service.ts:133-148).
+
+  key_relationships_to_domain:
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/services/deduplication.service.ts
+      relationship: calls
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/services/whatsappHealth.service.ts
+      relationship: calls
+    - from: backend/src/routes/webhook.routes.ts
+      to: backend/src/middleware/whatsappSecurity.ts
+      relationship: composes
+    - from: backend/src/services/automation.service.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/services/notification.engine.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+    - from: backend/src/routes/conversation.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: calls
+
+related_technology_stack:
+  languages_used_in_domain:
+    - TypeScript
+    - Markdown
+    - JSON
+  frameworks_used_in_domain:
+    - name: Express
+      usage_in_domain: "HTTP routing for webhook ingestion and agent/AI endpoints (backend/src/app.ts:1-100; backend/src/routes/webhook.routes.ts:1-595)."
+  libraries_used_in_domain:
+    - name: crypto (Node)
+      purpose_in_domain: "HMAC verification of Meta webhook payload signatures (backend/src/routes/webhook.routes.ts:1,89-138)."
+    - name: prisma
+      purpose_in_domain: "Lead/conversation/message persistence and lookups (backend/src/services/whatsapp.service.ts:1,145-519)."
+    - name: socket.io
+      purpose_in_domain: "Realtime propagation of conversation updates (backend/src/services/whatsapp.service.ts:4-5,526-547)."
+    - name: @upstash/redis
+      purpose_in_domain: "Redis client used by deduplication and health checks via `getRedis()` (backend/package.json:26; backend/src/config/redis.ts:1-34)."
+    - name: jest
+      purpose_in_domain: "Unit tests for webhook security behaviors (backend/package.json:9-16; backend/src/tests/unit/webhook.routes.security.test.ts:1-223)."
+    - name: supertest
+      purpose_in_domain: "HTTP-level assertions for webhook endpoints in tests (backend/package.json:53-64; backend/src/tests/unit/webhook.routes.security.test.ts:4-5)."
+    - name: zod
+      purpose_in_domain: "Request payload validation in conversation routes (backend/package.json:49-52; backend/src/routes/conversation.routes.ts:326-360)."
+  external_apis_used_in_domain:
+    - name: Meta Graph API (WhatsApp Cloud API)
+      integration_point: "Outbound send and connection test via `fetch` to `${config.whatsapp.apiUrl}/${phoneNumberId}/messages` and `${config.whatsapp.apiUrl}/${phoneNumberId}` (backend/src/services/whatsapp.service.ts:552-633; backend/src/config/index.ts:283-289)."
+
+related_conventions:
+  naming_patterns_in_domain: "Env vars are UPPER_SNAKE_CASE; config keys are camelCase; service methods are verb-based (e.g., `sendMessage`, `testConnection`) (backend/src/config/index.ts:235-294; backend/src/services/whatsapp.service.ts:552-633)."
+  structure_of_domain: "Webhook routes in `backend/src/routes/*`, security middleware in `backend/src/middleware/*`, core logic in `backend/src/services/*`, with configuration centralized in `backend/src/config/index.ts` (backend/src/app.ts:1-86)."
+  error_handling_in_domain: "Routes typically return JSON objects with an `error` field and log via `logger.*`; webhook POST responds quickly then processes async; `/health` returns 500 on exceptions (backend/src/routes/webhook.routes.ts:58-84,397-418,405-476)."
+  testing_in_domain: "Jest unit tests use `jest.resetModules()` + `jest.isolateModules()` to load router under controlled env and mock external services (backend/src/tests/unit/webhook.routes.security.test.ts:25-103)."
+  documentation_in_domain: "Setup instructions are in `WEBHOOK_CONFIGURATION.md`; some documented assumptions differ from defaults in code (WEBHOOK_CONFIGURATION.md:4,67-74; backend/src/config/index.ts:235; backend/src/routes/webhook.routes.ts:419-424)."
+
+related_dependencies:
+  internal:
+    - component: backend/src/config/index.ts
+      relationship_to_domain: "Provides WhatsApp credentials, security flags, and API base URL."
+      direction: outbound
+    - component: backend/src/config/redis.ts
+      relationship_to_domain: "Provides `getRedis()` used by DeduplicationService and WhatsAppHealthService (backend/src/services/deduplication.service.ts:1-79; backend/src/services/whatsappHealth.service.ts:220-269)."
+      direction: outbound
+    - component: backend/src/services/deduplication.service.ts
+      relationship_to_domain: "Used by webhook ingestion to claim/release message processing by messageId (backend/src/routes/webhook.routes.ts:269-323)."
+      direction: outbound
+    - component: backend/src/services/whatsappHealth.service.ts
+      relationship_to_domain: "Provides `getHealthStatus()` used by `GET /api/webhook/health` (backend/src/routes/webhook.routes.ts:393-418)."
+      direction: outbound
+    - component: backend/src/services/ai.service.ts
+      relationship_to_domain: "Generates AI replies used in inbound handling (backend/src/services/whatsapp.service.ts:3,359-366)."
+      direction: outbound
+    - component: backend/src/services/socket.service.ts
+      relationship_to_domain: "Emits conversation updates to clients (backend/src/services/whatsapp.service.ts:4-5,526-547)."
+      direction: outbound
+  external:
+    - name: express@^4.18.2
+      purpose_for_domain: "Routing and JSON parsing for webhook endpoints (backend/package.json:26-33; backend/src/routes/webhook.routes.ts:2-84)."
+    - name: @upstash/redis@^1.37.0
+      purpose_for_domain: "Redis connectivity for deduplication and health checks (backend/package.json:26; backend/src/config/redis.ts:1-34)."
+    - name: jest@^29.7.0
+      purpose_for_domain: "Webhook security test harness (backend/package.json:53-64; backend/src/tests/unit/webhook.routes.security.test.ts:1-223)."
+    - name: supertest@^6.3.3
+      purpose_for_domain: "HTTP assertions against Express app in tests (backend/package.json:53-64; backend/src/tests/unit/webhook.routes.security.test.ts:4-5)."
+
+domain_security_considerations:
+  sensitive_areas:
+    - area: "Debug webhook endpoint without signature verification"
+      location: backend/src/routes/webhook.routes.ts:488-584
+      concern: "`POST /api/webhook/debug` processes webhook bodies and calls WhatsAppService without running `verifyWebhookSignature`; access control depends on IP whitelist middleware which may be disabled via config (backend/src/routes/webhook.routes.ts:13; backend/src/middleware/whatsappSecurity.ts:112-137; backend/src/config/index.ts:290-294)."
+    - area: "Webhook health endpoint status exposure"
+      location: backend/src/routes/webhook.routes.ts:393-418
+      concern: "`GET /api/webhook/health` returns WhatsApp connectivity, Redis availability, and deduplication stats; it is inside the webhook router and therefore subject to IP whitelist enablement/bypass (backend/src/routes/webhook.routes.ts:13,393-418; backend/src/middleware/whatsappSecurity.ts:112-137)."
+    - area: "Non-production signature verification bypass"
+      location: backend/src/routes/webhook.routes.ts:96-127
+      concern: "When `WHATSAPP_APP_SECRET` is missing or signature header absent, webhook POST is allowed in non-production with warning logs; production rejects (backend/src/routes/webhook.routes.ts:96-123)."
+    - area: "SKIP_IP_WHITELIST bypass"
+      location: backend/src/middleware/whatsappSecurity.ts:124-131
+      concern: "When `SKIP_IP_WHITELIST=true`, IP whitelist is bypassed regardless of environment."
+  authentication_patterns_in_domain: "Webhook verification and ingestion use token verification (GET) and signature verification (POST) rather than JWT auth (backend/src/routes/webhook.routes.ts:20-38,58-74)."
+  authorization_patterns_in_domain: "Agent/admin routes use `authorize` middleware; webhook routes are explicitly unauthenticated (backend/src/routes/ai-settings.routes.ts:100-132; backend/src/routes/webhook.routes.ts:17-28)."
+  data_validation_in_domain: "Webhook POST validates via signature checks; application routes use Zod schemas and runtime checks (backend/src/routes/webhook.routes.ts:58-74; backend/src/routes/conversation.routes.ts:344-360)."
+
+testing_patterns:
+  framework: Jest + Supertest
+  coverage_areas:
+    - "GET /api/webhook verification token behavior"
+    - "POST /api/webhook signature verification (raw-body) in production"
+    - "IP whitelist allow/deny behavior when enabled"
+    - "Deduplication claim/release behavior during webhook processing"
+    - "WhatsAppService rich media and interactive send helpers (fetch mocked)"
+    - "WhatsAppService inbound processing and socket propagation (mocked)"
+  test_organization: "Unit tests live under `backend/src/tests/unit` and isolate module loading for env-dependent config (backend/src/tests/unit/webhook.routes.security.test.ts:25-103)."
+  mock_patterns:
+    - "jest.doMock for logger and services"
+    - "jest.isolateModules to require router with fresh env"
+    - "global.fetch mocked for Meta Graph API calls"
+
+open_questions:
+  - question: "If adding dual-provider support, is provider selection intended to be global via env, per-company via `company.settings.whatsapp`, or both?"
+    context: "Current config has `config.ai.provider` but WhatsApp config is Meta-only and company-specific credentials are read from settings; diff artifacts propose `WHATSAPP_PROVIDER` env selection."
+    type: decision_blocker
+    affects: ["whatsapp-dual-provider"]
+
+  - question: "What is the expected Green-API inbound webhook payload shape and how should it map to `IncomingMessage` fields (phoneNumberId/customerPhone/messageId/interactiveId)?"
+    context: "Current inbound pipeline expects Meta-shaped events parsed by `processWebhook` and feeds `IncomingMessage` (backend/src/services/whatsapp.service.ts:9-16); archived diffs reference a Green-API webhook route but no implementation exists in source."
+    type: research
+    affects: ["whatsapp-dual-provider"]
+
+  - question: "Are production deployments guaranteed to set `WHATSAPP_IP_WHITELIST_ENABLED=true` and `WHATSAPP_APP_SECRET` to avoid permissive defaults and keep non-webhook endpoints shielded by the whitelist middleware?"
+    context: "IP whitelist enablement is driven by env vars (backend/src/config/index.ts:290-294; backend/src/middleware/whatsappSecurity.ts:112-137), and webhook signature verification is strict only when secrets/signatures are present in production (backend/src/routes/webhook.routes.ts:96-123)."
+    type: nice_to_know
+    affects: ["whatsapp-webhook-hardening"]
+
+gaps:
+  - area: "Green-API provider implementation missing from backend source"
+    description: "No `greenapi`/`GREENAPI_` references exist under `backend/src/**` (research: grep_search `greenapi|GREENAPI_` in `backend/src/**` returned no matches on 2026-04-12). The only Green-API/provider-selection artifacts are stored as diffs under `test-results/` (e.g., test-results/diff_backend__src__config__index.ts.txt:10-24; test-results/diff_backend__src__app.ts.txt:9-18)."
+    impact: decision_blocker
+    affects: ["whatsapp-dual-provider"]
+
+  - area: "Documentation vs code mismatches for localhost port and /test auth"
+    description: "Docs assume backend runs on port 3000 and that `POST /api/webhook/test` uses Bearer auth (WEBHOOK_CONFIGURATION.md:4,67-74), but backend default port is 3001 (backend/src/config/index.ts:235) and the /test route is only env-gated with no auth middleware (backend/src/routes/webhook.routes.ts:419-424)."
+    impact: nice_to_know
+    affects: ["whatsapp-docs-alignment"]
+
+  - area: "Config includes webhookMaxSize but webhook parser uses hard-coded 1mb"
+    description: "`config.whatsapp.webhookMaxSize` exists (backend/src/config/index.ts:292) but webhook routes set `limit: '1mb'` directly for POST handlers (backend/src/routes/webhook.routes.ts:44,419,488)."
+    impact: nice_to_know
+    affects: ["whatsapp-webhook-config"]

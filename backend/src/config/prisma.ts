@@ -1,12 +1,13 @@
 import { PrismaClient } from '@prisma/client';
-import { PrismaNeon } from '@prisma/adapter-neon';
-import { neonConfig } from '@neondatabase/serverless';
+import { PrismaPg } from '@prisma/adapter-pg';
 import config from './index';
 import logger from './logger';
 
-neonConfig.fetchConnectionCache = true;
-
-const adapter = new PrismaNeon({ connectionString: config.db.url });
+const adapter = new PrismaPg({
+  connectionString: config.db.url,
+  max: config.db.poolMax,
+  ...(config.db.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
+});
 
 const prisma = new PrismaClient({
   adapter,

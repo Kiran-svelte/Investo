@@ -27,6 +27,7 @@ import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
 import useCompanyFeatures from './hooks/useCompanyFeatures';
 import { Loader2 } from 'lucide-react';
 import './i18n/i18n';
+import api from './services/api';
 import {
   getOnboardingCompletionFromCache,
   setOnboardingCompletionCache,
@@ -89,7 +90,7 @@ export const OnboardingGuard: React.FC = () => {
         }
 
         try {
-          const { data } = await import('./services/api').then(m => m.default.get('/onboarding/status'));
+          const { data } = await api.get('/onboarding/status');
           const status = data.data;
           const completedSteps = Array.isArray(status?.completedSteps) ? status.completedSteps : [];
           const isComplete = completedSteps.includes(6);

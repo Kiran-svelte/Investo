@@ -1,0 +1,33 @@
+{
+  "networkFailures": [
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+      "method": "GET",
+      "errorText": "net::ERR_ABORTED"
+    }
+  ],
+  "failingResponses": [
+    {
+      "url": "https://investo-backend-v2.onrender.com/api/property-imports/drafts/102b0c9a-29a1-40c8-a491-591f53899104/uploads",
+      "status": 500,
+      "method": "POST",
+      "bodyPath": "D:\\Investo\\test-results\\prod-checks-20260411-194923\\fail-response-1.txt",
+      "bodySnippet": "{\n  \"error\": \"Failed to register upload\"\n}"
+    }
+  ]
+}

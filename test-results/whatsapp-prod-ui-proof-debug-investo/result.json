@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-04-13T01:21:18.138Z",
+  "baseURL": "https://investo.vercel.app/",
+  "evidenceDir": "D:\\Investo\\test-results\\whatsapp-prod-ui-proof-debug-investo",
+  "bypassHeaderConfigured": false,
+  "login": {
+    "ok": false,
+    "finalUrl": null,
+    "error": "locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByLabel(/email/i)\u001b[22m\n"
+  },
+  "whatsapp": {
+    "pageLoaded": false,
+    "providerSelectPresent": false,
+    "meta": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "phoneNumberIdPresent": false,
+      "accessTokenPresent": false,
+      "verifyTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    },
+    "greenapi": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "idInstancePresent": false,
+      "apiTokenInstancePresent": false,
+      "webhookTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    }
+  },
+  "runtime": {
+    "consoleErrors": [
+      {
+        "text": "Failed to load resource: the server responded with a status of 404 ()"
+      }
+    ],
+    "pageErrors": [],
+    "requestFailures": [],
+    "failingResponses": [
+      {
+        "url": "https://investo.vercel.app/login",
+        "status": 404
+      }
+    ]
+  },
+  "screenshots": [
+    "01-login.png",
+    "99-login-failure.png"
+  ],
+  "failures": [
+    {
+      "step": "login",
+      "details": "locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByLabel(/email/i)\u001b[22m\n"
+    }
+  ]
+}

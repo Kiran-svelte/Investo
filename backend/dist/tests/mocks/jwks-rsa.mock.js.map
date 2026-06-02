@@ -1,0 +1,1 @@
+{"version":3,"file":"jwks-rsa.mock.js","sourceRoot":"","sources":["../../../src/tests/mocks/jwks-rsa.mock.ts"],"names":[],"mappings":";;AAMA,6BAQC;AARD,SAAwB,UAAU;IAChC,OAAO;QACL,aAAa,EAAE,CAAC,IAAY,EAAE,QAA4B,EAAE,EAAE;YAC5D,QAAQ,CAAC,IAAI,EAAE;gBACb,YAAY,EAAE,GAAG,EAAE,CAAC,iBAAiB;aACtC,CAAC,CAAC;QACL,CAAC;KACF,CAAC;AACJ,CAAC"}

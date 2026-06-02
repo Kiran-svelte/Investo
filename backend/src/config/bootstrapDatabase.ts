@@ -139,14 +139,14 @@ async function applyCompatibilityPatches(): Promise<void> {
 export async function bootstrapDatabase(options: BootstrapOptions): Promise<void> {
   const { autoMigrate, autoSeed } = options;
 
-  if (!autoMigrate && !autoSeed) {
-    return;
-  }
-
   try {
     await applyCompatibilityPatches();
   } catch (err: any) {
     logger.error('Compatibility schema patch failed', { error: err.message });
+    return;
+  }
+
+  if (!autoMigrate && !autoSeed) {
     return;
   }
 

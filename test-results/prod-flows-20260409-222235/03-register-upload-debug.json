@@ -1,0 +1,10 @@
+{
+  "step": "register_upload",
+  "status": 500,
+  "ok": false,
+  "draftId": "aae4815a-4d4c-40bd-bfa6-6cd544114d25",
+  "error": "Failed to register upload",
+  "body": {
+    "error": "Failed to register upload"
+  }
+}

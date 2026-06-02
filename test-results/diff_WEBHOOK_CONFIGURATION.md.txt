@@ -1,0 +1,104 @@
+diff --git a/WEBHOOK_CONFIGURATION.md b/WEBHOOK_CONFIGURATION.md
+index c1f899e..3544555 100644
+--- a/WEBHOOK_CONFIGURATION.md
++++ b/WEBHOOK_CONFIGURATION.md
+@@ -1,8 +1,10 @@
+ # WEBHOOK CONFIGURATION GUIDE
+ 
+-**Production Webhook URL**: `https://investo-backend-v2.onrender.com/api/webhook`  
+-**Localhost Webhook URL**: `http://localhost:3000/api/webhook`  
+-**Webhook Verify Token**: `investo_webhook_verify_token`
++**Meta Production Webhook URL**: `https://investo-backend-v2.onrender.com/api/webhook`  
++**Green-API Production Webhook URL**: `https://investo-backend-v2.onrender.com/api/greenapi/webhook`  
++**Meta Localhost Webhook URL**: `http://localhost:3000/api/webhook`  
++**Green-API Localhost Webhook URL**: `http://localhost:3000/api/greenapi/webhook`  
++**Meta Webhook Verify Token**: `investo_webhook_verify_token`
+ 
+ ---
+ 
+@@ -45,6 +47,7 @@ Select these webhook fields:
+ Go to Render Dashboard ΓåÆ `investo-backend-v2` ΓåÆ Environment:
+ 
+ ```bash
++WHATSAPP_PROVIDER=meta
+ WHATSAPP_VERIFY_TOKEN=investo_webhook_verify_token
+ WHATSAPP_ACCESS_TOKEN=<YOUR_META_ACCESS_TOKEN>
+ WHATSAPP_PHONE_NUMBER_ID=<YOUR_PHONE_NUMBER_ID>
+@@ -57,6 +60,50 @@ After adding env vars, trigger a redeploy in Render.
+ 
+ ---
+ 
++## FOR PRODUCTION (Green-API Setup - Temporary Adapter)
++
++This repo can run in **Green-API mode** (text-only) using a dedicated webhook endpoint.
++
++### Step 1: Get instance credentials from Green-API
++In the Green-API console, copy:
++- `idInstance`
++- `apiTokenInstance`
++
++### Step 2: Configure webhook in Green-API
++Set:
++
++```
++Webhook URL: https://investo-backend-v2.onrender.com/api/greenapi/webhook
++Webhook URL token: <RANDOM_SECRET_TOKEN>
++```
++
++Notes:
++- Use a **random secret token** (no spaces). Example: `investo_greenapi_webhook_9f3a...`
++- Green-API will send an `Authorization` header on webhook calls when the token is set.
++
++### Step 3: Set Environment Variables in Render
++
++```bash
++WHATSAPP_PROVIDER=greenapi
++
++GREENAPI_API_URL=https://api.green-api.com
++GREENAPI_ID_INSTANCE=<YOUR_GREENAPI_ID_INSTANCE>
++GREENAPI_API_TOKEN_INSTANCE=<YOUR_GREENAPI_API_TOKEN_INSTANCE>
++
++# Must match the token you set in Green-API webhook settings
++GREENAPI_WEBHOOK_URL_TOKEN=<RANDOM_SECRET_TOKEN>
++```
++
++### Step 4: Redeploy Backend
++After adding env vars, trigger a redeploy in Render.
++
++### Current Green-API limitations
++- Γ£à Inbound text messages supported
++- Γ£à Outbound text messages supported
++- Γ¥î Media + interactive buttons/lists are disabled in Green-API mode (Meta-only)
++
++---
++
+ ## FOR LOCALHOST TESTING
+ 
+ ### Option 1: Use Test Endpoint (Dev Mode)
+@@ -96,6 +143,11 @@ Verify Token: investo_webhook_verify_token
+ 
+ ### Backend (.env file)
+ ```bash
++# WhatsApp provider selection
++# - meta (default): Meta WhatsApp Cloud API
++# - greenapi: Green-API adapter (text-only)
++WHATSAPP_PROVIDER=meta
++
+ # Required for WhatsApp Integration
+ WHATSAPP_VERIFY_TOKEN=investo_webhook_verify_token
+ WHATSAPP_ACCESS_TOKEN=<from Meta>
+@@ -107,6 +159,14 @@ WHATSAPP_APP_SECRET=<from Meta>  # Required in production for webhook signature
+ # Optional hardening
+ WHATSAPP_IP_WHITELIST_ENABLED=true  # Recommended in production - allows only Meta IP ranges
+ SKIP_IP_WHITELIST=true  # Development ONLY - disables Meta IP check
++
++# Green-API (only used when WHATSAPP_PROVIDER=greenapi)
++GREENAPI_API_URL=https://api.green-api.com
++GREENAPI_ID_INSTANCE=<from Green-API>
++GREENAPI_API_TOKEN_INSTANCE=<from Green-API>
++
++# Required in production when using Green-API webhooks
++GREENAPI_WEBHOOK_URL_TOKEN=<random_secret_token>
+ ```
+ 
+ ### Frontend (.env or Render/Vercel)

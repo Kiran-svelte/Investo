@@ -9,8 +9,51 @@ import { createVisitSchema, updateVisitStatusSchema, isValidTransition, VISIT_TR
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from '../services/notification.engine';
+import { scheduleVisit } from '../services/visitBooking.service';
+import { transitionLeadStatus } from '../services/leadTransition.service';
+import { automationService } from '../services/automation.service';
 
 const router = Router();
+
+type VisitWithRelations = {
+  id: string;
+  companyId: string;
+  leadId: string;
+  propertyId: string | null;
+  agentId: string;
+  scheduledAt: Date;
+  durationMinutes: number;
+  status: string;
+  notes: string | null;
+  reminderSent: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  lead?: { customerName: string | null; phone: string | null } | null;
+  property?: { name?: string | null; locationArea?: string | null } | null;
+  agent?: { name: string | null } | null;
+};
+
+export function mapVisitToSnakeCaseDTO(visit: VisitWithRelations) {
+  return {
+    id: visit.id,
+    company_id: visit.companyId,
+    lead_id: visit.leadId,
+    property_id: visit.propertyId,
+    agent_id: visit.agentId,
+    scheduled_at: visit.scheduledAt.toISOString(),
+    duration_minutes: visit.durationMinutes,
+    status: visit.status,
+    notes: visit.notes,
+    reminder_sent: visit.reminderSent,
+    created_at: visit.createdAt.toISOString(),
+    updated_at: visit.updatedAt.toISOString(),
+    customer_name: visit.lead?.customerName || null,
+    customer_phone: visit.lead?.phone || null,
+    property_name: visit.property?.name || null,
+    property_area: visit.property?.locationArea || null,
+    agent_name: visit.agent?.name || null,
+  };
+}
 
 router.use(authenticate);
 router.use(tenantIsolation);
@@ -50,14 +93,7 @@ router.get(
         orderBy: { scheduledAt: 'asc' },
       });
 
-      const data = visits.map(({ lead, property, agent, ...v }) => ({
-        ...v,
-        customer_name: lead?.customerName || null,
-        customer_phone: lead?.phone || null,
-        property_name: property?.name || null,
-        property_area: property?.locationArea || null,
-        agent_name: agent?.name || null,
-      }));
+      const data = visits.map((visit) => mapVisitToSnakeCaseDTO(visit));
 
       res.json({ data, total: data.length });
     } catch (err: any) {
@@ -95,16 +131,7 @@ router.get(
         return;
       }
 
-      const { lead, property, agent, ...visitData } = visit;
-      res.json({
-        data: {
-          ...visitData,
-          customer_name: lead?.customerName || null,
-          customer_phone: lead?.phone || null,
-          property_name: property?.name || null,
-          agent_name: agent?.name || null,
-        },
-      });
+      res.json({ data: mapVisitToSnakeCaseDTO(visit) });
     } catch (err: any) {
       logger.error('Failed to fetch visit', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch visit' });
@@ -128,83 +155,66 @@ router.post(
       const companyId = getCompanyId(req);
       const { lead_id, property_id, agent_id, scheduled_at, duration_minutes, notes } = req.body;
 
-      const scheduledDate = new Date(scheduled_at);
-      const now = new Date();
-
-      // FORBIDDEN: Cannot schedule in the past
-      if (scheduledDate <= now) {
-        res.status(400).json({ error: 'Cannot schedule visits in the past' });
+      if (!property_id) {
+        res.status(400).json({ error: 'property_id is required' });
         return;
       }
 
-      // FORBIDDEN: Cannot double-book agent (60 min gap)
-      const duration = duration_minutes || 60;
-      const visitStart = scheduledDate.getTime();
-      const visitEnd = visitStart + duration * 60 * 1000;
-      const bufferStart = new Date(visitStart - 60 * 60 * 1000);
-      const bufferEnd = new Date(visitEnd + 60 * 60 * 1000);
+      const result = await scheduleVisit({
+        companyId,
+        leadId: lead_id,
+        propertyId: property_id,
+        agentId: agent_id,
+        scheduledAt: new Date(scheduled_at),
+        durationMinutes: duration_minutes || 60,
+        notes,
+      });
 
-      const conflicts = await prisma.visit.findMany({
-        where: {
-          agentId: agent_id,
-          companyId,
-          status: { not: 'cancelled' },
-          scheduledAt: { gte: bufferStart, lte: bufferEnd },
+      if (!result.success) {
+        if (result.error === 'past_date') {
+          res.status(400).json({ error: 'Cannot schedule visits in the past' });
+          return;
+        }
+        if (result.error === 'lead_not_found') {
+          res.status(404).json({ error: 'Lead not found' });
+          return;
+        }
+        if (result.error === 'property_not_found') {
+          res.status(404).json({ error: 'Property not found' });
+          return;
+        }
+        if (result.error === 'no_agent') {
+          res.status(404).json({ error: 'Agent not found' });
+          return;
+        }
+        if (result.error === 'invalid_lead_transition') {
+          res.status(409).json({ error: 'Lead status does not allow scheduling a visit' });
+          return;
+        }
+        if (result.error === 'agent_conflict') {
+          res.status(409).json({
+            error: 'Agent has a conflicting visit within 60 minutes of this time slot',
+            conflicts: result.conflicts?.map((c) => ({
+              id: c.id,
+              scheduled_at: c.scheduledAt,
+            })),
+          });
+          return;
+        }
+        res.status(500).json({ error: 'Failed to create visit' });
+        return;
+      }
+
+      const visit = await prisma.visit.findFirst({
+        where: { id: result.visit!.id, companyId },
+        include: {
+          lead: { select: { customerName: true, phone: true } },
+          property: { select: { name: true, locationArea: true } },
+          agent: { select: { name: true } },
         },
       });
 
-      if (conflicts.length > 0) {
-        res.status(409).json({
-          error: 'Agent has a conflicting visit within 60 minutes of this time slot',
-          conflicts: conflicts.map((c) => ({
-            id: c.id,
-            scheduled_at: c.scheduledAt,
-          })),
-        });
-        return;
-      }
-
-      // Verify lead exists in same company
-      const lead = await prisma.lead.findFirst({ where: { id: lead_id, companyId } });
-      if (!lead) {
-        res.status(404).json({ error: 'Lead not found' });
-        return;
-      }
-
-      // Verify agent exists in same company
-      const agent = await prisma.user.findFirst({ where: { id: agent_id, companyId, status: 'active' } });
-      if (!agent) {
-        res.status(404).json({ error: 'Agent not found' });
-        return;
-      }
-
-      const visit = await prisma.visit.create({
-        data: {
-          companyId,
-          leadId: lead_id,
-          propertyId: property_id || null,
-          agentId: agent_id,
-          scheduledAt: scheduledDate,
-          durationMinutes: duration,
-          status: 'scheduled',
-          notes: notes || null,
-          reminderSent: false,
-        },
-      });
-
-      // Auto-update lead status to visit_scheduled if currently contacted
-      if (lead.status === 'contacted') {
-        await prisma.lead.update({
-          where: { id: lead_id },
-          data: { status: 'visit_scheduled' },
-        });
-      }
-      const property = property_id
-        ? await prisma.property.findFirst({ where: { id: property_id, companyId } })
-        : null;
-      await notificationEngine.onVisitScheduled(visit, lead, property, agent);
-
-      res.status(201).json({ data: visit, id: visit.id });
+      res.status(201).json({ data: mapVisitToSnakeCaseDTO(visit!), id: visit!.id });
     } catch (err: any) {
       logger.error('Failed to create visit', { error: err.message });
       res.status(500).json({ error: 'Failed to create visit' });
@@ -268,29 +278,27 @@ router.patch(
         company
       );
 
-      // Auto-update lead status based on visit outcome
+      // Auto-update lead status based on visit outcome (state machine)
       if (target === 'completed' || target === 'no_show') {
-        const lead = await prisma.lead.findFirst({ where: { id: visit.leadId } });
-        if (lead && lead.status === 'visit_scheduled') {
-          await prisma.lead.update({
-            where: { id: visit.leadId },
-            data: { status: 'visited' },
-          });
+        await transitionLeadStatus(visit.leadId, 'visited');
+        if (target === 'completed') {
+          await automationService.scheduleVisitPostFollowUp(visit.leadId, visit.id);
         }
       }
 
-      // If visit cancelled, revert lead to contacted
       if (target === 'cancelled') {
-        const lead = await prisma.lead.findFirst({ where: { id: visit.leadId } });
-        if (lead && lead.status === 'visit_scheduled') {
-          await prisma.lead.update({
-            where: { id: visit.leadId },
-            data: { status: 'contacted' },
-          });
-        }
+        await transitionLeadStatus(visit.leadId, 'contacted');
       }
 
-      res.json({ data: updated });
+      const full = await prisma.visit.findFirst({
+        where: { id, companyId },
+        include: {
+          lead: { select: { customerName: true, phone: true } },
+          property: { select: { name: true, locationArea: true } },
+          agent: { select: { name: true } },
+        },
+      });
+      res.json({ data: full ? mapVisitToSnakeCaseDTO(full) : updated });
     } catch (err: any) {
       logger.error('Failed to update visit status', { error: err.message });
       res.status(500).json({ error: 'Failed to update visit status' });

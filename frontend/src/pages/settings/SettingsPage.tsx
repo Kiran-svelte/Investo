@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
   Settings, Building2, Shield, ToggleLeft, Save, Plus, Pencil, Trash2,
-  X, Loader2, Lock
+  X, Loader2, Lock, Users
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────
@@ -38,8 +38,23 @@ interface Feature {
 
 // ── Constants ──────────────────────────────────
 
-const TABS = ['company', 'roles', 'features'] as const;
+const TABS = ['company', 'conversion', 'roles', 'features'] as const;
 type Tab = (typeof TABS)[number];
+
+interface ConversionPartner {
+  id: string;
+  name: string;
+  contact_phone?: string | null;
+  notes?: string | null;
+  active: boolean;
+}
+
+interface ConversionSettings {
+  budget_stretch_percent: number;
+  upsell_enabled: boolean;
+  waitlist_copy: { en: string; hi?: string; kn?: string };
+  partners: ConversionPartner[];
+}
 
 const RESOURCES = ['leads', 'properties', 'visits', 'conversations', 'agents', 'analytics', 'settings'] as const;
 const ACTIONS = ['read', 'create', 'update', 'delete'] as const;
@@ -206,6 +221,18 @@ const SettingsPage: React.FC = () => {
   const [featuresLoading, setFeaturesLoading] = useState(false);
   const [togglingKey, setTogglingKey] = useState<string | null>(null);
 
+  // Conversion (Phase 2)
+  const [conversion, setConversion] = useState<ConversionSettings>({
+    budget_stretch_percent: 15,
+    upsell_enabled: true,
+    waitlist_copy: { en: '', hi: '', kn: '' },
+    partners: [],
+  });
+  const [conversionLoading, setConversionLoading] = useState(false);
+  const [conversionSaving, setConversionSaving] = useState(false);
+  const [conversionMsg, setConversionMsg] = useState('');
+  const [partnerDraft, setPartnerDraft] = useState<ConversionPartner | null>(null);
+
   // ── Load data ──
 
   const loadCompany = useCallback(async () => {
@@ -247,11 +274,61 @@ const SettingsPage: React.FC = () => {
     }
   }, []);
 
+  const loadConversion = useCallback(async () => {
+    setConversionLoading(true);
+    try {
+      const res = await api.get('/conversion-settings');
+      setConversion(res.data.data);
+    } catch (err) {
+      console.error('Failed to load conversion settings', err);
+    } finally {
+      setConversionLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'company') loadCompany();
+    else if (activeTab === 'conversion') loadConversion();
     else if (activeTab === 'roles') loadRoles();
     else if (activeTab === 'features') loadFeatures();
-  }, [activeTab, loadCompany, loadRoles, loadFeatures]);
+  }, [activeTab, loadCompany, loadConversion, loadRoles, loadFeatures]);
+
+  const saveConversion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setConversionSaving(true);
+    setConversionMsg('');
+    try {
+      await api.put('/conversion-settings', conversion);
+      setConversionMsg('Settings saved successfully');
+    } catch (err: unknown) {
+      const message = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : undefined;
+      setConversionMsg(message || 'Failed to save conversion settings');
+    } finally {
+      setConversionSaving(false);
+    }
+  };
+
+  const removePartner = (id: string) => {
+    setConversion(prev => ({
+      ...prev,
+      partners: prev.partners.filter(p => p.id !== id),
+    }));
+  };
+
+  const savePartnerDraft = () => {
+    if (!partnerDraft?.name.trim()) return;
+    const id = partnerDraft.id || `partner-${Date.now()}`;
+    const partner: ConversionPartner = { ...partnerDraft, id };
+    setConversion(prev => ({
+      ...prev,
+      partners: prev.partners.some(p => p.id === id)
+        ? prev.partners.map(p => (p.id === id ? partner : p))
+        : [...prev.partners, partner],
+    }));
+    setPartnerDraft(null);
+  };
 
   // ── Company handlers ──
 
@@ -402,6 +479,128 @@ const SettingsPage: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Tab: Conversion settings (Phase 2) */}
+      {activeTab === 'conversion' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          {conversionLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
+          ) : (
+            <form onSubmit={saveConversion} className="space-y-6 max-w-2xl">
+              {conversionMsg && (
+                <div className={`p-3 rounded-lg text-sm ${conversionMsg.includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {conversionMsg}
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Budget stretch % (when no exact match)
+                </label>
+                <input
+                  type="number"
+                  min={5}
+                  max={50}
+                  value={conversion.budget_stretch_percent}
+                  onChange={e => setConversion(prev => ({ ...prev, budget_stretch_percent: Number(e.target.value) }))}
+                  className="w-32 px-3 py-2 border rounded-lg"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={conversion.upsell_enabled}
+                  onChange={e => setConversion(prev => ({ ...prev, upsell_enabled: e.target.checked }))}
+                />
+                Enable +1 BHK upsell tier
+              </label>
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700">Waitlist message copy</p>
+                {(['en', 'hi', 'kn'] as const).map(lang => (
+                  <textarea
+                    key={lang}
+                    rows={2}
+                    placeholder={`Waitlist (${lang})`}
+                    value={conversion.waitlist_copy[lang] || ''}
+                    onChange={e => setConversion(prev => ({
+                      ...prev,
+                      waitlist_copy: { ...prev.waitlist_copy, [lang]: e.target.value },
+                    }))}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                ))}
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                    <Users className="h-4 w-4" /> Referral partners (manual list)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setPartnerDraft({ id: '', name: '', contact_phone: '', notes: '', active: true })}
+                    className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    <Plus className="h-3 w-3" /> Add partner
+                  </button>
+                </div>
+                {conversion.partners.length === 0 ? (
+                  <p className="text-sm text-gray-500">No partners yet. Phase 4 will add inventory API.</p>
+                ) : (
+                  <ul className="divide-y border rounded-lg">
+                    {conversion.partners.map(p => (
+                      <li key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                        <span>
+                          <strong>{p.name}</strong>
+                          {p.contact_phone && <span className="text-gray-500 ml-2">{p.contact_phone}</span>}
+                          {!p.active && <span className="ml-2 text-orange-600">(inactive)</span>}
+                        </span>
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => setPartnerDraft(p)} className="p-1 hover:bg-gray-100 rounded"><Pencil className="h-3 w-3" /></button>
+                          <button type="button" onClick={() => removePartner(p.id)} className="p-1 hover:bg-red-50 rounded text-red-500"><Trash2 className="h-3 w-3" /></button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {partnerDraft && (
+                <div className="border rounded-lg p-4 space-y-2 bg-gray-50">
+                  <input
+                    placeholder="Partner name"
+                    value={partnerDraft.name}
+                    onChange={e => setPartnerDraft({ ...partnerDraft, name: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                  <input
+                    placeholder="Contact phone"
+                    value={partnerDraft.contact_phone || ''}
+                    onChange={e => setPartnerDraft({ ...partnerDraft, contact_phone: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                  <textarea
+                    placeholder="Notes"
+                    value={partnerDraft.notes || ''}
+                    onChange={e => setPartnerDraft({ ...partnerDraft, notes: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    rows={2}
+                  />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={savePartnerDraft} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">Done</button>
+                    <button type="button" onClick={() => setPartnerDraft(null)} className="px-3 py-1.5 border rounded-lg text-sm">Cancel</button>
+                  </div>
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={conversionSaving}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {conversionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {t('common.save')}
+              </button>
+            </form>
+          )}
         </div>
       )}
 

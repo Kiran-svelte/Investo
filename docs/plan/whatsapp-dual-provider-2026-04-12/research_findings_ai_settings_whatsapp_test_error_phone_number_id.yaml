@@ -1,0 +1,369 @@
+plan_id: whatsapp-dual-provider-2026-04-12
+objective: |
+  Identify the backend origin and triggering conditions for the AI Settings WhatsApp error banner
+  "phone_number_id and access_token are required" observed while Green-API is selected,
+  and map the minimal change surface + unit tests for provider-aware validation.
+focus_area: ai_settings_whatsapp_test_error_phone_number_id
+created_at: "2026-04-13"
+created_by: GitHub Copilot (GPT-5.2)
+status: completed
+
+tldr: |
+  - Error string source: backend/src/routes/ai-settings.routes.ts:154 (POST /api/ai-settings/whatsapp/test meta-branch validation).
+  - Provider routing is strict: provider='greenapi' only when req.body.provider === 'greenapi'; otherwise defaults to meta (backend/src/routes/ai-settings.routes.ts:105).
+  - The meta branch returns the error when phone_number_id or access_token are missing from the request body (backend/src/routes/ai-settings.routes.ts:151-155).
+  - Frontend currently sends provider-specific payloads (including provider: 'greenapi') from the AI settings page (frontend/src/pages/ai-settings/AISettingsPage.tsx:303-331).
+  - Unit tests already cover provider-aware behavior for this endpoint (backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:93-178).
+
+research_metadata:
+  methodology: "Hybrid retrieval: grep_search for exact string origins and handler call sites; targeted read_file to confirm control flow; relationship discovery by tracing frontend handler → axios request → backend route → WhatsAppService provider routing; PRD cross-check via docs/PRD.yaml."
+  scope: "AI Settings WhatsApp 'Test Connection' flow (frontend) and /api/ai-settings/whatsapp/test (backend), plus provider gating in backend config and WhatsAppService."
+  confidence: medium
+  coverage: 0.8
+  decision_blockers: 1
+  research_blockers: 0
+
+files_analyzed:
+  - file: ai-settings.routes.ts
+    path: backend/src/routes/ai-settings.routes.ts
+    purpose: Implements /api/ai-settings endpoints including POST /whatsapp/test (provider-aware connection test).
+    key_elements:
+      - element: provider selection
+        type: pattern
+        location: backend/src/routes/ai-settings.routes.ts:105
+        description: "Selects provider strictly via (req.body.provider === 'greenapi' ? 'greenapi' : 'meta')."
+      - element: GreenAPI production allow-flag gate
+        type: pattern
+        location: backend/src/routes/ai-settings.routes.ts:108-112
+        description: "Rejects GreenAPI tests in production when config.whatsapp.allowGreenapiInProd is not enabled."
+      - element: GreenAPI credential requirement
+        type: pattern
+        location: backend/src/routes/ai-settings.routes.ts:116-129
+        description: "Requires id_instance and api_token_instance (supports snake_case and camelCase inputs; falls back to config.greenapi env)."
+      - element: Meta credential requirement error string
+        type: variable
+        location: backend/src/routes/ai-settings.routes.ts:151-155
+        description: "Returns 400 with error 'phone_number_id and access_token are required' when either meta credential is missing."
+    language: TypeScript
+    lines: 178
+
+  - file: AISettingsPage.tsx
+    path: frontend/src/pages/ai-settings/AISettingsPage.tsx
+    purpose: Renders the AI Settings page including WhatsApp provider selection, save-to-company-settings, and connection test actions.
+    key_elements:
+      - element: provider select values
+        type: pattern
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:632-639
+        description: "Provider select uses string values 'meta' and 'greenapi' (sent into state via handleWhatsAppChange)."
+      - element: provider change updates displayed webhook URL
+        type: function
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:225-235
+        description: "When provider changes, updates webhookUrl to /api/webhook (meta) or /api/greenapi/webhook (greenapi)."
+      - element: handleSaveWhatsApp persists provider + nested settings
+        type: function
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:245-289
+        description: "PUTs company.settings.whatsapp.provider plus nested whatsapp.meta + whatsapp.greenapi blobs; also writes legacy top-level mirrors."
+      - element: handleTestWhatsApp sends provider-specific payload
+        type: function
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:303-343
+        description: "POST /ai-settings/whatsapp/test with {provider:'greenapi', id_instance, api_token_instance} OR {provider:'meta', phone_number_id, access_token}."
+      - element: test request payload keys
+        type: pattern
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:320-331
+        description: "Uses snake_case request keys to match backend expectations; includes provider discriminator."
+    language: TypeScript (TSX)
+    lines: 829
+
+  - file: ai-settings.routes.whatsapp-test.test.ts
+    path: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+    purpose: Jest/Supertest unit tests validating provider-aware request parsing and routing for POST /api/ai-settings/whatsapp/test.
+    key_elements:
+      - element: meta branch test
+        type: function
+        location: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:99-126
+        description: "Asserts meta requests require phone_number_id/access_token and call whatsappService.testConnection with provider='meta'."
+      - element: greenapi branch test
+        type: function
+        location: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:128-156
+        description: "Asserts greenapi requests require provider + id_instance/api_token_instance and call whatsappService.testConnection with provider='greenapi'."
+      - element: greenapi missing credentials test
+        type: function
+        location: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:159-178
+        description: "Asserts 400 with error 'id_instance and api_token_instance are required' when greenapi credentials are absent."
+    language: TypeScript
+    lines: 182
+
+  - file: index.ts
+    path: backend/src/config/index.ts
+    purpose: Loads runtime config including WhatsApp provider selection and production allow-flag enforcement.
+    key_elements:
+      - element: resolveWhatsAppProvider
+        type: function
+        location: backend/src/config/index.ts:227-235
+        description: "Normalizes WHATSAPP_PROVIDER to 'meta' or 'greenapi' (default 'meta'); throws on other values."
+      - element: production guard (startup fail-fast)
+        type: pattern
+        location: backend/src/config/index.ts:241-247
+        description: "Throws if NODE_ENV=production + WHATSAPP_PROVIDER=greenapi unless WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION='true'."
+      - element: config.whatsapp provider/allow flag
+        type: variable
+        location: backend/src/config/index.ts:308-316
+        description: "Exposes config.whatsapp.provider and config.whatsapp.allowGreenapiInProd to routes/services."
+    language: TypeScript
+    lines: 384
+
+  - file: whatsapp.service.ts
+    path: backend/src/services/whatsapp.service.ts
+    purpose: Central WhatsApp domain service; resolves outbound provider and routes send/test to provider implementations.
+    key_elements:
+      - element: resolveOutboundProviderName
+        type: function
+        location: backend/src/services/whatsapp.service.ts:62-73
+        description: "Selects outbound provider from companyConfig.provider or config.whatsapp.provider; downgrades GreenAPI to meta in production when allow-flag disabled."
+      - element: testConnection provider routing
+        type: function
+        location: backend/src/services/whatsapp.service.ts:752-770
+        description: "Routes testConnection to GreenAPI provider when resolved providerName='greenapi', otherwise to Meta provider."
+    language: TypeScript
+    lines: 2297
+
+  - file: api.ts
+    path: frontend/src/services/api.ts
+    purpose: Defines the frontend Axios client, including default API base URL.
+    key_elements:
+      - element: getApiBaseUrl default
+        type: function
+        location: frontend/src/services/api.ts:73-88
+        description: "Defaults to https://investo-backend-v2.onrender.com/api when VITE_API_URL is not set and not localhost."
+    language: TypeScript
+    lines: 193
+
+  - file: PRD.yaml
+    path: docs/PRD.yaml
+    purpose: Product requirements for dual-track WhatsApp providers including provider selection and production allow-flag behavior.
+    key_elements:
+      - element: per-company provider selection
+        type: requirement
+        location: docs/PRD.yaml:33
+        description: "Requires company.settings.whatsapp.provider with allowed values meta|greenapi."
+      - element: production fail-closed allow-flag
+        type: requirement
+        location: docs/PRD.yaml:55-56
+        description: "Defines production default Meta and opt-in GreenAPI behind WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION."
+    language: YAML
+    lines: 124
+
+patterns_found:
+  - category: architecture
+    pattern: "Provider-aware branching at the route boundary"
+    description: "Provider is selected early in the HTTP handler, and request validation is provider-specific before calling WhatsAppService."
+    examples:
+      - file: backend/src/routes/ai-settings.routes.ts
+        location: backend/src/routes/ai-settings.routes.ts:105-155
+        snippet: "const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';"
+    prevalence: common
+
+  - category: naming
+    pattern: "snake_case request payload keys for API endpoints"
+    description: "The WhatsApp test endpoint expects snake_case keys (phone_number_id/access_token and id_instance/api_token_instance); frontend explicitly sends snake_case in the test payload."
+    examples:
+      - file: frontend/src/pages/ai-settings/AISettingsPage.tsx
+        location: frontend/src/pages/ai-settings/AISettingsPage.tsx:320-331
+        snippet: "{ provider: 'greenapi', id_instance: ..., api_token_instance: ... }"
+    prevalence: occasional
+
+  - category: error_handling
+    pattern: "HTTP 400 with {success:false,error:string} for validation failures"
+    description: "Routes return 400 with a flat error string for missing required fields."
+    examples:
+      - file: backend/src/routes/ai-settings.routes.ts
+        location: backend/src/routes/ai-settings.routes.ts:154
+        snippet: "res.status(400).json({ success: false, error: 'phone_number_id and access_token are required' });"
+    prevalence: common
+
+  - category: testing
+    pattern: "Unit tests isolate config via jest.doMock + jest.isolateModules"
+    description: "Tests mock ../../config and ../../services/whatsapp.service to validate route behavior without real network calls."
+    examples:
+      - file: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+        location: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:11-89
+        snippet: "jest.doMock('../../config', () => ({ default: params.config }));"
+    prevalence: common
+
+related_architecture:
+  components_relevant_to_domain:
+    - component: "AI Settings WhatsApp UI"
+      responsibility: "Collect provider credentials, persist company.settings.whatsapp, and trigger provider-specific connection tests."
+      location: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      relationship_to_domain: "Initiates test requests that can surface the backend validation error banner."
+    - component: "AI settings WhatsApp test endpoint"
+      responsibility: "Validate provider-specific credentials and call WhatsAppService.testConnection."
+      location: backend/src/routes/ai-settings.routes.ts
+      relationship_to_domain: "Direct source of the 'phone_number_id and access_token are required' error."
+    - component: "WhatsAppService outbound provider resolution"
+      responsibility: "Selects meta vs greenapi provider for outbound send/test; enforces production downgrade when GreenAPI is disallowed."
+      location: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: "Determines which provider implementation runs after route validation."
+    - component: "Config provider gating"
+      responsibility: "Normalizes WHATSAPP_PROVIDER and enforces production allow-flag behavior."
+      location: backend/src/config/index.ts
+      relationship_to_domain: "Controls whether GreenAPI is allowed in production (startup guard + runtime checks)."
+
+  interfaces_used_by_domain:
+    - interface: "CompanyWhatsAppConfig"
+      location: backend/src/services/whatsapp.service.ts:33-47
+      usage_pattern: "Route handlers pass provider and credentials into WhatsAppService.testConnection/sendMessage."
+    - interface: "WhatsAppOutboundProvider"
+      location: backend/src/services/whatsapp/providers/whatsapp-provider.ts:1-23
+      usage_pattern: "WhatsAppService delegates provider-specific HTTP behavior to Meta/GreenAPI providers."
+
+  data_flow_involving_domain: |
+    AISettingsPage.handleTestWhatsApp → axios POST /api/ai-settings/whatsapp/test → ai-settings.routes.ts selects provider & validates required fields → whatsappService.testConnection routes to provider implementation → response mapped to UI banner.
+
+  key_relationships_to_domain:
+    - from: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      to: frontend/src/services/api.ts
+      relationship: "imports (axios instance for API calls)"
+    - from: backend/src/routes/ai-settings.routes.ts
+      to: backend/src/services/whatsapp.service.ts
+      relationship: "calls whatsappService.testConnection"
+    - from: backend/src/services/whatsapp.service.ts
+      to: backend/src/config/index.ts
+      relationship: "depends on config.whatsapp.provider + allowGreenapiInProd"
+
+related_technology_stack:
+  languages_used_in_domain:
+    - TypeScript
+    - TSX
+    - YAML
+
+  frameworks_used_in_domain:
+    - name: Express
+      usage_in_domain: "Backend routing for /api/ai-settings including /whatsapp/test (backend/package.json: express ^4.18.2)."
+    - name: React
+      usage_in_domain: "Frontend AI Settings page and WhatsApp integration UI (frontend/package.json: react ^18.3.1)."
+
+  libraries_used_in_domain:
+    - name: axios
+      purpose_in_domain: "Frontend HTTP client used to call /api/ai-settings/whatsapp/test (frontend/package.json: axios ^1.14.0)."
+    - name: jest
+      purpose_in_domain: "Backend unit test runner (backend/package.json: jest ^29.7.0)."
+    - name: supertest
+      purpose_in_domain: "Backend route testing for /api/ai-settings/whatsapp/test (backend/package.json: supertest ^6.3.3)."
+
+  external_apis_used_in_domain:
+    - name: "Meta WhatsApp Cloud API"
+      integration_point: "Outbound testConnection and sendTextMessage via Meta provider (backend/src/services/whatsapp/providers/meta-whatsapp.provider.ts)."
+    - name: "Green-API"
+      integration_point: "Outbound testConnection via getSettings and sendTextMessage via sendMessage (backend/src/services/whatsapp/providers/greenapi-whatsapp.provider.ts)."
+
+related_conventions:
+  naming_patterns_in_domain: |
+    - API request payloads often use snake_case (e.g., phone_number_id, access_token, id_instance, api_token_instance) even when frontend state uses camelCase.
+    - Provider discriminator uses string union values 'meta' | 'greenapi' across frontend/backend.
+  structure_of_domain: |
+    - Frontend page composes provider selection + credential inputs + Save/Test actions.
+    - Backend route does provider selection + request validation, then delegates to WhatsAppService.
+  error_handling_in_domain: |
+    - Validation failures return HTTP 400 with {success:false,error:string} (backend/src/routes/ai-settings.routes.ts:154).
+    - Production provider gating uses 403 in route and startup throw in config (backend/src/config/index.ts:241-247; backend/src/routes/ai-settings.routes.ts:108-112).
+  testing_in_domain: |
+    - Route tests mock config and services to isolate routing logic (backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:11-89).
+  documentation_in_domain: |
+    - PRD specifies fail-closed production default and allow-flag semantics (docs/PRD.yaml:55-56).
+
+related_dependencies:
+  internal:
+    - component: backend/src/routes/ai-settings.routes.ts
+      relationship_to_domain: "Primary error source + provider test endpoint"
+      direction: outbound
+    - component: backend/src/services/whatsapp.service.ts
+      relationship_to_domain: "Provider routing for testConnection"
+      direction: outbound
+    - component: backend/src/config/index.ts
+      relationship_to_domain: "Provider selection + production allow-flag"
+      direction: outbound
+    - component: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      relationship_to_domain: "Constructs request payload and renders error banner"
+      direction: inbound
+  external:
+    - name: express
+      purpose_for_domain: "HTTP routing"
+    - name: axios
+      purpose_for_domain: "HTTP client"
+    - name: jest
+      purpose_for_domain: "Unit testing"
+    - name: supertest
+      purpose_for_domain: "Route request simulation"
+
+domain_security_considerations:
+  sensitive_areas:
+    - area: "Production gating for GreenAPI"
+      location: backend/src/routes/ai-settings.routes.ts:108-112
+      concern: "GreenAPI test path is explicitly blocked in production unless allow-flag enabled."
+    - area: "Global production guard"
+      location: backend/src/config/index.ts:241-247
+      concern: "App startup fails when WHATSAPP_PROVIDER=greenapi in production without allow-flag."
+  authentication_patterns_in_domain: "AI settings routes require authenticate + tenant isolation + feature gate (backend/src/routes/ai-settings.routes.ts:15-18)."
+  authorization_patterns_in_domain: "WhatsApp test endpoint uses authorize('ai_settings','update') (backend/src/routes/ai-settings.routes.ts:101-104)."
+  data_validation_in_domain: "Provider-specific field presence checks are implemented manually in the route handler (backend/src/routes/ai-settings.routes.ts:116-155)."
+
+testing_patterns:
+  framework: jest
+  coverage_areas:
+    - "Provider selection + field parsing for /api/ai-settings/whatsapp/test"
+    - "GreenAPI credential required error response"
+  test_organization: "backend/src/tests/unit/* using jest.doMock and supertest"
+  mock_patterns:
+    - "jest.doMock('../../config', ...) to inject env/provider"
+    - "jest.doMock('../../services/whatsapp.service', ...) to assert calls"
+
+requested_summary:
+  root_cause_explanation:
+    - statement: "The only backend origin of 'phone_number_id and access_token are required' is the meta branch of POST /api/ai-settings/whatsapp/test, which triggers when the route does not resolve provider as 'greenapi' and the request body lacks phone_number_id/access_token."
+      sources:
+        - backend/src/routes/ai-settings.routes.ts:105
+        - backend/src/routes/ai-settings.routes.ts:151-155
+
+  minimal_patch_plan:
+    - file: backend/src/routes/ai-settings.routes.ts
+      change_surface: |
+        Provider resolution is currently strict (body.provider === 'greenapi'). If runtime requests can omit/misspell provider,
+        the handler will fall back to meta and emit the meta-required error even for GreenAPI credential payloads.
+        (This is the precise condition under which the banner appears.)
+      sources:
+        - backend/src/routes/ai-settings.routes.ts:105
+        - backend/src/routes/ai-settings.routes.ts:154
+    - file: frontend/src/pages/ai-settings/AISettingsPage.tsx
+      change_surface: |
+        The current code sends provider:'greenapi' for GreenAPI tests; if the banner persists while Green-API is selected,
+        confirm the deployed build and network request payload match this implementation.
+      sources:
+        - frontend/src/pages/ai-settings/AISettingsPage.tsx:320-331
+
+  existing_unit_tests:
+    - test_file: backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts
+      coverage: "Covers meta happy path, greenapi happy path, and greenapi missing credentials 400."
+      sources:
+        - backend/src/tests/unit/ai-settings.routes.whatsapp-test.test.ts:93-178
+
+  verification_commands:
+    - "Set-Location backend"
+    - "npm run test:unit -- ai-settings.routes.whatsapp-test.test.ts"
+
+open_questions:
+  - question: "Does the runtime network request body for POST /api/ai-settings/whatsapp/test include provider='greenapi' when Green-API is selected?"
+    context: "Backend chooses greenapi only via strict equality on req.body.provider; the observed meta-required banner implies provider may be absent or not equal to 'greenapi'."
+    type: decision_blocker
+    affects: ["ai-settings-whatsapp-test"]
+
+  - question: "Are the deployed frontend and backend versions aligned with this repo revision (provider-aware test payload + provider-aware backend route)?"
+    context: "This repo shows provider-aware request payloads and a provider-aware backend route; version skew would explain a meta-only response even when the UI selection shows Green-API."
+    type: decision_blocker
+    affects: ["ai-settings-whatsapp-test"]
+
+gaps:
+  - area: "Provider inference / fallback behavior"
+    description: "POST /api/ai-settings/whatsapp/test defaults to meta unless provider==='greenapi', even if the request includes only GreenAPI credential fields; this makes the meta-required error string a likely outcome for GreenAPI payloads missing a provider discriminator."
+    impact: decision_blocker
+    affects: ["ai-settings-whatsapp-test"]

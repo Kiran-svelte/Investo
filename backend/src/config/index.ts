@@ -5,11 +5,15 @@ import fs from 'fs';
 const envPath = path.resolve(__dirname, '../../.env');
 dotenv.config({ path: envPath });
 
-if ((process.env.NODE_ENV || 'development') !== 'production' && fs.existsSync(envPath)) {
+if (
+  (process.env.NODE_ENV || 'development') !== 'production' &&
+  fs.existsSync(envPath) &&
+  !process.env.JEST_WORKER_ID
+) {
   const parsed = dotenv.parse(fs.readFileSync(envPath));
   // Only override critical Neon-related keys to avoid stale shell env bugs,
   // while preserving explicit runtime overrides for things like PORT.
-  const keysToPin = ['DATABASE_URL', 'DIRECT_URL', 'NEON_AUTH_URL'] as const;
+  const keysToPin = ['DATABASE_URL', 'DIRECT_URL', 'NEON_AUTH_URL', 'SUPABASE_URL'] as const;
   for (const key of keysToPin) {
     if (parsed[key]) {
       process.env[key] = parsed[key];
@@ -47,6 +51,42 @@ export function isNeonPoolerDatabaseUrl(databaseUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function isSupabaseDatabaseUrl(databaseUrl: string): boolean {
+  try {
+    const parsedUrl = new URL(databaseUrl);
+    const host = parsedUrl.hostname.toLowerCase();
+    return host.includes('supabase.com') || host.includes('supabase.co');
+  } catch {
+    return false;
+  }
+}
+
+export function isSupabasePoolerDatabaseUrl(databaseUrl: string): boolean {
+  try {
+    const parsedUrl = new URL(databaseUrl);
+    const host = parsedUrl.hostname.toLowerCase();
+    return host.includes('pooler.supabase.com') || parsedUrl.port === '6543';
+  } catch {
+    return false;
+  }
+}
+
+export function resolveDirectUrl(databaseUrl: string): string {
+  const directUrl = process.env.DIRECT_URL;
+  if (directUrl && isPostgresDatabaseUrl(directUrl)) {
+    try {
+      const parsed = new URL(directUrl);
+      if (parsed.searchParams.get('channel_binding')) {
+        parsed.searchParams.delete('channel_binding');
+      }
+      return parsed.toString();
+    } catch {
+      return directUrl;
+    }
+  }
+  return databaseUrl;
 }
 
 export function resolveDatabaseUrl(): string {
@@ -238,12 +278,17 @@ function resolveWhatsAppProvider(): WhatsAppProvider {
 const nodeEnv = process.env.NODE_ENV || 'development';
 const whatsappProvider = resolveWhatsAppProvider();
 
-if (nodeEnv === 'production' && whatsappProvider !== 'meta') {
-  throw new Error(`WHATSAPP_PROVIDER='${whatsappProvider}' is not allowed when NODE_ENV='production'`);
+const allowGreenapiInProd = process.env.WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION === 'true';
+
+if (nodeEnv === 'production' && whatsappProvider === 'greenapi' && !allowGreenapiInProd) {
+  throw new Error("WHATSAPP_PROVIDER='greenapi' is not allowed when NODE_ENV='production'");
 }
 
 const databaseUrl = resolveDatabaseUrl();
+const directUrl = resolveDirectUrl(databaseUrl);
 const neonPoolerConfigured = isNeonPoolerDatabaseUrl(databaseUrl);
+const supabasePoolerConfigured = isSupabasePoolerDatabaseUrl(databaseUrl);
+const databaseSslRequired = isSupabaseDatabaseUrl(databaseUrl) || databaseUrl.includes('sslmode=require');
 
 const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
 const smtpSecure = process.env.SMTP_SECURE !== undefined
@@ -279,18 +324,29 @@ const config = {
 
   db: {
     url: databaseUrl,
+    directUrl,
+    ssl: databaseSslRequired,
     poolMin: parseInt(process.env.DB_POOL_MIN || '10', 10),
     poolMax: parseInt(process.env.DB_POOL_MAX || '50', 10),
     neonPoolerConfigured,
-    keepAliveEnabled: process.env.NEON_KEEPALIVE_ENABLED !== 'false',
+    supabasePoolerConfigured,
+    keepAliveEnabled:
+      process.env.NEON_KEEPALIVE_ENABLED === 'false'
+        ? false
+        : process.env.NEON_KEEPALIVE_ENABLED === 'true' || neonPoolerConfigured,
     keepAliveIntervalMs: parseInt(process.env.NEON_KEEPALIVE_INTERVAL_MS || '240000', 10),
     autoMigrate: process.env.DB_AUTO_MIGRATE !== 'false',
     autoSeed: process.env.DB_AUTO_SEED !== 'false',
   },
 
+  supabase: {
+    url: (process.env.SUPABASE_URL || '').replace(/\/+$/, ''),
+    projectRef: (process.env.SUPABASE_PROJECT_REF || '').trim(),
+  },
+
   redis: {
-    url: process.env.UPSTASH_REDIS_REST_URL || '',
-    token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
+    url: (process.env.UPSTASH_REDIS_REST_URL || '').trim(),
+    token: (process.env.UPSTASH_REDIS_REST_TOKEN || '').trim(),
   },
 
   jwt: {
@@ -302,6 +358,7 @@ const config = {
 
   whatsapp: {
     provider: whatsappProvider,
+    allowGreenapiInProd,
     apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v18.0',
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
     appSecret: process.env.WHATSAPP_APP_SECRET || '',
@@ -385,6 +442,16 @@ const config = {
   rateLimit: {
     perUser: parseInt(process.env.RATE_LIMIT_USER || '100', 10),
     perCompany: parseInt(process.env.RATE_LIMIT_COMPANY || '1000', 10),
+  },
+  langgraph: {
+    enabled: process.env.LANGGRAPH_ENABLED === 'true',
+    url: (process.env.LANGGRAPH_URL || 'http://localhost:8000').replace(/\/+$/, ''),
+    mode: (process.env.LANGGRAPH_MODE || 'augment') as 'augment' | 'replace',
+    timeoutMs: parseInt(process.env.LANGGRAPH_TIMEOUT_MS || '5000', 10),
+  },
+  enterpriseAgent: {
+    enabled: process.env.ENTERPRISE_AGENT_ENABLED === 'true',
+    mode: (process.env.ENTERPRISE_AGENT_MODE || 'augment') as 'augment' | 'replace',
   },
 };
 

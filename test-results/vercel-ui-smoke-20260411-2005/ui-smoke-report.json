@@ -1,0 +1,231 @@
+{
+  "timestamp": "2026-04-11T14:35:19.619Z",
+  "baseURL": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/",
+  "evidenceDir": "..\\test-results\\vercel-ui-smoke-20260411-2005",
+  "flows": {
+    "login": {
+      "ok": false,
+      "finalUrl": null,
+      "shellVisible": false,
+      "screenshots": [
+        "..\\test-results\\vercel-ui-smoke-20260411-2005\\01-login.png",
+        "..\\test-results\\vercel-ui-smoke-20260411-2005\\99-login-failure.png"
+      ],
+      "runtimeDelta": {
+        "consoleErrors": 4,
+        "consoleWarnings": 14,
+        "pageErrors": 0,
+        "networkFailures": 14,
+        "failingResponses": 1
+      }
+    },
+    "dashboard": {
+      "ok": false,
+      "widgetsLoaded": false,
+      "screenshots": [],
+      "runtimeDelta": null
+    },
+    "leadsList": {
+      "ok": false,
+      "listLoaded": false,
+      "emptyState": false,
+      "leadRowCount": 0,
+      "screenshots": [],
+      "runtimeDelta": null
+    },
+    "leadDetail": {
+      "ok": false,
+      "opened": false,
+      "url": null,
+      "skipped": false,
+      "skippedReason": null,
+      "screenshots": [],
+      "runtimeDelta": null
+    },
+    "visits": {
+      "ok": false,
+      "rendered": false,
+      "skipped": false,
+      "skippedReason": null,
+      "screenshots": [],
+      "runtimeDelta": null
+    },
+    "properties": {
+      "ok": false,
+      "rendered": false,
+      "screenshots": [],
+      "runtimeDelta": null
+    },
+    "propertyImportSmallPdf": {
+      "ok": false,
+      "draftUrl": null,
+      "draftId": null,
+      "uploadStatus": null,
+      "registerUploadFailedTextVisible": false,
+      "observedRegisterUpload500": false,
+      "errorBanner": null,
+      "screenshots": [],
+      "runtimeDelta": null
+    },
+    "webhookVerify": {
+      "ok": true,
+      "url": "https://investo-backend-v2.onrender.com/api/webhook?hub.mode=subscribe&hub.verify_token=investo_webhook_verify_token&hub.challenge=test123",
+      "status": 200,
+      "expectedBodyExact": "test123",
+      "bodyPath": "..\\test-results\\vercel-ui-smoke-20260411-2005\\10-webhook-verify.txt",
+      "bodyActualPreview": "test123"
+    }
+  },
+  "runtime": {
+    "consoleErrors": [
+      {
+        "text": "Failed to load resource: the server responded with a status of 401 ()"
+      },
+      {
+        "text": "Failed to load resource: the server responded with a status of 403 ()"
+      },
+      {
+        "text": "Provider's accounts list is empty."
+      },
+      {
+        "text": "[GSI_LOGGER]: FedCM get() rejects with NetworkError: Error retrieving a token."
+      }
+    ],
+    "consoleWarnings": [
+      {
+        "text": "[GSI_LOGGER]: Your client application uses one of the Google One Tap prompt UI status methods that may stop functioning when FedCM becomes mandatory. Refer to the migration guide to update your code accordingly and opt-in to FedCM to test your changes. Learn more: https://developers.google.com/identity/gsi/web/guides/fedcm-migration?s=dc#display_moment and https://developers.google.com/identity/gsi/web/guides/fedcm-migration?s=dc#skipped_moment"
+      },
+      {
+        "text": "Deprecated API for given entry type."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/adobe-light.406_7oryl71va.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/chunks/1mkn1n4cf7-_i.css?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/ebay-dark.34mho2a18qqlt.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/stripe-dark.16ozjth2vgb_3.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/stripe-light.2l_1jctpe6k_4.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/ebay-light.3ft_ki8203ov0.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/adobe-light.406_7oryl71va.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/chunks/1mkn1n4cf7-_i.css?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/ebay-dark.34mho2a18qqlt.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/stripe-dark.16ozjth2vgb_3.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/stripe-light.2l_1jctpe6k_4.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      },
+      {
+        "text": "The resource https://vercel.com/_next/static/media/ebay-light.3ft_ki8203ov0.svg?dpl=dpl_8dq4wa4JiKbhrvU44kJJ1S2VD7do was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally."
+      }
+    ],
+    "pageErrors": [],
+    "networkFailures": [
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://frontend-jn7k9msdy-traderlighter11-7085s-projects.vercel.app/.well-known/vercel-user-meta",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": [
+      {
+        "url": "https://vercel.com/api/jwt",
+        "status": 403,
+        "method": "POST",
+        "bodyPath": "..\\test-results\\vercel-ui-smoke-20260411-2005\\fail-response-1.txt",
+        "bodySnippet": "Unauthorized"
+      }
+    ]
+  },
+  "failures": [
+    {
+      "flow": "login",
+      "details": "locator.fill: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByLabel(/password/i)\u001b[22m\n"
+    },
+    {
+      "flow": "abort",
+      "details": "Aborted remaining UI checks because authenticated shell did not load."
+    }
+  ]
+}

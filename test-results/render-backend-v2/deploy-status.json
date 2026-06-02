@@ -1,0 +1,13 @@
+{
+  "id": "dep-d7d6ien41pts739rlutg",
+  "commit": {
+    "id": "e4fb7f2678f04d694766f984ecb23c11f3a6741b",
+    "message": "Fix Lead Detail crash on timeline",
+    "createdAt": "2026-04-09T17:30:28Z"
+  },
+  "status": "build_in_progress",
+  "trigger": "api",
+  "createdAt": "2026-04-11T15:31:06.703062Z",
+  "updatedAt": "2026-04-11T15:31:06.703062Z",
+  "startedAt": "2026-04-11T15:31:06.514141Z"
+}

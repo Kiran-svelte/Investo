@@ -18,7 +18,9 @@ interface AIRequest {
   properties: any[];
   aiSettings: any;
   companyName: string;
-  conversationState?: ConversationState; // NEW: State machine state
+  conversationState?: ConversationState;
+  /** Grounded never-say-no block from conversionEngine.service */
+  conversionPromptBlock?: string;
 }
 
 interface AIResponse {
@@ -113,10 +115,13 @@ export class AIService {
     }
 
     if (lastError) {
-      throw lastError;
+      logger.warn('All configured AI providers failed, using smart mock response', {
+        error: lastError.message,
+      });
+    } else {
+      logger.warn('No AI provider configured, using smart mock response');
     }
 
-    logger.warn('No AI provider configured, using smart mock response');
     const mockResp = this.mockResponse(request);
     mockResp.newState = newState;
     mockResp.nextAction = nextAction;
@@ -188,6 +193,8 @@ ${stageConfig.promptFocus}
 
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
+
+${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 
 ## CUSTOMER INFO
 - Name: ${lead.customerName || 'Unknown'}
@@ -304,6 +311,8 @@ End your response with:
 
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties currently listed. Inform the customer that listings are being updated and ask for their preferences so you can notify them.'}
+
+${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 
 ## OPERATING AREAS
 ${locations || 'All major cities'}

@@ -1,0 +1,20 @@
+{
+  "baseURL": "https://frontend-navy-eight-37.vercel.app",
+  "host": "frontend-navy-eight-37.vercel.app",
+  "bypassFound": true,
+  "bypassHeaderConfigured": true,
+  "exitCode": 0,
+  "loginOk": true,
+  "providerSelectPresent": true,
+  "evidenceDir": "D:\\Investo\\test-results\\\\whatsapp-prod-ui-proof-20260413-065339\\frontend-navy-eight-37.vercel.app",
+  "screenshots": [
+    "01-login.png",
+    "02-after-login.png",
+    "03-ai-settings.png",
+    "04-whatsapp-meta.png",
+    "05-whatsapp-meta-skip.png",
+    "06-whatsapp-greenapi.png",
+    "07-whatsapp-greenapi-skip.png"
+  ],
+  "failures": []
+}

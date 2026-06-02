@@ -1,0 +1,490 @@
+import { Prisma } from '@prisma/client';
+interface CreateDraftInput {
+    draftData?: Record<string, unknown>;
+    maxRetries?: number;
+}
+interface RegisterUploadInput {
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    assetType: 'image' | 'brochure' | 'video';
+}
+interface SaveDraftInput {
+    draftData: Record<string, unknown>;
+    reviewNotes?: string | null;
+    markPublishReady?: boolean;
+}
+interface RetryDraftInput {
+    reason?: string | null;
+}
+interface CancelDraftInput {
+    reason?: string | null;
+}
+declare class PropertyImportError extends Error {
+    statusCode: number;
+    constructor(message: string, statusCode: number);
+}
+export declare class PropertyImportService {
+    createDraft(companyId: string, userId: string, input: CreateDraftInput): Promise<{
+        mediaAssets: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportMediaStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            publicUrl: string;
+            mimeType: string;
+            fileSize: number;
+            eTag: string | null;
+            failureReason: string | null;
+            draftId: string;
+            assetType: import(".prisma/client").$Enums.PropertyImportAssetType;
+            fileName: string;
+            storageKey: string;
+            uploadToken: string;
+            extractedMetadata: Prisma.JsonValue;
+            uploadedAt: Date | null;
+            verifiedAt: Date | null;
+            extractedAt: Date | null;
+        }[];
+        extractionJobs: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportJobStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            result: Prisma.JsonValue | null;
+            maxAttempts: number;
+            mediaId: string | null;
+            failureReason: string | null;
+            draftId: string;
+            jobType: import(".prisma/client").$Enums.PropertyImportJobType;
+            queueName: string;
+            idempotencyKey: string;
+            payload: Prisma.JsonValue;
+            attempt: number;
+            queuedAt: Date;
+            startedAt: Date | null;
+            finishedAt: Date | null;
+            nextRetryAt: Date | null;
+        }[];
+    } & {
+        id: string;
+        companyId: string;
+        status: import(".prisma/client").$Enums.PropertyImportDraftStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        reviewNotes: string | null;
+        reviewedByUserId: string | null;
+        reviewedAt: Date | null;
+        extractionStatus: import(".prisma/client").$Enums.PropertyImportExtractionStatus;
+        retryCount: number;
+        maxRetries: number;
+        failureReason: string | null;
+        draftData: Prisma.JsonValue;
+        extractionRequestedAt: Date | null;
+        publishedAt: Date | null;
+        cancelledAt: Date | null;
+        createdByUserId: string;
+        publishedPropertyId: string | null;
+    }>;
+    getDraft(companyId: string, draftId: string): Promise<{
+        publishedProperty: {
+            id: string;
+            companyId: string;
+            name: string;
+            status: import(".prisma/client").$Enums.PropertyStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            builder: string | null;
+            bedrooms: number | null;
+            amenities: Prisma.JsonValue;
+            description: string | null;
+            images: Prisma.JsonValue;
+            latitude: Prisma.Decimal | null;
+            longitude: Prisma.Decimal | null;
+            propertyType: import(".prisma/client").$Enums.PropertyType;
+            locationCity: string | null;
+            locationArea: string | null;
+            locationPincode: string | null;
+            priceMin: Prisma.Decimal | null;
+            priceMax: Prisma.Decimal | null;
+            brochureUrl: string | null;
+            floorPlanUrls: Prisma.JsonValue;
+            priceListUrl: string | null;
+            reraNumber: string | null;
+        };
+        mediaAssets: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportMediaStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            publicUrl: string;
+            mimeType: string;
+            fileSize: number;
+            eTag: string | null;
+            failureReason: string | null;
+            draftId: string;
+            assetType: import(".prisma/client").$Enums.PropertyImportAssetType;
+            fileName: string;
+            storageKey: string;
+            uploadToken: string;
+            extractedMetadata: Prisma.JsonValue;
+            uploadedAt: Date | null;
+            verifiedAt: Date | null;
+            extractedAt: Date | null;
+        }[];
+        extractionJobs: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportJobStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            result: Prisma.JsonValue | null;
+            maxAttempts: number;
+            mediaId: string | null;
+            failureReason: string | null;
+            draftId: string;
+            jobType: import(".prisma/client").$Enums.PropertyImportJobType;
+            queueName: string;
+            idempotencyKey: string;
+            payload: Prisma.JsonValue;
+            attempt: number;
+            queuedAt: Date;
+            startedAt: Date | null;
+            finishedAt: Date | null;
+            nextRetryAt: Date | null;
+        }[];
+    } & {
+        id: string;
+        companyId: string;
+        status: import(".prisma/client").$Enums.PropertyImportDraftStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        reviewNotes: string | null;
+        reviewedByUserId: string | null;
+        reviewedAt: Date | null;
+        extractionStatus: import(".prisma/client").$Enums.PropertyImportExtractionStatus;
+        retryCount: number;
+        maxRetries: number;
+        failureReason: string | null;
+        draftData: Prisma.JsonValue;
+        extractionRequestedAt: Date | null;
+        publishedAt: Date | null;
+        cancelledAt: Date | null;
+        createdByUserId: string;
+        publishedPropertyId: string | null;
+    }>;
+    registerUpload(companyId: string, draftId: string, input: RegisterUploadInput, options?: {
+        baseUrl?: string;
+    }): Promise<{
+        media: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportMediaStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            publicUrl: string;
+            mimeType: string;
+            fileSize: number;
+            eTag: string | null;
+            failureReason: string | null;
+            draftId: string;
+            assetType: import(".prisma/client").$Enums.PropertyImportAssetType;
+            fileName: string;
+            storageKey: string;
+            uploadToken: string;
+            extractedMetadata: Prisma.JsonValue;
+            uploadedAt: Date | null;
+            verifiedAt: Date | null;
+            extractedAt: Date | null;
+        };
+        upload: {
+            key: string;
+            upload_url: string;
+            public_url: string;
+            expires_in_seconds: number;
+            content_type: string;
+            upload_token: string;
+        };
+    }>;
+    confirmUpload(companyId: string, draftId: string, uploadToken: string): Promise<{
+        media: {
+            draft: {
+                id: string;
+                companyId: string;
+                status: import(".prisma/client").$Enums.PropertyImportDraftStatus;
+                createdAt: Date;
+                updatedAt: Date;
+                reviewNotes: string | null;
+                reviewedByUserId: string | null;
+                reviewedAt: Date | null;
+                extractionStatus: import(".prisma/client").$Enums.PropertyImportExtractionStatus;
+                retryCount: number;
+                maxRetries: number;
+                failureReason: string | null;
+                draftData: Prisma.JsonValue;
+                extractionRequestedAt: Date | null;
+                publishedAt: Date | null;
+                cancelledAt: Date | null;
+                createdByUserId: string;
+                publishedPropertyId: string | null;
+            };
+        } & {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportMediaStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            publicUrl: string;
+            mimeType: string;
+            fileSize: number;
+            eTag: string | null;
+            failureReason: string | null;
+            draftId: string;
+            assetType: import(".prisma/client").$Enums.PropertyImportAssetType;
+            fileName: string;
+            storageKey: string;
+            uploadToken: string;
+            extractedMetadata: Prisma.JsonValue;
+            uploadedAt: Date | null;
+            verifiedAt: Date | null;
+            extractedAt: Date | null;
+        };
+        queued: boolean;
+        draft?: undefined;
+        job?: undefined;
+    } | {
+        media: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportMediaStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            publicUrl: string;
+            mimeType: string;
+            fileSize: number;
+            eTag: string | null;
+            failureReason: string | null;
+            draftId: string;
+            assetType: import(".prisma/client").$Enums.PropertyImportAssetType;
+            fileName: string;
+            storageKey: string;
+            uploadToken: string;
+            extractedMetadata: Prisma.JsonValue;
+            uploadedAt: Date | null;
+            verifiedAt: Date | null;
+            extractedAt: Date | null;
+        };
+        draft: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportDraftStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            reviewNotes: string | null;
+            reviewedByUserId: string | null;
+            reviewedAt: Date | null;
+            extractionStatus: import(".prisma/client").$Enums.PropertyImportExtractionStatus;
+            retryCount: number;
+            maxRetries: number;
+            failureReason: string | null;
+            draftData: Prisma.JsonValue;
+            extractionRequestedAt: Date | null;
+            publishedAt: Date | null;
+            cancelledAt: Date | null;
+            createdByUserId: string;
+            publishedPropertyId: string | null;
+        };
+        job: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportJobStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            result: Prisma.JsonValue | null;
+            maxAttempts: number;
+            mediaId: string | null;
+            failureReason: string | null;
+            draftId: string;
+            jobType: import(".prisma/client").$Enums.PropertyImportJobType;
+            queueName: string;
+            idempotencyKey: string;
+            payload: Prisma.JsonValue;
+            attempt: number;
+            queuedAt: Date;
+            startedAt: Date | null;
+            finishedAt: Date | null;
+            nextRetryAt: Date | null;
+        };
+        queued: boolean;
+    }>;
+    saveDraft(companyId: string, draftId: string, userId: string, input: SaveDraftInput): Promise<{
+        mediaAssets: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportMediaStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            publicUrl: string;
+            mimeType: string;
+            fileSize: number;
+            eTag: string | null;
+            failureReason: string | null;
+            draftId: string;
+            assetType: import(".prisma/client").$Enums.PropertyImportAssetType;
+            fileName: string;
+            storageKey: string;
+            uploadToken: string;
+            extractedMetadata: Prisma.JsonValue;
+            uploadedAt: Date | null;
+            verifiedAt: Date | null;
+            extractedAt: Date | null;
+        }[];
+    } & {
+        id: string;
+        companyId: string;
+        status: import(".prisma/client").$Enums.PropertyImportDraftStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        reviewNotes: string | null;
+        reviewedByUserId: string | null;
+        reviewedAt: Date | null;
+        extractionStatus: import(".prisma/client").$Enums.PropertyImportExtractionStatus;
+        retryCount: number;
+        maxRetries: number;
+        failureReason: string | null;
+        draftData: Prisma.JsonValue;
+        extractionRequestedAt: Date | null;
+        publishedAt: Date | null;
+        cancelledAt: Date | null;
+        createdByUserId: string;
+        publishedPropertyId: string | null;
+    }>;
+    publishDraft(companyId: string, draftId: string, userId: string, forceRepublish: boolean): Promise<{
+        property: {
+            id: string;
+            companyId: string;
+            name: string;
+            status: import(".prisma/client").$Enums.PropertyStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            builder: string | null;
+            bedrooms: number | null;
+            amenities: Prisma.JsonValue;
+            description: string | null;
+            images: Prisma.JsonValue;
+            latitude: Prisma.Decimal | null;
+            longitude: Prisma.Decimal | null;
+            propertyType: import(".prisma/client").$Enums.PropertyType;
+            locationCity: string | null;
+            locationArea: string | null;
+            locationPincode: string | null;
+            priceMin: Prisma.Decimal | null;
+            priceMax: Prisma.Decimal | null;
+            brochureUrl: string | null;
+            floorPlanUrls: Prisma.JsonValue;
+            priceListUrl: string | null;
+            reraNumber: string | null;
+        };
+        alreadyPublished: boolean;
+        draft?: undefined;
+    } | {
+        property: {
+            id: string;
+            companyId: string;
+            name: string;
+            status: import(".prisma/client").$Enums.PropertyStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            builder: string | null;
+            bedrooms: number | null;
+            amenities: Prisma.JsonValue;
+            description: string | null;
+            images: Prisma.JsonValue;
+            latitude: Prisma.Decimal | null;
+            longitude: Prisma.Decimal | null;
+            propertyType: import(".prisma/client").$Enums.PropertyType;
+            locationCity: string | null;
+            locationArea: string | null;
+            locationPincode: string | null;
+            priceMin: Prisma.Decimal | null;
+            priceMax: Prisma.Decimal | null;
+            brochureUrl: string | null;
+            floorPlanUrls: Prisma.JsonValue;
+            priceListUrl: string | null;
+            reraNumber: string | null;
+        };
+        draft: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportDraftStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            reviewNotes: string | null;
+            reviewedByUserId: string | null;
+            reviewedAt: Date | null;
+            extractionStatus: import(".prisma/client").$Enums.PropertyImportExtractionStatus;
+            retryCount: number;
+            maxRetries: number;
+            failureReason: string | null;
+            draftData: Prisma.JsonValue;
+            extractionRequestedAt: Date | null;
+            publishedAt: Date | null;
+            cancelledAt: Date | null;
+            createdByUserId: string;
+            publishedPropertyId: string | null;
+        };
+        alreadyPublished: boolean;
+    }>;
+    retryExtraction(companyId: string, draftId: string, input: RetryDraftInput): Promise<{
+        retry_count: number;
+        queued_jobs: number;
+    }>;
+    cancelDraft(companyId: string, draftId: string, input: CancelDraftInput): Promise<{
+        mediaAssets: {
+            id: string;
+            companyId: string;
+            status: import(".prisma/client").$Enums.PropertyImportMediaStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            publicUrl: string;
+            mimeType: string;
+            fileSize: number;
+            eTag: string | null;
+            failureReason: string | null;
+            draftId: string;
+            assetType: import(".prisma/client").$Enums.PropertyImportAssetType;
+            fileName: string;
+            storageKey: string;
+            uploadToken: string;
+            extractedMetadata: Prisma.JsonValue;
+            uploadedAt: Date | null;
+            verifiedAt: Date | null;
+            extractedAt: Date | null;
+        }[];
+    } & {
+        id: string;
+        companyId: string;
+        status: import(".prisma/client").$Enums.PropertyImportDraftStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        reviewNotes: string | null;
+        reviewedByUserId: string | null;
+        reviewedAt: Date | null;
+        extractionStatus: import(".prisma/client").$Enums.PropertyImportExtractionStatus;
+        retryCount: number;
+        maxRetries: number;
+        failureReason: string | null;
+        draftData: Prisma.JsonValue;
+        extractionRequestedAt: Date | null;
+        publishedAt: Date | null;
+        cancelledAt: Date | null;
+        createdByUserId: string;
+        publishedPropertyId: string | null;
+    }>;
+}
+export declare const propertyImportService: PropertyImportService;
+export { PropertyImportError };
+//# sourceMappingURL=propertyImport.service.d.ts.map

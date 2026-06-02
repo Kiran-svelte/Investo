@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only --exit-child src/server.ts",
     "dev:worker": "ts-node-dev --respawn --transpile-only --exit-child src/worker.ts",
-    "build": "tsc",
+    "build": "npx prisma generate && tsc",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "test": "jest --detectOpenHandles --forceExit",
@@ -49,6 +49,8 @@
     "winston": "^3.11.0",
     "ws": "^8.16.0",
     "zod": "^3.22.4"
+    ,
+    "axios": "^1.4.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

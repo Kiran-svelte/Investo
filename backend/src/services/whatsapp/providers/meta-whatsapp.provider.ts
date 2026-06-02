@@ -10,6 +10,10 @@ export class MetaWhatsAppProvider implements WhatsAppOutboundProvider {
   async sendTextMessage(to: string, text: string, companyConfig: WhatsAppProviderConfig): Promise<SendTextMessageResult> {
     const { phoneNumberId, accessToken } = companyConfig;
 
+    if (!phoneNumberId || !accessToken) {
+      return { success: false, status: 400, errorText: 'Missing phoneNumberId or accessToken' };
+    }
+
     const response = await fetch(`${this.apiUrl}/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: {

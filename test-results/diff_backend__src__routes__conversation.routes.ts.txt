@@ -1,0 +1,56 @@
+diff --git a/backend/src/routes/conversation.routes.ts b/backend/src/routes/conversation.routes.ts
+index e6c9ba0..7aa565c 100644
+--- a/backend/src/routes/conversation.routes.ts
++++ b/backend/src/routes/conversation.routes.ts
+@@ -19,10 +19,15 @@ router.use(requireFeature('conversation_center'));
+ 
+ function normalizeWhatsAppConfig(company: { settings: unknown; whatsappPhone: string | null }) {
+   const settings = (company.settings as any) || {};
++  const whatsapp = settings.whatsapp || {};
+   return {
+-    phoneNumberId: settings.whatsapp?.phoneNumberId || company.whatsappPhone || config.whatsapp.phoneNumberId,
+-    accessToken: settings.whatsapp?.accessToken || config.whatsapp.accessToken,
+-    verifyToken: settings.whatsapp?.verifyToken || config.whatsapp.verifyToken,
++    provider: (whatsapp.provider || config.whatsapp.provider || 'meta').toString().toLowerCase(),
++    phoneNumberId: whatsapp.phoneNumberId || company.whatsappPhone || config.whatsapp.phoneNumberId,
++    accessToken: whatsapp.accessToken || config.whatsapp.accessToken,
++    verifyToken: whatsapp.verifyToken || config.whatsapp.verifyToken,
++    greenApiIdInstance: whatsapp.greenApi?.idInstance || config.greenapi.idInstance,
++    greenApiApiTokenInstance: whatsapp.greenApi?.apiTokenInstance || config.greenapi.apiTokenInstance,
++    greenApiApiUrl: whatsapp.greenApi?.apiUrl || config.greenapi.apiUrl,
+   };
+ }
+ 
+@@ -361,9 +366,17 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
+     }
+ 
+     const whatsappConfig = normalizeWhatsAppConfig(company);
+-    if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+-      res.status(400).json({ error: 'WhatsApp is not configured for this company' });
+-      return;
++    const provider = (whatsappConfig.provider || 'meta').toString().toLowerCase();
++    if (provider === 'greenapi') {
++      if (!whatsappConfig.greenApiIdInstance || !whatsappConfig.greenApiApiTokenInstance) {
++        res.status(400).json({ error: 'Green-API is not configured for this company' });
++        return;
++      }
++    } else {
++      if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
++        res.status(400).json({ error: 'WhatsApp is not configured for this company' });
++        return;
++      }
+     }
+ 
+     const payload = parsed.data;
+@@ -371,6 +384,11 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
+     let outboundMessageId: string | undefined;
+     let outboundError: string | undefined;
+ 
++    if (provider === 'greenapi' && payload.mode !== 'text') {
++      res.status(400).json({ error: 'Only text mode is supported when WHATSAPP_PROVIDER=greenapi' });
++      return;
++    }
++
+     if (payload.mode === 'text') {
+       outboundSuccess = await whatsappService.sendMessage(
+         conversation.whatsappPhone,

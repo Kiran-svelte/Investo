@@ -1,0 +1,97 @@
+{
+  "timestamp": "2026-04-12T18:32:32.511Z",
+  "baseURL": "http://localhost:3000/",
+  "evidenceDir": "..\\test-results\\whatsapp-local-ui-proof-20260413-000231",
+  "bypassHeaderConfigured": false,
+  "login": {
+    "ok": true,
+    "finalUrl": "http://localhost:3000/",
+    "error": null
+  },
+  "whatsapp": {
+    "pageLoaded": true,
+    "providerSelectPresent": true,
+    "meta": {
+      "webhookUrl": "https://investo-backend-v2.onrender.com/api/webhook",
+      "webhookUrlLooksCorrect": true,
+      "phoneNumberIdPresent": true,
+      "accessTokenPresent": false,
+      "verifyTokenPresent": true,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": "Skipped: missing Meta credentials in UI state"
+    },
+    "greenapi": {
+      "webhookUrl": null,
+      "webhookUrlLooksCorrect": false,
+      "idInstancePresent": false,
+      "apiTokenInstancePresent": false,
+      "webhookTokenPresent": false,
+      "testAttempted": false,
+      "testOutcome": "skipped",
+      "message": null
+    }
+  },
+  "runtime": {
+    "consoleErrors": [],
+    "pageErrors": [],
+    "requestFailures": [
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/upcoming-visits",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/trends?period=week",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/dashboard",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://investo-backend-v2.onrender.com/api/analytics/recent-leads",
+        "method": "GET",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "failingResponses": []
+  },
+  "screenshots": [
+    "01-login.png",
+    "02-after-login.png",
+    "03-ai-settings.png",
+    "04-whatsapp-meta.png",
+    "05-whatsapp-meta-skip.png",
+    "06-whatsapp-greenapi.png",
+    "97-whatsapp-failure.png"
+  ],
+  "failures": [
+    {
+      "step": "whatsapp",
+      "details": "locator.waitFor: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('label').filter({ hasText: /^api token$/i }).locator('..').locator('input, textarea, select').first()\u001b[22m\n"
+    }
+  ]
+}
