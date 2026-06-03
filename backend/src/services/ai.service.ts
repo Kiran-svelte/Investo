@@ -242,7 +242,8 @@ ${buildRealEstateAssistantPolicyPrompt()}
 6c. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
 7. ONE clear call-to-action per message.
 8. Keep responses under 200 words.
-9. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : 'Move toward booking'}
+8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
+9. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
 ${this.disclaimerPromptLine(request)}
 
 ## TONE: ${tone.toUpperCase()}

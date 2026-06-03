@@ -28,12 +28,8 @@ import { notifyAgentOfNewLead } from './leadAssignment.service';
 import { assignLeadWithRouting } from './leadRouting.service';
 import { syncLeadScoreFromConversation } from './leadScoring.service';
 import { logAgentAction } from './agent-action-log.service';
-import {
-  appendTransparencyFooter,
-  buildPropertySources,
-  buildTransparencyFooter,
-  inferConfidenceFromProperties,
-} from './aiTransparency.service';
+import { tryCommitCustomerVisitBooking } from './customerVisitBooking.service';
+
 import {
   handleWrongReport,
   isWrongReportMessage,
@@ -1049,16 +1045,97 @@ export class WhatsAppService {
 
     if (conversation.status === 'ai_active' && conversation.aiEnabled) {
       try {
-        // Get AI settings for this company
-        const aiSettings = await prisma.aiSetting.findUnique({
-          where: { companyId },
-        });
-
-        // Get conversation history
         const history = await prisma.message.findMany({
           where: { conversationId: conversation.id },
           orderBy: { createdAt: 'asc' },
           take: 30,
+        });
+
+        const recentCustomerMessages = history
+          .filter((m) => m.senderType === 'customer')
+          .map((m) => m.content)
+          .slice(-7);
+
+        const visitCommit = await tryCommitCustomerVisitBooking({
+          companyId,
+          lead: {
+            id: lead.id,
+            assignedAgentId: lead.assignedAgentId,
+            customerName: lead.customerName,
+            status: lead.status,
+          },
+          conversation: {
+            id: conversation.id,
+            selectedPropertyId: conversation.selectedPropertyId,
+            proposedVisitTime: conversation.proposedVisitTime,
+            recommendedPropertyIds: conversation.recommendedPropertyIds,
+          },
+          customerMessage: msg.messageText,
+          customerPhone,
+          recentCustomerMessages,
+        });
+
+        if (visitCommit.committed && visitCommit.customerReply) {
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderType: 'ai',
+              content: visitCommit.customerReply,
+              status: 'sent',
+            },
+          });
+          await this.sendMessage(customerPhone, visitCommit.customerReply, whatsappConfig!);
+
+          if (visitCommit.scheduledAt) {
+            await prisma.conversation.update({
+              where: { id: conversation.id },
+              data: {
+                stage: visitCommit.mode === 'scheduled' ? 'confirmation' : 'visit_booking',
+                proposedVisitTime: visitCommit.scheduledAt,
+                commitments: {
+                  ...(conversation.commitments as object),
+                  visitSlotDiscussed: true,
+                  visitSlotConfirmed: visitCommit.mode === 'scheduled',
+                },
+              },
+            });
+          }
+
+          if (visitCommit.leadStatus === 'visit_scheduled') {
+            await transitionLeadToVisitScheduled(lead.id);
+          }
+
+          void logAgentAction({
+            companyId,
+            triggeredBy: 'inbound_message',
+            action: 'customerVisitBooked',
+            resourceType: 'visit',
+            resourceId: visitCommit.visitId ?? undefined,
+            status: 'success',
+            inputs: {
+              mode: visitCommit.mode,
+              scheduledAt: visitCommit.scheduledAt?.toISOString(),
+            },
+          });
+
+          propagation = await this.propagateConversationUpdate({
+            companyId,
+            conversationId: conversation.id,
+            leadId: lead.id,
+            trigger: 'visit_booked',
+          });
+
+          return {
+            status: 'processed',
+            companyId,
+            leadId: lead.id,
+            conversationId: conversation.id,
+            propagation,
+          };
+        }
+
+        const aiSettings = await prisma.aiSetting.findUnique({
+          where: { companyId },
         });
 
         const neverSayNoCtx = await buildNeverSayNoContext(companyId, criteriaFromLead(lead), {
@@ -1101,7 +1178,7 @@ export class WhatsAppService {
             customerMessageCount,
           }),
           new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('AI response timed out after 45s')), 45_000);
+            setTimeout(() => reject(new Error('AI response timed out after 28s')), 28_000);
           }),
         ]);
 
@@ -1123,17 +1200,7 @@ export class WhatsAppService {
           channel: 'whatsapp',
           language: aiResponse.detectedLanguage,
         });
-        const { sources, latestPriceUpdate } = buildPropertySources(properties);
-        const transparencyFooter = buildTransparencyFooter({
-          confidence: inferConfidenceFromProperties(
-            properties.length,
-            neverSayNoCtx.exactPropertyIds.length > 0,
-          ),
-          sources,
-          priceUpdatedAt: latestPriceUpdate,
-          admitsUncertainty: guarded.guardApplied || properties.length === 0,
-        });
-        let outboundText = appendTransparencyFooter(polished.text, transparencyFooter);
+        let outboundText = polished.text;
         if (!outboundText.trim()) {
           outboundText =
             `Thanks for messaging *${company.name}*! I'm your property assistant.\n\n` +
@@ -2320,6 +2387,44 @@ export class WhatsAppService {
           whatsappConfig,
         );
         return { handled: true, action: 'visit-no-agent', leadStatus: 'contacted' };
+      }
+
+      const autoConfirm = process.env.WHATSAPP_AUTO_CONFIRM_VISITS !== '0';
+      if (autoConfirm) {
+        const { scheduleVisit } = await import('./visitBooking.service');
+        const booking = await scheduleVisit({
+          companyId: company.id,
+          leadId: lead.id,
+          propertyId,
+          scheduledAt: proposedTime,
+          agentId,
+          notes: 'Booked via WhatsApp visit button',
+        });
+
+        if (booking.success && booking.visit) {
+          const when = proposedTime.toLocaleString('en-IN', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          await this.sendMessage(
+            customerPhone,
+            `✅ *Visit confirmed!*\n\n📍 *${property?.name || 'Property'}*\n📅 ${when}\n\nOur team will call you about an hour before the visit.`,
+            whatsappConfig,
+          );
+          return {
+            handled: true,
+            action: 'visit-scheduled',
+            newState: {
+              stage: 'confirmation',
+              selectedPropertyId: propertyId,
+              proposedVisitTime: proposedTime,
+            },
+            leadStatus: 'visit_scheduled',
+          };
+        }
       }
 
       const { createVisitApprovalRequest } = await import('./visitPendingApproval.service');

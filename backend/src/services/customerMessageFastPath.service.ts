@@ -3,6 +3,8 @@
  * Avoids slow/failing LLM calls on common first messages.
  */
 
+import { isVisitSchedulingMessage } from './visitIntentFromMessage.service';
+
 const GREETING_PATTERN =
   /^(hi|hello|hey|hii|hola|namaste|good\s*(morning|afternoon|evening)|start)\b[!.,?\s]*$/i;
 
@@ -49,7 +51,11 @@ export function shouldSkipKnowledgeSearchForMessage(message: string): boolean {
   if (!trimmed) {
     return true;
   }
-  return isSimpleGreetingMessage(trimmed) || isIdentityQuestionMessage(trimmed);
+  return (
+    isSimpleGreetingMessage(trimmed)
+    || isIdentityQuestionMessage(trimmed)
+    || isVisitSchedulingMessage(trimmed)
+  );
 }
 
 export function buildFastPathCustomerReply(input: {
