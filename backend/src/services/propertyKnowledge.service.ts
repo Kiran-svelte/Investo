@@ -5,6 +5,7 @@ import { isAwsStorageConfigured } from './storage.service';
 
 const EMBEDDING_DIMENSIONS = 1536;
 const CHUNK_MAX_CHARS = 900;
+const LOCAL_EMBEDDING_PROVIDER = 'local_hash';
 
 export interface PropertyKnowledgeIndexResult {
   ok: boolean;
@@ -24,6 +25,10 @@ let schemaReady: boolean | null = null;
 
 function embeddingModel(): string {
   return process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
+}
+
+function localEmbeddingFallbackEnabled(): boolean {
+  return process.env.PROPERTY_KNOWLEDGE_LOCAL_EMBEDDINGS !== 'false';
 }
 
 function requireKnowledgeIndex(): boolean {
@@ -308,21 +313,74 @@ function formatEmbeddingApiError(status: number, errText: string): string {
   return `Embedding API failed (${status}). Check OPENAI_API_KEY and billing on OpenAI.`;
 }
 
-function assertOpenAiKeyConfigured(): void {
+function openAiKeyProblem(): string | null {
   const key = config.ai.openaiApiKey?.trim();
   if (!key) {
-    throw new Error('OPENAI_API_KEY is not set on the server. Add it in Render environment variables.');
+    return 'OPENAI_API_KEY is not set on the server.';
   }
   if (!key.startsWith('sk-')) {
-    throw new Error('OPENAI_API_KEY format looks invalid. Use a secret key from https://platform.openai.com/api-keys');
+    return 'OPENAI_API_KEY format looks invalid.';
   }
+  return null;
+}
+
+function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function createLocalKnowledgeEmbedding(text: string): number[] {
+  const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
+  const tokens = text
+    .toLowerCase()
+    .match(/[a-z0-9]+/g) || [];
+
+  if (tokens.length === 0) {
+    vector[0] = 1;
+    return vector;
+  }
+
+  for (const token of tokens) {
+    const hash = hashString(token);
+    const index = hash % EMBEDDING_DIMENSIONS;
+    const sign = (hash & 1) === 0 ? 1 : -1;
+    vector[index] += sign;
+  }
+
+  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return vector.map((value) => Number((value / magnitude).toFixed(6)));
+}
+
+function createLocalEmbeddings(texts: string[]): number[][] {
+  return texts.map(createLocalKnowledgeEmbedding);
+}
+
+function fallbackEmbeddings(texts: string[], reason: string): number[][] {
+  if (!localEmbeddingFallbackEnabled()) {
+    throw new Error(`${reason} Local property knowledge embeddings are disabled.`);
+  }
+
+  logger.warn('Using local property knowledge embeddings fallback', {
+    reason,
+    provider: LOCAL_EMBEDDING_PROVIDER,
+    count: texts.length,
+  });
+
+  return createLocalEmbeddings(texts);
 }
 
 async function createEmbeddings(texts: string[]): Promise<number[][]> {
-  assertOpenAiKeyConfigured();
-
   if (texts.length === 0) {
     return [];
+  }
+
+  const keyProblem = openAiKeyProblem();
+  if (keyProblem) {
+    return fallbackEmbeddings(texts, keyProblem);
   }
 
   const response = await fetch('https://api.openai.com/v1/embeddings', {
@@ -339,7 +397,7 @@ async function createEmbeddings(texts: string[]): Promise<number[][]> {
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(formatEmbeddingApiError(response.status, errText));
+    return fallbackEmbeddings(texts, formatEmbeddingApiError(response.status, errText));
   }
 
   const payload = await response.json() as {
@@ -359,6 +417,64 @@ async function createEmbeddings(texts: string[]): Promise<number[][]> {
       }
       return row.embedding;
     });
+}
+
+export async function getPropertyKnowledgeEmbeddingHealth(): Promise<{
+  status: 'ok' | 'degraded' | 'error';
+  provider: 'openai' | 'local_hash';
+  detail?: string;
+}> {
+  const keyProblem = openAiKeyProblem();
+  if (keyProblem) {
+    if (localEmbeddingFallbackEnabled()) {
+      return {
+        status: 'ok',
+        provider: LOCAL_EMBEDDING_PROVIDER,
+        detail: `${keyProblem} Using local property knowledge embeddings fallback.`,
+      };
+    }
+    return { status: 'error', provider: 'openai', detail: keyProblem };
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.ai.openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: embeddingModel(),
+        input: 'health',
+      }),
+    });
+
+    if (response.ok) {
+      return { status: 'ok', provider: 'openai' };
+    }
+
+    const detail = response.status === 401
+      ? 'OpenAI rejected the API key.'
+      : `OpenAI HTTP ${response.status}.`;
+    if (localEmbeddingFallbackEnabled()) {
+      return {
+        status: 'ok',
+        provider: LOCAL_EMBEDDING_PROVIDER,
+        detail: `${detail} Using local property knowledge embeddings fallback.`,
+      };
+    }
+    return { status: 'error', provider: 'openai', detail };
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err);
+    if (localEmbeddingFallbackEnabled()) {
+      return {
+        status: 'ok',
+        provider: LOCAL_EMBEDDING_PROVIDER,
+        detail: `${detail} Using local property knowledge embeddings fallback.`,
+      };
+    }
+    return { status: 'error', provider: 'openai', detail };
+  }
 }
 
 function vectorLiteral(values: number[]): string {

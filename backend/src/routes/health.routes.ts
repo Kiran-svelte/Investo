@@ -4,54 +4,19 @@ import logger from '../config/logger';
 import prisma from '../config/prisma';
 import { isAwsStorageConfigured, isR2StorageConfigured } from '../services/storage.service';
 import { isSupabaseStorageConfigured } from '../services/supabaseStorage.service';
+import { getPropertyKnowledgeEmbeddingHealth } from '../services/propertyKnowledge.service';
 
 const router = Router();
-
-async function checkOpenAiEmbeddings(): Promise<{ status: string; detail?: string }> {
-  const key = config.ai.openaiApiKey?.trim();
-  if (!key) {
-    return { status: 'not_configured', detail: 'OPENAI_API_KEY missing' };
-  }
-  if (!key.startsWith('sk-')) {
-    return { status: 'invalid', detail: 'OPENAI_API_KEY format invalid' };
-  }
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
-        input: 'health',
-      }),
-    });
-    if (response.ok) {
-      return { status: 'ok' };
-    }
-    if (response.status === 401) {
-      return { status: 'invalid_key', detail: 'OpenAI rejected the API key — create a new key and update Render' };
-    }
-    return { status: 'error', detail: `OpenAI HTTP ${response.status}` };
-  } catch (err: unknown) {
-    return {
-      status: 'error',
-      detail: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
 
 router.get('/', async (_req: Request, res: Response) => {
   const startedAt = Date.now();
 
   try {
     await prisma.$queryRaw`SELECT 1`;
-    const openai = await checkOpenAiEmbeddings();
+    const propertyKnowledgeEmbeddings = await getPropertyKnowledgeEmbeddingHealth();
 
     res.status(200).json({
-      status: openai.status === 'ok' ? 'ok' : 'degraded',
+      status: propertyKnowledgeEmbeddings.status === 'ok' ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
       environment: config.env,
       dependencies: {
@@ -65,7 +30,7 @@ router.get('/', async (_req: Request, res: Response) => {
           supabase: isSupabaseStorageConfigured(),
           provider: config.storage.provider,
         },
-        openai_embeddings: openai,
+        property_knowledge_embeddings: propertyKnowledgeEmbeddings,
       },
     });
   } catch (err: any) {

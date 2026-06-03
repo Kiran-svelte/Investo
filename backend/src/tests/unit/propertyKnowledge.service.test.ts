@@ -1,4 +1,7 @@
-import { buildPropertyKnowledgeSections } from '../../services/propertyKnowledge.service';
+import {
+  buildPropertyKnowledgeSections,
+  createLocalKnowledgeEmbedding,
+} from '../../services/propertyKnowledge.service';
 
 describe('propertyKnowledge.service', () => {
   it('builds factual sections from property and extraction metadata', () => {
@@ -86,5 +89,17 @@ describe('propertyKnowledge.service', () => {
     expect(joined).toContain('Unit inventory');
     expect(joined).toContain('Garden villa');
     expect(joined).toContain('5 units');
+  });
+
+  it('creates deterministic local embeddings for fallback indexing', () => {
+    const a = createLocalKnowledgeEmbedding('Villa near Anekal with garden');
+    const b = createLocalKnowledgeEmbedding('Villa near Anekal with garden');
+    const c = createLocalKnowledgeEmbedding('Commercial shop on main road');
+
+    expect(a).toHaveLength(1536);
+    expect(a).toEqual(b);
+    expect(a).not.toEqual(c);
+    const magnitude = Math.sqrt(a.reduce((sum, value) => sum + value * value, 0));
+    expect(magnitude).toBeCloseTo(1, 3);
   });
 });
