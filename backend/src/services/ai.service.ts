@@ -13,6 +13,12 @@ import {
   getStageConfig,
 } from './conversationStateMachine';
 import {
+  buildFastPathCustomerReply,
+  resolveAdminLanguageCode,
+  shouldSkipKnowledgeSearchForMessage,
+} from './customerMessageFastPath.service';
+import { fetchOpenAi, OPENAI_CHAT_URL } from './openaiStatus.service';
+import {
   formatKnowledgeContextForPrompt,
   searchPropertyKnowledge,
 } from './propertyKnowledge.service';
@@ -90,9 +96,25 @@ export class AIService {
       promptModifiers: nextAction.promptModifiers,
     });
 
-    const knowledgeChunks = request.companyId
-      ? await searchPropertyKnowledge(request.companyId, request.customerMessage, 8)
-      : [];
+    const fastPath = buildFastPathCustomerReply({
+      customerMessage: request.customerMessage,
+      companyName: request.companyName,
+      customerName: request.lead?.customerName,
+      aiSettings: request.aiSettings,
+    });
+    if (fastPath) {
+      return {
+        text: fastPath.text,
+        detectedLanguage: fastPath.detectedLanguage,
+        newState,
+        nextAction,
+      };
+    }
+
+    const knowledgeChunks =
+      request.companyId && !shouldSkipKnowledgeSearchForMessage(request.customerMessage)
+        ? await searchPropertyKnowledge(request.companyId, request.customerMessage, 8)
+        : [];
     const knowledgeContext = formatKnowledgeContextForPrompt(knowledgeChunks);
 
     // LANGUAGE BRAIN: Generate response with policy-guided prompt
@@ -207,7 +229,7 @@ ${nextAction.promptModifiers.map(m => `- ${m}`).join('\n')}
 ${stageConfig.promptFocus}
 
 ## ABSOLUTE RULES
-1. RESPOND IN THE CUSTOMER'S LANGUAGE (detect automatically)
+1. RESPOND IN THE CUSTOMER'S LANGUAGE when they write in that language; otherwise use ${SUPPORTED_LANGUAGES[resolveAdminLanguageCode(aiSettings)] || 'English'} (company default: ${aiSettings.defaultLanguage || 'en'})
 2. NEVER discuss non-real-estate topics. Bridge back immediately.
 3. LEGAL SAFETY: NEVER state prices, BHK, area, amenities, RERA, possession, discounts, ROI, loan amounts, or comparisons unless they appear verbatim in AVAILABLE PROPERTIES, GROUNDED PROJECT KNOWLEDGE, or the NEVER-SAY-NO block below.
 4. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet (deterministic calculator output).
@@ -271,10 +293,23 @@ End your response with:
   }
 
   private getProviderOrder(): AIProviderName[] {
-    const primaryProvider = (config.ai.provider || 'kimi').toLowerCase() as AIProviderName;
-    const providers: AIProviderName[] = ['kimi', 'openai', 'claude'];
+    const primaryProvider = (config.ai.provider || 'openai').toLowerCase() as AIProviderName;
+    const configured: AIProviderName[] = [];
+    if (config.ai.openaiApiKey?.trim()) {
+      configured.push('openai');
+    }
+    if (config.ai.kimiApiKey?.trim()) {
+      configured.push('kimi');
+    }
+    if (config.ai.claudeApiKey?.trim()) {
+      configured.push('claude');
+    }
 
-    return [primaryProvider, ...providers.filter((provider) => provider !== primaryProvider)];
+    if (configured.length === 0) {
+      return ['openai', 'kimi', 'claude'];
+    }
+
+    return [primaryProvider, ...configured.filter((provider) => provider !== primaryProvider)];
   }
 
   private hasProviderCredentials(provider: AIProviderName): boolean {
@@ -404,6 +439,12 @@ Only include fields you are confident about. Use null for unknown fields.`;
       }
     }
 
+    const latest = request.customerMessage.trim();
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    if (latest && lastUser?.content?.trim() !== latest) {
+      messages.push({ role: 'user', content: latest });
+    }
+
     return messages;
   }
 
@@ -478,24 +519,23 @@ Only include fields you are confident about. Use null for unknown fields.`;
       ...messages,
     ];
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.ai.openaiApiKey}`,
+    const response = await fetchOpenAi(
+      OPENAI_CHAT_URL,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.ai.openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.ai.openaiModel,
+          messages: allMessages,
+          max_tokens: 1024,
+          temperature: 0.7,
+        }),
       },
-      body: JSON.stringify({
-        model: config.ai.openaiModel,
-        messages: allMessages,
-        max_tokens: 1024,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} ${error}`);
-    }
+      { retries: 2, label: 'whatsapp_ai_chat' },
+    );
 
     const data = await response.json() as any;
     const text = data.choices?.[0]?.message?.content || '';

@@ -3,6 +3,39 @@
 import express, { Express } from 'express';
 import request from 'supertest';
 
+jest.mock('../../services/propertyKnowledge.service', () => ({
+  getPropertyKnowledgeEmbeddingHealth: jest.fn().mockResolvedValue({
+    status: 'ok',
+    provider: 'openai',
+    detail: 'ok',
+  }),
+}));
+
+jest.mock('../../services/openaiStatus.service', () => ({
+  getOpenAiServiceHealth: jest.fn().mockResolvedValue({
+    status: 'ok',
+    configured: true,
+    detail: 'OpenAI ok',
+  }),
+}));
+
+jest.mock('../../services/mailHealth.service', () => ({
+  getMailServiceHealth: jest.fn().mockResolvedValue({
+    status: 'warn',
+    configured: false,
+    detail: 'SMTP not configured in test',
+  }),
+}));
+
+jest.mock('../../services/storage.service', () => ({
+  isAwsStorageConfigured: () => false,
+  isR2StorageConfigured: () => false,
+}));
+
+jest.mock('../../services/supabaseStorage.service', () => ({
+  isSupabaseStorageConfigured: () => false,
+}));
+
 type MockPrisma = {
   $queryRaw: jest.Mock;
 };
@@ -29,6 +62,7 @@ function createHealthApp(prismaBehavior: 'ok' | 'fail'): { app: Express; mockPri
     __esModule: true,
     default: {
       env: 'test',
+      storage: { provider: 'aws' },
     },
   }));
 
@@ -42,19 +76,18 @@ function createHealthApp(prismaBehavior: 'ok' | 'fail'): { app: Express; mockPri
     },
   }));
 
-  let router: any;
+  let router: express.Router;
   jest.isolateModules(() => {
     router = require('../../routes/health.routes').default;
   });
 
   const app = express();
-  app.use('/api/health', router);
+  app.use('/api/health', router!);
   return { app, mockPrisma };
 }
 
 describe('GET /api/health', () => {
   afterEach(() => {
-    jest.resetModules();
     jest.clearAllMocks();
   });
 
@@ -71,13 +104,13 @@ describe('GET /api/health', () => {
     expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
-  test('returns 503 with db_unreachable when Prisma ping fails', async () => {
+  test('returns 200 degraded with db_unreachable when Prisma ping fails', async () => {
     const { app } = createHealthApp('fail');
 
     const response = await request(app).get('/api/health');
 
-    expect(response.status).toBe(503);
-    expect(response.body.status).toBe('error');
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('degraded');
     expect(response.body.error).toBe('db_unreachable');
     expect(response.body.dependencies?.db?.status).toBe('down');
     expect(response.body).not.toHaveProperty('message');

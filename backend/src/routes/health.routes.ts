@@ -4,6 +4,8 @@ import logger from '../config/logger';
 import prisma from '../config/prisma';
 import { isAwsStorageConfigured, isR2StorageConfigured } from '../services/storage.service';
 import { isSupabaseStorageConfigured } from '../services/supabaseStorage.service';
+import { getMailServiceHealth } from '../services/mailHealth.service';
+import { getOpenAiServiceHealth } from '../services/openaiStatus.service';
 import { getPropertyKnowledgeEmbeddingHealth } from '../services/propertyKnowledge.service';
 
 const router = Router();
@@ -13,10 +15,17 @@ router.get('/', async (_req: Request, res: Response) => {
 
   try {
     await prisma.$queryRaw`SELECT 1`;
-    const propertyKnowledgeEmbeddings = await getPropertyKnowledgeEmbeddingHealth();
+    const [propertyKnowledgeEmbeddings, openai, mail] = await Promise.all([
+      getPropertyKnowledgeEmbeddingHealth(),
+      getOpenAiServiceHealth(),
+      getMailServiceHealth(),
+    ]);
+
+    const openAiBlocks = openai.status === 'down';
+    const overallOk = propertyKnowledgeEmbeddings.status !== 'error' && !openAiBlocks;
 
     res.status(200).json({
-      status: propertyKnowledgeEmbeddings.status === 'ok' ? 'ok' : 'degraded',
+      status: overallOk ? (openai.status === 'degraded' || propertyKnowledgeEmbeddings.status === 'degraded' ? 'degraded' : 'ok') : 'degraded',
       timestamp: new Date().toISOString(),
       environment: config.env,
       dependencies: {
@@ -30,6 +39,8 @@ router.get('/', async (_req: Request, res: Response) => {
           supabase: isSupabaseStorageConfigured(),
           provider: config.storage.provider,
         },
+        openai,
+        mail,
         property_knowledge_embeddings: propertyKnowledgeEmbeddings,
       },
     });
