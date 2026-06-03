@@ -88,6 +88,8 @@ export interface NextBestAction {
   objectionPlaybook?: ObjectionPlaybook;
   bridgeMessage?: string;
   escalationReason?: string;
+  /** CRM pipeline status to apply when escalating (e.g. negotiation for price talks). */
+  suggestedLeadStatus?: 'negotiation' | 'visit_scheduled' | 'contacted';
   promptModifiers: string[];  // Instructions to add to LLM prompt
 }
 
@@ -308,7 +310,8 @@ export function classifyMessageIntent(
     lowerMessage.includes('real person') ||
     lowerMessage.includes('manager') ||
     lowerMessage.includes('supervisor') ||
-    lowerMessage.includes('speak to someone')
+    lowerMessage.includes('speak to someone') ||
+    /negotiat|discount|best price|final price|counter offer|rate reduce|lower the price/i.test(lowerMessage)
   ) {
     return { intent: 'escalation_request', confidence: 0.95 };
   }
@@ -386,18 +389,22 @@ export class PolicyBrain {
   decideNextAction(
     state: ConversationState,
     messageIntent: MessageIntent,
-    objectionType?: ObjectionType
+    objectionType?: ObjectionType,
+    customerMessage?: string,
   ): NextBestAction {
     const stageConfig = STAGE_CONFIG[state.stage];
 
-    // 1. Check for escalation triggers
-    if (this.shouldEscalate(state, messageIntent)) {
+    // 1. Check for escalation triggers (price / negotiation → human ~10% cases)
+    if (this.shouldEscalate(state, messageIntent, objectionType)) {
+      const priceEscalation = objectionType === 'price_too_high' || state.lastObjectionType === 'price_too_high';
       return {
         action: 'escalate',
         targetStage: 'human_escalated',
-        escalationReason: this.getEscalationReason(state, messageIntent),
+        escalationReason: this.getEscalationReason(state, messageIntent, objectionType),
+        suggestedLeadStatus: priceEscalation ? 'negotiation' : undefined,
         promptModifiers: [
           'ESCALATION: Inform customer that a specialist will take over.',
+          'DO NOT quote new prices or discounts — a human will handle negotiation.',
           'DO NOT try to handle further. Be warm and reassuring.',
         ],
       };
@@ -405,13 +412,18 @@ export class PolicyBrain {
 
     // 2. Handle explicit escalation request
     if (messageIntent === 'escalation_request') {
+      const msg = (customerMessage || '').toLowerCase();
+      const priceTalk = state.lastObjectionType === 'price_too_high'
+        || /negotiat|discount|best price|final price|counter offer|rate reduce|lower the price/i.test(msg);
       return {
         action: 'escalate',
         targetStage: 'human_escalated',
-        escalationReason: 'Customer requested human agent',
+        escalationReason: priceTalk ? 'Price negotiation — specialist handoff' : 'Customer requested human agent',
+        suggestedLeadStatus: priceTalk ? 'negotiation' : undefined,
         promptModifiers: [
           'Customer wants to speak with a human.',
           'Acknowledge warmly, assure them a specialist will call within 10 minutes.',
+          'Do not negotiate price — hand off to the specialist.',
         ],
       };
     }
@@ -498,7 +510,19 @@ export class PolicyBrain {
     };
   }
 
-  private shouldEscalate(state: ConversationState, intent: MessageIntent): boolean {
+  private shouldEscalate(
+    state: ConversationState,
+    intent: MessageIntent,
+    objectionType?: ObjectionType,
+  ): boolean {
+    // Price / negotiation → human (hybrid 10% path)
+    if (
+      (objectionType === 'price_too_high' || state.lastObjectionType === 'price_too_high')
+      && state.consecutiveObjections >= 2
+    ) {
+      return true;
+    }
+
     // High-value lead + repeated objections
     if (state.valueScore >= 7 && state.consecutiveObjections >= 3) {
       return true;
@@ -517,7 +541,17 @@ export class PolicyBrain {
     return false;
   }
 
-  private getEscalationReason(state: ConversationState, intent: MessageIntent): string {
+  private getEscalationReason(
+    state: ConversationState,
+    intent: MessageIntent,
+    objectionType?: ObjectionType,
+  ): string {
+    if (
+      (objectionType === 'price_too_high' || state.lastObjectionType === 'price_too_high')
+      && state.consecutiveObjections >= 2
+    ) {
+      return 'Price negotiation — specialist handoff';
+    }
     if (state.valueScore >= 7 && state.consecutiveObjections >= 3) {
       return 'High-value lead with repeated objections';
     }
@@ -641,7 +675,7 @@ export class ConversationStateManager {
     const newState = this.updateState(currentState, intent, objectionType, extractedInfo);
 
     // Get next action from policy brain
-    const nextAction = this.policyBrain.decideNextAction(newState, intent, objectionType);
+    const nextAction = this.policyBrain.decideNextAction(newState, intent, objectionType, message);
 
     // Apply stage transition if needed
     if (nextAction.action === 'advance_stage' && nextAction.targetStage) {

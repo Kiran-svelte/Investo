@@ -6,6 +6,7 @@ import useCompanyFeatures from '../../hooks/useCompanyFeatures';
 import { getVisibleNavItems } from '../../config/navigation.config';
 import type { NavRouteKey } from '../../config/navigation.config';
 import LanguageSelector from '../common/LanguageSelector';
+import KnowledgeGateBanner from './KnowledgeGateBanner';
 import {
   LayoutDashboard,
   Users,
@@ -238,6 +239,8 @@ const DashboardLayout: React.FC = () => {
 
       <div className="lg:pl-64">
         <Header onMenuClick={() => setSidebarOpen(true)} />
+
+        <KnowledgeGateBanner />
 
         <main className="min-h-[calc(100vh-4rem)]">
           <Outlet />

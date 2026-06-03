@@ -172,6 +172,8 @@ export const createLeadSchema = z.object({
 
 export const updateLeadStatusSchema = z.object({
   status: z.enum(LEAD_STATUSES),
+  /** Company admin may jump to any status (manual correction). */
+  force: z.boolean().optional(),
 });
 
 export const createPropertySchema = z.object({

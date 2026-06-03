@@ -33,11 +33,6 @@ import {
   getOnboardingCompletionFromCache,
   setOnboardingCompletionCache,
 } from './utils/onboardingCompletionCache';
-import { getPropertyImportKnowledgeGate } from './services/propertyImport';
-import {
-  getPropertyKnowledgeGateFromCache,
-  setPropertyKnowledgeGateCache,
-} from './utils/propertyKnowledgeGateCache';
 import { getRoleHomePath, isPathAllowedForRole } from './config/navigation.config';
 
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
@@ -130,70 +125,8 @@ export const OnboardingGuard: React.FC = () => {
   return <Outlet />;
 };
 
-/** Blocks company_admin app usage until in-progress import AI knowledge Q&A is complete. */
-export const PropertyKnowledgeGuard: React.FC = () => {
-  const { user, isLoading } = useAuth();
-  const [checking, setChecking] = React.useState(true);
-  const [gate, setGate] = React.useState<{
-    blocked: boolean;
-    draftId: string | null;
-    reason: string | null;
-  }>({ blocked: false, draftId: null, reason: null });
-  const location = useLocation();
-
-  React.useEffect(() => {
-    const run = async () => {
-      if (user?.role !== 'company_admin') {
-        setGate({ blocked: false, draftId: null, reason: null });
-        setChecking(false);
-        return;
-      }
-
-      const companyId = typeof user.company_id === 'string' ? user.company_id : '';
-      if (companyId) {
-        const cachedBlocked = getPropertyKnowledgeGateFromCache(companyId);
-        if (cachedBlocked === false) {
-          setGate({ blocked: false, draftId: null, reason: null });
-          setChecking(false);
-          return;
-        }
-      }
-
-      try {
-        const status = await getPropertyImportKnowledgeGate();
-        setGate({
-          blocked: status.blocked,
-          draftId: status.draftId,
-          reason: status.reason,
-        });
-        if (companyId) {
-          setPropertyKnowledgeGateCache(companyId, status.blocked);
-        }
-      } catch {
-        setGate({ blocked: false, draftId: null, reason: null });
-      }
-      setChecking(false);
-    };
-
-    if (!isLoading && user) {
-      void run();
-    }
-  }, [user, isLoading, location.pathname]);
-
-  if (isLoading || checking) {
-    return <LoadingScreen />;
-  }
-
-  const onImportPath = location.pathname.startsWith('/properties/import');
-  if (gate.blocked && !onImportPath) {
-    const target = gate.draftId
-      ? `/properties/import/${gate.draftId}`
-      : '/properties/import';
-    return <Navigate to={target} replace state={{ knowledgeGateReason: gate.reason }} />;
-  }
-
-  return <Outlet />;
-};
+/** Pass-through — knowledge gate is a banner only (no hard redirect). */
+export const PropertyKnowledgeGuard: React.FC = () => <Outlet />;
 
 const PublicRoute: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();

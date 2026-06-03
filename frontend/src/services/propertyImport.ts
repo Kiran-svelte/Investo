@@ -229,6 +229,13 @@ export async function getPropertyImportKnowledgeGate(): Promise<PropertyImportKn
   return data.data;
 }
 
+export async function deferPropertyImportKnowledge(draftId: string): Promise<PropertyImportDraft> {
+  const { data } = await api.post<ApiResponse<PropertyImportDraft>>(
+    `/property-imports/drafts/${draftId}/defer-knowledge`,
+  );
+  return normalizePropertyImportDraft(data.data);
+}
+
 export async function registerPropertyImportUpload(draftId: string, input: RegisterPropertyImportUploadInput) {
   const { data } = await api.post<ApiResponse<RegisterPropertyImportUploadResult>>(
     `/property-imports/drafts/${draftId}/uploads`,

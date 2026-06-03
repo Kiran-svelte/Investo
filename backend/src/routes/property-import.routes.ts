@@ -191,6 +191,26 @@ router.post(
 );
 
 /**
+ * POST /api/property-imports/drafts/:id/defer-knowledge
+ * Allow company admin to use the app without finishing in-progress AI Q&A.
+ */
+router.post(
+  '/drafts/:id/defer-knowledge',
+  authorize('properties', 'update'),
+  auditLog('defer_knowledge', 'property_imports'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const userId = req.user!.id;
+      const draft = await propertyImportService.deferKnowledgeGate(companyId, req.params.id, userId);
+      res.json({ data: draft });
+    } catch (err) {
+      handleRouteError(err, res, 'Failed to defer property knowledge setup');
+    }
+  },
+);
+
+/**
  * PUT /api/property-imports/drafts/:id
  * Manual override or save draft data.
  */

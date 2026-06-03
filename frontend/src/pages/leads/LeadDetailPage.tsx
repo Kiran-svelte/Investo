@@ -5,9 +5,11 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
   ArrowLeft, Phone, Mail, MapPin, Building2, IndianRupee,
-  User, Calendar, Clock, Edit3, Save, X, Loader2, CheckCircle,
+  User, Calendar, Clock, Edit3, Save, X, Loader2,
   AlertTriangle, MessageSquare
 } from 'lucide-react';
+import LeadStatusBadge from '../../components/leads/LeadStatusBadge';
+import LeadStatusSelect from '../../components/leads/LeadStatusSelect';
 
 interface LeadDetail {
   id: string;
@@ -44,26 +46,6 @@ interface Agent {
   id: string;
   name: string;
 }
-
-const LEAD_TRANSITIONS: Record<string, string[]> = {
-  new: ['contacted'],
-  contacted: ['visit_scheduled', 'closed_lost'],
-  visit_scheduled: ['visited', 'contacted'],
-  visited: ['negotiation', 'closed_lost'],
-  negotiation: ['closed_won', 'closed_lost'],
-  closed_won: [],
-  closed_lost: [],
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-700 border-blue-300',
-  contacted: 'bg-yellow-100 text-yellow-700 border-yellow-300',
-  visit_scheduled: 'bg-purple-100 text-purple-700 border-purple-300',
-  visited: 'bg-indigo-100 text-indigo-700 border-indigo-300',
-  negotiation: 'bg-orange-100 text-orange-700 border-orange-300',
-  closed_won: 'bg-green-100 text-green-700 border-green-300',
-  closed_lost: 'bg-red-100 text-red-700 border-red-300',
-};
 
 const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial'];
 
@@ -193,11 +175,19 @@ const LeadDetailPage: React.FC = () => {
     }
   };
 
+  const canForceAnyStatus = user?.role === 'company_admin' || user?.role === 'super_admin';
+
   const changeStatus = async (newStatus: string) => {
+    if (newStatus === lead?.status) {
+      return;
+    }
     setStatusChanging(true);
     setError('');
     try {
-      await api.patch(`/leads/${id}/status`, { status: newStatus });
+      await api.patch(`/leads/${id}/status`, {
+        status: newStatus,
+        ...(canForceAnyStatus ? { force: true } : {}),
+      });
       await loadLead();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update status');
@@ -240,11 +230,7 @@ const LeadDetailPage: React.FC = () => {
   const canEdit = user?.role === 'company_admin' || user?.role === 'super_admin' ||
     (user?.role === 'sales_agent' && lead.assigned_agent_id === user?.id);
 
-  const allowedTransitions = LEAD_TRANSITIONS[lead.status] ?? [];
-
-  const canChangeStatus = canEdit && (allowedTransitions.length > 0 || (lead.status === 'closed_lost' && (user?.role === 'company_admin' || user?.role === 'super_admin')));
-  const reopenTransition = lead.status === 'closed_lost' ? ['contacted'] : [];
-  const displayTransitions = [...new Set([...allowedTransitions, ...reopenTransition])];
+  const canChangeStatus = canEdit;
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
@@ -267,9 +253,16 @@ const LeadDetailPage: React.FC = () => {
                 <MessageSquare className="h-4 w-4" /> Go to Conversation
               </button>
             )}
-            <span className={`px-3 py-1.5 text-sm font-semibold rounded-full border ${STATUS_COLORS[lead.status]}`}>
-              {lead.status.replace(/_/g, ' ')}
-            </span>
+            {canChangeStatus ? (
+              <LeadStatusSelect
+                value={lead.status}
+                loading={statusChanging}
+                canForceAnyStatus={canForceAnyStatus}
+                onChange={(s) => void changeStatus(s)}
+              />
+            ) : (
+              <LeadStatusBadge status={lead.status} size="md" />
+            )}
             {canEdit && !editing && (
               <button onClick={startEditing} className="flex items-center gap-1 px-3 py-1.5 border rounded-lg hover:bg-gray-50 text-sm">
                 <Edit3 className="h-4 w-4" /> Edit
@@ -281,23 +274,15 @@ const LeadDetailPage: React.FC = () => {
 
       {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm" role="alert">{error}</div>}
 
-      {/* Status Transitions */}
       {canChangeStatus && (
-        <div className="bg-white rounded-xl shadow-sm border p-4">
-          <p className="text-sm font-medium text-gray-700 mb-3">Move to:</p>
-          <div className="flex flex-wrap gap-2">
-            {displayTransitions.map(status => (
-              <button
-                key={status}
-                onClick={() => changeStatus(status)}
-                disabled={statusChanging}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50 ${STATUS_COLORS[status]} hover:opacity-80`}
-              >
-                {statusChanging ? <Loader2 className="h-4 w-4 animate-spin inline mr-1" /> : null}
-                {status.replace(/_/g, ' ')}
-              </button>
-            ))}
-          </div>
+        <div className="rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4 text-sm text-slate-600">
+          <p>
+            <span className="font-semibold text-slate-800">Pipeline status</span>
+            {' — '}
+            {canForceAnyStatus
+              ? 'You can set any stage manually. WhatsApp AI can also update status (e.g. contacted, visit scheduled, negotiation).'
+              : 'Choose the next stage from the dropdown. Admins can jump to any stage.'}
+          </p>
         </div>
       )}
 

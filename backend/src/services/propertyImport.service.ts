@@ -957,6 +957,33 @@ export class PropertyImportService {
     return this.getDraft(companyId, draftId);
   }
 
+  async deferKnowledgeGate(companyId: string, draftId: string, userId: string) {
+    const draft = await prisma.propertyImportDraft.findFirst({
+      where: { id: draftId, companyId },
+      select: { id: true, status: true, draftData: true },
+    });
+
+    if (!draft) {
+      throw new PropertyImportError('Draft not found', 404);
+    }
+
+    if (isTerminalStatus(draft.status)) {
+      throw new PropertyImportError(`Draft is ${draft.status} and cannot be modified`, 409);
+    }
+
+    const draftData = { ...((draft.draftData as Record<string, unknown>) || {}) };
+    draftData.knowledge_gate_deferred = true;
+    draftData.knowledge_gate_deferred_at = new Date().toISOString();
+    draftData.knowledge_gate_deferred_by = userId;
+
+    await prisma.propertyImportDraft.update({
+      where: { id: draftId },
+      data: { draftData: draftData as Prisma.InputJsonValue },
+    });
+
+    return this.getDraft(companyId, draftId);
+  }
+
   async getKnowledgeGate(companyId: string): Promise<{
     blocked: boolean;
     draftId: string | null;
@@ -983,6 +1010,9 @@ export class PropertyImportService {
 
     for (const candidate of drafts) {
       const draftData = (candidate.draftData || {}) as Record<string, unknown>;
+      if (draftData.knowledge_gate_deferred === true || draftData.knowledgeGateDeferred === true) {
+        continue;
+      }
       const name = asTrimmedString(draftData.name);
       const propertyType = asTrimmedString(draftData.property_type ?? draftData.propertyType);
       if (!propertyType) {

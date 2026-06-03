@@ -6,8 +6,17 @@ import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
 import {
   Search, Plus, Phone, MapPin, User, ChevronLeft, ChevronRight,
-  X, Loader2, Download
+  X, Loader2, Download, Sparkles,
 } from 'lucide-react';
+import LeadStatusBadge from '../../components/leads/LeadStatusBadge';
+import LeadStatusSelect from '../../components/leads/LeadStatusSelect';
+import {
+  LEAD_STATUS_ORDER,
+  LEAD_STATUS_BAR,
+  LEAD_STATUS_LABELS,
+  formatLeadStatus,
+  type LeadStatusValue,
+} from '../../config/leadStatus.config';
 
 interface Lead {
   id: string;
@@ -29,16 +38,6 @@ interface Agent {
   name: string;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-700',
-  contacted: 'bg-yellow-100 text-yellow-700',
-  visit_scheduled: 'bg-purple-100 text-purple-700',
-  visited: 'bg-indigo-100 text-indigo-700',
-  negotiation: 'bg-orange-100 text-orange-700',
-  closed_won: 'bg-green-100 text-green-700',
-  closed_lost: 'bg-red-100 text-red-700',
-};
-
 const PROPERTY_TYPES = ['apartment', 'villa', 'plot', 'commercial'];
 const LEAD_SOURCES = ['whatsapp', 'manual', 'website', 'referral'];
 
@@ -56,6 +55,11 @@ const LeadsPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+
+  const canForceAnyStatus = user?.role === 'company_admin' || user?.role === 'super_admin';
+  const canEditLeadStatus = (capabilities.canCreateLeads || capabilities.canAssignLeads) && !capabilities.isReadOnly;
 
   const loadLeads = useCallback(async () => {
     try {
@@ -79,6 +83,38 @@ const LeadsPage: React.FC = () => {
   useEffect(() => {
     loadLeads();
   }, [loadLeads]);
+
+  useEffect(() => {
+    api.get('/analytics/leads?days=365')
+      .then((res) => {
+        const rows = res.data?.data?.by_status as Array<{ status: string; count: number }> | undefined;
+        if (!rows) {
+          return;
+        }
+        const map: Record<string, number> = {};
+        for (const row of rows) {
+          map[row.status] = Number(row.count) || 0;
+        }
+        setStatusCounts(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  const updateLeadStatus = async (leadId: string, newStatus: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setStatusUpdatingId(leadId);
+    try {
+      await api.patch(`/leads/${leadId}/status`, {
+        status: newStatus,
+        ...(canForceAnyStatus ? { force: true } : {}),
+      });
+      await loadLeads();
+    } catch (err) {
+      console.error('Status update failed', err);
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
 
   useEffect(() => {
     if (capabilities.canAssignLeads) {
@@ -154,6 +190,45 @@ const LeadsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* AI hybrid + pipeline */}
+      <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-sky-50 p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <Sparkles className="h-5 w-5 text-violet-600 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-violet-900">AI + human hybrid (ready)</p>
+            <p className="mt-1 text-xs text-violet-800/90">
+              WhatsApp AI handles FAQs, availability, and visit booking 24/7. After repeated price questions,
+              a specialist takes over (set name &amp; phone in AI Settings).
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {LEAD_STATUS_ORDER.map((status) => {
+            const count = statusCounts[status] ?? 0;
+            const active = statusFilter === status;
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => {
+                  setStatusFilter(active ? '' : status);
+                  setPage(1);
+                }}
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  active
+                    ? `${LEAD_STATUS_BAR[status as LeadStatusValue]} text-white border-transparent`
+                    : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${LEAD_STATUS_BAR[status as LeadStatusValue]}`} />
+                {LEAD_STATUS_LABELS[status as LeadStatusValue]}
+                <span className={active ? 'text-white/90' : 'text-gray-500'}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -172,13 +247,9 @@ const LeadsPage: React.FC = () => {
           className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         >
           <option value="">{t('common.all_statuses')}</option>
-          <option value="new">{t('leads.statuses.new')}</option>
-          <option value="contacted">{t('leads.statuses.contacted')}</option>
-          <option value="visit_scheduled">{t('leads.statuses.visit_scheduled')}</option>
-          <option value="visited">{t('leads.statuses.visited')}</option>
-          <option value="negotiation">{t('leads.statuses.negotiation')}</option>
-          <option value="closed_won">{t('leads.statuses.closed_won')}</option>
-          <option value="closed_lost">{t('leads.statuses.closed_lost')}</option>
+          {LEAD_STATUS_ORDER.map((s) => (
+            <option key={s} value={s}>{formatLeadStatus(s)}</option>
+          ))}
         </select>
       </div>
 
@@ -228,10 +299,17 @@ const LeadsPage: React.FC = () => {
                   <td className="px-4 py-3 text-sm text-gray-600">{lead.phone}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{formatBudget(lead.budget_min, lead.budget_max)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{lead.location_preference || '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[lead.status] || 'bg-gray-100 text-gray-700'}`}>
-                      {lead.status.replace(/_/g, ' ')}
-                    </span>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    {canEditLeadStatus ? (
+                      <LeadStatusSelect
+                        value={lead.status}
+                        loading={statusUpdatingId === lead.id}
+                        canForceAnyStatus={canForceAnyStatus}
+                        onChange={(s) => void updateLeadStatus(lead.id, s)}
+                      />
+                    ) : (
+                      <LeadStatusBadge status={lead.status} />
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{lead.agent_name || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">{formatDate(lead.created_at)}</td>
@@ -290,9 +368,17 @@ const LeadsPage: React.FC = () => {
                     <p className="text-xs text-gray-500">{lead.source} &middot; {formatDate(lead.created_at)}</p>
                   </div>
                 </div>
-                <span className={`px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[lead.status]}`}>
-                  {lead.status.replace(/_/g, ' ')}
-                </span>
+                {canEditLeadStatus ? (
+                  <LeadStatusSelect
+                    value={lead.status}
+                    loading={statusUpdatingId === lead.id}
+                    canForceAnyStatus={canForceAnyStatus}
+                    onChange={(s) => void updateLeadStatus(lead.id, s)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <LeadStatusBadge status={lead.status} />
+                )}
               </div>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2 text-gray-600"><Phone className="h-4 w-4" />{lead.phone}</div>

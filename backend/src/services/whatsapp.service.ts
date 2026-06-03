@@ -880,6 +880,12 @@ export class WhatsAppService {
             },
           });
 
+          // Sync CRM pipeline when policy brain suggests (price → negotiation)
+          const suggestedStatus = aiResponse.nextAction?.suggestedLeadStatus;
+          if (suggestedStatus) {
+            await transitionLeadStatus(lead.id, suggestedStatus, { force: true });
+          }
+
           // Notify human agent if escalated
           if (newState.stage === 'human_escalated' && lead.assignedAgentId) {
             await prisma.notification.create({
@@ -897,6 +903,23 @@ export class WhatsAppService {
                 },
               },
             });
+          }
+
+          // Follow-up with operator contact when configured
+          if (newState.stage === 'human_escalated' && aiSettings) {
+            const operatorLine = formatOperatorHandoffLine(aiSettings.operatorContact);
+            if (operatorLine) {
+              await prisma.message.create({
+                data: {
+                  conversationId: conversation.id,
+                  senderType: 'ai',
+                  content: operatorLine,
+                  language: aiResponse.detectedLanguage,
+                  status: 'sent',
+                },
+              });
+              await this.sendMessage(customerPhone, operatorLine, whatsappConfig!);
+            }
           }
         }
 
@@ -2854,6 +2877,25 @@ export class WhatsAppService {
 
     return false;
   }
+}
+
+function formatOperatorHandoffLine(operatorContact: unknown): string | null {
+  if (!operatorContact || typeof operatorContact !== 'object' || Array.isArray(operatorContact)) {
+    return null;
+  }
+  const contact = operatorContact as Record<string, unknown>;
+  const name = typeof contact.name === 'string' ? contact.name.trim() : '';
+  const phone = typeof contact.phone === 'string' ? contact.phone.trim() : '';
+  if (!name && !phone) {
+    return null;
+  }
+  if (name && phone) {
+    return `Our specialist *${name}* will assist you shortly. You can also reach them at ${phone}.`;
+  }
+  if (phone) {
+    return `Our specialist will call you shortly at ${phone}.`;
+  }
+  return `*${name}* from our team will assist you shortly with pricing and booking.`;
 }
 
 function normalizeLeadPropertyType(value: unknown): 'villa' | 'apartment' | 'plot' | 'commercial' | 'other' | null {

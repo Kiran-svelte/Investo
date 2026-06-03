@@ -5,6 +5,7 @@ import { parseAgentListPagination, buildPaginationMeta } from '../../../utils/pa
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
 import { buildAgentScopeFilter, formatCurrencyINR, formatDateIST, getStatusEmoji, maskPhone, truncate } from './format-helpers';
+import { transitionLeadStatus } from '../../leadTransition.service';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 const leadStatus = z.enum(['new', 'contacted', 'visit_scheduled', 'visited', 'negotiation', 'closed_won', 'closed_lost']);
@@ -150,7 +151,11 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
           await createPendingConfirmation(context.sessionId, 'closeLeadLost', { leadId }, message);
           return message;
         }
-        await prisma.lead.update({ where: { id: leadId }, data: { status } });
+        const force = context.userRole === 'company_admin' || context.userRole === 'super_admin';
+        const ok = await transitionLeadStatus(leadId, status, { force });
+        if (!ok) {
+          return `Cannot move lead from ${lead.status} to ${status}. Use a valid pipeline step or ask an admin.`;
+        }
         return `Lead ${lead.customerName ?? 'Unknown'} moved from ${lead.status} to ${status}.`;
       },
     }),

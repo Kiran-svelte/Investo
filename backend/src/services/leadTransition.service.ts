@@ -24,7 +24,7 @@ export function canTransitionLeadToVisitScheduledStatus(status: string | null | 
 export async function transitionLeadStatus(
   leadId: string,
   targetStatus: LeadStatus,
-  extra?: { lastContactAt?: boolean },
+  extra?: { lastContactAt?: boolean; force?: boolean },
 ): Promise<boolean> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
   if (!lead) {
@@ -36,7 +36,12 @@ export async function transitionLeadStatus(
     return true;
   }
 
-  if (!isValidTransition(LEAD_TRANSITIONS, current, targetStatus)) {
+  const allowReopen = current === 'closed_lost' && targetStatus === 'contacted';
+  if (
+    !extra?.force
+    && !allowReopen
+    && !isValidTransition(LEAD_TRANSITIONS, current, targetStatus)
+  ) {
     logger.warn('Invalid lead status transition skipped', {
       leadId,
       from: current,

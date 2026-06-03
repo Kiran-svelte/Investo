@@ -20,6 +20,7 @@ import {
 import {
   confirmPropertyImportUpload,
   createPropertyImportDraft,
+  deferPropertyImportKnowledge,
   getPropertyImportDraft,
   inferPropertyImportAssetType,
   isPropertyImportMimeTypeSupported,
@@ -104,6 +105,7 @@ export default function PropertyImportSimplePage() {
   const { draftId: routeDraftId } = useParams();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const knowledgeSectionRef = useRef<HTMLElement | null>(null);
 
   const canManageProperties = getRoleCapabilities(user?.role).canUploadProperties;
   const [draft, setDraft] = useState<PropertyImportDraft | null>(null);
@@ -210,18 +212,6 @@ export default function PropertyImportSimplePage() {
 
   const applyDraftUpdate = (nextDraft: PropertyImportDraft) => {
     const normalized = normalizePropertyImportDraft(nextDraft);
-    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b4d7f2' },
-      body: JSON.stringify({
-        sessionId: 'b4d7f2',
-        runId: 'simple',
-        location: 'PropertyImportSimplePage.tsx:applyDraftUpdate',
-        message: 'draft updated',
-        data: { draftId: normalized.id, mediaCount: normalized.mediaAssets.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
     setDraft(normalized);
     syncFormFromDraft(normalized.draftData);
   };
@@ -516,7 +506,7 @@ export default function PropertyImportSimplePage() {
         </section>
       )}
 
-      {activeStepIndex >= 1 && (
+      {activeStepIndex === 1 && (
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">Step 2 - Upload brochure</h2>
           <p className="mt-1 text-sm text-gray-500">
@@ -589,6 +579,27 @@ export default function PropertyImportSimplePage() {
       )}
 
       {activeStepIndex === 2 && publishReadiness.missingQuestions.length > 0 && (
+        <section
+          ref={knowledgeSectionRef}
+          className="rounded-2xl border border-violet-200 bg-white p-6 shadow-sm"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Step 3 - AI knowledge</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Answer what is missing so WhatsApp AI can reply accurately.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => void handleDeferKnowledge()}
+              className="text-sm font-medium text-gray-600 underline hover:text-gray-900 disabled:opacity-50"
+            >
+              Finish later
+            </button>
+          </div>
+          <div className="mt-4">
         <PropertyImportKnowledgeWizard
           key={`knowledge-${draft?.id ?? 'new'}-${formValues.property_type}`}
           inline
@@ -609,16 +620,18 @@ export default function PropertyImportSimplePage() {
             void persistDraft(next.formValues, next.draftData, { syncFormFromServer: false });
           }}
         />
+          </div>
+        </section>
       )}
 
-      {activeStepIndex >= 2 && publishReadiness.missingQuestions.length === 0 && draft?.extractionStatus === 'extracted' && (
+      {activeStepIndex === 2 && publishReadiness.missingQuestions.length === 0 && draft?.extractionStatus === 'extracted' && (
         <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900">
           <Sparkles className="mr-2 inline h-4 w-4" />
           AI knowledge complete. Ready to go live.
         </section>
       )}
 
-      {activeStepIndex >= 2 && draft?.extractionStatus === 'extracted' && (
+      {activeStepIndex === 3 && draft?.extractionStatus === 'extracted' && (
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">Step 4 - Ready to go</h2>
           <div

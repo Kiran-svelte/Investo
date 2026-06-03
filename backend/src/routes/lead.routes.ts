@@ -388,7 +388,9 @@ router.patch(
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
-      const { status: newStatus } = req.body;
+      const { status: newStatus, force: forceBody } = req.body;
+      const force = Boolean(forceBody)
+        && (req.user!.role === 'company_admin' || req.user!.role === 'super_admin');
 
       const lead = await prisma.lead.findFirst({ where: { id, companyId } });
       if (!lead) {
@@ -412,7 +414,7 @@ router.patch(
           return;
         }
         // Allow this transition
-      } else if (!isValidTransition(LEAD_TRANSITIONS, currentStatus, targetStatus)) {
+      } else if (!force && !isValidTransition(LEAD_TRANSITIONS, currentStatus, targetStatus)) {
         res.status(400).json({
           error: `Invalid status transition: ${currentStatus} -> ${targetStatus}`,
           allowed: LEAD_TRANSITIONS[currentStatus],

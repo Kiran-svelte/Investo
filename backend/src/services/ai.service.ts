@@ -246,12 +246,28 @@ REFRAME: "${nextAction.objectionPlaybook.reframe}"
 BRIDGE TO VALUE: "${nextAction.objectionPlaybook.bridgeToValue}"
 ` : ''}
 
+${nextAction.action === 'escalate' ? this.operatorContactPromptBlock(aiSettings) : ''}
+
 ## RESPONSE FORMAT
 Respond with the WhatsApp message to send. Use *bold* for emphasis.
 End your response with:
 ###EXTRACT###
 {"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
 (Only include fields you're confident about)`;
+  }
+
+  private operatorContactPromptBlock(aiSettings: { operatorContact?: unknown }): string {
+    const raw = aiSettings?.operatorContact;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+    }
+    const contact = raw as Record<string, unknown>;
+    const name = typeof contact.name === 'string' ? contact.name.trim() : '';
+    const phone = typeof contact.phone === 'string' ? contact.phone.trim() : '';
+    if (!name && !phone) {
+      return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+    }
+    return `\n## SPECIALIST HANDOFF\nShare that *${name || 'our specialist'}*${phone ? ` (${phone})` : ''} will take over for pricing and booking details.`;
   }
 
   private getProviderOrder(): AIProviderName[] {
