@@ -17,6 +17,7 @@ import {
   resolveAdminLanguageCode,
   shouldSkipKnowledgeSearchForMessage,
 } from './customerMessageFastPath.service';
+import { buildRealEstateAssistantPolicyPrompt } from '../constants/realEstateAssistantPrompt.constants';
 import { fetchOpenAi, OPENAI_CHAT_URL } from './openaiStatus.service';
 import {
   formatKnowledgeContextForPrompt,
@@ -228,6 +229,8 @@ ${nextAction.promptModifiers.map(m => `- ${m}`).join('\n')}
 ## STAGE FOCUS
 ${stageConfig.promptFocus}
 
+${buildRealEstateAssistantPolicyPrompt()}
+
 ## ABSOLUTE RULES
 1. RESPOND IN THE CUSTOMER'S LANGUAGE when they write in that language; otherwise use ${SUPPORTED_LANGUAGES[resolveAdminLanguageCode(aiSettings)] || 'English'} (company default: ${aiSettings.defaultLanguage || 'en'})
 2. NEVER discuss non-real-estate topics. Bridge back immediately.
@@ -361,6 +364,8 @@ End your response with:
       .join('\n');
 
     return `You are an AI real estate assistant for ${companyName}.
+
+${buildRealEstateAssistantPolicyPrompt()}
 
 ## ABSOLUTE RULES (NEVER VIOLATE)
 1. You are ONLY about real estate. NEVER discuss politics, religion, sports, entertainment, other products, or any non-real-estate topic. If asked, politely redirect: "I specialize in helping you find your dream property! Let me help you with that."

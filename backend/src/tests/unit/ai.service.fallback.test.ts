@@ -128,5 +128,8 @@ describe('AIService fallback behavior', () => {
     expect(systemPrompt).toContain('LEGAL SAFETY');
     expect(systemPrompt).toContain('NEVER state prices, BHK, area, amenities, RERA, possession, discounts, ROI');
     expect(systemPrompt).toContain('If a fact is missing from the data blocks, say it is not in our current records');
+    expect(systemPrompt).toContain('WHAT YOU CAN DO');
+    expect(systemPrompt).toContain('AI LIMITS');
+    expect(systemPrompt).toContain('Finalize or negotiate price');
   });
 });

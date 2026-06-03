@@ -13,6 +13,10 @@
  */
 
 import logger from '../config/logger';
+import {
+  detectAuthorityLimitTopic,
+  getAuthorityLimitPromptModifier,
+} from '../constants/realEstateAssistantPrompt.constants';
 
 // ─── Stage Definitions ─────────────────────────────────────────────────
 
@@ -312,6 +316,8 @@ export function classifyMessageIntent(
     lowerMessage.includes('supervisor') ||
     lowerMessage.includes('speak to someone') ||
     /negotiat|discount|best price|final price|counter offer|rate reduce|lower the price/i.test(lowerMessage)
+    || /\bmatch\b.*\b(price|offer|discount)\b/i.test(lowerMessage)
+    || /\bother agent\b.*\b(cheaper|discount)\b/i.test(lowerMessage)
   ) {
     return { intent: 'escalation_request', confidence: 0.95 };
   }
@@ -406,6 +412,34 @@ export class PolicyBrain {
           'ESCALATION: Inform customer that a specialist will take over.',
           'DO NOT quote new prices or discounts — a human will handle negotiation.',
           'DO NOT try to handle further. Be warm and reassuring.',
+        ],
+      };
+    }
+
+    // 1b. Authority limits (scripted responses — do not over-promise)
+    const authorityTopic = customerMessage ? detectAuthorityLimitTopic(customerMessage) : null;
+    if (authorityTopic) {
+      const escalateTopics = new Set(['finalize_price', 'price_negotiation']);
+      if (escalateTopics.has(authorityTopic)) {
+        return {
+          action: 'escalate',
+          targetStage: 'human_escalated',
+          escalationReason: authorityTopic === 'finalize_price'
+            ? 'Customer requested booking/final price — specialist handoff'
+            : 'Price negotiation — specialist handoff',
+          suggestedLeadStatus: 'negotiation',
+          promptModifiers: [
+            getAuthorityLimitPromptModifier(authorityTopic),
+            'Acknowledge interest warmly. A senior agent will contact within 10 minutes.',
+            'Do NOT confirm booking, final price, or discounts yourself.',
+          ],
+        };
+      }
+      return {
+        action: 'continue',
+        promptModifiers: [
+          getAuthorityLimitPromptModifier(authorityTopic),
+          'Follow the AI LIMITS scripted response for this topic. Stay factual; use only data blocks.',
         ],
       };
     }
