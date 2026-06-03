@@ -31,7 +31,12 @@ type SmtpConfig = {
   pass?: string;
 };
 
-function sanitizeSmtpConfigForLogs(smtp: SmtpConfig): Record<string, any> {
+export type MailSendResult = {
+  sent: boolean;
+  reason?: string;
+};
+
+function sanitizeSmtpConfigForLogs(smtp: SmtpConfig): Record<string, unknown> {
   return {
     host: smtp.host,
     port: smtp.port,
@@ -54,8 +59,32 @@ function resolveSmtpConfig(): SmtpConfig {
   };
 }
 
+function buildTransportOptions(smtp: SmtpConfig) {
+  const auth = smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined;
+  const useTls = smtp.port === 587 && !smtp.secure;
+
+  return {
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    auth,
+    connectionTimeout: 15_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 30_000,
+    ...(useTls ? { requireTLS: true } : {}),
+  };
+}
+
 export class EmailService {
   private transporter: Transporter | null = null;
+  private lastVerifyAt = 0;
+  private lastVerifyOk = false;
+  private lastVerifyDetail = '';
+
+  private resetTransporter(): void {
+    this.transporter = null;
+    this.lastVerifyAt = 0;
+  }
 
   private getTransporter(): Transporter {
     if (this.transporter) {
@@ -68,19 +97,70 @@ export class EmailService {
       throw new Error('SMTP is not configured');
     }
 
-    const auth = smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined;
-
-    this.transporter = nodemailer.createTransport({
-      host: smtp.host,
-      port: smtp.port,
-      secure: smtp.secure,
-      auth,
-    });
-
+    this.transporter = nodemailer.createTransport(buildTransportOptions(smtp));
     return this.transporter;
   }
 
-  async sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<void> {
+  async verifyConnection(force = false): Promise<{ ok: boolean; detail: string }> {
+    const smtp = resolveSmtpConfig();
+    if (!isSmtpConfigured(smtp)) {
+      return { ok: false, detail: 'SMTP_HOST and SMTP_PORT are not configured.' };
+    }
+    if (!config.mail.from?.trim()) {
+      return { ok: false, detail: 'MAIL_FROM is not configured.' };
+    }
+
+    const now = Date.now();
+    if (!force && this.lastVerifyAt && now - this.lastVerifyAt < 5 * 60 * 1000) {
+      return { ok: this.lastVerifyOk, detail: this.lastVerifyDetail };
+    }
+
+    try {
+      const transporter = this.getTransporter();
+      await transporter.verify();
+      this.lastVerifyAt = now;
+      this.lastVerifyOk = true;
+      this.lastVerifyDetail = `SMTP verified (${smtp.host}:${smtp.port}).`;
+      return { ok: true, detail: this.lastVerifyDetail };
+    } catch (err: unknown) {
+      this.resetTransporter();
+      const message = err instanceof Error ? err.message : String(err);
+      this.lastVerifyAt = now;
+      this.lastVerifyOk = false;
+      this.lastVerifyDetail = `SMTP verification failed: ${message}`;
+      logger.warn('SMTP verify failed', { smtp: sanitizeSmtpConfigForLogs(smtp), error: message });
+      return { ok: false, detail: this.lastVerifyDetail };
+    }
+  }
+
+  private async sendWithRetry(mail: {
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+  }): Promise<void> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const transporter = this.getTransporter();
+        await transporter.sendMail(mail);
+        return;
+      } catch (err: unknown) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.resetTransporter();
+        if (attempt === 0) {
+          logger.warn('Email send failed, retrying once', { to: mail.to, error: lastError.message });
+          await new Promise((r) => setTimeout(r, 1200));
+        }
+      }
+    }
+
+    throw lastError || new Error('Email send failed');
+  }
+
+  async sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<MailSendResult> {
     const smtp = resolveSmtpConfig();
 
     if (!isSmtpConfigured(smtp)) {
@@ -88,15 +168,14 @@ export class EmailService {
         userEmail: params.toEmail,
         smtp: sanitizeSmtpConfigForLogs(smtp),
       });
-      return;
+      return { sent: false, reason: 'smtp_not_configured' };
     }
 
     if (!config.mail.from) {
       logger.warn('Password reset email skipped: MAIL_FROM not configured', {
         userEmail: params.toEmail,
-        smtp: sanitizeSmtpConfigForLogs(smtp),
       });
-      return;
+      return { sent: false, reason: 'mail_from_missing' };
     }
 
     const displayName = (params.toName || '').trim();
@@ -116,9 +195,7 @@ export class EmailService {
       <p>If you did not request this, you can ignore this email.</p>
     `;
 
-    const transporter = this.getTransporter();
-
-    await transporter.sendMail({
+    await this.sendWithRetry({
       from: config.mail.from,
       to: params.toEmail,
       subject,
@@ -129,6 +206,7 @@ export class EmailService {
     logger.info('Password reset email sent', {
       userEmail: params.toEmail,
     });
+    return { sent: true };
   }
 
   async sendWelcomeInviteEmail(params: WelcomeInviteEmailParams): Promise<boolean> {
@@ -162,7 +240,7 @@ export class EmailService {
       <p>Complete the 6-step onboarding wizard after login.</p>
     `;
 
-    await this.getTransporter().sendMail({
+    await this.sendWithRetry({
       from: config.mail.from,
       to: params.toEmail,
       subject,
@@ -189,7 +267,7 @@ export class EmailService {
     const text = `Hi ${greetingName},\n\n${params.bodyText}`;
     const html = `<p>Hi ${escapeHtml(greetingName)},</p><p>${escapeHtml(params.bodyText).replace(/\n/g, '<br>')}</p>`;
 
-    await this.getTransporter().sendMail({
+    await this.sendWithRetry({
       from: config.mail.from,
       to: params.toEmail,
       subject: params.subject,
