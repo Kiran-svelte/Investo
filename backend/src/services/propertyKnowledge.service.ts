@@ -245,6 +245,16 @@ export function buildPropertyKnowledgeSections(input: {
       sections.push(unitInventory);
     }
 
+    const typeKnowledge = input.draftData.type_knowledge ?? input.draftData.typeKnowledge;
+    if (typeKnowledge && typeof typeKnowledge === 'object' && !Array.isArray(typeKnowledge)) {
+      const lines = Object.entries(typeKnowledge as Record<string, unknown>)
+        .filter(([k, v]) => k !== 'anything_else_skipped' && v !== null && v !== undefined && String(v).trim() !== '')
+        .map(([k, v]) => `${k}: ${String(v)}`);
+      if (lines.length > 0) {
+        sections.push(`Type-specific knowledge (admin confirmed):\n${lines.join('\n')}`);
+      }
+    }
+
     const reviewNotes = typeof input.draftData.review_notes === 'string' ? input.draftData.review_notes.trim() : '';
     if (reviewNotes) {
       sections.push(`Internal review notes:\n${reviewNotes}`);
@@ -479,6 +489,107 @@ export async function searchPropertyKnowledge(
     });
     return [];
   }
+}
+
+const PROPERTY_TYPE_PATTERN = /\b(apartment|flat|villa|plot|land|commercial|shop|office)\b/i;
+
+export function parsePropertyTypeFromQuery(query: string): string | null {
+  const match = query.match(PROPERTY_TYPE_PATTERN);
+  if (!match) {
+    return null;
+  }
+  const token = match[1].toLowerCase();
+  if (token === 'flat') {
+    return 'apartment';
+  }
+  if (token === 'land') {
+    return 'plot';
+  }
+  if (token === 'shop' || token === 'office') {
+    return 'commercial';
+  }
+  return token;
+}
+
+export function parseLocationTokensFromQuery(query: string): string[] {
+  const stop = new Set([
+    'near', 'in', 'at', 'around', 'for', 'the', 'a', 'an', 'looking', 'want', 'need',
+    'villa', 'apartment', 'flat', 'plot', 'land', 'commercial', 'property', 'project',
+    'brochure', 'details', 'send', 'show', 'me', 'please',
+  ]);
+  return query
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3 && !stop.has(t));
+}
+
+export async function matchCatalogPropertiesForQuery(input: {
+  companyId: string;
+  query: string;
+  limit?: number;
+}): Promise<Array<{
+  id: string;
+  name: string;
+  propertyType: string | null;
+  locationCity: string | null;
+  locationArea: string | null;
+  brochureUrl: string | null;
+  score: number;
+}>> {
+  const limit = input.limit ?? 5;
+  const propertyType = parsePropertyTypeFromQuery(input.query);
+  const locationTokens = parseLocationTokensFromQuery(input.query);
+
+  const where: Record<string, unknown> = {
+    companyId: input.companyId,
+    status: 'available',
+  };
+  if (propertyType) {
+    where.propertyType = propertyType;
+  }
+
+  const candidates = await prisma.property.findMany({
+    where: where as any,
+    orderBy: { updatedAt: 'desc' },
+    take: 40,
+    select: {
+      id: true,
+      name: true,
+      propertyType: true,
+      locationCity: true,
+      locationArea: true,
+      brochureUrl: true,
+      description: true,
+    },
+  });
+
+  const scored = candidates.map((p) => {
+    const haystack = [
+      p.name,
+      p.locationCity,
+      p.locationArea,
+      p.description,
+      p.propertyType,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    let score = propertyType && p.propertyType === propertyType ? 2 : 0;
+    for (const token of locationTokens) {
+      if (haystack.includes(token)) {
+        score += 3;
+      }
+    }
+    return { ...p, score };
+  });
+
+  return scored
+    .filter((p) => p.score > 0 || locationTokens.length === 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
 
 export function formatKnowledgeContextForPrompt(chunks: PropertyKnowledgeChunk[]): string {

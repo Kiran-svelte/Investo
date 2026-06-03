@@ -10,6 +10,7 @@ import { enforceNeverSayNoResponse } from './neverSayNoResponseGuard.service';
 import { polishOutboundMessage } from './messagePolish.service';
 import { buildGroundedFactsBlock } from './groundingGuard.service';
 import { propertyToCompletenessInput } from './propertyCompleteness.service';
+import { matchCatalogPropertiesForQuery } from './propertyKnowledge.service';
 import { normalizeInboundWhatsAppPhone, phonesMatchLast10 } from '../utils/phoneMatch';
 import { findCompanyUserByPhone } from './inboundWhatsAppRouting.service';
 
@@ -929,6 +930,13 @@ export class WhatsAppService {
         // Send via WhatsApp Cloud API using company-specific config
         const sent = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
 
+        await this.maybeSendCatalogBrochureForQuery({
+          companyId,
+          customerPhone,
+          messageText: msg.messageText,
+          whatsappConfig: whatsappConfig!,
+        });
+
         // CHUNK 5: AI Rich Media Presentation
         // If AI recommended properties and they have media, send it automatically
         if (aiResponse.newState && this.shouldSendPropertyMedia(aiResponse.newState, aiResponse.nextAction)) {
@@ -1649,6 +1657,57 @@ export class WhatsAppService {
     }
 
     return { success: errors.length === 0, sent, errors };
+  }
+
+  /**
+   * When the customer names a type + area (e.g. "villa near Anekal"), send brochure for the best catalog match.
+   */
+  private async maybeSendCatalogBrochureForQuery(input: {
+    companyId: string;
+    customerPhone: string;
+    messageText: string;
+    whatsappConfig: CompanyWhatsAppConfig;
+  }): Promise<void> {
+    const text = input.messageText.trim();
+    if (!text || text.length < 8) {
+      return;
+    }
+
+    const wantsBrochure = /\b(brochure|pdf|details|send|share)\b/i.test(text);
+    const hasTypeOrLocation = /\b(villa|apartment|flat|plot|commercial|near|in)\b/i.test(text);
+    if (!wantsBrochure && !hasTypeOrLocation) {
+      return;
+    }
+
+    try {
+      const matches = await matchCatalogPropertiesForQuery({
+        companyId: input.companyId,
+        query: text,
+        limit: 3,
+      });
+      const top = matches.find((m) => m.brochureUrl && m.score >= 3) ?? matches.find((m) => m.brochureUrl);
+      if (!top?.brochureUrl) {
+        return;
+      }
+
+      const locationLabel = [top.locationArea, top.locationCity].filter(Boolean).join(', ');
+      const intro = locationLabel
+        ? `Here is the project for *${top.name}* (${top.propertyType}) near ${locationLabel}:`
+        : `Here is the project for *${top.name}* (${top.propertyType}):`;
+
+      await this.sendMessage(input.customerPhone, intro, input.whatsappConfig);
+      await this.sendPropertyBrochure(
+        input.customerPhone,
+        top.brochureUrl,
+        top.name,
+        input.whatsappConfig,
+      );
+    } catch (err: unknown) {
+      logger.warn('Catalog brochure auto-send skipped', {
+        companyId: input.companyId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**

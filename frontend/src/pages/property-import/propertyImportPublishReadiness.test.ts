@@ -8,14 +8,13 @@ describe('getPublishReadiness', () => {
       formValues: {
         ...PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
         name: 'Palmvilla',
-        price_min: '8500000',
-        price_max: '12500000',
         property_type: '',
       },
       draft: {
         id: 'd1',
         status: 'review_ready',
         extractionStatus: 'extracted',
+        mediaAssets: [{ id: 'm1' }],
       } as any,
       isUploading: false,
       activeUploadCount: 0,
@@ -25,27 +24,24 @@ describe('getPublishReadiness', () => {
     expect(result.blockers.some((b) => b.includes('property type'))).toBe(true);
   });
 
-  it('blocks apartment publish without unit rows or single-unit bedrooms', () => {
+  it('is ready when type, name, media, and extraction are satisfied', () => {
     const result = getPublishReadiness({
       formValues: {
         ...PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
         name: 'Towers',
         property_type: 'apartment',
-        price_min: '8500000',
-        price_max: '12500000',
-        unit_configurations: [{ bhk: '2', unit_label: '', count: '', price_min: '', price_max: '' }],
-        single_unit_mode: false,
       },
       draft: {
         id: 'd1',
         status: 'review_ready',
         extractionStatus: 'extracted',
+        mediaAssets: [{ id: 'm1' }],
       } as any,
       isUploading: false,
       activeUploadCount: 0,
     });
 
-    expect(result.ready).toBe(false);
-    expect(result.blockers.some((b) => b.includes('unit type row'))).toBe(true);
+    expect(result.ready).toBe(true);
+    expect(result.blockers).toHaveLength(0);
   });
 });

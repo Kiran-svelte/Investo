@@ -41,6 +41,28 @@ describe('propertyKnowledge.service', () => {
     expect(joined).not.toContain('invented');
   });
 
+  it('includes type_knowledge in knowledge sections', () => {
+    const sections = buildPropertyKnowledgeSections({
+      property: {
+        id: 'prop-3',
+        name: 'Lake View',
+        propertyType: 'villa',
+      },
+      draftData: {
+        type_knowledge: {
+          plot_area_sqft: '3000 sq ft',
+          has_pool: 'Community pool',
+          anything_else: 'Weekend site visits by appointment',
+        },
+      },
+    });
+
+    const joined = sections.join('\n');
+    expect(joined).toContain('Type-specific knowledge');
+    expect(joined).toContain('has_pool');
+    expect(joined).toContain('Weekend site visits');
+  });
+
   it('includes unit_configurations in knowledge sections', () => {
     const sections = buildPropertyKnowledgeSections({
       property: {

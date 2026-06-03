@@ -9,21 +9,19 @@ import PropertyImportPage from './PropertyImportPage';
 const {
   navigateMock,
   getPropertyImportDraftMock,
-  savePropertyImportDraftMock,
   publishPropertyImportDraftMock,
+  savePropertyImportDraftMock,
 } = vi.hoisted(() => ({
   navigateMock: vi.fn(),
   getPropertyImportDraftMock: vi.fn(),
-  savePropertyImportDraftMock: vi.fn(),
   publishPropertyImportDraftMock: vi.fn(),
+  savePropertyImportDraftMock: vi.fn(),
 }));
 
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({
     user: {
       id: 'user-1',
-      name: 'Admin User',
-      email: 'admin@example.com',
       role: 'company_admin',
       company_id: 'company-1',
     },
@@ -45,19 +43,14 @@ vi.mock('../../services/propertyImport', () => ({
   confirmPropertyImportUpload: vi.fn(),
   createPropertyImportDraft: vi.fn(),
   getPropertyImportDraft: getPropertyImportDraftMock,
-  inferPropertyImportAssetType: vi.fn(() => 'image'),
+  inferPropertyImportAssetType: vi.fn(() => 'brochure'),
   isPropertyImportMimeTypeSupported: vi.fn(() => true),
   publishPropertyImportDraft: publishPropertyImportDraftMock,
   registerPropertyImportUpload: vi.fn(),
   retryPropertyImportDraft: vi.fn(),
   savePropertyImportDraft: savePropertyImportDraftMock,
   uploadPropertyImportFile: vi.fn(),
-  PROPERTY_IMPORT_ASSET_TYPE_LABELS: {
-    image: 'Image',
-    brochure: 'Brochure',
-    video: 'Video',
-  },
-  PROPERTY_IMPORT_SUPPORTED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'video/mp4'],
+  PROPERTY_IMPORT_SUPPORTED_MIME_TYPES: ['application/pdf'],
 }));
 
 function createDraft(overrides: Record<string, unknown> = {}) {
@@ -65,67 +58,33 @@ function createDraft(overrides: Record<string, unknown> = {}) {
     id: 'draft-1',
     companyId: 'company-1',
     createdByUserId: 'user-1',
-    reviewedByUserId: null,
-    publishedPropertyId: null,
     status: 'review_ready',
     extractionStatus: 'extracted',
     retryCount: 0,
     maxRetries: 3,
-    failureReason: null,
     draftData: {
       name: 'Skyline Towers',
       property_type: 'apartment',
       price_min: 8500000,
       price_max: 12500000,
       location_city: 'Bengaluru',
-      amenities: ['Pool', 'Gym'],
-      unit_configurations: [{ bhk: 2, count: 80, unit_label: null, price_min: null, price_max: null }],
-      ai_marketing_answers: {
-        target_buyer: 'End-user families',
-        possession_timeline: 'Within 12 months',
-        payment_plan: 'Bank loan / EMI assistance',
-        key_selling_point: 'Prime location / connectivity',
-        amenities_focus: 'Clubhouse & pool',
-      },
-      import_mapping: {
-        source_type: 'brochure',
-        profile_name: 'default-profile',
-        field_mappings: [
-          {
-            source_field: 'project_name',
-            target_field: 'name',
-            confidence: 0.7,
-            required: true,
-            label: 'Project name',
-            notes: 'Brochure heading',
-          },
-        ],
-        review_settings: {
-          confidence_threshold: 0.75,
-          low_confidence_threshold: 0.55,
-          require_human_review: true,
-        },
-      },
-      import_review: {
-        status: 'needs_review',
-        confidence_hints: [
-          {
-            field: 'name',
-            confidence: 0.7,
-            source_field: 'project_name',
-            note: 'Low-confidence OCR mapping',
-          },
-        ],
+      bedrooms: 3,
+      amenities: 'Pool, Gym',
+      type_knowledge: {
+        carpet_area_sqft: '1200 sq ft',
+        bhk: '2 & 3 BHK',
+        price: '₹1 Cr',
+        floor_number: 'Mid rise',
+        tower_name: 'Tower A',
+        possession_date: 'Within 12 months',
+        maintenance_fee: '₹3/sqft',
+        facing: 'East',
+        parking: '1 covered',
+        amenities: 'Clubhouse',
+        anything_else: 'Nothing else',
       },
     },
-    reviewNotes: null,
-    extractionRequestedAt: null,
-    reviewedAt: null,
-    publishedAt: null,
-    cancelledAt: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    mediaAssets: [],
+    mediaAssets: [{ id: 'm1', fileName: 'brochure.pdf', assetType: 'brochure', status: 'extracted', fileSize: 1000 }],
     extractionJobs: [],
     publishedProperty: null,
     ...overrides,
@@ -136,120 +95,38 @@ afterEach(() => {
   cleanup();
 });
 
-describe('PropertyImportPage review workflow', () => {
+describe('PropertyImportPage simplified flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPropertyImportDraftMock.mockResolvedValue(createDraft());
-    savePropertyImportDraftMock.mockResolvedValue(createDraft({
-      status: 'publish_ready',
-      draftData: {
-        ...createDraft().draftData,
-        import_review: {
-          status: 'approved',
-          confidence_hints: [],
-        },
-      },
-    }));
+    savePropertyImportDraftMock.mockImplementation(async (_id, body) =>
+      createDraft({ draftData: { ...createDraft().draftData, ...(body.draft_data as object) } }),
+    );
     publishPropertyImportDraftMock.mockResolvedValue({
-      property: { id: 'property-1', name: 'Skyline Towers' },
-      draft: createDraft({ status: 'published', publishedPropertyId: 'property-1' }),
-      alreadyPublished: false,
+      property: { id: 'property-1' },
+      draft: createDraft({ status: 'published' }),
       knowledge_indexed: true,
-      knowledge_chunk_count: 3,
     });
   });
 
-  it('renders review controls and mapping editor for visual coverage', async () => {
+  it('renders simplified steps and ready to go when knowledge complete', async () => {
     render(<PropertyImportPage />);
 
-    expect(await screen.findByRole('heading', { name: 'Review draft details' })).toBeInTheDocument();
-    expect(screen.getByText(/Mapping fields = how brochure PDF labels map/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Publish property' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Add a property' })).toBeInTheDocument();
+    expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ready to go' })).toBeInTheDocument();
   });
 
-  it('handles save interaction with loading state and double-click prevention', async () => {
+  it('publishes when ready to go is clicked', async () => {
     const user = userEvent.setup();
-
-    let resolveSave: (value: unknown) => void;
-    const savePromise = new Promise((resolve) => {
-      resolveSave = resolve;
-    });
-
-    savePropertyImportDraftMock.mockReturnValueOnce(savePromise);
-
     render(<PropertyImportPage />);
 
-    await screen.findByRole('heading', { name: 'Review draft details' });
-
-    const saveButton = screen.getByRole('button', { name: 'Save draft' });
-    await user.click(saveButton);
-
-    expect(savePropertyImportDraftMock).toHaveBeenCalledTimes(1);
-    expect(savePropertyImportDraftMock).toHaveBeenCalledWith(
-      'draft-1',
-      expect.objectContaining({
-        mark_publish_ready: false,
-      }),
-    );
-    expect(saveButton).toBeDisabled();
-
-    await user.click(saveButton);
-    expect(savePropertyImportDraftMock).toHaveBeenCalledTimes(1);
-
-    resolveSave!(createDraft({
-      status: 'publish_ready',
-      draftData: {
-        ...createDraft().draftData,
-        import_review: {
-          status: 'approved',
-          confidence_hints: [],
-        },
-      },
-    }));
+    await screen.findByRole('button', { name: 'Ready to go' });
+    await user.click(screen.getByRole('button', { name: 'Ready to go' }));
 
     await waitFor(() => {
-      expect(saveButton).not.toBeDisabled();
+      expect(publishPropertyImportDraftMock).toHaveBeenCalledWith('draft-1', {});
     });
-  });
-
-  it('shows error state when save fails', async () => {
-    const user = userEvent.setup();
-    savePropertyImportDraftMock.mockRejectedValueOnce(new Error('Save failed for network timeout'));
-
-    render(<PropertyImportPage />);
-
-    await screen.findByRole('heading', { name: 'Review draft details' });
-
-    const saveButton = screen.getByRole('button', { name: 'Save draft' });
-    await user.click(saveButton);
-
-    expect(await screen.findByText('Save failed for network timeout')).toBeInTheDocument();
-    expect(publishPropertyImportDraftMock).not.toHaveBeenCalled();
-  });
-
-  it('persists approval before publish and navigates after successful publish', async () => {
-    const user = userEvent.setup();
-
-    render(<PropertyImportPage />);
-
-    await screen.findByRole('heading', { name: 'Review draft details' });
-
-    const publishButton = screen.getByRole('button', { name: 'Publish property' });
-    await user.click(publishButton);
-
-    await waitFor(() => {
-      expect(savePropertyImportDraftMock).toHaveBeenCalledTimes(1);
-      expect(publishPropertyImportDraftMock).toHaveBeenCalledTimes(1);
-    });
-
-    expect(savePropertyImportDraftMock).toHaveBeenCalledWith(
-      'draft-1',
-      expect.objectContaining({
-        mark_publish_ready: true,
-      }),
-    );
-
     expect(navigateMock).toHaveBeenCalledWith('/properties', { replace: true });
   });
 });

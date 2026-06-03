@@ -3,62 +3,82 @@ import { assessProjectKnowledgeGaps } from './assessProjectKnowledgeGaps';
 import { PROPERTY_IMPORT_DEFAULT_FORM_VALUES } from './propertyImport.utils';
 
 describe('assessProjectKnowledgeGaps', () => {
-  it('returns no questions when brochure data is sufficient', () => {
+  it('returns only missing apartment fields', () => {
     const gaps = assessProjectKnowledgeGaps(
       {
         ...PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
-        name: 'Skyline',
         property_type: 'apartment',
+        bedrooms: '3',
         price_min: '8500000',
         price_max: '12500000',
-        location_city: 'Bengaluru',
-        location_area: 'Whitefield',
-        builder: 'Acme',
-        description: 'A'.repeat(90),
         amenities: 'Pool, Gym',
+        description: 'East facing 3 BHK with possession Dec 2027 and clubhouse pool parking security',
       },
       {
-        unit_configurations: [{ bhk: 2, count: 40, unit_label: null, price_min: null, price_max: null }],
-        ai_marketing_answers: {
-          target_buyer: 'Families',
-          possession_timeline: 'Ready to move',
-          payment_plan: 'EMI',
-          key_selling_point: 'Location',
-          amenities_focus: 'Pool',
+        type_knowledge: {
+          carpet_area_sqft: '1200–1600 sq ft',
+          floor_number: 'High rise',
+          tower_name: 'Tower A',
+          maintenance_fee: '₹3–5/sqft',
+          facing: 'East',
+          parking: '2 covered',
+          anything_else: 'Nothing else',
         },
       },
     );
 
-    expect(gaps).toHaveLength(0);
+    expect(gaps.map((g) => g.typeKnowledgeKey)).not.toContain('bhk');
+    expect(gaps.map((g) => g.typeKnowledgeKey)).not.toContain('amenities');
+    expect(gaps.length).toBeLessThan(5);
   });
 
-  it('asks property type when missing', () => {
+  it('always ends with anything_else when not answered', () => {
     const gaps = assessProjectKnowledgeGaps(
       {
         ...PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
-        name: 'Villa Park',
-        property_type: '',
-        price_min: '1',
-        price_max: '2',
+        property_type: 'plot',
+        name: 'Green Acres',
+        description: 'DTCP approved gated corner plot 40x60 east facing',
       },
-      null,
+      {
+        type_knowledge: {
+          plot_area_sqft: '40×60',
+          price_per_cent: '₹20 L/cent',
+          is_gated: 'Fully gated',
+          approvals: 'DTCP approved',
+          facing: 'East',
+          is_corner_plot: 'Yes',
+          road_width_ft: '40 ft',
+          construction_allowed: 'Individual villa',
+          plot_dimensions: '40×60',
+          legal_status: 'Clear title',
+        },
+      },
     );
 
-    expect(gaps.map((g) => g.id)).toContain('property_type');
+    expect(gaps.some((g) => g.typeKnowledgeKey === 'anything_else')).toBe(true);
   });
 
-  it('asks villa unit mix when inventory missing', () => {
+  it('asks villa fields when brochure did not fill them', () => {
     const gaps = assessProjectKnowledgeGaps(
       {
         ...PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
-        name: 'Villa Park',
         property_type: 'villa',
-        price_min: '1',
-        price_max: '2',
+        name: 'Palm Grove',
       },
       null,
     );
 
-    expect(gaps.some((g) => g.id === 'villa_unit_mix' || g.id === 'unit_mix')).toBe(true);
+    expect(gaps.length).toBeGreaterThan(3);
+    expect(gaps.some((g) => g.typeKnowledgeKey === 'bhk')).toBe(true);
+    expect(gaps.some((g) => g.typeKnowledgeKey === 'anything_else')).toBe(true);
+  });
+
+  it('returns empty when property type missing', () => {
+    const gaps = assessProjectKnowledgeGaps(
+      { ...PROPERTY_IMPORT_DEFAULT_FORM_VALUES, property_type: '' },
+      null,
+    );
+    expect(gaps).toHaveLength(0);
   });
 });

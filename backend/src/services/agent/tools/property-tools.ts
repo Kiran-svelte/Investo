@@ -8,6 +8,7 @@ import {
   assessPropertyCompleteness,
   formatCompletenessForAgentTool,
 } from '../../propertyCompleteness.service';
+import { matchCatalogPropertiesForQuery } from '../../propertyKnowledge.service';
 
 const propertyType = z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']);
 const propertyStatus = z.enum(['available', 'sold', 'upcoming']);
@@ -90,6 +91,35 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
         });
         if (!property) return 'Property not found.';
         return formatCompletenessForAgentTool(assessPropertyCompleteness(property));
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'searchCatalogByCustomerMessage',
+      description:
+        'Match published properties by customer message (type + location). Use before claiming a project exists. Returns brochure URLs when available.',
+      schema: z.object({
+        message: z.string().min(1),
+        limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional(),
+      }),
+      func: async ({ message, limit }) => {
+        const matches = await matchCatalogPropertiesForQuery({
+          companyId: context.companyId,
+          query: message,
+          limit: limit ?? 5,
+        });
+        if (!matches.length) {
+          return 'No matching published properties in catalog for that message. Do not invent project names.';
+        }
+        return [
+          '*Catalog matches (grounded)*',
+          ...matches.map((p) => [
+            `*${p.name}* (${p.propertyType || 'type unknown'})`,
+            `Location: ${[p.locationArea, p.locationCity].filter(Boolean).join(', ') || 'not set'}`,
+            `ID: ${p.id}`,
+            p.brochureUrl ? `Brochure: ${p.brochureUrl}` : 'Brochure: not on file',
+            `Match score: ${p.score}`,
+          ].join('\n')),
+        ].join('\n\n');
       },
     }),
     new DynamicStructuredTool({

@@ -213,6 +213,7 @@ ${stageConfig.promptFocus}
 4. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet (deterministic calculator output).
 5. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
 6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
+6b. When a listing shows Brochure URL in AVAILABLE PROPERTIES, you may offer to share it; the system may send the PDF after your message. Never invent brochure links.
 7. ONE clear call-to-action per message.
 8. Keep responses under 200 words.
 9. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : 'Move toward booking'}
