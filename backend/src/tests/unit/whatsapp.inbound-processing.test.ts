@@ -6,6 +6,7 @@ const mockPrisma = {
   },
   lead: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
     groupBy: jest.fn(),
@@ -80,7 +81,28 @@ jest.mock('../../services/socket.service', () => ({
   },
 }));
 
+jest.mock('../../services/inboundWhatsAppRouting.service', () => ({
+  __esModule: true,
+  routeCompanyScopedInbound: jest.fn().mockResolvedValue({
+    handled: false,
+    route: { kind: 'customer' },
+  }),
+}));
+
+jest.mock('../../services/neverSayNoEngine.service', () => ({
+  __esModule: true,
+  buildNeverSayNoContext: jest.fn().mockResolvedValue({
+    promptBlock: '',
+    exactPropertyIds: [],
+    alternativePropertyIds: [],
+    fallbackCta: 'Reply with your budget and area.',
+    hasInventoryAlternatives: false,
+  }),
+}));
+
+import { aiService } from '../../services/ai.service';
 import { WhatsAppService } from '../../services/whatsapp.service';
+import { routeCompanyScopedInbound } from '../../services/inboundWhatsAppRouting.service';
 import logger from '../../config/logger';
 
 function safeStringify(value: any): string {
@@ -162,14 +184,31 @@ describe('WhatsAppService inbound operational behavior', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new WhatsAppService();
+    jest.spyOn(service, 'sendMessage').mockResolvedValue(true);
 
     mockPrisma.company.findMany.mockResolvedValue([company]);
     mockPrisma.lead.findFirst.mockResolvedValue(lead);
     mockPrisma.conversation.findFirst.mockResolvedValue(conversation);
     mockPrisma.message.create.mockResolvedValue({ id: 'message-1' });
+    mockPrisma.message.findMany.mockResolvedValue([]);
     mockPrisma.lead.update.mockResolvedValue({ id: lead.id });
     mockPrisma.notification.create.mockResolvedValue({ id: 'notif-1' });
+    mockPrisma.user.findMany.mockResolvedValue([]);
+    mockPrisma.aiSetting.findUnique.mockResolvedValue({});
+    mockPrisma.property.findMany.mockResolvedValue([]);
+    mockPrisma.conversation.update.mockResolvedValue({
+      status: 'ai_active',
+      aiEnabled: true,
+    });
     mockEmitToCompany.mockReturnValue(true);
+    (routeCompanyScopedInbound as jest.Mock).mockResolvedValue({
+      handled: false,
+      route: { kind: 'customer' },
+    });
+    (aiService.generateResponse as jest.Mock).mockResolvedValue({
+      text: 'Thanks for your message!',
+      detectedLanguage: 'en',
+    });
   });
 
   afterEach(() => {
@@ -253,12 +292,23 @@ describe('WhatsAppService inbound operational behavior', () => {
     });
   });
 
-  it('does not run interactive automation after agent takeover', async () => {
+  it('does not run interactive automation after agent takeover but re-enables AI for WhatsApp reply', async () => {
     mockPrisma.lead.findFirst.mockResolvedValueOnce({
       ...lead,
       assignedAgentId: 'agent-1',
     });
+    mockPrisma.aiSetting.findUnique.mockResolvedValue({});
+    mockPrisma.message.findMany.mockResolvedValue([]);
+    mockPrisma.property.findMany.mockResolvedValue([]);
+
+    const { aiService } = await import('../../services/ai.service');
+    (aiService.generateResponse as jest.Mock).mockResolvedValue({
+      text: 'Thanks! I can help book a visit.',
+      detectedLanguage: 'en',
+    });
+
     const interactiveSpy = jest.spyOn(service, 'handleInteractiveAction');
+    const sendSpy = jest.spyOn(service, 'sendMessage').mockResolvedValue(true);
 
     const result = await service.handleIncomingMessage({
       phoneNumberId: 'pnid-1',
@@ -271,13 +321,80 @@ describe('WhatsAppService inbound operational behavior', () => {
     });
 
     expect(interactiveSpy).not.toHaveBeenCalled();
-    expect(mockPrisma.notification.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        companyId: 'company-1',
-        userId: 'agent-1',
-        type: 'agent_takeover',
-      }),
+    expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
+      where: { id: 'conv-1' },
+      data: { status: 'ai_active', aiEnabled: true },
+      select: { status: true, aiEnabled: true },
     });
+    expect(sendSpy).toHaveBeenCalled();
     expect(result.status).toBe('processed');
+  });
+
+  it('auto-creates lead and routes strangers (non-staff phones) to prospect flow', async () => {
+    mockPrisma.lead.findFirst.mockResolvedValue(null);
+    mockPrisma.lead.findMany.mockResolvedValue([]);
+    mockPrisma.lead.create.mockResolvedValue({
+      id: 'lead-new',
+      companyId: 'company-1',
+      phone: '+918888888888',
+      status: 'new',
+      language: 'en',
+      assignedAgentId: null,
+      customerName: null,
+    });
+    mockPrisma.conversation.findFirst.mockResolvedValue(null);
+    mockPrisma.conversation.create.mockResolvedValue({
+      id: 'conv-new',
+      companyId: 'company-1',
+      leadId: 'lead-new',
+      status: 'ai_active',
+      aiEnabled: true,
+      stage: 'rapport',
+      stageEnteredAt: new Date(),
+      stageMessageCount: 0,
+      commitments: {},
+      objectionCount: 0,
+      lastObjectionType: null,
+      consecutiveObjections: 0,
+      urgencyScore: 5,
+      valueScore: 5,
+      escalationReason: null,
+      recommendedPropertyIds: [],
+      selectedPropertyId: null,
+      proposedVisitTime: null,
+    });
+    mockPrisma.lead.groupBy.mockResolvedValue([]);
+    mockPrisma.aiSetting.findUnique.mockResolvedValue({});
+    mockPrisma.message.findMany.mockResolvedValue([]);
+    mockPrisma.property.findMany.mockResolvedValue([]);
+
+    const { aiService } = await import('../../services/ai.service');
+    (aiService.generateResponse as jest.Mock).mockResolvedValue({
+      text: 'Welcome! What area are you looking in?',
+      detectedLanguage: 'en',
+    });
+
+    jest.spyOn(service as any, 'assignRoundRobin').mockResolvedValue(null);
+    const sendSpy = jest.spyOn(service, 'sendMessage').mockResolvedValue(true);
+
+    const result = await service.handleIncomingMessage({
+      phoneNumberId: 'pnid-1',
+      customerPhone: '+918888888888',
+      customerName: 'New Prospect',
+      messageText: 'Hi I need a flat',
+      messageId: 'wamid-new-1',
+    });
+
+    expect(mockPrisma.lead.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          phone: '+918888888888',
+          source: 'whatsapp',
+        }),
+      }),
+    );
+    expect(sendSpy).toHaveBeenCalled();
+    expect(result.status).toBe('processed');
+    expect(result.leadId).toBe('lead-new');
   });
 });

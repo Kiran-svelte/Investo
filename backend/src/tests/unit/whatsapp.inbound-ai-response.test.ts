@@ -82,6 +82,14 @@ jest.mock('../../services/neverSayNoEngine.service', () => ({
   }),
 }));
 
+jest.mock('../../services/inboundWhatsAppRouting.service', () => ({
+  __esModule: true,
+  routeCompanyScopedInbound: jest.fn().mockResolvedValue({
+    handled: false,
+    route: { kind: 'customer' },
+  }),
+}));
+
 jest.mock('../../services/socket.service', () => ({
   __esModule: true,
   socketService: {

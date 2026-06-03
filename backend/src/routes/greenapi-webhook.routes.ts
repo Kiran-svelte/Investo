@@ -381,26 +381,6 @@ async function processGreenApiWebhook(
         continue;
       }
 
-      const { inboundWhatsAppRoutingService } = await import(
-        '../services/inboundWhatsAppRouting.service'
-      );
-      const scopedRoute = await inboundWhatsAppRoutingService.routeCompanyScopedInbound({
-        senderPhone: msg.customerPhone,
-        messageText: msg.messageText,
-        companyId: companyResolution.company.id,
-      });
-      if (scopedRoute.handled) {
-        outcome.propagationStatus = 'success';
-        outcome.status = 'processed';
-        outcome.reason =
-          scopedRoute.route.kind === 'agent_copilot'
-            ? 'handled_by_agent_ai'
-            : 'handled_as_company_staff';
-        summary.processed += 1;
-        summary.outcomes.push(outcome);
-        continue;
-      }
-
       const result = await whatsappService.handleIncomingMessage({
         provider: 'greenapi',
         phoneNumberId,

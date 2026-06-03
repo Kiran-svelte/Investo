@@ -12,7 +12,9 @@ import { buildGroundedFactsBlock } from './groundingGuard.service';
 import { propertyToCompletenessInput } from './propertyCompleteness.service';
 import { matchCatalogPropertiesForQuery } from './propertyKnowledge.service';
 import { normalizeInboundWhatsAppPhone, phonesMatchLast10 } from '../utils/phoneMatch';
-import { findCompanyUserByPhone } from './inboundWhatsAppRouting.service';
+import {
+  routeCompanyScopedInbound,
+} from './inboundWhatsAppRouting.service';
 
 import {
   parseVisitTimeInteractiveId,
@@ -536,21 +538,29 @@ export class WhatsAppService {
     const companyId = company.id;
     const customerPhone = normalizeInboundWhatsAppPhone(msg.customerPhone);
 
-    const companyStaff = await findCompanyUserByPhone(customerPhone, companyId);
-    if (companyStaff) {
-      logger.warn('Customer AI path reached for company staff phone; skipping', {
-        userId: companyStaff.userId,
-        role: companyStaff.userRole,
+    // Company staff (dashboard users) → agent copilot or staff notice — never the prospect AI flow.
+    const staffRoute = await routeCompanyScopedInbound({
+      senderPhone: customerPhone,
+      messageText: msg.messageText,
+      companyId,
+    });
+    if (staffRoute.handled) {
+      logger.info('Inbound handled as company user (not prospect AI)', {
+        route: staffRoute.route.kind,
+        companyId,
       });
       return {
         status: 'processed',
-        reason: 'company_staff_excluded_from_customer_ai',
+        reason:
+          staffRoute.route.kind === 'agent_copilot'
+            ? 'handled_by_agent_copilot'
+            : 'handled_as_company_staff',
         companyId,
         propagation: notAttempted,
       };
     }
 
-    // 2. Find or create lead and conversation (normalized E.164)
+    // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
     let lead =
       (await prisma.lead.findFirst({
         where: { companyId, phone: customerPhone },
@@ -759,7 +769,10 @@ export class WhatsAppService {
       }
     }
 
-    // 4. If conversation is ai_active, generate AI response with state machine
+    // 4. Any non-staff WhatsApp sender is a prospect — resume AI for this channel before replying
+    const aiReady = await this.ensureProspectConversationAiActive(conversation);
+    conversation = { ...conversation, status: aiReady.status as typeof conversation.status, aiEnabled: aiReady.aiEnabled };
+
     if (conversation.status === 'ai_active' && conversation.aiEnabled) {
       try {
         // Get AI settings for this company
@@ -1003,7 +1016,32 @@ export class WhatsAppService {
         }
       }
     } else {
-      // Conversation is agent_active - AI does NOT auto-reply; notify human agent
+      // Human takeover in CRM — still reply on WhatsApp so unknown prospects are never left silent
+      const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId } });
+      const handoffText =
+        `Thanks for your message! Our team at *${company.name}* has your request.\n\n` +
+        (formatOperatorHandoffLine(aiSettings?.operatorContact) ||
+          `Please share your *area*, *budget*, and *property type* if you have not already — we will assist you shortly.`);
+
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: 'ai',
+          content: handoffText,
+          language: lead.language || 'en',
+          status: 'sent',
+        },
+      });
+
+      try {
+        await this.sendMessage(customerPhone, handoffText, whatsappConfig!);
+      } catch (sendErr: any) {
+        logger.error('Failed to send handoff WhatsApp message to prospect', {
+          error: sendErr?.message,
+          conversationId: conversation.id,
+        });
+      }
+
       if (lead.assignedAgentId) {
         await prisma.notification.create({
           data: {
@@ -1015,6 +1053,12 @@ export class WhatsAppService {
           },
         });
       }
+
+      logger.info('Prospect message stored; handoff reply sent (conversation not ai_active)', {
+        conversationId: conversation.id,
+        status: conversation.status,
+        aiEnabled: conversation.aiEnabled,
+      });
     }
 
     return {
@@ -1024,6 +1068,37 @@ export class WhatsAppService {
       conversationId: conversation.id,
       propagation,
     };
+  }
+
+  /**
+   * Prospects (any phone not registered as company staff) must get AI replies.
+   * Re-enable AI when a customer messages again after agent takeover or manual disable.
+   */
+  private async ensureProspectConversationAiActive(conversation: {
+    id: string;
+    status: string;
+    aiEnabled: boolean;
+  }): Promise<{ status: string; aiEnabled: boolean }> {
+    if (conversation.status === 'ai_active' && conversation.aiEnabled) {
+      return { status: conversation.status, aiEnabled: conversation.aiEnabled };
+    }
+
+    logger.info('Reactivating AI for inbound prospect WhatsApp message', {
+      conversationId: conversation.id,
+      previousStatus: conversation.status,
+      previousAiEnabled: conversation.aiEnabled,
+    });
+
+    const updated = await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        status: 'ai_active',
+        aiEnabled: true,
+      },
+      select: { status: true, aiEnabled: true },
+    });
+
+    return { status: updated.status, aiEnabled: updated.aiEnabled };
   }
 
   private async propagateConversationUpdate(payload: {

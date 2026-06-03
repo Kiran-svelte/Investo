@@ -350,29 +350,7 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
             continue;
           }
 
-          const { inboundWhatsAppRoutingService } = await import(
-            '../services/inboundWhatsAppRouting.service'
-          );
-          const scopedRoute = await inboundWhatsAppRoutingService.routeCompanyScopedInbound({
-            senderPhone: customerPhoneE164,
-            messageText,
-            companyId: companyResolution.company.id,
-          });
-          if (scopedRoute.handled) {
-            outcome.propagationStatus = 'success';
-            outcome.status = 'processed';
-            outcome.reason =
-              scopedRoute.route.kind === 'agent_copilot'
-                ? 'handled_by_agent_ai'
-                : 'handled_as_company_staff';
-            summary.processed += 1;
-            summary.outcomes.push(outcome);
-            logger.info('Message handled by company-scoped routing; skipping customer flow', {
-              messageId,
-              route: scopedRoute.route.kind,
-            });
-            continue;
-          }
+          // Staff vs prospect routing runs inside handleIncomingMessage (single global entry point).
 
           // If LangGraph integration is enabled, send normalized payload.
           if (config.langgraph?.enabled) {
