@@ -3,6 +3,14 @@ import type {
   PropertyImportDraftStatus,
   PropertyImportMediaStatus,
 } from '../../services/propertyImport';
+import {
+  deriveMaxBhkFromUnits,
+  parseUnitConfigurations,
+  readSingleUnitMode,
+  serializeUnitConfigurations,
+  unitConfigurationsToFormRows,
+  type UnitConfigurationFormRow,
+} from './propertyImportUnitConfig';
 
 export interface PropertyImportFormValues {
   name: string;
@@ -25,6 +33,8 @@ export interface PropertyImportFormValues {
   mapping_low_confidence_threshold: string;
   mapping_require_human_review: boolean;
   mapping_field_mappings: PropertyImportFieldMappingFormValue[];
+  unit_configurations: UnitConfigurationFormRow[];
+  single_unit_mode: boolean;
 }
 
 export interface PropertyImportFieldMappingFormValue {
@@ -104,6 +114,8 @@ export const PROPERTY_IMPORT_DEFAULT_FORM_VALUES: PropertyImportFormValues = {
   mapping_low_confidence_threshold: '0.55',
   mapping_require_human_review: true,
   mapping_field_mappings: [],
+  unit_configurations: [{ bhk: '2', unit_label: '', count: '', price_min: '', price_max: '' }],
+  single_unit_mode: false,
 };
 
 export const PROPERTY_IMPORT_STAGE_ORDER: PropertyImportStageKey[] = [
@@ -312,6 +324,8 @@ export function createPropertyImportFormValues(draftData?: Record<string, unknow
       label: '',
       notes: '',
     }],
+    unit_configurations: unitConfigurationsToFormRows(parseUnitConfigurations(draftData)),
+    single_unit_mode: readSingleUnitMode(draftData),
   };
 }
 
@@ -340,6 +354,13 @@ export function serializePropertyImportFormValues(
 
   const existingMapping = getPropertyImportMappingMetadata(existingDraftData);
   const existingReview = getPropertyImportReviewMetadata(existingDraftData);
+  const unitRows = serializeUnitConfigurations(values.unit_configurations);
+  const maxBhk = deriveMaxBhkFromUnits(unitRows);
+  const legacyBedrooms = values.bedrooms.trim()
+    ? Number(values.bedrooms)
+    : maxBhk != null
+      ? maxBhk
+      : null;
 
   return {
     ...(existingDraftData && typeof existingDraftData === 'object' ? existingDraftData : {}),
@@ -350,7 +371,9 @@ export function serializePropertyImportFormValues(
     location_pincode: values.location_pincode.trim() || null,
     price_min: values.price_min.trim() ? Number(values.price_min) : null,
     price_max: values.price_max.trim() ? Number(values.price_max) : null,
-    bedrooms: values.bedrooms.trim() ? Number(values.bedrooms) : null,
+    bedrooms: legacyBedrooms,
+    unit_configurations: values.single_unit_mode ? [] : unitRows,
+    single_unit_mode: values.single_unit_mode,
     property_type: values.property_type.trim() || null,
     description: values.description.trim() || null,
     rera_number: values.rera_number.trim() || null,

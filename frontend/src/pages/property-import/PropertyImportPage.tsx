@@ -57,6 +57,9 @@ import {
 } from './propertyImport.utils';
 import { getPublishReadiness } from './propertyImportPublishReadiness';
 import PropertyImportKnowledgeWizard from './PropertyImportKnowledgeWizard';
+import PropertyUnitConfigurationEditor from './PropertyUnitConfigurationEditor';
+import { propertyTypeUsesUnitConfig } from './propertyImportUnitConfig';
+import type { UnitConfigurationFormRow } from './propertyImportUnitConfig';
 
 type DraftUploadStatus = 'pending' | 'registering' | 'uploading' | 'confirming' | 'done' | 'failed';
 
@@ -193,6 +196,7 @@ export default function PropertyImportPage() {
   const [retryReason, setRetryReason] = useState('');
   const [showKnowledgeWizard, setShowKnowledgeWizard] = useState(false);
   const [showAdvancedMapping, setShowAdvancedMapping] = useState(false);
+  const knowledgeWizardAutoOpenedRef = useRef(false);
 
   const stage = useMemo(() => getPropertyImportStage(draft), [draft]);
   const mappingMetadata = useMemo(() => getPropertyImportMappingMetadata(draft?.draftData), [draft?.draftData]);
@@ -668,6 +672,23 @@ export default function PropertyImportPage() {
     [formValues, draft, isUploading, activeUploads.length],
   );
 
+  useEffect(() => {
+    if (!draft?.id || draft.extractionStatus !== 'extracted') {
+      return;
+    }
+    if (knowledgeWizardAutoOpenedRef.current) {
+      return;
+    }
+    if (publishReadiness.missingQuestions.length === 0) {
+      return;
+    }
+    knowledgeWizardAutoOpenedRef.current = true;
+    setShowKnowledgeWizard(true);
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',runId:'wizard-auto',hypothesisId:'W1',location:'PropertyImportPage.tsx:knowledgeWizardAutoOpen',message:'auto-open knowledge wizard',data:{gapCount:publishReadiness.missingQuestions.length,draftId:draft.id},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [draft?.id, draft?.extractionStatus, publishReadiness.missingQuestions.length]);
+
   const showUploadPanel = !draft || draft.status === 'draft' || draft.extractionStatus === 'pending_upload';
 
   if (!canManageProperties) {
@@ -1081,14 +1102,33 @@ export default function PropertyImportPage() {
                 placeholder="560066"
                 disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
               />
-              <Field
-                label="Bedrooms"
-                value={formValues.bedrooms}
-                onChange={(value) => updateField('bedrooms', value)}
-                placeholder="3"
-                inputMode="numeric"
-                disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
-              />
+              {propertyTypeUsesUnitConfig(formValues.property_type) ? (
+                <PropertyUnitConfigurationEditor
+                  propertyType={formValues.property_type}
+                  rows={formValues.unit_configurations}
+                  singleUnitMode={formValues.single_unit_mode}
+                  bedrooms={formValues.bedrooms}
+                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                  onRowsChange={(rows: UnitConfigurationFormRow[]) => {
+                    setFormValues((current) => ({ ...current, unit_configurations: rows }));
+                    setIsDirty(true);
+                  }}
+                  onSingleUnitModeChange={(enabled) => {
+                    setFormValues((current) => ({ ...current, single_unit_mode: enabled }));
+                    setIsDirty(true);
+                  }}
+                  onBedroomsChange={(value) => updateField('bedrooms', value)}
+                />
+              ) : (
+                <Field
+                  label="Bedrooms"
+                  value={formValues.bedrooms}
+                  onChange={(value) => updateField('bedrooms', value)}
+                  placeholder="3"
+                  inputMode="numeric"
+                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                />
+              )}
               <SelectField
                 label="Status"
                 value={formValues.status}
@@ -1163,7 +1203,8 @@ export default function PropertyImportPage() {
                     Advanced: field mapping
                   </div>
                   <p className="mt-2 text-sm text-slate-600">
-                    Optional — only needed if extraction confidence is low.
+                    Mapping fields = how brochure PDF labels map to our database columns (technical, optional).
+                    Only expand if extraction confidence is low.
                   </p>
                 </div>
                 <span className="text-sm font-medium text-blue-600">{showAdvancedMapping ? 'Hide' : 'Show'}</span>
@@ -1328,6 +1369,13 @@ export default function PropertyImportPage() {
                   ))}
                 </ul>
               )}
+              {publishReadiness.warnings.length > 0 && (
+                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-amber-900">
+                  {publishReadiness.warnings.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              )}
               {publishReadiness.missingQuestions.length > 0 && (
                 <button
                   type="button"
@@ -1335,7 +1383,7 @@ export default function PropertyImportPage() {
                   className="mt-3 inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-700"
                 >
                   <Sparkles className="h-4 w-4" />
-                  Answer {publishReadiness.missingQuestions.length} AI questions
+                  Improve AI knowledge ({publishReadiness.missingQuestions.length} gaps)
                 </button>
               )}
             </div>
@@ -1367,11 +1415,11 @@ export default function PropertyImportPage() {
               <button
                 type="button"
                 onClick={() => setShowKnowledgeWizard(true)}
-                disabled={!draft?.id || publishReadiness.missingQuestions.length === 0}
+                disabled={!draft?.id}
                 className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
               >
                 <Sparkles className="h-4 w-4" />
-                AI knowledge Q&amp;A
+                Improve AI knowledge
               </button>
               <button
                 type="button"

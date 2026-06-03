@@ -40,4 +40,27 @@ describe('propertyKnowledge.service', () => {
     expect(joined).toContain('Phase 2 launch');
     expect(joined).not.toContain('invented');
   });
+
+  it('includes unit_configurations in knowledge sections', () => {
+    const sections = buildPropertyKnowledgeSections({
+      property: {
+        id: 'prop-2',
+        name: 'Villa Enclave',
+        propertyType: 'villa',
+        bedrooms: 4,
+      },
+      draftData: {
+        property_type: 'villa',
+        unit_configurations: [
+          { bhk: 3, count: 4, unit_label: 'Garden villa' },
+          { bhk: 4, count: 1 },
+        ],
+      },
+    });
+
+    const joined = sections.join('\n');
+    expect(joined).toContain('Unit inventory');
+    expect(joined).toContain('Garden villa');
+    expect(joined).toContain('5 units');
+  });
 });

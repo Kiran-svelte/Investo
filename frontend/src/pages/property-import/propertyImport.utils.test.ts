@@ -69,6 +69,10 @@ describe('property import utils', () => {
           notes: 'Primary title mapping',
         },
       ],
+      unit_configurations: [
+        { bhk: '2', unit_label: '', count: '10', price_min: '', price_max: '' },
+      ],
+      single_unit_mode: false,
     });
 
     expect(serialized).toMatchObject({

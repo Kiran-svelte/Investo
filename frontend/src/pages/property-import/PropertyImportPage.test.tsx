@@ -79,6 +79,7 @@ function createDraft(overrides: Record<string, unknown> = {}) {
       price_max: 12500000,
       location_city: 'Bengaluru',
       amenities: ['Pool', 'Gym'],
+      unit_configurations: [{ bhk: 2, count: 80, unit_label: null, price_min: null, price_max: null }],
       ai_marketing_answers: {
         target_buyer: 'End-user families',
         possession_timeline: 'Within 12 months',
@@ -162,7 +163,7 @@ describe('PropertyImportPage review workflow', () => {
     render(<PropertyImportPage />);
 
     expect(await screen.findByRole('heading', { name: 'Review draft details' })).toBeInTheDocument();
-    expect(screen.getByText(/Advanced: field mapping/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mapping fields = how brochure PDF labels map/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save draft' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish property' })).toBeInTheDocument();
   });

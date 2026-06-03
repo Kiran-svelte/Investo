@@ -123,6 +123,50 @@ function formatPrice(value: unknown): string {
   return num.toLocaleString('en-IN');
 }
 
+function formatUnitConfigurations(draftData: Record<string, unknown>): string | null {
+  const raw = draftData.unit_configurations ?? draftData.unitConfigurations ?? draftData.inventory_units;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return null;
+  }
+
+  const lines: string[] = [];
+  let total = 0;
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const bhk = Number(record.bhk);
+    const count = Number(record.count);
+    if (!Number.isFinite(bhk) || !Number.isFinite(count) || count < 1) {
+      continue;
+    }
+    total += count;
+    const label = typeof record.unit_label === 'string' && record.unit_label.trim()
+      ? record.unit_label.trim()
+      : `${bhk} BHK`;
+    const priceMin = Number(record.price_min ?? record.priceMin);
+    const priceMax = Number(record.price_max ?? record.priceMax);
+    const price =
+      Number.isFinite(priceMin) && Number.isFinite(priceMax)
+        ? ` (₹${priceMin.toLocaleString('en-IN')}–₹${priceMax.toLocaleString('en-IN')})`
+        : '';
+    lines.push(`${count}× ${label}${price}`);
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const propertyType = typeof draftData.property_type === 'string'
+    ? draftData.property_type
+    : typeof draftData.propertyType === 'string'
+      ? draftData.propertyType
+      : 'project';
+
+  return `Unit inventory (${propertyType}, ${total} units): ${lines.join('; ')}`;
+}
+
 function serializeAmenities(amenities: unknown): string {
   if (Array.isArray(amenities)) {
     return amenities.map(String).filter(Boolean).join(', ');
@@ -194,6 +238,11 @@ export function buildPropertyKnowledgeSections(input: {
       if (lines.length > 0) {
         sections.push(`Marketing knowledge (admin confirmed):\n${lines.join('\n')}`);
       }
+    }
+
+    const unitInventory = formatUnitConfigurations(input.draftData);
+    if (unitInventory) {
+      sections.push(unitInventory);
     }
 
     const reviewNotes = typeof input.draftData.review_notes === 'string' ? input.draftData.review_notes.trim() : '';

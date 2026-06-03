@@ -1,4 +1,12 @@
 import type { PropertyImportFormValues } from './propertyImport.utils';
+import { assessProjectKnowledgeGaps } from './assessProjectKnowledgeGaps';
+import type { PropertyImportMappingMetadata } from './propertyImport.utils';
+import {
+  deriveMaxBhkFromUnits,
+  parseUnitConfigurations,
+  parseUnitMixAnswer,
+  type UnitConfigurationRow,
+} from './propertyImportUnitConfig';
 
 export interface MarketingKnowledgeQuestion {
   id: string;
@@ -15,7 +23,7 @@ export interface MarketingKnowledgeQuestion {
 
 const CUSTOM_OPTION = 'Other (type my own answer)';
 
-export const MARKETING_KNOWLEDGE_QUESTIONS: MarketingKnowledgeQuestion[] = [
+export const KNOWLEDGE_QUESTION_POOL: MarketingKnowledgeQuestion[] = [
   {
     id: 'property_type',
     prompt: 'What type of property is this project?',
@@ -23,6 +31,38 @@ export const MARKETING_KNOWLEDGE_QUESTIONS: MarketingKnowledgeQuestion[] = [
     options: ['Apartment', 'Villa', 'Plot', 'Commercial', CUSTOM_OPTION],
     allowCustom: true,
     formField: 'property_type',
+  },
+  {
+    id: 'unit_mix',
+    prompt: 'What BHK / unit types does this apartment project include?',
+    helpText: 'List the unit mix so WhatsApp AI can quote the right inventory (not a single bedroom count).',
+    options: ['2 BHK only', '2 & 3 BHK', '2, 3 & 4 BHK', 'Multiple sizes (describe)', CUSTOM_OPTION],
+    allowCustom: true,
+    answerKey: 'unit_mix',
+  },
+  {
+    id: 'villa_unit_mix',
+    prompt: 'What villa sizes and how many of each?',
+    helpText: 'Example: 5 villas — mix of 3BHK and 4BHK. The AI needs counts per type.',
+    options: ['Mostly 3 BHK villas', 'Mix of 3 & 4 BHK', '2, 3 & 4 BHK mix', 'Multiple sizes (describe)', CUSTOM_OPTION],
+    allowCustom: true,
+    answerKey: 'unit_mix',
+  },
+  {
+    id: 'location_focus',
+    prompt: 'What location should buyers remember for this project?',
+    helpText: 'City, area, or landmark — only facts from your brochure.',
+    options: ['City center', 'Suburb / township', 'Near IT corridor', 'Highway / expressway access', CUSTOM_OPTION],
+    allowCustom: true,
+    answerKey: 'location_focus',
+  },
+  {
+    id: 'builder_trust',
+    prompt: 'Who is the builder or developer?',
+    helpText: 'Helps the AI sound credible; use the legal name from RERA or brochure.',
+    options: ['Listed developer', 'Established regional builder', 'New launch brand', CUSTOM_OPTION],
+    allowCustom: true,
+    formField: 'builder',
   },
   {
     id: 'target_buyer',
@@ -66,6 +106,9 @@ export const MARKETING_KNOWLEDGE_QUESTIONS: MarketingKnowledgeQuestion[] = [
   },
 ];
 
+/** @deprecated Use KNOWLEDGE_QUESTION_POOL */
+export const MARKETING_KNOWLEDGE_QUESTIONS = KNOWLEDGE_QUESTION_POOL;
+
 function readMarketingAnswers(draftData?: Record<string, unknown> | null): Record<string, string> {
   if (!draftData || typeof draftData !== 'object') {
     return {};
@@ -83,34 +126,30 @@ function readMarketingAnswers(draftData?: Record<string, unknown> | null): Recor
   return out;
 }
 
-function isFilled(value: string | undefined | null): boolean {
-  return Boolean(value && String(value).trim());
-}
-
 export function getMissingMarketingQuestions(
   formValues: PropertyImportFormValues,
   draftData?: Record<string, unknown> | null,
+  mappingMetadata?: PropertyImportMappingMetadata,
 ): MarketingKnowledgeQuestion[] {
-  const answers = readMarketingAnswers(draftData);
-  const missing: MarketingKnowledgeQuestion[] = [];
+  return assessProjectKnowledgeGaps(formValues, draftData, mappingMetadata);
+}
 
-  for (const question of MARKETING_KNOWLEDGE_QUESTIONS) {
-    if (question.formField === 'property_type' && isFilled(formValues.property_type)) {
-      continue;
-    }
-    if (question.formField === 'amenities' && isFilled(formValues.amenities)) {
-      continue;
-    }
-    if (question.answerKey && isFilled(answers[question.answerKey])) {
-      continue;
-    }
-    if (question.id === 'amenities_focus' && isFilled(formValues.amenities)) {
-      continue;
-    }
-    missing.push(question);
+function mergeUnitConfigurations(
+  existing: UnitConfigurationRow[],
+  incoming: UnitConfigurationRow[],
+): UnitConfigurationRow[] {
+  if (incoming.length === 0) {
+    return existing;
   }
-
-  return missing;
+  const byBhk = new Map<number, UnitConfigurationRow>();
+  for (const row of existing) {
+    byBhk.set(row.bhk, row);
+  }
+  for (const row of incoming) {
+    const prior = byBhk.get(row.bhk);
+    byBhk.set(row.bhk, prior ? { ...prior, count: prior.count + row.count } : row);
+  }
+  return [...byBhk.values()].sort((a, b) => a.bhk - b.bhk);
 }
 
 export function applyMarketingAnswer(
@@ -134,6 +173,44 @@ export function applyMarketingAnswer(
     } else {
       nextForm.property_type = answer;
     }
+  }
+
+  if (question.formField === 'builder' && answer) {
+    nextForm.builder = answer;
+  }
+
+  if (question.id === 'location_focus' && answer) {
+    if (!nextForm.location_area.trim()) {
+      nextForm.location_area = answer;
+    }
+    if (!nextForm.location_city.trim() && /bengaluru|bangalore|mumbai|pune|hyderabad|chennai|delhi|ncr/i.test(answer)) {
+      const cityMatch = answer.match(/bengaluru|bangalore|mumbai|pune|hyderabad|chennai|delhi|ncr/i);
+      if (cityMatch) {
+        nextForm.location_city = cityMatch[0].replace(/bangalore/i, 'Bengaluru');
+      }
+    }
+  }
+
+  if ((question.id === 'unit_mix' || question.id === 'villa_unit_mix') && answer) {
+    const parsed = parseUnitMixAnswer(answer);
+    const existing = parseUnitConfigurations(baseDraft);
+    const merged = mergeUnitConfigurations(existing, parsed);
+    const maxBhk = deriveMaxBhkFromUnits(merged);
+    if (maxBhk != null && !nextForm.bedrooms.trim()) {
+      nextForm.bedrooms = String(maxBhk);
+    }
+    return {
+      formValues: nextForm,
+      draftData: {
+        ...baseDraft,
+        unit_configurations: merged,
+        single_unit_mode: false,
+        ai_marketing_answers: {
+          ...marketing,
+          ...(question.answerKey ? { [question.answerKey]: answer } : {}),
+        },
+      },
+    };
   }
 
   if (question.id === 'amenities_focus' && answer) {

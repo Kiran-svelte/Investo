@@ -1,6 +1,14 @@
 import type { PropertyImportDraft } from '../../services/propertyImport';
 import type { PropertyImportFormValues } from './propertyImport.utils';
+import { getPropertyImportMappingMetadata } from './propertyImport.utils';
 import { getMissingMarketingQuestions, type MarketingKnowledgeQuestion } from './propertyImportKnowledgeQuestions';
+import {
+  hasValidUnitInventory,
+  parseUnitConfigurations,
+  propertyTypeUsesUnitConfig,
+  readSingleUnitMode,
+  serializeUnitConfigurations,
+} from './propertyImportUnitConfig';
 
 export interface PublishReadinessResult {
   ready: boolean;
@@ -18,6 +26,8 @@ export function getPublishReadiness(input: {
   const { formValues, draft, isUploading, activeUploadCount } = input;
   const blockers: string[] = [];
   const warnings: string[] = [];
+  const draftData = draft?.draftData;
+  const mappingMetadata = getPropertyImportMappingMetadata(draftData);
 
   if (!draft?.id) {
     blockers.push('Create a draft and upload at least one brochure or image.');
@@ -36,21 +46,40 @@ export function getPublishReadiness(input: {
   }
 
   if (!formValues.name.trim()) {
-    blockers.push('Property name is required.');
+    blockers.push('Add a property name.');
   }
 
   if (!formValues.property_type.trim()) {
-    blockers.push('Property type is required (apartment, villa, plot, or commercial).');
+    blockers.push('Choose a property type (apartment, villa, plot, or commercial).');
   }
 
   if (!formValues.price_min.trim() || !formValues.price_max.trim()) {
-    blockers.push('Price min and Price max (₹) are required for this project.');
+    blockers.push('Enter both minimum and maximum project price (₹).');
   } else if (Number(formValues.price_min) > Number(formValues.price_max)) {
-    blockers.push('Price min cannot be greater than price max.');
+    blockers.push('Minimum price cannot be higher than maximum price.');
+  }
+
+  const unitRowsFromForm = serializeUnitConfigurations(formValues.unit_configurations);
+  const singleUnit = formValues.single_unit_mode || readSingleUnitMode(draftData);
+  const unitRows = unitRowsFromForm.length > 0 ? unitRowsFromForm : parseUnitConfigurations(draftData);
+
+  if (!hasValidUnitInventory({
+    propertyType: formValues.property_type,
+    bedrooms: formValues.bedrooms,
+    unitConfigurations: unitRows,
+    singleUnitMode: singleUnit,
+  })) {
+    if (propertyTypeUsesUnitConfig(formValues.property_type)) {
+      blockers.push(
+        'Add at least one unit type row (BHK + count), or enable single-unit mode and enter bedrooms.',
+      );
+    } else if (!formValues.bedrooms.trim()) {
+      warnings.push('Add bedrooms (BHK) or unit rows so the AI can match buyer size requests.');
+    }
   }
 
   if (!formValues.location_city.trim() && !formValues.location_area.trim()) {
-    warnings.push('Add at least a city or area so the AI can answer location questions.');
+    warnings.push('Add a city or area so the AI can answer location questions.');
   }
 
   if (!formValues.builder.trim()) {
@@ -69,7 +98,7 @@ export function getPublishReadiness(input: {
     warnings.push('List key amenities so the AI can highlight them honestly.');
   }
 
-  const missingQuestions = getMissingMarketingQuestions(formValues, draft?.draftData);
+  const missingQuestions = getMissingMarketingQuestions(formValues, draftData, mappingMetadata);
 
   return {
     ready: blockers.length === 0,
