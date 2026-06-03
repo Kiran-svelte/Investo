@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleHomePath } from '../../config/navigation.config';
 import { AxiosError } from 'axios';
+import { isTransientAuthError } from '../../services/api';
 import { Loader2, Building2 } from 'lucide-react';
 import LanguageSelector from '../../components/common/LanguageSelector';
 
@@ -35,10 +36,22 @@ const LoginPage: React.FC = () => {
       const loggedInUser = await login(email, password);
       navigate(getRoleHomePath(loggedInUser.role), { replace: true });
     } catch (err) {
+      if (isTransientAuthError(err)) {
+        setError(
+          'The server is waking up or temporarily unavailable. Wait a few seconds and try again.',
+        );
+        return;
+      }
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(
-        axiosError.response?.data?.message ?? t('auth.login_error'),
-      );
+      const apiMessage = axiosError.response?.data?.message;
+      if (axiosError.response?.status === 401) {
+        setError(
+          apiMessage
+            ?? 'Invalid email or password. If you were invited, use the exact email and temporary password from your invite.',
+        );
+        return;
+      }
+      setError(apiMessage ?? t('auth.login_error'));
     } finally {
       setIsSubmitting(false);
     }

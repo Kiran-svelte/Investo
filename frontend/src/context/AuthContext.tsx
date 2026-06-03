@@ -6,12 +6,14 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { AxiosError } from 'axios';
 import api, {
   ApiResponse,
   AuthTokens,
   clearTokens,
   getAccessToken,
   getRefreshToken,
+  isTransientAuthError,
   refreshAuthTokens,
   setTokens,
 } from '../services/api';
@@ -78,12 +80,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    try {
+    const fetchMe = async (): Promise<AuthUser> => {
       const { data } = await api.get<ApiResponse<AuthUser>>('/auth/me');
-      setUser(data.data);
-    } catch {
-      // Token is invalid / expired – clear everything
-      clearTokens();
+      return data.data;
+    };
+
+    try {
+      setUser(await fetchMe());
+    } catch (err) {
+      const status = (err as AxiosError)?.response?.status;
+
+      // Expired access token: try refresh once before logging out
+      if (status === 401 && getRefreshToken()) {
+        try {
+          const { access_token, refresh_token } = await refreshAuthTokens();
+          setTokens(access_token, refresh_token);
+          setUser(await fetchMe());
+          return;
+        } catch {
+          /* fall through to session clear */
+        }
+      }
+
+      // Keep session on cold-start / network blips (Render spin-up, timeouts)
+      if (isTransientAuthError(err)) {
+        setUser(null);
+        return;
+      }
+
+      if (status === 401 || status === 403) {
+        clearTokens();
+      }
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -111,10 +138,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Logout ───────────────────────────────────
 
   const logout = useCallback(() => {
-    // Fire-and-forget server-side logout
-    api.post('/auth/logout').catch(() => {
-      /* best-effort */
-    });
+    const refreshToken = getRefreshToken();
+    // Revoke only this browser session when possible (keeps other tabs/devices signed in)
+    api
+      .post('/auth/logout', refreshToken ? { refresh_token: refreshToken, refreshToken } : {})
+      .catch(() => {
+        /* best-effort */
+      });
     clearTokens();
     setUser(null);
   }, []);

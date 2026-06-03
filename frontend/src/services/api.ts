@@ -4,6 +4,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios';
+import { withAuthRefreshLock } from './authRefreshLock';
 
 // ──────────────────────────────────────────────
 // Shared response / error types
@@ -53,18 +54,32 @@ export const clearTokens = (): void => {
 };
 
 export const refreshAuthTokens = async (): Promise<AuthTokens> => {
-  const refreshToken = getRefreshToken();
+  return withAuthRefreshLock(async () => {
+    const refreshToken = getRefreshToken();
 
-  if (!refreshToken) {
-    throw new Error('Refresh token missing');
-  }
+    if (!refreshToken) {
+      throw new Error('Refresh token missing');
+    }
 
-  const { data } = await api.post<ApiResponse<AuthTokens>>('/auth/refresh', {
-    refresh_token: refreshToken,
-    refreshToken,
+    const { data } = await api.post<ApiResponse<AuthTokens>>('/auth/refresh', {
+      refresh_token: refreshToken,
+      refreshToken,
+    });
+
+    return data.data;
   });
+};
 
-  return data.data;
+/** True when an error is a transient network/server issue (not invalid credentials). */
+export const isTransientAuthError = (error: unknown): boolean => {
+  const axiosError = error as AxiosError;
+  const status = axiosError.response?.status;
+  if (status === 503 || status === 502 || status === 504) return true;
+  if (!axiosError.response) {
+    const code = axiosError.code;
+    return code === 'ECONNABORTED' || code === 'ERR_NETWORK' || code === 'ETIMEDOUT';
+  }
+  return false;
 };
 
 // ──────────────────────────────────────────────
@@ -179,7 +194,9 @@ api.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError as AxiosError, null);
         clearTokens();
-        window.location.href = '/login';
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login';
+        }
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

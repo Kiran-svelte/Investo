@@ -192,6 +192,39 @@ export class AuthService {
     logger.info('User logged out', { userId });
   }
 
+  /**
+   * Logout current session only (single refresh token). Other devices/tabs stay signed in.
+   */
+  async logoutSession(refreshToken: string): Promise<void> {
+    let decoded: { userId?: string };
+    try {
+      decoded = jwt.verify(refreshToken, config.jwt.refreshSecret) as { userId?: string };
+    } catch {
+      return;
+    }
+    if (!decoded?.userId) return;
+
+    const storedTokens = await prisma.refreshToken.findMany({
+      where: {
+        userId: decoded.userId,
+        revoked: false,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    for (const candidate of storedTokens) {
+      const matches = await bcrypt.compare(refreshToken, candidate.tokenHash);
+      if (matches) {
+        await prisma.refreshToken.update({
+          where: { id: candidate.id },
+          data: { revoked: true },
+        });
+        logger.info('Session logged out', { userId: decoded.userId });
+        return;
+      }
+    }
+  }
+
   private async generateTokens(user: any): Promise<TokenPair> {
     const accessToken = jwt.sign(
       {
