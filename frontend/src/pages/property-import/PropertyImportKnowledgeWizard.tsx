@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { MessageCircleQuestion, ChevronRight, ChevronLeft, Sparkles, X } from 'lucide-react';
 import {
   applyMarketingAnswer,

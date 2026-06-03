@@ -154,19 +154,4 @@ export function applyMarketingAnswer(
   };
 }
 
-export function mergeMarketingAnswersIntoDraftData(
-  formValues: PropertyImportFormValues,
-  existingDraftData?: Record<string, unknown> | null,
-): Record<string, unknown> {
-  const base = existingDraftData && typeof existingDraftData === 'object' ? { ...existingDraftData } : {};
-  const existing = readMarketingAnswers(base);
-  return {
-    ...base,
-    ai_marketing_answers: {
-      ...existing,
-      ...(base.ai_marketing_answers as Record<string, string> | undefined),
-    },
-  };
-}
-
 export { CUSTOM_OPTION };
