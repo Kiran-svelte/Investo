@@ -226,6 +226,8 @@ function buildCorsOrigins(): string[] {
     'https://investo-six.vercel.app',
     'https://investo.vercel.app',
     'https://frontend-navy-eight-37.vercel.app',
+    'https://biginvesto.online',
+    'https://www.biginvesto.online',
   ];
 
   const envOrigins = (process.env.CORS_ORIGINS || '')

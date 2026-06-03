@@ -98,6 +98,9 @@ const getApiBaseUrl = (): string => {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return '/api';
     }
+    if (hostname === 'biginvesto.online' || hostname === 'www.biginvesto.online') {
+      return 'https://investo-backend-v2.onrender.com/api';
+    }
   }
 
   return 'https://investo-backend-v2.onrender.com/api';
