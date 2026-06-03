@@ -138,7 +138,7 @@ describe('WhatsAppService Meta company resolution (deterministic + fail closed)'
     expect(result).toBeNull();
   });
 
-  it('fails closed when more than one active company is mapped to the same incoming phoneNumberId (duplicate mapping)', async () => {
+  it('resolves duplicate phoneNumberId to the most recently verified tenant', async () => {
     jest.doMock('../../config', () => ({
       __esModule: true,
       default: {
@@ -158,14 +158,30 @@ describe('WhatsAppService Meta company resolution (deterministic + fail closed)'
       id: 'a-company',
       name: 'A Co',
       whatsappPhone: null,
-      settings: { whatsapp: { phoneNumberId: 'dup', accessToken: '', verifyToken: '' } },
+      updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+      settings: {
+        whatsapp: {
+          phoneNumberId: 'dup',
+          accessToken: '',
+          verifyToken: '',
+          verifiedAt: '2026-06-01T10:00:00.000Z',
+        },
+      },
     };
 
     const companyB = {
       id: 'b-company',
       name: 'B Co',
       whatsappPhone: null,
-      settings: { whatsapp: { phoneNumberId: 'dup', accessToken: '', verifyToken: '' } },
+      updatedAt: new Date('2026-06-02T00:00:00.000Z'),
+      settings: {
+        whatsapp: {
+          phoneNumberId: 'dup',
+          accessToken: '',
+          verifyToken: '',
+          verifiedAt: '2026-06-03T12:00:00.000Z',
+        },
+      },
     };
 
     mockPrisma.company.findMany.mockResolvedValue([companyA, companyB]);
@@ -174,6 +190,6 @@ describe('WhatsAppService Meta company resolution (deterministic + fail closed)'
     const service = new WhatsAppService();
 
     const result = await service.getCompanyByPhoneNumberId('dup');
-    expect(result).toBeNull();
+    expect(result?.company?.id).toBe('b-company');
   });
 });

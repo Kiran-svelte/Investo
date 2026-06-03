@@ -424,12 +424,38 @@ export class WhatsAppService {
     }
 
     if (matches.length > 1) {
-      logger.error('Meta company resolution failed: duplicate phoneNumberId mapping', {
+      const fallbackCompany = matches
+        .slice()
+        .sort((a, b) => {
+          const aWa = ((a.settings as any) || {}).whatsapp || {};
+          const bWa = ((b.settings as any) || {}).whatsapp || {};
+          const aVerified = aWa.verifiedAt ? new Date(aWa.verifiedAt).getTime() : 0;
+          const bVerified = bWa.verifiedAt ? new Date(bWa.verifiedAt).getTime() : 0;
+          if (bVerified !== aVerified) return bVerified - aVerified;
+          return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+        })[0];
+
+      const settings = (fallbackCompany.settings as any) || {};
+      const whatsapp = (settings.whatsapp as any) || {};
+      const meta = (whatsapp.meta as any) || whatsapp;
+      const configuredId = normalizeStringLike(meta.phoneNumberId);
+      const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
+
+      logger.warn('Meta company resolution: duplicate phoneNumberId — selected most recently verified tenant', {
         phoneNumberId: normalizedPhoneNumberId,
+        selectedCompanyId: fallbackCompany.id,
         matchingCompanyIds: matches.map((company) => company.id),
-        totalCompanies: companies.length,
       });
-      return null;
+
+      return {
+        company: fallbackCompany,
+        config: {
+          provider: 'meta',
+          phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
+          accessToken: normalizeStringLike(meta.accessToken) || config.whatsapp.accessToken,
+          verifyToken: normalizeStringLike(meta.verifyToken) || config.whatsapp.verifyToken,
+        },
+      };
     }
 
     // NO EXPLICIT MAPPING FOUND
