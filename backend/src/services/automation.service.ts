@@ -4,6 +4,7 @@ import logger from '../config/logger';
 import config from '../config';
 import { whatsappService } from './whatsapp.service';
 import { automationQueueService, AutomationJobType } from './automationQueue.service';
+import { logAgentAction } from './agent-action-log.service';
 
 function getCompanyWhatsAppConfig(company: any): {
   provider: 'meta' | 'greenapi';
@@ -283,6 +284,15 @@ export class AutomationService {
       }
 
       logger.info('Visit reminder sent', { visitId: visit.id, timing });
+      void logAgentAction({
+        companyId: visit.companyId,
+        triggeredBy: 'automation',
+        action: `visit_reminder_${timing}`,
+        resourceType: 'visit',
+        resourceId: visit.id,
+        status: 'success',
+        result: `Reminder sent (${timing})`,
+      });
     } catch (err: any) {
       logger.error('Failed to send visit reminder', { visitId: visit.id, error: err.message });
     }
@@ -318,6 +328,15 @@ export class AutomationService {
         ${JSON.stringify({ visit_id: visit.id })}::jsonb
       )
     `;
+    void logAgentAction({
+      companyId: visit.companyId,
+      triggeredBy: 'automation',
+      action: 'visit_agent_notification_15m',
+      resourceType: 'visit',
+      resourceId: visit.id,
+      status: 'success',
+      result: 'Agent notification created',
+    });
   }
 
   /**
@@ -509,6 +528,16 @@ export class AutomationService {
       });
 
       logger.info('Follow-up message sent', { leadId: lead.id, reason, isReEngagement });
+      void logAgentAction({
+        companyId: lead.companyId,
+        triggeredBy: 'automation',
+        action: 'lead_follow_up',
+        resourceType: 'lead',
+        resourceId: lead.id,
+        status: 'success',
+        result: reason,
+        inputs: { reason, isReEngagement },
+      });
     } catch (err: any) {
       logger.error('Failed to send follow-up', { leadId: lead.id, error: err.message });
     }
@@ -705,6 +734,16 @@ export class AutomationService {
       where: { id: lead.id },
       data: { lastContactAt: new Date() },
     });
+
+    void logAgentAction({
+      companyId: lead.companyId,
+      triggeredBy: 'automation',
+      action: 'lead_negotiation_reminder_7d',
+      resourceType: 'lead',
+      resourceId: lead.id,
+      status: 'success',
+      result: 'Negotiation reminder notification created',
+    });
   }
 
   private async executeConversationTimeout(conversationId: string): Promise<void> {
@@ -723,6 +762,16 @@ export class AutomationService {
     await prisma.conversation.update({
       where: { id: conv.id },
       data: { status: 'closed' },
+    });
+
+    void logAgentAction({
+      companyId: conv.companyId,
+      triggeredBy: 'automation',
+      action: 'conversation_timeout_24h',
+      resourceType: 'conversation',
+      resourceId: conv.id,
+      status: 'success',
+      result: 'Conversation closed after 24h inactivity',
     });
   }
 }

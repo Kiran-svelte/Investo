@@ -15,9 +15,17 @@ export interface SystemHealth {
   dependencies?: SystemHealthDependencies;
 }
 
+/** Health route returns a flat body; most other API routes use `{ data }`. */
+function unwrapHealthPayload(body: ApiResponse<SystemHealth> | SystemHealth): SystemHealth {
+  if (body && typeof body === 'object' && 'dependencies' in body) {
+    return body as SystemHealth;
+  }
+  return (body as ApiResponse<SystemHealth>).data;
+}
+
 export async function getSystemHealth(): Promise<SystemHealth> {
-  const { data } = await api.get<ApiResponse<SystemHealth>>('/health');
-  return data.data;
+  const { data } = await api.get<ApiResponse<SystemHealth> | SystemHealth>('/health');
+  return unwrapHealthPayload(data);
 }
 
 export function isOpenAiEmbeddingsReady(health: SystemHealth | null): boolean {

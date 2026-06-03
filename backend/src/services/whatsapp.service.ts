@@ -27,6 +27,7 @@ import { socketService, SOCKET_EVENTS } from './socket.service';
 import { notifyAgentOfNewLead } from './leadAssignment.service';
 import { assignLeadWithRouting } from './leadRouting.service';
 import { syncLeadScoreFromConversation } from './leadScoring.service';
+import { logAgentAction } from './agent-action-log.service';
 import {
   appendTransparencyFooter,
   buildPropertySources,
@@ -701,6 +702,15 @@ export class WhatsAppService {
           phone: companyUser.phone,
         });
         if (handled) {
+          void logAgentAction({
+            companyId,
+            triggeredBy: 'inbound_message',
+            action: 'visitApprovalInteractive',
+            actorId: companyUser.userId,
+            resourceType: 'visit',
+            status: 'success',
+            inputs: { interactiveId: msg.interactiveId },
+          });
           return {
             status: 'processed',
             reason: 'visit_approval_handled',
@@ -794,6 +804,16 @@ export class WhatsAppService {
       }
 
       logger.info('Auto-created lead from WhatsApp', { leadId: lead.id, companyId });
+
+      void logAgentAction({
+        companyId,
+        triggeredBy: 'inbound_message',
+        action: 'autoCreateLeadFromWhatsApp',
+        resourceType: 'lead',
+        resourceId: lead.id,
+        status: 'success',
+        inputs: { sourceDetail, customerPhone: maskPhoneNumberForLogs(customerPhone) },
+      });
 
       socketService.emitToCompany(companyId, SOCKET_EVENTS.LEAD_CREATED, {
         lead: {
@@ -895,6 +915,14 @@ export class WhatsAppService {
         },
       });
       await this.sendMessage(customerPhone, WRONG_ACK_MESSAGE, whatsappConfig!);
+      void logAgentAction({
+        companyId,
+        triggeredBy: 'inbound_message',
+        action: 'wrongReportHandled',
+        resourceType: 'conversation',
+        resourceId: conversation.id,
+        status: 'success',
+      });
       return {
         status: 'processed',
         companyId,
@@ -989,6 +1017,20 @@ export class WhatsAppService {
           conversationId: conversation.id,
           leadId: lead.id,
           trigger: 'interactive_action',
+        });
+
+        void logAgentAction({
+          companyId,
+          triggeredBy: 'inbound_message',
+          action: 'interactiveActionHandled',
+          resourceType: 'conversation',
+          resourceId: conversation.id,
+          status: 'success',
+          inputs: {
+            interactiveId: msg.interactiveId,
+            action: actionResult.action,
+            leadStatus: actionResult.leadStatus,
+          },
         });
 
         return {

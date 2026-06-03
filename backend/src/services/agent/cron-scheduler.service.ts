@@ -10,6 +10,28 @@ import { formatDateIST, formatTimeIST, maskPhone, visitStatusEmoji } from './res
 type ScheduledTask = cron.ScheduledTask;
 const tasks: ScheduledTask[] = [];
 
+/** Result from a cron handler — scopes logs and failure alerts to affected tenants. */
+export type CronRunResult = {
+  affectedCompanyIds?: string[];
+};
+
+function cronResultFromIds(ids: Iterable<string>): CronRunResult {
+  const list = [...new Set(ids)].filter(Boolean);
+  return list.length ? { affectedCompanyIds: list } : {};
+}
+
+function trackCompanyIds(): { add: (id: string) => void; result: () => CronRunResult } {
+  const ids = new Set<string>();
+  return {
+    add(id: string) {
+      if (id) ids.add(id);
+    },
+    result() {
+      return cronResultFromIds(ids);
+    },
+  };
+}
+
 async function sendNotification(phone: string, companyId: string, message: string): Promise<void> {
   const { whatsappService } = await import('../whatsapp.service');
   await whatsappService.sendCompanyTextMessage(phone, message, companyId);
@@ -24,7 +46,8 @@ function istDayBounds(): [Date, Date] {
   return [utcStart, new Date(utcStart.getTime() + 24 * 60 * 60 * 1000 - 1)];
 }
 
-async function sendMorningBriefings(): Promise<void> {
+async function sendMorningBriefings(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const [start, end] = istDayBounds();
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
   for (const agent of agents) {
@@ -43,10 +66,13 @@ async function sendMorningBriefings(): Promise<void> {
     }
     lines.push('', `New leads assigned: ${newLeads}`, 'Reply with any CRM question.');
     await sendNotification(agent.phone, agent.companyId, lines.join('\n'));
+    affected.add(agent.companyId);
   }
+  return affected.result();
 }
 
-async function sendVisitReminders(): Promise<void> {
+async function sendVisitReminders(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const now = new Date();
   const soon = new Date(now.getTime() + 60 * 60 * 1000);
   const visits = await prisma.visit.findMany({
@@ -57,10 +83,13 @@ async function sendVisitReminders(): Promise<void> {
     if (!visit.agent.phone) continue;
     await sendNotification(visit.agent.phone, visit.companyId, [`*Visit Reminder*`, `${visit.lead?.customerName ?? 'Unknown'} (${maskPhone(visit.lead?.phone)})`, `${visit.property?.name ?? 'TBD'} at ${formatTimeIST(visit.scheduledAt)}`].join('\n'));
     await prisma.visit.update({ where: { id: visit.id }, data: { reminderSent: true } });
+    affected.add(visit.companyId);
   }
+  return affected.result();
 }
 
-async function sendEndOfDaySummaries(): Promise<void> {
+async function sendEndOfDaySummaries(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const [start, end] = istDayBounds();
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
   for (const agent of agents) {
@@ -71,20 +100,28 @@ async function sendEndOfDaySummaries(): Promise<void> {
       prisma.lead.count({ where: { companyId: agent.companyId, assignedAgentId: agent.id, createdAt: { gte: start, lte: end } } }),
     ]);
     await sendNotification(agent.phone, agent.companyId, [`Good evening ${agent.name}.`, `*Today's Summary*`, `Visits completed: ${completed}/${total}`, `New leads: ${newLeads}`].join('\n'));
+    affected.add(agent.companyId);
   }
+  return affected.result();
 }
 
-async function sendFollowUpAlerts(): Promise<void> {
+async function sendFollowUpAlerts(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const threshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, phone: true, companyId: true } });
   for (const agent of agents) {
     if (!agent.phone) continue;
     const count = await prisma.lead.count({ where: { companyId: agent.companyId, assignedAgentId: agent.id, status: { in: ['contacted', 'visit_scheduled', 'visited', 'negotiation'] }, lastContactAt: { lt: threshold } } });
-    if (count > 0) await sendNotification(agent.phone, agent.companyId, `*Follow-up Reminder*\n${count} lead(s) need follow-up.`);
+    if (count > 0) {
+      await sendNotification(agent.phone, agent.companyId, `*Follow-up Reminder*\n${count} lead(s) need follow-up.`);
+      affected.add(agent.companyId);
+    }
   }
+  return affected.result();
 }
 
-async function sendOwnerDailySummaries(): Promise<void> {
+async function sendOwnerDailySummaries(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const [start, end] = istDayBounds();
   const yesterday = new Date(start.getTime() - 24 * 60 * 60 * 1000);
   const admins = await prisma.user.findMany({
@@ -124,10 +161,13 @@ async function sendOwnerDailySummaries(): Promise<void> {
         `Deals won (24h): ${won}`,
       ].join('\n'),
     );
+    affected.add(admin.companyId);
   }
+  return affected.result();
 }
 
-async function sendStaleLeadAlerts(): Promise<void> {
+async function sendStaleLeadAlerts(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const threshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const admins = await prisma.user.findMany({
     where: { status: 'active', role: 'company_admin', phone: { not: null } },
@@ -148,11 +188,14 @@ async function sendStaleLeadAlerts(): Promise<void> {
         admin.companyId,
         `*Stale Lead Alert*\n${stale} lead(s) with no contact in 7+ days.`,
       );
+      affected.add(admin.companyId);
     }
   }
+  return affected.result();
 }
 
-async function sendWeeklyAdminReports(): Promise<void> {
+async function sendWeeklyAdminReports(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const weekStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const admins = await prisma.user.findMany({ where: { status: 'active', role: 'company_admin', phone: { not: null } }, select: { name: true, phone: true, companyId: true } });
   for (const admin of admins) {
@@ -163,7 +206,9 @@ async function sendWeeklyAdminReports(): Promise<void> {
       prisma.lead.count({ where: { companyId: admin.companyId, status: 'closed_won', updatedAt: { gte: weekStart } } }),
     ]);
     await sendNotification(admin.phone, admin.companyId, [`*Weekly Report - ${admin.name}*`, `${formatDateIST(weekStart)} to ${formatDateIST(new Date())}`, `New leads: ${newLeads}`, `Visits completed: ${visits}`, `Deals won: ${won}`].join('\n'));
+    affected.add(admin.companyId);
   }
+  return affected.result();
 }
 
 const NO_SHOW_GRACE_MS = 30 * 60 * 1000;
@@ -171,15 +216,19 @@ const HOT_LEAD_SLA_MS = 4 * 60 * 60 * 1000;
 const VISIT_NUDGE_MIN_MS = 2 * 60 * 60 * 1000;
 const VISIT_NUDGE_MAX_MS = 4 * 60 * 60 * 1000;
 
-async function logCronOutcome(
+export async function logCronOutcome(
   name: string,
   status: 'success' | 'failed',
   durationMs: number,
   error?: unknown,
+  affectedCompanyIds?: string[],
 ): Promise<void> {
-  const companies = await prisma.company.findMany({ select: { id: true } });
+  const companyIds = [...new Set((affectedCompanyIds ?? []).filter(Boolean))];
+  if (companyIds.length === 0) {
+    return;
+  }
   const errorMessage = error instanceof Error ? error.message : error != null ? String(error) : null;
-  for (const { id: companyId } of companies) {
+  for (const companyId of companyIds) {
     void logAgentAction({
       companyId,
       triggeredBy: 'cron',
@@ -192,17 +241,12 @@ async function logCronOutcome(
   }
 }
 
-async function alertCompanyAdminsCronFailure(cronName: string, error: unknown): Promise<void> {
-  const errMsg = error instanceof Error ? error.message : String(error);
-  const admins = await prisma.user.findMany({
-    where: { role: 'company_admin', status: 'active', phone: { not: null } },
-    select: { phone: true, companyId: true, name: true },
-  });
+function buildCronFailureMessage(cronName: string, errMsg: string): string {
   const retryHint =
     cronName === 'detectAndMarkNoShows'
       ? 'No visits were marked. Will retry in 30 min.'
       : 'The job will run again on its next schedule.';
-  const message = [
+  return [
     '⚠️ *AI Automation Alert*',
     `Job: ${cronName}`,
     `Time: ${formatDateIST(new Date())} ${formatTimeIST(new Date())} IST`,
@@ -212,6 +256,19 @@ async function alertCompanyAdminsCronFailure(cronName: string, error: unknown): 
     '',
     'Reply "show AI actions today" to inspect recent actions.',
   ].join('\n');
+}
+
+async function notifyAdminsByRole(
+  cronName: string,
+  error: unknown,
+  where: { role: 'company_admin' | 'super_admin'; companyId?: { in: string[] } },
+): Promise<void> {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const message = buildCronFailureMessage(cronName, errMsg);
+  const admins = await prisma.user.findMany({
+    where: { ...where, status: 'active', phone: { not: null } },
+    select: { phone: true, companyId: true },
+  });
   const notified = new Set<string>();
   for (const admin of admins) {
     const key = `${admin.companyId}:${admin.phone}`;
@@ -225,8 +282,22 @@ async function alertCompanyAdminsCronFailure(cronName: string, error: unknown): 
   }
 }
 
+export async function alertCompanyAdminsCronFailure(
+  cronName: string,
+  error: unknown,
+  affectedCompanyIds?: string[],
+): Promise<void> {
+  const companyIds = [...new Set((affectedCompanyIds ?? []).filter(Boolean))];
+  if (companyIds.length === 0) {
+    await notifyAdminsByRole(cronName, error, { role: 'super_admin' });
+    return;
+  }
+  await notifyAdminsByRole(cronName, error, { role: 'company_admin', companyId: { in: companyIds } });
+}
+
 /** Mark visits as no-show 30 minutes after scheduled time; notify assigned agents. */
-async function detectAndMarkNoShows(): Promise<void> {
+async function detectAndMarkNoShows(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const cutoff = new Date(Date.now() - NO_SHOW_GRACE_MS);
   const visits = await prisma.visit.findMany({
     where: {
@@ -236,6 +307,7 @@ async function detectAndMarkNoShows(): Promise<void> {
     include: { agent: true, lead: true, property: true },
   });
   for (const visit of visits) {
+    affected.add(visit.companyId);
     await prisma.visit.update({ where: { id: visit.id }, data: { status: 'no_show' } });
     void logAgentAction({
       companyId: visit.companyId,
@@ -258,10 +330,12 @@ async function detectAndMarkNoShows(): Promise<void> {
       ].join('\n'),
     );
   }
+  return affected.result();
 }
 
 /** Alert agents about hot leads with no contact in the last 4 hours. */
-async function sendHotLeadSlaAlerts(): Promise<void> {
+async function sendHotLeadSlaAlerts(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const threshold = new Date(Date.now() - HOT_LEAD_SLA_MS);
   const agents = await prisma.user.findMany({
     where: { status: 'active', role: 'sales_agent', phone: { not: null } },
@@ -289,11 +363,14 @@ async function sendHotLeadSlaAlerts(): Promise<void> {
       agent.companyId,
       [`*Hot Lead SLA Alert*`, `${hotLeads.length} hot lead(s) need contact within 4h:`, ...lines].join('\n'),
     );
+    affected.add(agent.companyId);
   }
+  return affected.result();
 }
 
 /** Monday pipeline snapshot for each sales agent. */
-async function sendAgentWeeklyPipelineReport(): Promise<void> {
+async function sendAgentWeeklyPipelineReport(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const weekStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const agents = await prisma.user.findMany({
     where: { status: 'active', role: 'sales_agent', phone: { not: null } },
@@ -345,11 +422,14 @@ async function sendAgentWeeklyPipelineReport(): Promise<void> {
         `Deals won: ${won}`,
       ].join('\n'),
     );
+    affected.add(agent.companyId);
   }
+  return affected.result();
 }
 
 /** Nudge agents 2h after a visit was marked completed to log outcome / next step. */
-async function sendVisitCompletedNudge(): Promise<void> {
+async function sendVisitCompletedNudge(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const windowEnd = new Date(Date.now() - VISIT_NUDGE_MIN_MS);
   const windowStart = new Date(Date.now() - VISIT_NUDGE_MAX_MS);
   const visits = await prisma.visit.findMany({
@@ -360,6 +440,7 @@ async function sendVisitCompletedNudge(): Promise<void> {
     include: { agent: true, lead: true, property: true },
   });
   for (const visit of visits) {
+    affected.add(visit.companyId);
     if (!visit.agent.phone) continue;
     const alreadyNudged = await prisma.agentActionLog.findFirst({
       where: {
@@ -390,10 +471,12 @@ async function sendVisitCompletedNudge(): Promise<void> {
       result: 'Nudge sent',
     });
   }
+  return affected.result();
 }
 
 /** First-of-month summary for company admins. */
-async function sendMonthlyAdminReport(): Promise<void> {
+async function sendMonthlyAdminReport(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
@@ -427,25 +510,35 @@ async function sendMonthlyAdminReport(): Promise<void> {
         `Won: ${won} | Lost: ${lost}`,
       ].join('\n'),
     );
+    affected.add(admin.companyId);
   }
+  return affected.result();
 }
 
-async function purgeActionLogCron(): Promise<void> {
+async function purgeActionLogCron(): Promise<CronRunResult> {
   const deleted = await purgeOldActionLogs(90);
   logger.info('AgentActionLog purge completed', { deleted });
+  return {};
 }
 
-function wrap(name: string, handler: () => Promise<unknown>): () => void {
+async function runConfirmationCleanup(): Promise<CronRunResult> {
+  await cleanupExpiredConfirmations();
+  return {};
+}
+
+function wrap(name: string, handler: () => Promise<CronRunResult>): () => void {
   return () => {
     void (async () => {
       const started = Date.now();
+      let affectedCompanyIds: string[] | undefined;
       try {
-        await handler();
-        await logCronOutcome(name, 'success', Date.now() - started);
+        const result = await handler();
+        affectedCompanyIds = result.affectedCompanyIds;
+        await logCronOutcome(name, 'success', Date.now() - started, undefined, affectedCompanyIds);
       } catch (error: unknown) {
         const durationMs = Date.now() - started;
-        await logCronOutcome(name, 'failed', durationMs, error);
-        await alertCompanyAdminsCronFailure(name, error);
+        await logCronOutcome(name, 'failed', durationMs, error, affectedCompanyIds);
+        await alertCompanyAdminsCronFailure(name, error, affectedCompanyIds);
         logger.error(`Agent AI cron failed: ${name}`, {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -464,7 +557,7 @@ export function startCronScheduler(): void {
     cron.schedule(CRON_SCHEDULES.FOLLOW_UP_ALERT, wrap('followUpAlert', sendFollowUpAlerts)),
     cron.schedule(CRON_SCHEDULES.STALE_LEAD_ALERT, wrap('staleLeadAlert', sendStaleLeadAlerts)),
     cron.schedule(CRON_SCHEDULES.WEEKLY_ADMIN_REPORT, wrap('weeklyAdminReport', sendWeeklyAdminReports)),
-    cron.schedule(CRON_SCHEDULES.EXPIRED_CONFIRMATION_CLEANUP, wrap('confirmationCleanup', cleanupExpiredConfirmations)),
+    cron.schedule(CRON_SCHEDULES.EXPIRED_CONFIRMATION_CLEANUP, wrap('confirmationCleanup', runConfirmationCleanup)),
     cron.schedule(CRON_SCHEDULES.NO_SHOW_CHECK, wrap('detectAndMarkNoShows', detectAndMarkNoShows)),
     cron.schedule(CRON_SCHEDULES.HOT_LEAD_SLA_CHECK, wrap('sendHotLeadSlaAlerts', sendHotLeadSlaAlerts)),
     cron.schedule(CRON_SCHEDULES.AGENT_WEEKLY_PIPELINE, wrap('sendAgentWeeklyPipelineReport', sendAgentWeeklyPipelineReport)),
