@@ -179,6 +179,25 @@ async function closeLeadLost(companyId: string, params: Record<string, unknown>)
 }
 
 async function reassignLead(companyId: string, params: Record<string, unknown>): Promise<string> {
+  // Bulk portfolio transfer mode
+  if (params.bulkTransfer === true) {
+    const fromAgentId = getString(params, 'fromAgentId');
+    const toAgentId = getString(params, 'toAgentId');
+    if (!fromAgentId || !toAgentId) return 'Missing fromAgentId or toAgentId.';
+    const [fromAgent, toAgent] = await Promise.all([
+      db.user.findFirst({ where: { id: fromAgentId, companyId }, select: { id: true, name: true } }),
+      db.user.findFirst({ where: { id: toAgentId, companyId, status: 'active' }, select: { id: true, name: true } }),
+    ]);
+    if (!fromAgent) return 'Source agent not found.';
+    if (!toAgent) return 'Target agent not found or inactive.';
+    const result = await db.lead.updateMany({
+      where: { companyId, assignedAgentId: fromAgentId, status: { notIn: ['closed_won', 'closed_lost'] } },
+      data: { assignedAgentId: toAgentId },
+    });
+    return `Transferred ${result.count} lead(s) from ${fromAgent.name} to ${toAgent.name}.`;
+  }
+
+  // Single lead reassign mode
   const leadId = getString(params, 'leadId');
   const agentId = getString(params, 'agentId');
   if (!leadId || !agentId) return 'Missing lead or agent id.';
@@ -203,9 +222,53 @@ async function deactivateAgent(companyId: string, params: Record<string, unknown
 }
 
 async function bulkUpdateVisits(companyId: string, params: Record<string, unknown>): Promise<string> {
-  const visitIds = Array.isArray(params.visitIds) ? params.visitIds.filter((id): id is string => typeof id === 'string') : [];
+  const visitIds = Array.isArray(params.visitIds)
+    ? params.visitIds.filter((id): id is string => typeof id === 'string')
+    : [];
+  if (!visitIds.length) return 'Missing visit ids.';
+
+  // Reassign mode: toAgentId provided
+  const toAgentId = getString(params, 'toAgentId');
+  if (toAgentId) {
+    const agent = await db.user.findFirst({
+      where: { id: toAgentId, companyId, status: 'active' },
+      select: { id: true, name: true },
+    });
+    if (!agent) return 'Target agent not found or inactive.';
+    const result = await db.visit.updateMany({
+      where: { id: { in: visitIds }, companyId },
+      data: { agentId: toAgentId },
+    });
+    return `Reassigned ${result.count} visit(s) to ${agent.name}.`;
+  }
+
+  // Snooze mode: postponeByDays provided
+  const postponeByDaysRaw = params.postponeByDays;
+  const postponeByDays = typeof postponeByDaysRaw === 'number' ? postponeByDaysRaw : null;
+  if (postponeByDays !== null && postponeByDays > 0) {
+    const visits = await db.visit.findMany({
+      where: { id: { in: visitIds }, companyId },
+      select: { id: true, scheduledAt: true },
+    });
+    let count = 0;
+    for (const visit of visits) {
+      const newTime = new Date(visit.scheduledAt.getTime() + postponeByDays * 24 * 60 * 60 * 1000);
+      await db.visit.update({
+        where: { id: visit.id },
+        data: { scheduledAt: newTime, reminderSent: false },
+      });
+      count += 1;
+    }
+    return `Postponed ${count} visit(s) by ${postponeByDays} day(s).`;
+  }
+
+  // Status update mode
   const status = getString(params, 'status');
-  if (!visitIds.length || !status) return 'Missing visit ids or status.';
-  const result = await db.visit.updateMany({ where: { id: { in: visitIds }, companyId }, data: { status: status as any } });
+  if (!status) return 'Missing toAgentId, postponeByDays, or status.';
+  const result = await db.visit.updateMany({
+    where: { id: { in: visitIds }, companyId },
+    data: { status: status as any },
+  });
   return `Updated ${result.count} visit(s) to ${status}.`;
 }
+
