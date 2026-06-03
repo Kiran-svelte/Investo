@@ -26,6 +26,7 @@ import {
   inferPropertyImportAssetType,
   isPropertyImportMimeTypeSupported,
   publishPropertyImportDraft,
+  cancelPropertyImportDraft,
   normalizePropertyImportDraft,
   registerPropertyImportUpload,
   savePropertyImportDraft,
@@ -48,6 +49,7 @@ import PropertyImportMappingReview from './PropertyImportMappingReview';
 import PropertyImportBatchProgress from './PropertyImportBatchProgress';
 import PropertyImportSpreadsheetPanel from './PropertyImportSpreadsheetPanel';
 import PropertyUnitConfigurationEditor from './PropertyUnitConfigurationEditor';
+import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
 import { getPropertyImportReviewMetadata } from './propertyImport.utils';
 import { clearPropertyKnowledgeGateCache } from '../../utils/propertyKnowledgeGateCache';
 import {
@@ -126,6 +128,7 @@ export default function PropertyImportSimplePage() {
   const [uploadItems, setUploadItems] = useState<DraftUploadItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isCancellingDraft, setIsCancellingDraft] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [embeddingHealth, setEmbeddingHealth] = useState<SystemHealth | null>(null);
   const [embeddingHealthLoading, setEmbeddingHealthLoading] = useState(false);
@@ -523,11 +526,29 @@ export default function PropertyImportSimplePage() {
         Back to properties
       </button>
 
-      <div>
-        <h1 className="text-2xl font-bold text-ink-primary">Add a property</h1>
-        <p className="mt-1 text-sm text-ink-secondary">
-          Pick type, upload brochure, answer a few questions, then go live on WhatsApp AI.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-ink-primary">Add a property</h1>
+          <p className="mt-1 text-sm text-ink-secondary">
+            Pick type, upload brochure, answer a few questions, then go live on WhatsApp AI.
+          </p>
+        </div>
+        {draft?.id && !isPropertyImportTerminalStatus(draft.status) && (
+          <RemoveCancelButton
+            variant="delete"
+            label="Cancel import"
+            loading={isCancellingDraft}
+            onClick={() => {
+              if (!draft.id) return;
+              if (!confirm('Cancel this import? The draft and uploads will be removed.')) return;
+              setIsCancellingDraft(true);
+              void cancelPropertyImportDraft(draft.id, { reason: 'Cancelled by user' })
+                .then(() => navigate(dashboardPath('/properties'), { replace: true }))
+                .catch((error) => setPageError(getErrorMessage(error, 'Failed to cancel import')))
+                .finally(() => setIsCancellingDraft(false));
+            }}
+          />
+        )}
       </div>
 
       {/* Mode switcher */}

@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { authService } from '../services/auth.service';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { loginSchema, selfServiceSignupSchema } from '../models/validation';
+import { loginSchema, selfServiceSignupSchema, updateStaffProfileSchema } from '../models/validation';
+import { isStaffProfilePhoneComplete, normalizeStaffProfilePhone } from '../utils/userProfilePhone';
 import logger from '../config/logger';
 import prisma from '../config/prisma';
 import config from '../config';
@@ -118,7 +119,15 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
     const tokens = await authService.login(normalizedEmail, password);
     const user = await prisma.user.findFirst({
       where: { email: normalizedEmail, status: 'active' },
-      select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
+      select: {
+        id: true,
+        companyId: true,
+        email: true,
+        role: true,
+        name: true,
+        phone: true,
+        mustChangePassword: true,
+      },
     });
     if (!user) {
       res.status(401).json({ message: 'Invalid credentials' });
@@ -134,6 +143,8 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
           email: user.email,
           role: user.role,
           name: user.name,
+          phone: user.phone,
+          profile_complete: isStaffProfilePhoneComplete(user.phone),
           must_change_password: user.mustChangePassword,
         },
         tokens: {
@@ -202,22 +213,90 @@ router.post('/logout', authenticate, async (req: AuthRequest, res: Response) => 
  * GET /api/auth/me
  * Get current user profile.
  */
+function serializeAuthUser(user: {
+  id: string;
+  companyId: string | null;
+  email: string;
+  role: string;
+  name: string;
+  phone: string | null;
+  mustChangePassword: boolean;
+}) {
+  return {
+    id: user.id,
+    company_id: user.companyId,
+    email: user.email,
+    role: user.role,
+    name: user.name,
+    phone: user.phone,
+    profile_complete: isStaffProfilePhoneComplete(user.phone),
+    must_change_password: user.mustChangePassword,
+  };
+}
+
 router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
-    select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
-  });
-  res.json({
-    success: true,
-    data: {
-      id: user!.id,
-      company_id: user!.companyId,
-      email: user!.email,
-      role: user!.role,
-      name: user!.name,
-      must_change_password: user!.mustChangePassword,
+    select: {
+      id: true,
+      companyId: true,
+      email: true,
+      role: true,
+      name: true,
+      phone: true,
+      mustChangePassword: true,
     },
   });
+  if (!user) {
+    res.status(404).json({ message: 'User not found' });
+    return;
+  }
+  res.json({
+    success: true,
+    data: serializeAuthUser(user),
+  });
+});
+
+/**
+ * PUT /api/auth/profile
+ * All roles: save name + required WhatsApp phone (enables agent copilot routing).
+ */
+router.put('/profile', authenticate, validate(updateStaffProfileSchema), async (req: AuthRequest, res: Response) => {
+  try {
+    const { name, phone } = req.body as { name?: string; phone: string };
+    const normalized = normalizeStaffProfilePhone(phone);
+    if (!normalized) {
+      res.status(400).json({ message: 'Enter a valid Indian mobile number (10 digits)' });
+      return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: req.user!.id },
+      data: {
+        phone: normalized,
+        ...(name ? { name } : {}),
+      },
+      select: {
+        id: true,
+        companyId: true,
+        email: true,
+        role: true,
+        name: true,
+        phone: true,
+        mustChangePassword: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Profile updated',
+      data: serializeAuthUser(updated),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('Profile update failed', { error: message });
+    res.status(500).json({ message: 'Failed to update profile' });
+  }
 });
 
 /**
@@ -328,11 +407,17 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     logger.info('Password reset token generated', { userId: user.id });
 
     try {
-      await emailService.sendPasswordResetEmail({
+      const mailResult = await emailService.sendPasswordResetEmail({
         toEmail: user.email,
         toName: user.name,
         resetUrl,
       });
+      if (!mailResult.sent) {
+        logger.error('Password reset email not sent', {
+          userId: user.id,
+          reason: mailResult.reason,
+        });
+      }
     } catch (sendErr: any) {
       logger.error('Password reset email send failed', {
         userId: user.id,

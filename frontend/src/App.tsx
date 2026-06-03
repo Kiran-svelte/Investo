@@ -30,6 +30,7 @@ import CompaniesPage from './pages/companies/CompaniesPage';
 import BillingPage from './pages/billing/BillingPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
 import ErrorLogsPage from './pages/error-logs/ErrorLogsPage';
+import ProfilePage from './pages/profile/ProfilePage';
 import useCompanyFeatures from './hooks/useCompanyFeatures';
 import './i18n/i18n';
 import api from './services/api';
@@ -76,6 +77,23 @@ export const ProtectedRoute: React.FC = () => {
     return <Navigate to="/change-password" replace />;
   }
   
+  return <Outlet />;
+};
+
+/** Blocks app until WhatsApp phone is saved (all roles). */
+export const ProfileGuard: React.FC = () => {
+  const { profileComplete, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) return <LoadingScreen />;
+
+  const profilePath = dashboardPath('/profile');
+  const onProfile = location.pathname === profilePath || location.pathname.endsWith('/profile');
+
+  if (!profileComplete && !onProfile) {
+    return <Navigate to={profilePath} replace state={{ profileRequired: true }} />;
+  }
+
   return <Outlet />;
 };
 
@@ -246,14 +264,15 @@ const App: React.FC = () => {
 
             <Route element={<ProtectedRoute />}>
               <Route path="/change-password" element={<ChangePasswordPage />} />
+              <Route element={<ProfileGuard />}>
               <Route element={<OnboardingAccessRoute />}>
                 <Route path="/onboarding" element={<OnboardingPage />} />
               </Route>
               
-              {/* Dashboard routes - check onboarding first for company admins */}
               <Route element={<OnboardingGuard />}>
                 <Route element={<PropertyKnowledgeGuard />}>
                 <Route path={DASHBOARD_BASE} element={<DashboardLayout />}>
+                  <Route path="profile" element={<ProfilePage />} />
                   <Route index element={<RoleAwareIndex />} />
                   <Route element={<RoleRoute path="/leads" />}>
                     <Route element={<FeatureRoute featureKey="lead_automation" />}>
@@ -326,6 +345,7 @@ const App: React.FC = () => {
                   </Route>
                 </Route>
                 </Route>
+              </Route>
               </Route>
 
               {/* Legacy CRM paths without /dashboard prefix */}

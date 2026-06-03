@@ -5,6 +5,12 @@ import { dashboardPath } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import {
+  cancelPropertyImportDraft,
+  listPropertyImportDrafts,
+  type PropertyImportDraftSummary,
+} from '../../services/propertyImport';
+import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
 import Pagination from '../../components/common/Pagination';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
@@ -81,6 +87,20 @@ const PropertiesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [importDrafts, setImportDrafts] = useState<PropertyImportDraftSummary[]>([]);
+  const [cancellingDraftId, setCancellingDraftId] = useState<string | null>(null);
+
+  const loadImportDrafts = useCallback(async () => {
+    if (!capabilities.canUploadProperties) {
+      setImportDrafts([]);
+      return;
+    }
+    try {
+      setImportDrafts(await listPropertyImportDrafts());
+    } catch {
+      setImportDrafts([]);
+    }
+  }, [capabilities.canUploadProperties]);
 
   const loadProperties = useCallback(async () => {
     try {
@@ -106,6 +126,21 @@ const PropertiesPage: React.FC = () => {
   useEffect(() => { setPage(1); }, [search, typeFilter]);
 
   useEffect(() => { loadProperties(); }, [loadProperties]);
+  useEffect(() => { void loadImportDrafts(); }, [loadImportDrafts]);
+
+  const handleCancelImportDraft = async (draftId: string, draftName: string) => {
+    if (!confirm(`Cancel import draft "${draftName}"? Uploaded files will be discarded.`)) return;
+    setCancellingDraftId(draftId);
+    try {
+      await cancelPropertyImportDraft(draftId, { reason: 'Cancelled from properties list' });
+      await loadImportDrafts();
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } } };
+      alert(ax.response?.data?.error || 'Failed to cancel draft.');
+    } finally {
+      setCancellingDraftId(null);
+    }
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this property? This action cannot be undone.')) return;
@@ -171,13 +206,61 @@ const PropertiesPage: React.FC = () => {
         </div>
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Filter by property type"
           className="px-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-          <option value="">{t('common.all_types')}</option>
+          <option value="">{t('common.all_types', { defaultValue: 'All types' })}</option>
           {PROPERTY_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
       </div>
 
+      {importDrafts.length > 0 && capabilities.canUploadProperties && (
+        <section className="investo-card-pad border border-violet-100 bg-violet-50/40">
+          <h2 className="text-sm font-semibold text-violet-900">Import drafts</h2>
+          <p className="mt-1 text-xs text-violet-800">
+            Unpublished brochure imports. Finish AI knowledge or publish when ready.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {importDrafts.map((draft) => {
+              const knowledgeLabel = draft.knowledge_gap_count > 0
+                ? `${draft.knowledge_gap_count} AI question(s) left`
+                : 'AI knowledge complete';
+              const statusLabel = draft.extractionStatus !== 'extracted'
+                ? 'Extracting brochure…'
+                : draft.knowledge_deferred
+                  ? 'Finish later — knowledge pending'
+                  : knowledgeLabel;
+              return (
+                <li key={draft.id}>
+                  <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-white px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => navigate(dashboardPath(`/properties/import/${draft.id}`))}
+                      className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2 text-left text-sm hover:text-brand-800"
+                    >
+                      <span className="font-medium text-ink-primary">
+                        {draft.name}
+                        {draft.property_type ? ` · ${draft.property_type}` : ''}
+                      </span>
+                      <span className="text-xs text-violet-700">{statusLabel}</span>
+                    </button>
+                    <RemoveCancelButton
+                      variant="delete"
+                      label="Remove"
+                      loading={cancellingDraftId === draft.id}
+                      onClick={() => void handleCancelImportDraft(draft.id, draft.name)}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {properties.length === 0 ? (
-        <div className="investo-card-pad text-center text-ink-muted">{t('common.no_data')}</div>
+        <div className="investo-card-pad text-center text-ink-muted">
+          {importDrafts.length > 0 && capabilities.canUploadProperties
+            ? 'No published properties yet. Continue an import draft above or publish when ready.'
+            : t('common.no_data')}
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {properties.map((property) => {

@@ -1,8 +1,45 @@
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import config from '../config';
-import { whatsappService } from './whatsapp.service';
 import { NotificationType as PrismaNotificationType } from '@prisma/client';
+
+
+/**
+ * IST locale formatter used throughout notification messages.
+ * @param date - Date to format
+ * @returns Human-readable date-time string in IST
+ */
+function formatISTDateTime(date: Date): string {
+  return date.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * Send a WhatsApp message to a user using their company's configured WhatsApp.
+ * Non-throwing — a notification failure must never block a business operation.
+ * Uses dynamic import to avoid circular dependency with whatsapp.service.
+ *
+ * @param phone - Recipient's phone number
+ * @param companyId - Company tenant for WhatsApp config lookup
+ * @param message - Message text to send
+ */
+async function sendWhatsAppToUser(phone: string, companyId: string, message: string): Promise<void> {
+  try {
+    const { whatsappService } = await import('./whatsapp.service');
+    await whatsappService.sendCompanyTextMessage(phone, message, companyId);
+  } catch (err: unknown) {
+    logger.warn('NotificationEngine: WhatsApp send failed', {
+      companyId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 /**
  * NotificationEngine - Event-driven notifications.
@@ -86,6 +123,10 @@ class NotificationEngine {
 
   /**
    * Notify assigned agent when a new lead is assigned.
+   * Creates DB notification AND sends WhatsApp so the agent is immediately aware.
+   *
+   * @param lead - The newly assigned lead record
+   * @param agentId - ID of the agent receiving the assignment
    */
   async onLeadAssigned(lead: any, agentId: string): Promise<void> {
     const agent = await prisma.user.findUnique({ where: { id: agentId } });
@@ -97,9 +138,25 @@ class NotificationEngine {
       type: 'lead_assigned',
       title: 'New Lead Assigned',
       message: `You have been assigned a new lead: ${lead.customerName || lead.phone}`,
-
       data: { leadId: lead.id },
     });
+
+    // Send WhatsApp so the agent is notified immediately, not just in-app.
+    // Uses dynamic import to avoid circular dependency with whatsapp.service.
+    if (agent?.phone) {
+      const { notifyAgentOfNewLead } = await import('./leadAssignment.service');
+      void notifyAgentOfNewLead(agentId, lead.id, lead.companyId);
+    } else {
+      // agent.phone may be missing if caller passed a partial record; fetch it
+      const fullAgent = await prisma.user.findUnique({
+        where: { id: agentId },
+        select: { phone: true },
+      });
+      if (fullAgent?.phone) {
+        const { notifyAgentOfNewLead } = await import('./leadAssignment.service');
+        void notifyAgentOfNewLead(agentId, lead.id, lead.companyId);
+      }
+    }
   }
 
   /**
@@ -167,43 +224,89 @@ class NotificationEngine {
 
   /**
    * Notify when a visit is scheduled.
+   * Creates DB notifications for agent and admins AND sends WhatsApp to the
+   * assigned agent immediately so they can prepare.
+   *
+   * @param visit - The newly created visit record
+   * @param lead - The associated lead
+   * @param property - The property being visited
+   * @param agent - The assigned agent user record
    */
   async onVisitScheduled(visit: any, lead: any, property: any, agent: any): Promise<void> {
-    const visitTime = new Date(visit.scheduledAt);
-    const timeStr = visitTime.toLocaleString('en-IN', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const timeStr = formatISTDateTime(new Date(visit.scheduledAt));
+    const customerName = lead?.customerName || lead?.phone || 'Customer';
+    const propertyName = property?.name || 'Property';
+    const agentName = agent?.name || 'Agent';
 
-    // Notify assigned agent
+    // 1. DB notification for the assigned agent
     await this.notify({
       companyId: visit.companyId,
       userId: visit.agentId,
       type: 'visit_scheduled',
       title: 'New Visit Scheduled',
-      message: `Visit with ${lead?.customerName || lead?.phone || 'Customer'} at ${property?.name || 'Property'} on ${timeStr}`,
+      message: `Visit with ${customerName} at ${propertyName} on ${timeStr}`,
       data: { visitId: visit.id, leadId: visit.leadId },
     });
 
-    // Notify company admins
+    // 2. WhatsApp to the assigned agent — the critical missing piece.
+    //    Agent must know immediately, not wait for their next dashboard login.
+    if (agent?.phone) {
+      const whatsappMsg = [
+        `📅 *New Visit Booked*`,
+        ``,
+        `Customer: *${customerName}*`,
+        `Property: *${propertyName}*`,
+        `When: *${timeStr}*`,
+        ``,
+        `Reply to update or ask anything about this visit.`,
+      ].join('\n');
+      void sendWhatsAppToUser(agent.phone, visit.companyId, whatsappMsg);
+    } else {
+      // Fetch phone in case caller passed partial agent object
+      const fullAgent = await prisma.user.findUnique({
+        where: { id: visit.agentId },
+        select: { phone: true },
+      });
+      if (fullAgent?.phone) {
+        const whatsappMsg = [
+          `📅 *New Visit Booked*`,
+          ``,
+          `Customer: *${customerName}*`,
+          `Property: *${propertyName}*`,
+          `When: *${timeStr}*`,
+          ``,
+          `Reply to update or ask anything about this visit.`,
+        ].join('\n');
+        void sendWhatsAppToUser(fullAgent.phone, visit.companyId, whatsappMsg);
+      }
+    }
+
+    // 3. DB notification for company admins
     const admins = await prisma.user.findMany({
       where: { companyId: visit.companyId, role: 'company_admin', status: 'active' },
-      select: { id: true },
+      select: { id: true, phone: true },
     });
 
     for (const admin of admins) {
-      if (admin.id !== visit.agentId) {
-        await this.notify({
-          companyId: visit.companyId,
-          userId: admin.id,
-          type: 'visit_scheduled',
-          title: 'Visit Scheduled',
-          message: `${agent?.name || 'Agent'} scheduled a visit with ${lead?.customerName || lead?.phone} for ${timeStr}`,
-          data: { visitId: visit.id },
-        });
+      if (admin.id === visit.agentId) continue;
+      await this.notify({
+        companyId: visit.companyId,
+        userId: admin.id,
+        type: 'visit_scheduled',
+        title: 'Visit Scheduled',
+        message: `${agentName} scheduled a visit with ${customerName} for ${timeStr}`,
+        data: { visitId: visit.id },
+      });
+      // Also WhatsApp admins so they see it in real time
+      if (admin.phone) {
+        const adminMsg = [
+          `📅 *Visit Scheduled*`,
+          `Agent: *${agentName}*`,
+          `Customer: *${customerName}*`,
+          `Property: *${propertyName}*`,
+          `When: *${timeStr}*`,
+        ].join('\n');
+        void sendWhatsAppToUser(admin.phone, visit.companyId, adminMsg);
       }
     }
   }
@@ -277,6 +380,7 @@ class NotificationEngine {
 
       if (whatsappMsg) {
         try {
+          const { whatsappService } = await import('./whatsapp.service');
           const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
             provider: whatsappConfig.provider,
             phoneNumberId: whatsappConfig.phoneNumberId,
@@ -354,6 +458,7 @@ class NotificationEngine {
       const whatsappMsg = `Hi ${customerName}! 📅\n\nYour property visit has been *rescheduled*.\n\n❌ Old: ${oldTimeStr}\n✅ New: ${newTimeStr}\n\nPlease reply YES to confirm the new time.`;
 
       try {
+        const { whatsappService } = await import('./whatsapp.service');
         const sent = await whatsappService.sendMessage(lead.phone, whatsappMsg, {
           provider: whatsappConfig.provider,
           phoneNumberId: whatsappConfig.phoneNumberId,

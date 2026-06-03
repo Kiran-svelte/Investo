@@ -30,6 +30,8 @@ export interface AuthUser {
   email: string;
   role: UserRole;
   company_id: string | null;
+  phone?: string | null;
+  profile_complete?: boolean;
   must_change_password?: boolean;
 }
 
@@ -42,6 +44,8 @@ export interface AuthContextType {
   logout: () => void;
   refreshToken: () => Promise<void>;
   clearPasswordChangeRequirement: () => void;
+  refreshProfile: () => Promise<void>;
+  profileComplete: boolean;
 }
 
 // ──────────────────────────────────────────────
@@ -63,6 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Derived flag
   const isAuthenticated = user !== null;
   const mustChangePassword = user?.must_change_password === true;
+  const profileComplete = user?.profile_complete === true;
 
   // Clear password change requirement after successful change
   const clearPasswordChangeRequirement = useCallback(() => {
@@ -70,6 +75,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setUser({ ...user, must_change_password: false });
     }
   }, [user]);
+
+  const refreshProfile = useCallback(async () => {
+    const { data } = await api.get<ApiResponse<AuthUser>>('/auth/me');
+    setUser(data.data);
+  }, []);
 
   // ── Validate an existing token on mount ──────
 
@@ -170,12 +180,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       isAuthenticated,
       isLoading,
       mustChangePassword,
+      profileComplete,
       login,
       logout,
       refreshToken,
       clearPasswordChangeRequirement,
+      refreshProfile,
     }),
-    [user, isAuthenticated, isLoading, mustChangePassword, login, logout, refreshToken, clearPasswordChangeRequirement],
+    [
+      user,
+      isAuthenticated,
+      isLoading,
+      mustChangePassword,
+      profileComplete,
+      login,
+      logout,
+      refreshToken,
+      clearPasswordChangeRequirement,
+      refreshProfile,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

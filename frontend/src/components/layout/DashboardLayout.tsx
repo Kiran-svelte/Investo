@@ -320,12 +320,21 @@ const Header: React.FC = () => {
                 )}
               </div>
               <Link
-                to={dashboardPath('/settings')}
+                to={dashboardPath('/profile')}
                 role="menuitem"
                 onClick={() => setUserMenuOpen(false)}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-ink-secondary hover:bg-surface-subtle"
               >
                 <User className="h-4 w-4" />
+                {t('nav.profile', { defaultValue: 'My profile' })}
+              </Link>
+              <Link
+                to={dashboardPath('/settings')}
+                role="menuitem"
+                onClick={() => setUserMenuOpen(false)}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-ink-secondary hover:bg-surface-subtle"
+              >
+                <Settings className="h-4 w-4" />
                 {t('nav.settings', { defaultValue: 'Settings' })}
               </Link>
               <Link

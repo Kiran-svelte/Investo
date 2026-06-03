@@ -339,6 +339,18 @@ export const sendConversationMessageSchema = z.discriminatedUnion('mode', [
 
 export type SendConversationMessagePayload = z.infer<typeof sendConversationMessageSchema>;
 
+export const updateStaffProfileSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(120).optional(),
+  phone: z
+    .string()
+    .trim()
+    .min(1, 'Phone number is required')
+    .transform(normalizeIndianPhoneNumber)
+    .refine((v) => typeof v === 'string' && isIndianE164Phone(v), {
+      message: 'Enter a valid Indian mobile number (10 digits)',
+    }),
+});
+
 // Helper to validate state transitions
 export function isValidTransition<T extends string>(
   transitions: Record<T, T[]>,

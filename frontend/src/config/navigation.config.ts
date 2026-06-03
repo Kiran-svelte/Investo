@@ -260,7 +260,7 @@ export function isPathAllowedForRole(
 
   const spec = getNavItemForPath(pathname);
   if (!spec) {
-    return pathname === '/change-password';
+    return pathname === '/change-password' || pathname === dashboardPath('/profile');
   }
 
   if (!spec.roles.includes(role)) {
