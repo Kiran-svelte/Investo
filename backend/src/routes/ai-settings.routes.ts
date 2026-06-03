@@ -9,6 +9,10 @@ import { aiSettingsSchema } from '../models/validation';
 import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import {
+  loadFaqKnowledgeFromSupabase,
+  syncFaqKnowledgeToSupabase,
+} from '../services/aiKnowledgeStorage.service';
 
 const router = Router();
 
@@ -54,7 +58,6 @@ router.get(
       let settings = await prisma.aiSetting.findUnique({ where: { companyId } });
 
       if (!settings) {
-        // Create default settings
         settings = await prisma.aiSetting.create({
           data: {
             companyId,
@@ -64,6 +67,11 @@ router.get(
             defaultLanguage: 'en',
           },
         });
+      }
+
+      const supabaseFaqs = await loadFaqKnowledgeFromSupabase(companyId);
+      if (supabaseFaqs !== null) {
+        settings = { ...settings, faqKnowledge: supabaseFaqs as typeof settings.faqKnowledge };
       }
 
       res.json({ data: settings });
@@ -109,6 +117,12 @@ router.put(
           ...updateFields,
         },
       });
+
+      if (data.faq_knowledge !== undefined) {
+        void syncFaqKnowledgeToSupabase(companyId, data.faq_knowledge).catch((syncErr: Error) => {
+          logger.warn('FAQ knowledge Supabase sync failed', { companyId, error: syncErr.message });
+        });
+      }
 
       res.json({ data: settings });
     } catch (err: any) {

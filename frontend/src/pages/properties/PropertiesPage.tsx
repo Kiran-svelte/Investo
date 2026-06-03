@@ -346,6 +346,15 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
       return;
     }
 
+    if (!form.price_min || !form.price_max) {
+      setError('Price Min and Price Max (₹) are required for each project.');
+      return;
+    }
+    if (Number(form.price_min) > Number(form.price_max)) {
+      setError('Price Min cannot be greater than Price Max.');
+      return;
+    }
+
     setSaving(true);
     setError('');
     const payload = {
@@ -401,8 +410,8 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
             <div><label htmlFor="location_area" className="block text-sm font-medium text-gray-700 mb-1">Area</label><input id="location_area" name="location_area" aria-label="Area" value={form.location_area} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
             <div><label htmlFor="location_pincode" className="block text-sm font-medium text-gray-700 mb-1">Pincode</label><input id="location_pincode" name="location_pincode" aria-label="Pincode" value={form.location_pincode} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
             <div><label htmlFor="bedrooms" className="block text-sm font-medium text-gray-700 mb-1">Bedrooms</label><input id="bedrooms" name="bedrooms" aria-label="Bedrooms" type="number" value={form.bedrooms} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="price_min" className="block text-sm font-medium text-gray-700 mb-1">Price Min (₹)</label><input id="price_min" name="price_min" aria-label="Price Min (₹)" type="number" value={form.price_min} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="price_max" className="block text-sm font-medium text-gray-700 mb-1">Price Max (₹)</label><input id="price_max" name="price_max" aria-label="Price Max (₹)" type="number" value={form.price_max} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
+            <div><label htmlFor="price_min" className="block text-sm font-medium text-gray-700 mb-1">Price Min (₹) *</label><input id="price_min" name="price_min" aria-label="Price Min (₹)" type="number" required value={form.price_min} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
+            <div><label htmlFor="price_max" className="block text-sm font-medium text-gray-700 mb-1">Price Max (₹) *</label><input id="price_max" name="price_max" aria-label="Price Max (₹)" type="number" required value={form.price_max} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
             <div><label htmlFor="rera_number" className="block text-sm font-medium text-gray-700 mb-1">RERA Number</label><input id="rera_number" name="rera_number" aria-label="RERA Number" value={form.rera_number} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
             <div><label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
               <select id="status" name="status" aria-label="Status" value={form.status} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">

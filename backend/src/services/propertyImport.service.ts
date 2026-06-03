@@ -4,6 +4,7 @@ import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { storageService } from './storage.service';
+import { isSupabaseStorageConfigured } from './supabaseStorage.service';
 import { propertyImportQueueService } from './propertyImportQueue.service';
 import {
   isPropertyImportReviewPending,
@@ -215,12 +216,13 @@ export class PropertyImportService {
     };
 
     const buildDbBackedUpload = () => {
-      if (!baseUrl) {
+      const resolvedBase = config.storage.publicApiBaseUrl || baseUrl || '';
+      if (!resolvedBase) {
         throw new PropertyImportError('Server base URL is required for property media upload', 500);
       }
       mediaId = crypto.randomUUID();
       const storageKey = `db/property-import-media/${mediaId}`;
-      const endpointUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, baseUrl).toString();
+      const endpointUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, resolvedBase).toString();
       return {
         key: storageKey,
         uploadUrl: endpointUrl,
@@ -230,10 +232,48 @@ export class PropertyImportService {
       };
     };
 
-    const preferDbUpload = config.storage.propertyImportUseDbUpload === true;
+    const forceDbUpload = config.storage.propertyImportUseDbUpload === true;
+    const apiBase =
+      config.storage.publicApiBaseUrl
+      || baseUrl
+      || '';
 
-    if (preferDbUpload) {
-      upload = buildDbBackedUpload();
+    const buildSupabaseBackedUpload = () => {
+      if (!apiBase) {
+        throw new PropertyImportError('Server base URL is required for Supabase fallback upload', 500);
+      }
+      mediaId = crypto.randomUUID();
+      const bucket = config.storage.supabasePropertyBucket;
+      const extension = input.mimeType === 'application/pdf' ? '.pdf' : '';
+      const objectPath = [
+        'companies',
+        companyId,
+        'property-imports',
+        draftId,
+        `${mediaId}${extension}`,
+      ].join('/');
+      const storageKey = `supabase://${bucket}/${objectPath}`;
+      const endpointUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, apiBase).toString();
+      return {
+        key: storageKey,
+        uploadUrl: endpointUrl,
+        publicUrl: endpointUrl,
+        expiresInSeconds: 15 * 60,
+        contentType: input.mimeType,
+      };
+    };
+
+    const tryDbUpload = () => {
+      if (!apiBase) {
+        throw new PropertyImportError('Server base URL is required for fallback property upload', 500);
+      }
+      return buildDbBackedUpload();
+    };
+
+    let fallbackUploadUrl: string | null = null;
+
+    if (forceDbUpload) {
+      upload = tryDbUpload();
     } else {
       try {
         upload = await storageService.createPropertyUploadUrl({
@@ -244,12 +284,29 @@ export class PropertyImportService {
           fileSize: input.fileSize,
           assetType: input.assetType === 'video' ? 'image' : input.assetType,
         });
+        if (apiBase) {
+          fallbackUploadUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, apiBase).toString();
+        }
       } catch (err: any) {
-        const message = err instanceof Error ? err.message : '';
-        if (message.startsWith('R2 storage is not configured')) {
-          upload = buildDbBackedUpload();
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn('R2 presigned upload unavailable; trying Supabase/API fallback', {
+          companyId,
+          draftId,
+          error: message,
+        });
+        if (isSupabaseStorageConfigured()) {
+          try {
+            upload = buildSupabaseBackedUpload();
+          } catch (supabaseErr: any) {
+            logger.warn('Supabase fallback upload registration failed; using DB fallback', {
+              companyId,
+              draftId,
+              error: supabaseErr instanceof Error ? supabaseErr.message : String(supabaseErr),
+            });
+            upload = tryDbUpload();
+          }
         } else {
-          throw err;
+          upload = tryDbUpload();
         }
       }
     }
@@ -275,6 +332,7 @@ export class PropertyImportService {
       upload: {
         key: upload.key,
         upload_url: upload.uploadUrl,
+        fallback_upload_url: fallbackUploadUrl,
         public_url: upload.publicUrl,
         expires_in_seconds: upload.expiresInSeconds,
         content_type: upload.contentType,
@@ -505,6 +563,19 @@ export class PropertyImportService {
 
     if (!canPublishNow && !canRepublish) {
       throw new PropertyImportError('Draft is not ready for publishing', 409);
+    }
+
+    const draftData = (draft.draftData || {}) as Record<string, unknown>;
+    const priceMin = asNullableNumber(draftData.price_min ?? draftData.priceMin);
+    const priceMax = asNullableNumber(draftData.price_max ?? draftData.priceMax);
+    if (priceMin === null || priceMax === null) {
+      throw new PropertyImportError(
+        'Project budget is required. Set Price min (₹) and Price max (₹) for this property before publishing.',
+        400,
+      );
+    }
+    if (priceMin > priceMax) {
+      throw new PropertyImportError('Price min cannot be greater than price max', 400);
     }
 
     const successfulMedia = draft.mediaAssets.filter((item) => item.status === 'extracted' || item.status === 'verified');

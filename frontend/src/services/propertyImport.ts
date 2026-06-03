@@ -133,6 +133,7 @@ export interface RegisterPropertyImportUploadResult {
   upload: {
     key: string;
     upload_url: string;
+    fallback_upload_url?: string | null;
     public_url: string;
     expires_in_seconds: number;
     content_type: string;
@@ -214,30 +215,40 @@ export async function registerPropertyImportUpload(draftId: string, input: Regis
   return data.data;
 }
 
-export async function uploadPropertyImportFile(
+async function putUploadFile(
   uploadUrl: string,
   file: File,
   contentType: string,
   onProgress?: (progress: PropertyImportUploadProgress) => void,
 ): Promise<void> {
+  await axios.put(uploadUrl, file, {
+    headers: {
+      'Content-Type': contentType,
+    },
+    onUploadProgress: (event) => {
+      if (!onProgress || !event.total) {
+        return;
+      }
+
+      onProgress({
+        percent: Math.round((event.loaded / event.total) * 100),
+      });
+    },
+  });
+}
+
+export async function uploadPropertyImportFile(
+  uploadUrl: string,
+  file: File,
+  contentType: string,
+  onProgress?: (progress: PropertyImportUploadProgress) => void,
+  fallbackUploadUrl?: string | null,
+): Promise<void> {
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      await axios.put(uploadUrl, file, {
-        headers: {
-          'Content-Type': contentType,
-        },
-        onUploadProgress: (event) => {
-          if (!onProgress || !event.total) {
-            return;
-          }
-
-          onProgress({
-            percent: Math.round((event.loaded / event.total) * 100),
-          });
-        },
-      });
+      await putUploadFile(uploadUrl, file, contentType, onProgress);
       return;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -249,6 +260,15 @@ export async function uploadPropertyImportFile(
         }
 
         const isNetworkOnlyError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
+        if (isNetworkOnlyError && fallbackUploadUrl && fallbackUploadUrl !== uploadUrl) {
+          try {
+            await putUploadFile(fallbackUploadUrl, file, contentType, onProgress);
+            return;
+          } catch (fallbackError) {
+            throw fallbackError;
+          }
+        }
+
         if (isNetworkOnlyError && attempt < maxAttempts) {
           await new Promise((resolve) => window.setTimeout(resolve, 750 * attempt));
           continue;

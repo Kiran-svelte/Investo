@@ -3,6 +3,7 @@ import path from 'path';
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import config from '../config';
+import { downloadFromSupabaseBucket, isSupabaseStorageConfigured } from './supabaseStorage.service';
 
 export interface PropertyUploadUrlInput {
   companyId: string;
@@ -38,7 +39,23 @@ class StorageObjectVerificationError extends Error {
 }
 
 const DB_PROPERTY_IMPORT_MEDIA_PREFIX = 'db/property-import-media/';
+const SUPABASE_STORAGE_PREFIX = 'supabase://';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseSupabaseStorageKey(key: string): { bucket: string; objectPath: string } | null {
+  if (!key.startsWith(SUPABASE_STORAGE_PREFIX)) {
+    return null;
+  }
+  const remainder = key.slice(SUPABASE_STORAGE_PREFIX.length);
+  const slash = remainder.indexOf('/');
+  if (slash <= 0) {
+    return null;
+  }
+  return {
+    bucket: remainder.slice(0, slash),
+    objectPath: remainder.slice(slash + 1),
+  };
+}
 
 function isDbPropertyImportMediaKey(key: string): boolean {
   return typeof key === 'string' && key.startsWith(DB_PROPERTY_IMPORT_MEDIA_PREFIX);
@@ -270,6 +287,14 @@ class StorageService {
   }
 
   async getObjectBuffer(key: string): Promise<Buffer> {
+    const supabaseKey = parseSupabaseStorageKey(key);
+    if (supabaseKey) {
+      if (!isSupabaseStorageConfigured()) {
+        throw new Error('Supabase storage is not configured');
+      }
+      return downloadFromSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath);
+    }
+
     if (isDbPropertyImportMediaKey(key)) {
       const mediaId = parseDbPropertyImportMediaId(key);
       const prisma = (await import('../config/prisma')).default;
@@ -305,6 +330,37 @@ class StorageService {
     key: string,
     expected: { mimeType?: string; fileSize?: number },
   ): Promise<UploadedObjectVerification> {
+    const supabaseKey = parseSupabaseStorageKey(key);
+    if (supabaseKey) {
+      if (!isSupabaseStorageConfigured()) {
+        return { exists: false };
+      }
+
+      try {
+        const buffer = await downloadFromSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath);
+        const contentLength = buffer.length;
+        const contentType = expected.mimeType;
+
+        if (typeof expected.fileSize === 'number' && expected.fileSize !== contentLength) {
+          throw new StorageObjectVerificationError(
+            `Uploaded object size mismatch. Expected ${expected.fileSize} bytes, got ${contentLength} bytes`,
+            409,
+          );
+        }
+
+        return {
+          exists: true,
+          contentType,
+          contentLength,
+        };
+      } catch (err: any) {
+        if (err instanceof StorageObjectVerificationError) {
+          throw err;
+        }
+        return { exists: false };
+      }
+    }
+
     if (isDbPropertyImportMediaKey(key)) {
       const mediaId = parseDbPropertyImportMediaId(key);
       const prisma = (await import('../config/prisma')).default;

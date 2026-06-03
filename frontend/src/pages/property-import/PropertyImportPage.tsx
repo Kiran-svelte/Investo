@@ -38,6 +38,8 @@ import {
   PROPERTY_IMPORT_ASSET_TYPE_LABELS,
   PROPERTY_IMPORT_SUPPORTED_MIME_TYPES,
 } from '../../services/propertyImport';
+import InfoTooltip from '../../components/common/InfoTooltip';
+import { PROJECT_BUDGET_HELP } from '../../constants/aiFieldHelp';
 import {
   PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
   PROPERTY_IMPORT_PROPERTY_TYPES,
@@ -494,6 +496,7 @@ export default function PropertyImportPage() {
               return { ...entry, progress: percent };
             }));
           },
+          registered.upload.fallback_upload_url,
         );
 
         setUploadItems((items) => items.map((entry) => {
@@ -545,6 +548,17 @@ export default function PropertyImportPage() {
 
   const handlePublish = async () => {
     if (!draft?.id) {
+      return;
+    }
+
+    const minPrice = formValues.price_min.trim();
+    const maxPrice = formValues.price_max.trim();
+    if (!minPrice || !maxPrice) {
+      setPageError('Set Price min (₹) and Price max (₹) for this project before publishing.');
+      return;
+    }
+    if (Number(minPrice) > Number(maxPrice)) {
+      setPageError('Price min cannot be greater than price max.');
       return;
     }
 
@@ -1025,12 +1039,20 @@ export default function PropertyImportPage() {
                 ]}
                 disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
               />
+              <div className="sm:col-span-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                <span className="font-medium inline-flex items-center gap-1">
+                  Project budget (required)
+                  <InfoTooltip label="Why per-project budget?" content={PROJECT_BUDGET_HELP} />
+                </span>
+                <p className="mt-1 text-blue-800/90">Set min and max price for this listing so the AI matches leads to this project only.</p>
+              </div>
               <Field
                 label="Price min (₹)"
                 value={formValues.price_min}
                 onChange={(value) => updateField('price_min', value)}
                 placeholder="8500000"
                 inputMode="numeric"
+                required
                 disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
               />
               <Field
@@ -1039,6 +1061,7 @@ export default function PropertyImportPage() {
                 onChange={(value) => updateField('price_max', value)}
                 placeholder="12500000"
                 inputMode="numeric"
+                required
                 disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
               />
               <Field

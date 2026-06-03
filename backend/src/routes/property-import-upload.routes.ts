@@ -1,6 +1,7 @@
 import express, { Router, Request, Response, NextFunction } from 'express';
 import config from '../config';
 import prisma from '../config/prisma';
+import { uploadToSupabaseBucket } from '../services/supabaseStorage.service';
 
 class PropertyImportUploadError extends Error {
   statusCode: number;
@@ -97,7 +98,10 @@ async function persistUpload(uploadToken: string, contentType: string, bytes: Bu
       throw new PropertyImportUploadError('Upload has already been completed', 409);
     }
 
-    if (!media.storageKey.startsWith('db/property-import-media/')) {
+    const isDbKey = media.storageKey.startsWith('db/property-import-media/');
+    const isSupabaseKey = media.storageKey.startsWith('supabase://');
+
+    if (!isDbKey && !isSupabaseKey) {
       throw new PropertyImportUploadError('Direct upload is not available for this token', 409);
     }
 
@@ -106,15 +110,29 @@ async function persistUpload(uploadToken: string, contentType: string, bytes: Bu
       throw new PropertyImportUploadError('Content-Type does not match registered mime type', 400);
     }
 
-    await tx.propertyImportMediaBlob.create({
-      data: {
-        mediaId: media.id,
-        companyId: media.companyId,
-        mimeType: media.mimeType,
-        fileSize: bytes.length,
-        bytes: toDatabaseBytes(bytes),
-      },
-    });
+    if (isDbKey) {
+      await tx.propertyImportMediaBlob.create({
+        data: {
+          mediaId: media.id,
+          companyId: media.companyId,
+          mimeType: media.mimeType,
+          fileSize: bytes.length,
+          bytes: toDatabaseBytes(bytes),
+        },
+      });
+    } else {
+      const remainder = media.storageKey.slice('supabase://'.length);
+      const slash = remainder.indexOf('/');
+      const bucket = remainder.slice(0, slash);
+      const objectPath = remainder.slice(slash + 1);
+      const uploaded = await uploadToSupabaseBucket(bucket, objectPath, bytes, media.mimeType);
+      await tx.propertyImportMedia.update({
+        where: { id: media.id },
+        data: {
+          publicUrl: uploaded.publicUrl,
+        },
+      });
+    }
 
     await tx.propertyImportMedia.update({
       where: { id: media.id },

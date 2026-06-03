@@ -10,6 +10,8 @@ import {
 import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
 import { buildDefaultFeatureState } from '../../config/tenantFeatures';
 import { dispatchCompanyFeaturesReload } from '../../utils/featureReload';
+import InfoTooltip from '../../components/common/InfoTooltip';
+import { PERSUASION_LEVEL_HELP, PROJECT_BUDGET_HELP } from '../../constants/aiFieldHelp';
 
 export { formatIndianPhoneForApi, stripIndianCountryCode };
 
@@ -45,8 +47,6 @@ interface AIConfig {
   business_name: string;
   business_description: string;
   operating_locations: string[];
-  budget_range_min: number;
-  budget_range_max: number;
   response_tone: string;
   persuasion_level: number;
   default_language: string;
@@ -137,10 +137,6 @@ export function buildOnboardingAiPayload(aiConfig: AIConfig, locationsInput: str
       .split(',')
       .map(s => s.trim())
       .filter(Boolean),
-    budget_ranges: {
-      min: aiConfig.budget_range_min,
-      max: aiConfig.budget_range_max,
-    },
     response_tone: aiConfig.response_tone,
     persuasion_level: aiConfig.persuasion_level,
     working_hours: {
@@ -230,8 +226,6 @@ const OnboardingPage: React.FC = () => {
     business_name: '',
     business_description: '',
     operating_locations: [],
-    budget_range_min: 500000,
-    budget_range_max: 50000000,
     response_tone: 'friendly',
     persuasion_level: 5,
     default_language: 'en',
@@ -747,29 +741,17 @@ const OnboardingPage: React.FC = () => {
           placeholder="Mumbai, Pune, Bangalore"
         />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Min Budget (₹)</label>
-          <input
-            type="number"
-            value={aiConfig.budget_range_min}
-            onChange={e => setAiConfig(p => ({ ...p, budget_range_min: Number(e.target.value) }))}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Max Budget (₹)</label>
-          <input
-            type="number"
-            value={aiConfig.budget_range_max}
-            onChange={e => setAiConfig(p => ({ ...p, budget_range_max: Number(e.target.value) }))}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
+      <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+        <span className="font-medium">Project budget</span>
+        {' — '}
+        {PROJECT_BUDGET_HELP}
+        {' '}
+        You will set Price min and Price max when you add or import each property.
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Persuasion Level: {aiConfig.persuasion_level}
+        <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1">
+          <span>Persuasion Level: {aiConfig.persuasion_level}</span>
+          <InfoTooltip label="What is persuasion level?" content={PERSUASION_LEVEL_HELP} />
         </label>
         <input
           type="range"

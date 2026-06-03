@@ -429,8 +429,12 @@ const config = {
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean),
-    /** Browser uploads use API DB blobs by default (avoids R2 CORS issues from Vercel). Set false to prefer R2 presigned PUT. */
-    propertyImportUseDbUpload: process.env.PROPERTY_IMPORT_DB_UPLOAD !== 'false',
+    /** R2 presigned PUT is primary. DB blob upload is emergency fallback only (PROPERTY_IMPORT_DB_UPLOAD=true forces DB). */
+    propertyImportUseDbUpload: process.env.PROPERTY_IMPORT_DB_UPLOAD === 'true',
+    /** Public API base for browser PUT fallback (defaults to Render backend). */
+    publicApiBaseUrl: (process.env.API_PUBLIC_BASE_URL || process.env.BACKEND_PUBLIC_URL || '').replace(/\/+$/, ''),
+    supabasePropertyBucket: process.env.SUPABASE_PROPERTY_BUCKET || 'property-media',
+    supabaseAiKnowledgeBucket: process.env.SUPABASE_AI_KNOWLEDGE_BUCKET || 'ai-knowledge',
   },
 
   geocoding: {

@@ -5,6 +5,8 @@ import api from '../../services/api';
 import {
   Bot, Save, Loader2, Plus, Trash2, Clock, MessageSquare, Smartphone, AlertCircle, CheckCircle
 } from 'lucide-react';
+import InfoTooltip from '../../components/common/InfoTooltip';
+import { PERSUASION_LEVEL_HELP, PROJECT_BUDGET_HELP } from '../../constants/aiFieldHelp';
 
 // ── Types ──────────────────────────────────────
 
@@ -212,13 +214,6 @@ const AISettingsPage: React.FC = () => {
     setLocationsText(e.target.value);
     const locs = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
     setSettings(prev => ({ ...prev, operatingLocations: locs }));
-  };
-
-  const handleBudgetChange = (field: 'min' | 'max', value: string) => {
-    setSettings(prev => ({
-      ...prev,
-      budgetRanges: { ...prev.budgetRanges, [field]: Number(value) || 0 },
-    }));
   };
 
   const handleWorkingHoursChange = (field: 'start' | 'end', value: string) => {
@@ -430,7 +425,6 @@ const AISettingsPage: React.FC = () => {
         greeting_template: settings.greetingTemplate,
         default_language: settings.defaultLanguage,
         operating_locations: settings.operatingLocations,
-        budget_ranges: settings.budgetRanges,
       };
       await api.put('/ai-settings', body);
       setMessage('AI settings saved successfully');
@@ -494,27 +488,12 @@ const AISettingsPage: React.FC = () => {
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.budget_min')} (₹)</label>
-              <input
-                type="number"
-                value={settings.budgetRanges.min || ''}
-                onChange={e => handleBudgetChange('min', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.budget_max')} (₹)</label>
-              <input
-                type="number"
-                value={settings.budgetRanges.max || ''}
-                onChange={e => handleBudgetChange('max', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="0"
-              />
-            </div>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            <span className="font-medium inline-flex items-center gap-1">
+              Project budget
+              <InfoTooltip label="Why per-project budget?" content={PROJECT_BUDGET_HELP} />
+            </span>
+            <p className="mt-1">Set Price min and Price max on each property or import — not here.</p>
           </div>
         </div>
 
@@ -552,8 +531,11 @@ const AISettingsPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('ai_settings.persuasion_level')}: <span className="text-blue-600 font-semibold">{settings.persuasionLevel}</span>
+            <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1">
+              <span>
+                {t('ai_settings.persuasion_level')}: <span className="text-blue-600 font-semibold">{settings.persuasionLevel}</span>
+              </span>
+              <InfoTooltip label="What is persuasion level?" content={PERSUASION_LEVEL_HELP} />
             </label>
             <input
               type="range"

@@ -11,6 +11,8 @@ import {
   whatsappPhoneLookupVariants,
 } from '../models/validation';
 import { authService, normalizeAuthEmail } from '../services/auth.service';
+import { emailService } from '../services/email.service';
+import config from '../config';
 import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { mapPrismaError } from '../utils/prismaErrors';
 
@@ -736,6 +738,16 @@ router.post(
             name: m.name,
             role: selectedRole,
             status: 'created',
+          });
+
+          const loginUrl = `${config.frontend.baseUrl.replace(/\/$/, '')}/login`;
+          void emailService.sendWelcomeInviteEmail({
+            toEmail: normalizedEmail,
+            toName: String(m.name),
+            loginUrl,
+            temporaryPassword: String(m.password),
+          }).catch((mailErr: Error) => {
+            logger.warn('Onboarding invite email failed', { email: normalizedEmail, error: mailErr.message });
           });
         } catch (inviteErr: any) {
           created.push({

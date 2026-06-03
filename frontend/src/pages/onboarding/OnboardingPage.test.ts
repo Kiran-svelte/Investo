@@ -3,14 +3,12 @@ import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/ind
 import { buildOnboardingAiPayload, buildSafeOnboardingRolesPayload, getApiErrorMessage } from './OnboardingPage';
 
 describe('OnboardingPage helpers', () => {
-  it('builds AI payload with nested budget_ranges and working_hours', () => {
+  it('builds AI payload without company-wide budget (per-project budget instead)', () => {
     const payload = buildOnboardingAiPayload(
       {
         business_name: 'Investo',
         business_description: 'Real estate',
         operating_locations: [],
-        budget_range_min: 1000000,
-        budget_range_max: 5000000,
         response_tone: 'friendly',
         persuasion_level: 7,
         default_language: 'en',
@@ -25,10 +23,6 @@ describe('OnboardingPage helpers', () => {
       business_name: 'Investo',
       business_description: 'Real estate',
       operating_locations: ['Bangalore', 'Pune'],
-      budget_ranges: {
-        min: 1000000,
-        max: 5000000,
-      },
       response_tone: 'friendly',
       persuasion_level: 7,
       working_hours: {
