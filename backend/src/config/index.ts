@@ -385,7 +385,7 @@ const config = {
   },
 
   ai: {
-    provider: process.env.AI_PROVIDER || 'kimi',
+    provider: process.env.AI_PROVIDER || 'openai',
     kimiApiBaseUrl: process.env.KIMI_API_BASE_URL || 'https://api.moonshot.ai/v1',
     kimiApiKey: process.env.KIMI_API_KEY || '',
     // Explicit Kimi 2.5 default model for the primary provider.
@@ -432,7 +432,7 @@ const config = {
     r2Region: firstNonEmptyEnv('R2_REGION') || 'auto',
     // Default raised to support real-world brochures and price lists.
     propertyUploadMaxBytes: parseByteSize(process.env.PROPERTY_UPLOAD_MAX_BYTES, 50 * 1024 * 1024),
-    allowedMimeTypes: (process.env.PROPERTY_ALLOWED_MIME_TYPES || 'image/jpeg,image/png,image/webp,application/pdf,video/mp4')
+    allowedMimeTypes: (process.env.PROPERTY_ALLOWED_MIME_TYPES || 'image/jpeg,image/png,image/webp,application/pdf,video/mp4,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean),
@@ -459,6 +459,10 @@ const config = {
   rateLimit: {
     perUser: parseInt(process.env.RATE_LIMIT_USER || '100', 10),
     perCompany: parseInt(process.env.RATE_LIMIT_COMPANY || '1000', 10),
+    perUserAi: parseInt(process.env.RATE_LIMIT_USER_AI || '40', 10),
+    perCompanyAi: parseInt(process.env.RATE_LIMIT_COMPANY_AI || '120', 10),
+    webhookPerMinute: parseInt(process.env.RATE_LIMIT_WEBHOOK || '300', 10),
+    sensitivePerMinute: parseInt(process.env.RATE_LIMIT_SENSITIVE || '10', 10),
   },
   langgraph: {
     enabled: process.env.LANGGRAPH_ENABLED === 'true',

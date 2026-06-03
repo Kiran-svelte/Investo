@@ -102,6 +102,30 @@ async function applyCompatibilityPatches(): Promise<void> {
   await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN
+      IF to_regclass('public.property_import_drafts') IS NOT NULL THEN
+        EXECUTE '
+          CREATE TABLE IF NOT EXISTS property_import_units (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            draft_id UUID NOT NULL REFERENCES property_import_drafts(id) ON DELETE CASCADE,
+            company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            label VARCHAR(255),
+            unit_data JSONB NOT NULL DEFAULT ''{}''::jsonb,
+            published_property_id UUID REFERENCES properties(id),
+            status VARCHAR(20) NOT NULL DEFAULT ''draft'',
+            created_at TIMESTAMP NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP NOT NULL DEFAULT now()
+          )
+        ';
+        EXECUTE 'CREATE INDEX IF NOT EXISTS property_import_units_draft_sort_idx ON property_import_units(draft_id, sort_order)';
+        EXECUTE 'CREATE INDEX IF NOT EXISTS property_import_units_company_id_idx ON property_import_units(company_id)';
+      END IF;
+    END $$;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
       IF to_regclass('public.property_import_media') IS NOT NULL THEN
         EXECUTE '
           CREATE TABLE IF NOT EXISTS property_import_media_blobs (
