@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import config from '../config';
 import logger from '../config/logger';
 import prisma from '../config/prisma';
+import { isAwsStorageConfigured, isR2StorageConfigured } from '../services/storage.service';
+import { isSupabaseStorageConfigured } from '../services/supabaseStorage.service';
 
 const router = Router();
 
@@ -19,6 +21,12 @@ router.get('/', async (_req: Request, res: Response) => {
         db: {
           status: 'ok',
           latency_ms: Date.now() - startedAt,
+        },
+        storage: {
+          aws_s3: isAwsStorageConfigured(),
+          r2: isR2StorageConfigured(),
+          supabase: isSupabaseStorageConfigured(),
+          provider: config.storage.provider,
         },
       },
     });

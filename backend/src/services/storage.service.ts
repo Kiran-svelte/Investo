@@ -4,6 +4,15 @@ import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import config from '../config';
 import { downloadFromSupabaseBucket, isSupabaseStorageConfigured } from './supabaseStorage.service';
+import {
+  AWS_STORAGE_PREFIX,
+  DB_PROPERTY_IMPORT_MEDIA_PREFIX,
+  R2_STORAGE_PREFIX,
+  isDbPropertyImportMediaKey,
+  parseAwsStorageKey,
+  parseR2StorageKey,
+  parseSupabaseStorageKey,
+} from './storageTargets';
 
 export interface PropertyUploadUrlInput {
   companyId: string;
@@ -20,6 +29,7 @@ export interface PropertyUploadUrlResult {
   publicUrl: string;
   expiresInSeconds: number;
   contentType: string;
+  provider: 'aws' | 'r2';
 }
 
 export interface UploadedObjectVerification {
@@ -38,28 +48,7 @@ class StorageObjectVerificationError extends Error {
   }
 }
 
-const DB_PROPERTY_IMPORT_MEDIA_PREFIX = 'db/property-import-media/';
-const SUPABASE_STORAGE_PREFIX = 'supabase://';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function parseSupabaseStorageKey(key: string): { bucket: string; objectPath: string } | null {
-  if (!key.startsWith(SUPABASE_STORAGE_PREFIX)) {
-    return null;
-  }
-  const remainder = key.slice(SUPABASE_STORAGE_PREFIX.length);
-  const slash = remainder.indexOf('/');
-  if (slash <= 0) {
-    return null;
-  }
-  return {
-    bucket: remainder.slice(0, slash),
-    objectPath: remainder.slice(slash + 1),
-  };
-}
-
-function isDbPropertyImportMediaKey(key: string): boolean {
-  return typeof key === 'string' && key.startsWith(DB_PROPERTY_IMPORT_MEDIA_PREFIX);
-}
 
 function parseDbPropertyImportMediaId(key: string): string {
   if (!isDbPropertyImportMediaKey(key)) {
@@ -72,6 +61,20 @@ function parseDbPropertyImportMediaId(key: string): string {
   }
 
   return mediaId;
+}
+
+function ensureAwsConfig(): void {
+  const required: Array<[string, string]> = [
+    ['AWS_ACCESS_KEY_ID', config.storage.awsAccessKeyId],
+    ['AWS_SECRET_ACCESS_KEY', config.storage.awsSecretAccessKey],
+    ['AWS_S3_BUCKET', config.storage.awsBucket],
+    ['AWS_REGION', config.storage.awsRegion],
+  ];
+
+  const missing = required.filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length > 0) {
+    throw new Error(`AWS S3 storage is not configured. Missing environment variables: ${missing.join(', ')}`);
+  }
 }
 
 function ensureR2Config(options: { requirePublicBaseUrl?: boolean } = {}): void {
@@ -198,16 +201,65 @@ async function readBodyToBuffer(body: any): Promise<Buffer> {
   throw new Error('Unsupported object body type');
 }
 
-class StorageService {
-  private client: S3Client | null = null;
+function buildRelativeObjectKey(input: PropertyUploadUrlInput): string {
+  const extension = getMimeTypeExtension(input.mimeType);
+  const cleanFileName = sanitizeFileName(input.fileName);
+  const assetType = input.assetType || (input.mimeType === 'application/pdf' ? 'brochure' : 'image');
+  const propertySegment = input.propertyId || 'draft';
 
-  private getClient(): S3Client {
-    if (!this.client) {
+  return [
+    'companies',
+    input.companyId,
+    'properties',
+    propertySegment,
+    assetType,
+    `${Date.now()}-${randomUUID()}-${cleanFileName}${extension}`,
+  ].join('/');
+}
+
+export function isAwsStorageConfigured(): boolean {
+  return Boolean(
+    config.storage.awsAccessKeyId
+    && config.storage.awsSecretAccessKey
+    && config.storage.awsBucket
+    && config.storage.awsRegion,
+  );
+}
+
+export function isR2StorageConfigured(): boolean {
+  try {
+    ensureR2Config();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+class StorageService {
+  private awsClient: S3Client | null = null;
+  private r2Client: S3Client | null = null;
+
+  private getAwsClient(): S3Client {
+    if (!this.awsClient) {
+      ensureAwsConfig();
+      this.awsClient = new S3Client({
+        region: config.storage.awsRegion,
+        credentials: {
+          accessKeyId: config.storage.awsAccessKeyId,
+          secretAccessKey: config.storage.awsSecretAccessKey,
+        },
+      });
+    }
+
+    return this.awsClient;
+  }
+
+  private getR2Client(): S3Client {
+    if (!this.r2Client) {
       const hasExplicitEndpoint = Boolean(config.storage.r2Endpoint);
-      this.client = new S3Client({
+      this.r2Client = new S3Client({
         region: config.storage.r2Region || 'auto',
         endpoint: buildR2Endpoint(),
-        // Many S3-compatible providers (e.g., MinIO behind a custom domain) work best with path-style.
         forcePathStyle: hasExplicitEndpoint,
         credentials: {
           accessKeyId: config.storage.r2AccessKeyId,
@@ -216,12 +268,10 @@ class StorageService {
       });
     }
 
-    return this.client;
+    return this.r2Client;
   }
 
   private validateAssetRequest(input: PropertyUploadUrlInput): void {
-    ensureR2Config();
-
     if (!config.storage.allowedMimeTypes.includes(input.mimeType)) {
       throw new Error(`Unsupported mime type: ${input.mimeType}`);
     }
@@ -237,24 +287,66 @@ class StorageService {
     }
   }
 
-  async createPropertyUploadUrl(input: PropertyUploadUrlInput): Promise<PropertyUploadUrlResult> {
-    this.validateAssetRequest(input);
+  private getAwsPublicUrl(objectKey: string): string {
+    const configured = (config.storage.awsPublicBaseUrl || '').trim();
+    if (configured) {
+      return new URL(objectKey, normalizeBaseUrl(configured)).toString();
+    }
 
-    const extension = getMimeTypeExtension(input.mimeType);
-    const cleanFileName = sanitizeFileName(input.fileName);
-    const assetType = input.assetType || (input.mimeType === 'application/pdf' ? 'brochure' : 'image');
-    const propertySegment = input.propertyId || 'draft';
-    const key = [
-      'companies',
-      input.companyId,
-      'properties',
-      propertySegment,
-      assetType,
-      `${Date.now()}-${randomUUID()}-${cleanFileName}${extension}`,
-    ].join('/');
+    const region = config.storage.awsRegion;
+    const bucket = config.storage.awsBucket;
+    return `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;
+  }
+
+  private getR2PublicUrl(key: string): string {
+    ensureR2Config();
+
+    const configuredBaseUrl = (config.storage.r2PublicBaseUrl || '').trim();
+    if (configuredBaseUrl) {
+      return new URL(key, normalizeBaseUrl(configuredBaseUrl)).toString();
+    }
+
+    const endpoint = buildR2Endpoint();
+    return new URL(`${config.storage.r2Bucket}/${key}`, normalizeBaseUrl(endpoint)).toString();
+  }
+
+  async createAwsPropertyUploadUrl(input: PropertyUploadUrlInput): Promise<PropertyUploadUrlResult> {
+    this.validateAssetRequest(input);
+    ensureAwsConfig();
+
+    const relativeKey = buildRelativeObjectKey(input);
+    const objectKey = `${config.storage.awsKeyPrefix}${relativeKey}`;
+    const storageKey = `${AWS_STORAGE_PREFIX}${objectKey}`;
 
     const uploadUrl = await getSignedUrl(
-      this.getClient(),
+      this.getAwsClient(),
+      new PutObjectCommand({
+        Bucket: config.storage.awsBucket,
+        Key: objectKey,
+        ContentType: input.mimeType,
+      }),
+      { expiresIn: 15 * 60 },
+    );
+
+    return {
+      key: storageKey,
+      uploadUrl,
+      publicUrl: this.getAwsPublicUrl(objectKey),
+      expiresInSeconds: 15 * 60,
+      contentType: input.mimeType,
+      provider: 'aws',
+    };
+  }
+
+  async createR2PropertyUploadUrl(input: PropertyUploadUrlInput): Promise<PropertyUploadUrlResult> {
+    this.validateAssetRequest(input);
+    ensureR2Config();
+
+    const key = buildRelativeObjectKey(input);
+    const storageKey = `${R2_STORAGE_PREFIX}${key}`;
+
+    const uploadUrl = await getSignedUrl(
+      this.getR2Client(),
       new PutObjectCommand({
         Bucket: config.storage.r2Bucket,
         Key: key,
@@ -264,26 +356,73 @@ class StorageService {
     );
 
     return {
-      key,
+      key: storageKey,
       uploadUrl,
-      publicUrl: this.getPublicUrl(key),
+      publicUrl: this.getR2PublicUrl(key),
       expiresInSeconds: 15 * 60,
       contentType: input.mimeType,
+      provider: 'r2',
     };
   }
 
-  getPublicUrl(key: string): string {
-    ensureR2Config();
-
-    const configuredBaseUrl = (config.storage.r2PublicBaseUrl || '').trim();
-    if (configuredBaseUrl) {
-      return new URL(key, normalizeBaseUrl(configuredBaseUrl)).toString();
+  /** AWS S3 first, then Cloudflare R2. */
+  async createPropertyUploadUrl(input: PropertyUploadUrlInput): Promise<PropertyUploadUrlResult> {
+    if (isAwsStorageConfigured()) {
+      try {
+        return await this.createAwsPropertyUploadUrl(input);
+      } catch (err: any) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!isR2StorageConfigured()) {
+          throw err;
+        }
+        const { default: logger } = await import('../config/logger');
+        logger.warn('AWS S3 presigned upload failed; trying R2', { error: message });
+      }
     }
 
-    // Fallback: path-style URL against the R2 S3 endpoint.
-    // Note: this may not be publicly accessible unless the bucket is configured for public reads.
-    const endpoint = buildR2Endpoint();
-    return new URL(`${config.storage.r2Bucket}/${key}`, normalizeBaseUrl(endpoint)).toString();
+    if (isR2StorageConfigured()) {
+      return this.createR2PropertyUploadUrl(input);
+    }
+
+    throw new Error('No object storage configured (AWS S3 or R2 required)');
+  }
+
+  getPublicUrl(key: string): string {
+    const awsKey = parseAwsStorageKey(key);
+    if (awsKey) {
+      return this.getAwsPublicUrl(awsKey);
+    }
+
+    const r2Key = parseR2StorageKey(key);
+    if (r2Key) {
+      return this.getR2PublicUrl(r2Key);
+    }
+
+    throw new Error('Invalid storage key');
+  }
+
+  async putObjectBytes(storageKey: string, bytes: Buffer, contentType: string): Promise<{ publicUrl: string }> {
+    const awsKey = parseAwsStorageKey(storageKey);
+    if (awsKey) {
+      ensureAwsConfig();
+      await this.getAwsClient().send(
+        new PutObjectCommand({
+          Bucket: config.storage.awsBucket,
+          Key: awsKey,
+          Body: bytes,
+          ContentType: contentType,
+        }),
+      );
+      return { publicUrl: this.getAwsPublicUrl(awsKey) };
+    }
+
+    const supabaseKey = parseSupabaseStorageKey(storageKey);
+    if (supabaseKey) {
+      const { uploadToSupabaseBucket } = await import('./supabaseStorage.service');
+      return uploadToSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath, bytes, contentType);
+    }
+
+    throw new Error('Direct putObjectBytes is not supported for this storage key');
   }
 
   async getObjectBuffer(key: string): Promise<Buffer> {
@@ -310,12 +449,31 @@ class StorageService {
       return Buffer.isBuffer(blob.bytes) ? blob.bytes : Buffer.from(blob.bytes);
     }
 
-    ensureR2Config();
+    const awsKey = parseAwsStorageKey(key);
+    if (awsKey) {
+      ensureAwsConfig();
+      const response = await this.getAwsClient().send(
+        new GetObjectCommand({
+          Bucket: config.storage.awsBucket,
+          Key: awsKey,
+        }),
+      );
+      if (!response.Body) {
+        throw new Error('Storage object body is empty');
+      }
+      return readBodyToBuffer(response.Body);
+    }
 
-    const response = await this.getClient().send(
+    const r2Key = parseR2StorageKey(key);
+    if (!r2Key) {
+      throw new Error('Invalid storage key');
+    }
+
+    ensureR2Config();
+    const response = await this.getR2Client().send(
       new GetObjectCommand({
         Bucket: config.storage.r2Bucket,
-        Key: key,
+        Key: r2Key,
       }),
     );
 
@@ -339,7 +497,6 @@ class StorageService {
       try {
         const buffer = await downloadFromSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath);
         const contentLength = buffer.length;
-        const contentType = expected.mimeType;
 
         if (typeof expected.fileSize === 'number' && expected.fileSize !== contentLength) {
           throw new StorageObjectVerificationError(
@@ -350,7 +507,7 @@ class StorageService {
 
         return {
           exists: true,
-          contentType,
+          contentType: expected.mimeType,
           contentLength,
         };
       } catch (err: any) {
@@ -401,13 +558,31 @@ class StorageService {
       };
     }
 
-    ensureR2Config();
+    const awsKey = parseAwsStorageKey(key);
+    if (awsKey) {
+      return this.verifyS3Object(this.getAwsClient(), config.storage.awsBucket, awsKey, expected);
+    }
 
+    const r2Key = parseR2StorageKey(key);
+    if (r2Key) {
+      ensureR2Config();
+      return this.verifyS3Object(this.getR2Client(), config.storage.r2Bucket, r2Key, expected);
+    }
+
+    return { exists: false };
+  }
+
+  private async verifyS3Object(
+    client: S3Client,
+    bucket: string,
+    objectKey: string,
+    expected: { mimeType?: string; fileSize?: number },
+  ): Promise<UploadedObjectVerification> {
     try {
-      const metadata = await this.getClient().send(
+      const metadata = await client.send(
         new HeadObjectCommand({
-          Bucket: config.storage.r2Bucket,
-          Key: key,
+          Bucket: bucket,
+          Key: objectKey,
         }),
       );
 
@@ -416,11 +591,17 @@ class StorageService {
       const eTag = metadata.ETag ? metadata.ETag.replace(/\"/g, '') : undefined;
 
       if (expected.mimeType && contentType && expected.mimeType !== contentType) {
-        throw new Error(`Uploaded object mime type mismatch. Expected ${expected.mimeType}, got ${contentType}`);
+        throw new StorageObjectVerificationError(
+          `Uploaded object mime type mismatch. Expected ${expected.mimeType}, got ${contentType}`,
+          409,
+        );
       }
 
       if (typeof expected.fileSize === 'number' && typeof contentLength === 'number' && expected.fileSize !== contentLength) {
-        throw new Error(`Uploaded object size mismatch. Expected ${expected.fileSize} bytes, got ${contentLength} bytes`);
+        throw new StorageObjectVerificationError(
+          `Uploaded object size mismatch. Expected ${expected.fileSize} bytes, got ${contentLength} bytes`,
+          409,
+        );
       }
 
       return {
@@ -430,6 +611,9 @@ class StorageService {
         eTag,
       };
     } catch (error: any) {
+      if (error instanceof StorageObjectVerificationError) {
+        throw error;
+      }
       if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
         return { exists: false };
       }
@@ -439,4 +623,4 @@ class StorageService {
 }
 
 export const storageService = new StorageService();
-export { ensureR2Config };
+export { ensureR2Config, ensureAwsConfig };

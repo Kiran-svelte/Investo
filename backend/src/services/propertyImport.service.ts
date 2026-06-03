@@ -3,7 +3,11 @@ import { Prisma } from '@prisma/client';
 import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
-import { storageService } from './storage.service';
+import {
+  isAwsStorageConfigured,
+  isR2StorageConfigured,
+  storageService,
+} from './storage.service';
 import { isSupabaseStorageConfigured } from './supabaseStorage.service';
 import { propertyImportQueueService } from './propertyImportQueue.service';
 import {
@@ -272,24 +276,46 @@ export class PropertyImportService {
 
     let fallbackUploadUrl: string | null = null;
 
+    const uploadInput = {
+      companyId,
+      propertyId: `draft-${draftId}`,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      fileSize: input.fileSize,
+      assetType: (input.assetType === 'video' ? 'image' : input.assetType) as 'image' | 'brochure',
+    };
+
+    const tryCloudPresignedUpload = async () => {
+      if (isAwsStorageConfigured()) {
+        try {
+          return await storageService.createAwsPropertyUploadUrl(uploadInput);
+        } catch (awsErr: any) {
+          logger.warn('AWS S3 presigned upload unavailable; trying R2', {
+            companyId,
+            draftId,
+            error: awsErr instanceof Error ? awsErr.message : String(awsErr),
+          });
+        }
+      }
+
+      if (isR2StorageConfigured()) {
+        return storageService.createR2PropertyUploadUrl(uploadInput);
+      }
+
+      throw new Error('AWS S3 and R2 storage are not configured');
+    };
+
     if (forceDbUpload) {
       upload = tryDbUpload();
     } else {
       try {
-        upload = await storageService.createPropertyUploadUrl({
-          companyId,
-          propertyId: `draft-${draftId}`,
-          fileName: input.fileName,
-          mimeType: input.mimeType,
-          fileSize: input.fileSize,
-          assetType: input.assetType === 'video' ? 'image' : input.assetType,
-        });
+        upload = await tryCloudPresignedUpload();
         if (apiBase) {
           fallbackUploadUrl = new URL(`/api/property-imports/uploads/${uploadToken}`, apiBase).toString();
         }
-      } catch (err: any) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn('R2 presigned upload unavailable; trying Supabase/API fallback', {
+      } catch (cloudErr: any) {
+        const message = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
+        logger.warn('Cloud presigned upload unavailable; trying Supabase/API fallback', {
           companyId,
           draftId,
           error: message,

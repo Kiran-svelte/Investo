@@ -342,7 +342,11 @@ router.post(
       const message = err?.message || 'Failed to create upload URL';
       logger.error('Failed to create property upload URL', { error: message });
 
-      if (message.startsWith('R2 storage is not configured')) {
+      if (
+        message.startsWith('R2 storage is not configured')
+        || message.startsWith('AWS S3 storage is not configured')
+        || message.startsWith('No object storage configured')
+      ) {
         res.status(503).json({ error: message });
         return;
       }

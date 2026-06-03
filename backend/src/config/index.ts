@@ -407,22 +407,26 @@ const config = {
   },
 
   storage: {
-    provider: process.env.STORAGE_PROVIDER || 'r2',
-    // Optional: override the S3 endpoint completely (useful for MinIO / other S3-compatible providers).
-    // When set, R2_ACCOUNT_ID is not required.
-    r2Endpoint: firstNonEmptyEnv('R2_ENDPOINT', 'S3_ENDPOINT', 'AWS_ENDPOINT_URL', 'AWS_S3_ENDPOINT', 'B2_ENDPOINT')
-      .replace(/\/+$/, ''),
+    provider: process.env.STORAGE_PROVIDER || 'aws',
+    /** AWS S3 (primary) — eu-north-1 bucket with investo/ prefix */
+    awsRegion: firstNonEmptyEnv('AWS_REGION') || 'eu-north-1',
+    awsBucket: firstNonEmptyEnv('AWS_S3_BUCKET') || 'biginvesto-668764275363-eu-north-1-an',
+    awsKeyPrefix: (() => {
+      const raw = firstNonEmptyEnv('AWS_S3_PREFIX') || 'investo';
+      const trimmed = raw.replace(/^\/+|\/+$/g, '');
+      return trimmed ? `${trimmed}/` : '';
+    })(),
+    awsAccessKeyId: firstNonEmptyEnv('AWS_ACCESS_KEY_ID'),
+    awsSecretAccessKey: firstNonEmptyEnv('AWS_SECRET_ACCESS_KEY'),
+    awsPublicBaseUrl: firstNonEmptyEnv('AWS_S3_PUBLIC_BASE_URL'),
+    /** Cloudflare R2 (secondary fallback) — use R2_* only, not AWS_* */
+    r2Endpoint: firstNonEmptyEnv('R2_ENDPOINT').replace(/\/+$/, ''),
     r2AccountId: firstNonEmptyEnv('R2_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID'),
-    r2AccessKeyId: firstNonEmptyEnv('R2_ACCESS_KEY_ID', 'S3_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID', 'B2_APPLICATION_KEY_ID'),
-    r2SecretAccessKey: firstNonEmptyEnv(
-      'R2_SECRET_ACCESS_KEY',
-      'S3_SECRET_ACCESS_KEY',
-      'AWS_SECRET_ACCESS_KEY',
-      'B2_APPLICATION_KEY',
-    ),
-    r2Bucket: firstNonEmptyEnv('R2_BUCKET', 'S3_BUCKET', 'AWS_S3_BUCKET', 'B2_BUCKET'),
-    r2PublicBaseUrl: firstNonEmptyEnv('R2_PUBLIC_BASE_URL', 'S3_PUBLIC_BASE_URL', 'PUBLIC_ASSETS_BASE_URL'),
-    r2Region: firstNonEmptyEnv('R2_REGION', 'S3_REGION', 'AWS_REGION', 'AWS_DEFAULT_REGION') || 'auto',
+    r2AccessKeyId: firstNonEmptyEnv('R2_ACCESS_KEY_ID'),
+    r2SecretAccessKey: firstNonEmptyEnv('R2_SECRET_ACCESS_KEY'),
+    r2Bucket: firstNonEmptyEnv('R2_BUCKET'),
+    r2PublicBaseUrl: firstNonEmptyEnv('R2_PUBLIC_BASE_URL'),
+    r2Region: firstNonEmptyEnv('R2_REGION') || 'auto',
     // Default raised to support real-world brochures and price lists.
     propertyUploadMaxBytes: parseByteSize(process.env.PROPERTY_UPLOAD_MAX_BYTES, 50 * 1024 * 1024),
     allowedMimeTypes: (process.env.PROPERTY_ALLOWED_MIME_TYPES || 'image/jpeg,image/png,image/webp,application/pdf,video/mp4')

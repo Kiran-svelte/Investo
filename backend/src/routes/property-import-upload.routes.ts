@@ -1,7 +1,8 @@
 import express, { Router, Request, Response, NextFunction } from 'express';
 import config from '../config';
 import prisma from '../config/prisma';
-import { uploadToSupabaseBucket } from '../services/supabaseStorage.service';
+import { storageService } from '../services/storage.service';
+import { parseAwsStorageKey, parseSupabaseStorageKey } from '../services/storageTargets';
 
 class PropertyImportUploadError extends Error {
   statusCode: number;
@@ -99,9 +100,10 @@ async function persistUpload(uploadToken: string, contentType: string, bytes: Bu
     }
 
     const isDbKey = media.storageKey.startsWith('db/property-import-media/');
-    const isSupabaseKey = media.storageKey.startsWith('supabase://');
+    const isSupabaseKey = Boolean(parseSupabaseStorageKey(media.storageKey));
+    const isAwsKey = Boolean(parseAwsStorageKey(media.storageKey));
 
-    if (!isDbKey && !isSupabaseKey) {
+    if (!isDbKey && !isSupabaseKey && !isAwsKey) {
       throw new PropertyImportUploadError('Direct upload is not available for this token', 409);
     }
 
@@ -120,12 +122,21 @@ async function persistUpload(uploadToken: string, contentType: string, bytes: Bu
           bytes: toDatabaseBytes(bytes),
         },
       });
+    } else if (isAwsKey) {
+      const uploaded = await storageService.putObjectBytes(media.storageKey, bytes, media.mimeType);
+      await tx.propertyImportMedia.update({
+        where: { id: media.id },
+        data: {
+          publicUrl: uploaded.publicUrl,
+        },
+      });
     } else {
-      const remainder = media.storageKey.slice('supabase://'.length);
-      const slash = remainder.indexOf('/');
-      const bucket = remainder.slice(0, slash);
-      const objectPath = remainder.slice(slash + 1);
-      const uploaded = await uploadToSupabaseBucket(bucket, objectPath, bytes, media.mimeType);
+      const supabaseKey = parseSupabaseStorageKey(media.storageKey);
+      if (!supabaseKey) {
+        throw new PropertyImportUploadError('Invalid Supabase storage key', 500);
+      }
+      const { uploadToSupabaseBucket } = await import('../services/supabaseStorage.service');
+      const uploaded = await uploadToSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath, bytes, media.mimeType);
       await tx.propertyImportMedia.update({
         where: { id: media.id },
         data: {
