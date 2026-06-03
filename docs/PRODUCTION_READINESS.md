@@ -70,6 +70,12 @@ Seed accounts (rotate in production): `docs/USER_JOURNEY.md`.
 
 ---
 
+## Onboarding step 1 (company setup)
+
+If save fails, the most common cause is **WhatsApp number already used by another agency** (global unique per tenant). Use your agency’s dedicated business number, not one registered to another company on the platform. After backend deploy of the duplicate-phone fix, the UI shows an explicit error instead of “Failed to setup company profile”.
+
+---
+
 ## Known gaps (user / ops action)
 
 | Gap | Action |
@@ -85,10 +91,10 @@ Seed accounts (rotate in production): `docs/USER_JOURNEY.md`.
 
 ```bash
 cd backend
-npx jest src/tests/unit/rbac.test.ts src/tests/unit/visitBooking.service.test.ts --no-cache
+npx jest src/tests/unit/rbac.test.ts src/tests/unit/onboarding.routes.hardening.test.ts --no-cache
 
 cd ../frontend
-npm run test -- --run src/config/navigation.config.test.ts src/App.guards.test.tsx
+npm run test -- --run src/config/navigation.config.test.ts src/App.guards.test.tsx src/pages/onboarding/OnboardingPage.test.ts
 ```
 
 Full matrix: `node scripts/run-full-test-matrix.mjs` (`E2E_SKIP=1` to skip Playwright).

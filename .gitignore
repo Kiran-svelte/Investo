@@ -29,6 +29,21 @@ _tmp_*
 **/_tmp_*
 tmp/
 
+# Local deploy/health debug dumps (repo root)
+/*-health.json
+/prod-*.json
+/render-*.json
+/login-response.json
+/check-*.json
+/tmp_*.json
+/tmp_*.txt
+/local-*.html
+/*-frontend*.html
+/vercel-*.html
+backend/.tmp-*.json
+backend/build-out.txt
+backend/tsc-errors.txt
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
