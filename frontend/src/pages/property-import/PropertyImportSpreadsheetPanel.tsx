@@ -157,7 +157,7 @@ export default function PropertyImportSpreadsheetPanel({
       {preview && (
         <div className="mt-4 space-y-3">
           <p className="text-xs font-medium text-slate-700">
-            Column mapping ({preview.row_count} rows detected)
+            Column mapping ({preview.rowCount} rows detected)
           </p>
           {mappings.map((mapping, index) => (
             <div key={mapping.source_column} className="grid grid-cols-2 gap-2 text-sm">
