@@ -84,14 +84,14 @@ export default function PropertyUnitConfigurationEditor({
           checked={singleUnitMode}
           onChange={(e) => onSingleUnitModeChange(e.target.checked)}
           disabled={disabled}
-          className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          className="h-4 w-4 rounded border-surface-border-strong text-indigo-600 focus:ring-indigo-500"
         />
         Single unit / simple listing (use one bedroom count instead)
       </label>
 
       {singleUnitMode ? (
         <div className="mt-3">
-          <label className="block text-sm font-medium text-gray-700">Bedrooms (BHK)</label>
+          <label className="block text-sm font-medium text-ink-secondary">Bedrooms (BHK)</label>
           <input
             type="text"
             inputMode="numeric"
@@ -99,7 +99,7 @@ export default function PropertyUnitConfigurationEditor({
             onChange={(e) => onBedroomsChange(e.target.value)}
             disabled={disabled}
             placeholder="3"
-            className="mt-1 w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-gray-100"
+            className="mt-1 w-full max-w-xs rounded-lg border border-surface-border-strong px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-surface-subtle"
           />
         </div>
       ) : (
@@ -107,7 +107,7 @@ export default function PropertyUnitConfigurationEditor({
           {rows.map((row, index) => (
             <div
               key={`unit-row-${index}`}
-              className="grid grid-cols-2 gap-3 rounded-lg border border-indigo-100 bg-white p-3 sm:grid-cols-6"
+              className="grid grid-cols-2 gap-3 rounded-lg border border-indigo-100 bg-surface-elevated p-3 sm:grid-cols-6"
             >
               <div>
                 <label className="text-xs font-medium text-slate-600">BHK</label>
@@ -115,7 +115,7 @@ export default function PropertyUnitConfigurationEditor({
                   value={row.bhk}
                   onChange={(e) => updateRow(index, { bhk: e.target.value })}
                   disabled={disabled}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm disabled:bg-gray-100"
+                  className="mt-1 w-full rounded-lg border border-surface-border-strong px-2 py-2 text-sm disabled:bg-surface-subtle"
                 >
                   {UNIT_BHK_OPTIONS.map((bhk) => (
                     <option key={bhk} value={String(bhk)}>
@@ -132,7 +132,7 @@ export default function PropertyUnitConfigurationEditor({
                   onChange={(e) => updateRow(index, { unit_label: e.target.value })}
                   disabled={disabled}
                   placeholder={normalizedType === 'villa' ? 'Premium villa' : 'Corner unit'}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm disabled:bg-gray-100"
+                  className="mt-1 w-full rounded-lg border border-surface-border-strong px-2 py-2 text-sm disabled:bg-surface-subtle"
                 />
               </div>
               <div>
@@ -144,7 +144,7 @@ export default function PropertyUnitConfigurationEditor({
                   onChange={(e) => updateRow(index, { count: e.target.value })}
                   disabled={disabled}
                   placeholder="12"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm disabled:bg-gray-100"
+                  className="mt-1 w-full rounded-lg border border-surface-border-strong px-2 py-2 text-sm disabled:bg-surface-subtle"
                 />
               </div>
               <div>
@@ -156,7 +156,7 @@ export default function PropertyUnitConfigurationEditor({
                   onChange={(e) => updateRow(index, { price_min: e.target.value })}
                   disabled={disabled}
                   placeholder="Optional"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm disabled:bg-gray-100"
+                  className="mt-1 w-full rounded-lg border border-surface-border-strong px-2 py-2 text-sm disabled:bg-surface-subtle"
                 />
               </div>
               <div className="flex items-end gap-2">
@@ -169,7 +169,7 @@ export default function PropertyUnitConfigurationEditor({
                     onChange={(e) => updateRow(index, { price_max: e.target.value })}
                     disabled={disabled}
                     placeholder="Optional"
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm disabled:bg-gray-100"
+                    className="mt-1 w-full rounded-lg border border-surface-border-strong px-2 py-2 text-sm disabled:bg-surface-subtle"
                   />
                 </div>
                 <button
@@ -188,7 +188,7 @@ export default function PropertyUnitConfigurationEditor({
             type="button"
             onClick={addRow}
             disabled={disabled}
-            className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-surface-elevated px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-50 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             Add unit type

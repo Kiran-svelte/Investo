@@ -438,17 +438,17 @@ const AISettingsPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex justify-center items-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-ink-faint" />
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="investo-page space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Bot className="h-7 w-7 text-gray-700" />
-        <h1 className="text-2xl font-bold text-gray-900">{t('nav.ai_settings')}</h1>
+        <Bot className="h-7 w-7 text-ink-secondary" />
+        <h1 className="text-2xl font-bold text-ink-primary">{t('nav.ai_settings')}</h1>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6 max-w-3xl">
@@ -459,36 +459,36 @@ const AISettingsPage: React.FC = () => {
         )}
 
         {/* Business Info */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">{t('ai_settings.business_info')}</h2>
+        <div className="investo-card-pad space-y-4">
+          <h2 className="text-lg font-semibold text-ink-primary">{t('ai_settings.business_info')}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.business_name')}</label>
+            <label className="block text-sm font-medium text-ink-secondary mb-1">{t('ai_settings.business_name')}</label>
             <input
               name="businessName"
               value={settings.businessName}
               onChange={handleChange}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.business_description')}</label>
+            <label className="block text-sm font-medium text-ink-secondary mb-1">{t('ai_settings.business_description')}</label>
             <textarea
               name="businessDescription"
               value={settings.businessDescription}
               onChange={handleChange}
               rows={3}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.operating_locations')}</label>
+            <label className="block text-sm font-medium text-ink-secondary mb-1">{t('ai_settings.operating_locations')}</label>
             <input
               value={locationsText}
               onChange={handleLocationsChange}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             />
           </div>
-          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <div className="rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-900">
             <span className="font-medium inline-flex items-center gap-1">
               Project budget
               <InfoTooltip label="Why per-project budget?" content={PROJECT_BUDGET_HELP} />
@@ -498,18 +498,18 @@ const AISettingsPage: React.FC = () => {
         </div>
 
         {/* AI Behavior */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+        <div className="investo-card-pad space-y-4">
+          <h2 className="text-lg font-semibold text-ink-primary flex items-center gap-2">
             <MessageSquare className="h-5 w-5" /> {t('ai_settings.title')}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.response_tone')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('ai_settings.response_tone')}</label>
               <select
                 name="responseTone"
                 value={settings.responseTone}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               >
                 {TONES.map(tone => (
                   <option key={tone} value={tone} className="capitalize">{tone.charAt(0).toUpperCase() + tone.slice(1)}</option>
@@ -517,12 +517,12 @@ const AISettingsPage: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.default_language')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('ai_settings.default_language')}</label>
               <select
                 name="defaultLanguage"
                 value={settings.defaultLanguage}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               >
                 {LANGUAGES.map(lang => (
                   <option key={lang.value} value={lang.value}>{lang.label}</option>
@@ -531,9 +531,9 @@ const AISettingsPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1">
+            <label className="flex items-center gap-1.5 text-sm font-medium text-ink-secondary mb-1">
               <span>
-                {t('ai_settings.persuasion_level')}: <span className="text-blue-600 font-semibold">{settings.persuasionLevel}</span>
+                {t('ai_settings.persuasion_level')}: <span className="text-brand-700 font-semibold">{settings.persuasionLevel}</span>
               </span>
               <InfoTooltip label="What is persuasion level?" content={PERSUASION_LEVEL_HELP} />
             </label>
@@ -543,64 +543,64 @@ const AISettingsPage: React.FC = () => {
               max={10}
               value={settings.persuasionLevel}
               onChange={e => setSettings(prev => ({ ...prev, persuasionLevel: Number(e.target.value) }))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              className="w-full h-2 bg-surface-subtle rounded-lg appearance-none cursor-pointer accent-brand-600"
             />
           </div>
         </div>
 
         {/* Working Hours */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+        <div className="investo-card-pad space-y-4">
+          <h2 className="text-lg font-semibold text-ink-primary flex items-center gap-2">
             <Clock className="h-5 w-5" /> {t('ai_settings.working_hours')}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.start_time')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('ai_settings.start_time')}</label>
               <input
                 type="time"
                 value={settings.workingHours.start}
                 onChange={e => handleWorkingHoursChange('start', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('ai_settings.end_time')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('ai_settings.end_time')}</label>
               <input
                 type="time"
                 value={settings.workingHours.end}
                 onChange={e => handleWorkingHoursChange('end', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               />
             </div>
           </div>
         </div>
 
         {/* Greeting Template */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">{t('ai_settings.greeting_template')}</h2>
+        <div className="investo-card-pad space-y-4">
+          <h2 className="text-lg font-semibold text-ink-primary">{t('ai_settings.greeting_template')}</h2>
           <textarea
             name="greetingTemplate"
             value={settings.greetingTemplate}
             onChange={handleChange}
             rows={3}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
 
         {/* FAQ Knowledge */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
+        <div className="investo-card-pad space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">{t('ai_settings.faq_knowledge')}</h2>
+            <h2 className="text-lg font-semibold text-ink-primary">{t('ai_settings.faq_knowledge')}</h2>
             <button
               type="button"
               onClick={addFAQ}
-              className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 flex items-center gap-1 text-sm font-medium"
+              className="px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 flex items-center gap-1 text-sm font-medium"
             >
               <Plus className="h-4 w-4" /> {t('ai_settings.add_faq')}
             </button>
           </div>
           {settings.faqKnowledge.length === 0 && (
-            <p className="text-sm text-gray-500">{t('common.no_data')}</p>
+            <p className="text-sm text-ink-muted">{t('common.no_data')}</p>
           )}
           {settings.faqKnowledge.map((faq, index) => (
             <div key={index} className="border rounded-lg p-3 space-y-2 relative">
@@ -612,20 +612,20 @@ const AISettingsPage: React.FC = () => {
                 <Trash2 className="h-4 w-4" />
               </button>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">{t('ai_settings.question')}</label>
+                <label className="block text-xs font-medium text-ink-muted mb-1">{t('ai_settings.question')}</label>
                 <input
                   value={faq.question}
                   onChange={e => updateFAQ(index, 'question', e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">{t('ai_settings.answer')}</label>
+                <label className="block text-xs font-medium text-ink-muted mb-1">{t('ai_settings.answer')}</label>
                 <textarea
                   value={faq.answer}
                   onChange={e => updateFAQ(index, 'answer', e.target.value)}
                   rows={2}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                 />
               </div>
             </div>
@@ -637,7 +637,7 @@ const AISettingsPage: React.FC = () => {
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium"
+            className="px-6 py-2.5 investo-btn-primary disabled:opacity-50 flex items-center gap-2 font-medium"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {t('common.save')} {t('nav.ai_settings')}
@@ -648,10 +648,10 @@ const AISettingsPage: React.FC = () => {
       {/* WhatsApp Integration - Separate Section (only for company_admin or super_admin) */}
       {(user?.role === 'company_admin' || user?.role === 'super_admin') && (
         <div className="max-w-3xl space-y-6 mt-8">
-          <hr className="border-gray-200" />
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
+          <hr className="border-surface-border" />
+          <div className="investo-card-pad space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-ink-primary flex items-center gap-2">
                 <Smartphone className="h-5 w-5 text-green-600" />
                 {t('ai_settings.whatsapp_integration') || 'WhatsApp Business Integration'}
               </h2>
@@ -662,7 +662,7 @@ const AISettingsPage: React.FC = () => {
                     {t('ai_settings.connected') || 'Connected'}
                   </span>
                 ) : credentialsSaved ? (
-                  <span className="flex items-center gap-1.5 text-sm text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">
+                  <span className="flex items-center gap-1.5 text-sm text-brand-700 bg-brand-50 px-2.5 py-1 rounded-full">
                     <AlertCircle className="h-4 w-4" />
                     Saved — not verified
                   </span>
@@ -683,7 +683,7 @@ const AISettingsPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
                   {t('ai_settings.whatsapp_provider') || 'Provider'}
                 </label>
                 <select
@@ -696,16 +696,16 @@ const AISettingsPage: React.FC = () => {
                 </select>
               </div>
 
-              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800">
+              <div className="bg-brand-50 border border-brand-100 rounded-lg p-4 text-sm text-brand-800">
                 <h4 className="font-medium mb-2">{t('ai_settings.whatsapp_setup_guide') || 'Setup Guide:'}</h4>
                 {whatsappConfig.provider === 'greenapi' ? (
-                  <ol className="list-decimal list-inside space-y-1 text-blue-700">
+                  <ol className="list-decimal list-inside space-y-1 text-brand-800">
                     <li>Create a Green-API instance and copy your Instance ID + API Token</li>
                     <li>Set the webhook URL to the value shown below</li>
                     <li>Set the webhook Authorization header to <span className="font-mono">Bearer &lt;token&gt;</span> (use your Webhook Token below)</li>
                   </ol>
                 ) : (
-                  <ol className="list-decimal list-inside space-y-1 text-blue-700">
+                  <ol className="list-decimal list-inside space-y-1 text-brand-800">
                     <li>{t('ai_settings.whatsapp_step1') || 'Go to Meta Business Suite and create a WhatsApp Business Account'}</li>
                     <li>{t('ai_settings.whatsapp_step2') || 'Create a WhatsApp Business app and get your Phone Number ID'}</li>
                     <li>{t('ai_settings.whatsapp_step3') || 'Generate a permanent access token from Meta developer console'}</li>
@@ -724,7 +724,7 @@ const AISettingsPage: React.FC = () => {
               {whatsappConfig.provider === 'greenapi' ? (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">
                       Instance ID
                     </label>
                     <input
@@ -737,12 +737,12 @@ const AISettingsPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">
                       API Token
                       <button 
                         type="button"
                         onClick={() => setShowWhatsAppTokens(!showWhatsAppTokens)}
-                        className="ml-2 text-xs text-blue-600 hover:underline"
+                        className="ml-2 text-xs text-brand-700 hover:underline"
                       >
                         {showWhatsAppTokens ? t('common.hide') || 'Hide' : t('common.show') || 'Show'}
                       </button>
@@ -757,12 +757,12 @@ const AISettingsPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">
                       Webhook Token
                       <button 
                         type="button"
                         onClick={() => setShowWhatsAppTokens(!showWhatsAppTokens)}
-                        className="ml-2 text-xs text-blue-600 hover:underline"
+                        className="ml-2 text-xs text-brand-700 hover:underline"
                       >
                         {showWhatsAppTokens ? t('common.hide') || 'Hide' : t('common.show') || 'Show'}
                       </button>
@@ -774,7 +774,7 @@ const AISettingsPage: React.FC = () => {
                       placeholder="your-secret-token"
                       className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-ink-muted mt-1">
                       Set Green-API webhook Authorization header to <span className="font-mono">Bearer &lt;this token&gt;</span>.
                     </p>
                   </div>
@@ -782,7 +782,7 @@ const AISettingsPage: React.FC = () => {
               ) : (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">
                       {t('ai_settings.phone_number_id') || 'Phone Number ID'}
                     </label>
                     <input
@@ -795,12 +795,12 @@ const AISettingsPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">
                       {t('ai_settings.access_token') || 'Access Token'}
                       <button 
                         type="button"
                         onClick={() => setShowWhatsAppTokens(!showWhatsAppTokens)}
-                        className="ml-2 text-xs text-blue-600 hover:underline"
+                        className="ml-2 text-xs text-brand-700 hover:underline"
                       >
                         {showWhatsAppTokens ? t('common.hide') || 'Hide' : t('common.show') || 'Show'}
                       </button>
@@ -815,7 +815,7 @@ const AISettingsPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">
                       {t('ai_settings.verify_token') || 'Webhook Verify Token'}
                     </label>
                     <input
@@ -825,14 +825,14 @@ const AISettingsPage: React.FC = () => {
                       placeholder={t('ai_settings.verify_token_placeholder') || 'Your custom verification token'}
                       className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-ink-muted mt-1">
                       {t('ai_settings.verify_token_help') || 'Create a secure random string. You\'ll need to enter this same value in Meta webhook settings.'}
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-ink-secondary mb-1">
                         Meta Business Account ID
                       </label>
                       <input
@@ -844,7 +844,7 @@ const AISettingsPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-ink-secondary mb-1">
                         WABA ID
                       </label>
                       <input
@@ -856,7 +856,7 @@ const AISettingsPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-ink-secondary mb-1">
                         Meta App ID
                       </label>
                       <input
@@ -868,7 +868,7 @@ const AISettingsPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-ink-secondary mb-1">
                         Meta App Secret
                       </label>
                       <input
@@ -880,7 +880,7 @@ const AISettingsPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-ink-secondary mb-1">
                         System User ID
                       </label>
                       <input
@@ -896,7 +896,7 @@ const AISettingsPage: React.FC = () => {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
                   {t('ai_settings.webhook_url') || 'Webhook URL'} ({t('common.read_only') || 'Read-only'})
                 </label>
                 <div className="flex gap-2">
@@ -904,17 +904,17 @@ const AISettingsPage: React.FC = () => {
                     type="text"
                     value={whatsappConfig.webhookUrl}
                     readOnly
-                    className="flex-1 px-3 py-2 border rounded-lg bg-gray-50 text-gray-600 font-mono text-sm"
+                    className="flex-1 px-3 py-2 border rounded-lg bg-surface-muted text-ink-secondary font-mono text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => navigator.clipboard.writeText(whatsappConfig.webhookUrl)}
-                    className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+                    className="px-3 py-2 text-sm bg-surface-subtle hover:bg-surface-subtle rounded-lg"
                   >
                     {t('common.copy') || 'Copy'}
                   </button>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-ink-muted mt-1">
                   {whatsappConfig.provider === 'greenapi'
                     ? 'Copy this URL and paste it in your Green-API webhook configuration.'
                     : t('ai_settings.webhook_help') || 'Copy this URL and paste it in your Meta app webhook configuration.'}
@@ -932,7 +932,7 @@ const AISettingsPage: React.FC = () => {
                     ? !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance
                     : !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken)
                 }
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium"
+                className="px-6 py-2.5 investo-btn-primary disabled:opacity-50 flex items-center gap-2 font-medium"
               >
                 {testingWhatsApp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
                 {t('ai_settings.test_connection') || 'Test Connection'}

@@ -30,9 +30,9 @@ const STATUS_ICONS: Record<string, React.ElementType> = {
   scheduled: Clock, confirmed: CheckCircle, completed: CheckCircle, cancelled: XCircle, no_show: AlertCircle,
 };
 const STATUS_COLORS: Record<string, string> = {
-  scheduled: 'bg-blue-100 text-blue-700 border-blue-200',
+  scheduled: 'bg-brand-100 text-brand-800 border-brand-200',
   confirmed: 'bg-green-100 text-green-700 border-green-200',
-  completed: 'bg-gray-100 text-gray-700 border-gray-200',
+  completed: 'bg-surface-subtle text-ink-secondary border-surface-border',
   cancelled: 'bg-red-100 text-red-700 border-red-200',
   no_show: 'bg-orange-100 text-orange-700 border-orange-200',
 };
@@ -114,28 +114,28 @@ const CalendarPage: React.FC = () => {
   const canSchedule = user?.role === 'company_admin' || user?.role === 'super_admin' || user?.role === 'sales_agent';
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
+    <div className="investo-page space-y-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">{t('visits.title')}</h1>
+        <h1 className="text-2xl font-bold text-ink-primary">{t('visits.title')}</h1>
         {canSchedule && (
-          <button onClick={() => setShowScheduleModal(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          <button onClick={() => setShowScheduleModal(true)} className="inline-flex items-center gap-2 px-4 py-2 investo-btn-primary transition-colors">
             <Plus className="h-4 w-4" />{t('visits.schedule_visit')}
           </button>
         )}
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 investo-card p-4">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate('prev')} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronLeft className="h-5 w-5 text-gray-600" /></button>
-          <span className="font-medium text-gray-900 min-w-[200px] text-center">{formatDateHeader()}</span>
-          <button onClick={() => navigate('next')} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronRight className="h-5 w-5 text-gray-600" /></button>
-          <button onClick={() => setCurrentDate(new Date())} className="ml-2 px-3 py-1 text-sm border rounded-lg hover:bg-gray-50">{t('calendar.today')}</button>
+          <button onClick={() => navigate('prev')} className="p-2 hover:bg-surface-subtle rounded-lg"><ChevronLeft className="h-5 w-5 text-ink-secondary" /></button>
+          <span className="font-medium text-ink-primary min-w-[200px] text-center">{formatDateHeader()}</span>
+          <button onClick={() => navigate('next')} className="p-2 hover:bg-surface-subtle rounded-lg"><ChevronRight className="h-5 w-5 text-ink-secondary" /></button>
+          <button onClick={() => setCurrentDate(new Date())} className="ml-2 px-3 py-1 text-sm border rounded-lg hover:bg-surface-muted">{t('calendar.today')}</button>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="flex gap-1 bg-surface-subtle rounded-lg p-1">
           {(['day', 'week', 'month'] as const).map(v => (
             <button key={v} onClick={() => setView(v)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${view === v ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${view === v ? 'bg-surface-elevated text-brand-700 shadow-sm' : 'text-ink-secondary hover:text-ink-primary'}`}>
               {t(`calendar.${v}`)}
             </button>
           ))}
@@ -148,27 +148,27 @@ const CalendarPage: React.FC = () => {
         <>
           {/* Week View */}
           {view === 'week' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="grid grid-cols-7 border-b border-gray-100">
+            <div className="investo-table-wrap">
+              <div className="grid grid-cols-7 border-b border-surface-border">
                 {getWeekDays().map((day, idx) => {
                   const isToday = day.toDateString() === new Date().toDateString();
-                  return (<div key={idx} className={`p-3 text-center border-r last:border-r-0 ${isToday ? 'bg-blue-50' : ''}`}>
-                    <p className="text-xs text-gray-500">{day.toLocaleDateString('en-IN', { weekday: 'short' })}</p>
-                    <p className={`text-lg font-semibold ${isToday ? 'text-blue-600' : 'text-gray-900'}`}>{day.getDate()}</p>
+                  return (<div key={idx} className={`p-3 text-center border-r last:border-r-0 ${isToday ? 'bg-brand-50' : ''}`}>
+                    <p className="text-xs text-ink-muted">{day.toLocaleDateString('en-IN', { weekday: 'short' })}</p>
+                    <p className={`text-lg font-semibold ${isToday ? 'text-brand-700' : 'text-ink-primary'}`}>{day.getDate()}</p>
                   </div>);
                 })}
               </div>
               <div className="grid grid-cols-7 min-h-[400px]">
                 {getWeekDays().map((day, idx) => {
                   const dayVisits = getVisitsForDay(day);
-                  return (<div key={idx} className="p-2 border-r last:border-r-0 border-gray-100">
+                  return (<div key={idx} className="p-2 border-r last:border-r-0 border-surface-border">
                     {dayVisits.map(visit => {
                       const StatusIcon = STATUS_ICONS[visit.status] || Clock;
                       return (<div key={visit.id} onClick={() => setSelectedVisit(visit)}
                         className={`mb-2 p-2 rounded-lg border text-xs cursor-pointer hover:opacity-80 ${STATUS_COLORS[visit.status]}`}>
                         <div className="flex items-center gap-1 font-medium"><StatusIcon className="h-3 w-3" />{new Date(visit.scheduled_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
                         <p className="mt-1 truncate">{visit.customer_name || visit.customer_phone}</p>
-                        {visit.property_name && <p className="truncate text-gray-600">{visit.property_name}</p>}
+                        {visit.property_name && <p className="truncate text-ink-secondary">{visit.property_name}</p>}
                       </div>);
                     })}
                   </div>);
@@ -179,9 +179,9 @@ const CalendarPage: React.FC = () => {
 
           {/* Day View */}
           {view === 'day' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
+            <div className="investo-card p-4 space-y-3">
               {getVisitsForDay(currentDate).length === 0 ? (
-                <p className="text-center text-gray-400 py-8">No visits scheduled for this day</p>
+                <p className="text-center text-ink-faint py-8">No visits scheduled for this day</p>
               ) : getVisitsForDay(currentDate).map(visit => {
                 const StatusIcon = STATUS_ICONS[visit.status] || Clock;
                 const time = new Date(visit.scheduled_at);
@@ -195,7 +195,7 @@ const CalendarPage: React.FC = () => {
                     <div className="flex items-center gap-2"><User className="h-4 w-4" />{visit.customer_name || 'Unknown'}</div>
                     <div className="flex items-center gap-2"><Phone className="h-4 w-4" />{visit.customer_phone}</div>
                     {visit.property_name && <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{visit.property_name}</div>}
-                    <div className="text-xs text-gray-500">Agent: {visit.agent_name}</div>
+                    <div className="text-xs text-ink-muted">Agent: {visit.agent_name}</div>
                   </div>
                 </div>);
               })}
@@ -204,26 +204,26 @@ const CalendarPage: React.FC = () => {
 
           {/* Month View */}
           {view === 'month' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="investo-table-wrap">
               <div className="grid grid-cols-7 border-b">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                  <div key={d} className="p-2 text-center text-xs font-semibold text-gray-500 border-r last:border-r-0">{d}</div>
+                  <div key={d} className="p-2 text-center text-xs font-semibold text-ink-muted border-r last:border-r-0">{d}</div>
                 ))}
               </div>
               <div className="grid grid-cols-7">
                 {getMonthDays().map((day, idx) => {
-                  if (!day) return <div key={idx} className="p-2 min-h-[80px] border-r border-b border-gray-100 bg-gray-50" />;
+                  if (!day) return <div key={idx} className="p-2 min-h-[80px] border-r border-b border-surface-border bg-surface-muted" />;
                   const dayVisits = getVisitsForDay(day);
                   const isToday = day.toDateString() === new Date().toDateString();
-                  return (<div key={idx} className={`p-1.5 min-h-[80px] border-r border-b border-gray-100 ${isToday ? 'bg-blue-50' : ''}`}>
-                    <p className={`text-xs font-medium mb-1 ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>{day.getDate()}</p>
+                  return (<div key={idx} className={`p-1.5 min-h-[80px] border-r border-b border-surface-border ${isToday ? 'bg-brand-50' : ''}`}>
+                    <p className={`text-xs font-medium mb-1 ${isToday ? 'text-brand-700' : 'text-ink-secondary'}`}>{day.getDate()}</p>
                     {dayVisits.slice(0, 2).map(v => (
                       <div key={v.id} onClick={() => setSelectedVisit(v)}
                         className={`text-[10px] px-1 py-0.5 rounded mb-0.5 truncate cursor-pointer ${STATUS_COLORS[v.status]}`}>
                         {new Date(v.scheduled_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} {v.customer_name || v.customer_phone}
                       </div>
                     ))}
-                    {dayVisits.length > 2 && <p className="text-[10px] text-gray-500">+{dayVisits.length - 2} more</p>}
+                    {dayVisits.length > 2 && <p className="text-[10px] text-ink-muted">+{dayVisits.length - 2} more</p>}
                   </div>);
                 })}
               </div>
@@ -238,7 +238,7 @@ const CalendarPage: React.FC = () => {
           const StatusIcon = STATUS_ICONS[visit.status] || Clock;
           const time = new Date(visit.scheduled_at);
           return (<div key={visit.id} onClick={() => setSelectedVisit(visit)}
-            className={`bg-white rounded-xl shadow-sm border p-4 cursor-pointer ${STATUS_COLORS[visit.status]}`}>
+            className={`investo-card p-4 cursor-pointer ${STATUS_COLORS[visit.status]}`}>
             <div className="flex items-start justify-between mb-2">
               <div className="flex items-center gap-2">
                 <StatusIcon className="h-5 w-5" />
@@ -247,9 +247,9 @@ const CalendarPage: React.FC = () => {
               <span className="text-xs font-medium uppercase">{visit.status}</span>
             </div>
             <div className="space-y-1 text-sm">
-              <div className="flex items-center gap-2"><User className="h-4 w-4 text-gray-400" />{visit.customer_name || 'Unknown'}</div>
-              <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-gray-400" />{visit.customer_phone}</div>
-              {visit.property_name && <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-gray-400" />{visit.property_name}</div>}
+              <div className="flex items-center gap-2"><User className="h-4 w-4 text-ink-faint" />{visit.customer_name || 'Unknown'}</div>
+              <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-ink-faint" />{visit.customer_phone}</div>
+              {visit.property_name && <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-ink-faint" />{visit.property_name}</div>}
             </div>
           </div>);
         })}
@@ -258,25 +258,25 @@ const CalendarPage: React.FC = () => {
       {/* Visit Detail/Status Modal */}
       {selectedVisit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setSelectedVisit(null)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="font-semibold">Visit Details</h3>
-              <button onClick={() => setSelectedVisit(null)} className="p-1 hover:bg-gray-100 rounded"><X className="h-5 w-5" /></button>
+              <button onClick={() => setSelectedVisit(null)} className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>
             </div>
             <div className="p-4 space-y-3">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><span className="text-gray-500">Customer</span><p className="font-medium">{selectedVisit.customer_name || selectedVisit.customer_phone}</p></div>
-                <div><span className="text-gray-500">Phone</span><p className="font-medium">{selectedVisit.customer_phone}</p></div>
-                <div><span className="text-gray-500">Date & Time</span><p className="font-medium">{new Date(selectedVisit.scheduled_at).toLocaleString('en-IN')}</p></div>
-                <div><span className="text-gray-500">Duration</span><p className="font-medium">{selectedVisit.duration_minutes} min</p></div>
-                <div><span className="text-gray-500">Property</span><p className="font-medium">{selectedVisit.property_name || '-'}</p></div>
-                <div><span className="text-gray-500">Agent</span><p className="font-medium">{selectedVisit.agent_name}</p></div>
-                <div><span className="text-gray-500">Status</span><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[selectedVisit.status]}`}>{selectedVisit.status}</span></div>
+                <div><span className="text-ink-muted">Customer</span><p className="font-medium">{selectedVisit.customer_name || selectedVisit.customer_phone}</p></div>
+                <div><span className="text-ink-muted">Phone</span><p className="font-medium">{selectedVisit.customer_phone}</p></div>
+                <div><span className="text-ink-muted">Date & Time</span><p className="font-medium">{new Date(selectedVisit.scheduled_at).toLocaleString('en-IN')}</p></div>
+                <div><span className="text-ink-muted">Duration</span><p className="font-medium">{selectedVisit.duration_minutes} min</p></div>
+                <div><span className="text-ink-muted">Property</span><p className="font-medium">{selectedVisit.property_name || '-'}</p></div>
+                <div><span className="text-ink-muted">Agent</span><p className="font-medium">{selectedVisit.agent_name}</p></div>
+                <div><span className="text-ink-muted">Status</span><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[selectedVisit.status]}`}>{selectedVisit.status}</span></div>
               </div>
-              {selectedVisit.notes && <div><span className="text-sm text-gray-500">Notes</span><p className="text-sm bg-gray-50 p-2 rounded mt-1">{selectedVisit.notes}</p></div>}
+              {selectedVisit.notes && <div><span className="text-sm text-ink-muted">Notes</span><p className="text-sm bg-surface-muted p-2 rounded mt-1">{selectedVisit.notes}</p></div>}
               {(VISIT_TRANSITIONS[selectedVisit.status] || []).length > 0 && (
                 <div className="pt-2 border-t">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Update Status:</p>
+                  <p className="text-sm font-medium text-ink-secondary mb-2">Update Status:</p>
                   <div className="flex flex-wrap gap-2">
                     {(VISIT_TRANSITIONS[selectedVisit.status] || []).map(status => (
                       <button key={status} onClick={() => updateVisitStatus(selectedVisit.id, status)} disabled={statusUpdating}
@@ -345,53 +345,53 @@ const ScheduleVisitModal: React.FC<{ onClose: () => void; onCreated: () => void 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">Schedule Visit</h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Lead *</label>
-            <select name="lead_id" value={form.lead_id} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            <label className="block text-sm font-medium text-ink-secondary mb-1">Lead *</label>
+            <select name="lead_id" value={form.lead_id} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
               <option value="">Select lead</option>
               {leads.map(l => <option key={l.id} value={l.id}>{l.customer_name || l.phone} ({l.phone})</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Property (optional)</label>
-            <select name="property_id" value={form.property_id} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            <label className="block text-sm font-medium text-ink-secondary mb-1">Property (optional)</label>
+            <select name="property_id" value={form.property_id} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
               <option value="">Select property</option>
               {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Agent *</label>
-            <select name="agent_id" value={form.agent_id} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            <label className="block text-sm font-medium text-ink-secondary mb-1">Agent *</label>
+            <select name="agent_id" value={form.agent_id} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
               <option value="">Select agent</option>
               {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Date & Time *</label>
-              <input name="scheduled_at" type="datetime-local" value={form.scheduled_at} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Date & Time *</label>
+              <input name="scheduled_at" type="datetime-local" value={form.scheduled_at} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Duration (min)</label>
-              <select name="duration_minutes" value={form.duration_minutes} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Duration (min)</label>
+              <select name="duration_minutes" value={form.duration_minutes} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
                 <option value="30">30 min</option><option value="60">60 min</option><option value="90">90 min</option><option value="120">120 min</option>
               </select>
             </div>
           </div>
           <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t('calendar.notes')}</label>
-            <textarea name="notes" value={form.notes} onChange={handleChange} rows={2} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+          <label className="block text-sm font-medium text-ink-secondary mb-1">{t('calendar.notes')}</label>
+            <textarea name="notes" value={form.notes} onChange={handleChange} rows={2} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
           </div>
           <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-lg hover:bg-gray-50">{t('common.cancel')}</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-lg hover:bg-surface-muted">{t('common.cancel')}</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center gap-2">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}{t('calendar.schedule_visit')}
             </button>
           </div>

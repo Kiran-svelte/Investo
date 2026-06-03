@@ -161,18 +161,18 @@ const LeadsPage: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
+    <div className="investo-page space-y-4">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('leads.title')}</h1>
-          <p className="text-sm text-gray-500">{total} total leads</p>
+          <h1 className="text-2xl font-bold text-ink-primary">{t('leads.title')}</h1>
+          <p className="text-sm text-ink-muted">{total} total leads</p>
         </div>
         <div className="flex gap-2">
           {capabilities.canExportLeads && (
             <button
               onClick={handleExportCSV}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-surface-border-strong text-ink-secondary rounded-lg hover:bg-surface-muted transition-colors"
             >
               <Download className="h-4 w-4" />
               {t('common.export')}
@@ -181,7 +181,7 @@ const LeadsPage: React.FC = () => {
           {capabilities.canCreateLeads && !capabilities.isReadOnly && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 investo-btn-primary transition-colors"
             >
               <Plus className="h-4 w-4" />
               {t('leads.new_lead')}
@@ -217,12 +217,12 @@ const LeadsPage: React.FC = () => {
                 className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
                   active
                     ? `${LEAD_STATUS_BAR[status as LeadStatusValue]} text-white border-transparent`
-                    : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                    : 'bg-surface-elevated border-surface-border text-ink-secondary hover:border-surface-border-strong'
                 }`}
               >
                 <span className={`h-2 w-2 rounded-full ${LEAD_STATUS_BAR[status as LeadStatusValue]}`} />
                 {LEAD_STATUS_LABELS[status as LeadStatusValue]}
-                <span className={active ? 'text-white/90' : 'text-gray-500'}>{count}</span>
+                <span className={active ? 'text-white/90' : 'text-ink-muted'}>{count}</span>
               </button>
             );
           })}
@@ -232,19 +232,19 @@ const LeadsPage: React.FC = () => {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-faint" />
           <input
             type="text"
             placeholder={t('common.search')}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="px-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
         >
           <option value="">{t('common.all_statuses')}</option>
           {LEAD_STATUS_ORDER.map((s) => (
@@ -254,51 +254,51 @@ const LeadsPage: React.FC = () => {
       </div>
 
       {/* Table - Desktop */}
-      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="hidden md:block investo-table-wrap">
         <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-100">
+          <thead className="investo-table-head border-b border-surface-border">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('leads.customer_name')}</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('leads.phone')}</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('leads.budget')}</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('leads.location')}</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('leads.status')}</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('leads.assigned_agent')}</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-ink-muted uppercase">{t('leads.customer_name')}</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-ink-muted uppercase">{t('leads.phone')}</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-ink-muted uppercase">{t('leads.budget')}</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-ink-muted uppercase">{t('leads.location')}</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-ink-muted uppercase">{t('leads.status')}</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-ink-muted uppercase">{t('leads.assigned_agent')}</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-ink-muted uppercase">Date</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-surface-border/60">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-ink-muted">
                   <Loader2 className="h-5 w-5 animate-spin inline mr-2" />{t('common.loading')}
                 </td>
               </tr>
             ) : leads.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">{t('common.no_data')}</td>
+                <td colSpan={7} className="px-4 py-8 text-center text-ink-muted">{t('common.no_data')}</td>
               </tr>
             ) : (
               leads.map((lead) => (
                 <tr
                   key={lead.id}
                   onClick={() => navigate(`/leads/${lead.id}`)}
-                  className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="hover:bg-surface-muted cursor-pointer transition-colors"
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                        <User className="h-4 w-4 text-blue-600" />
+                      <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
+                        <User className="h-4 w-4 text-brand-700" />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900">{lead.customer_name || 'Unknown'}</p>
-                        <p className="text-xs text-gray-500">{lead.source}</p>
+                        <p className="font-medium text-ink-primary">{lead.customer_name || 'Unknown'}</p>
+                        <p className="text-xs text-ink-muted">{lead.source}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{lead.phone}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{formatBudget(lead.budget_min, lead.budget_max)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{lead.location_preference || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-ink-secondary">{lead.phone}</td>
+                  <td className="px-4 py-3 text-sm text-ink-secondary">{formatBudget(lead.budget_min, lead.budget_max)}</td>
+                  <td className="px-4 py-3 text-sm text-ink-secondary">{lead.location_preference || '-'}</td>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     {canEditLeadStatus ? (
                       <LeadStatusSelect
@@ -311,8 +311,8 @@ const LeadsPage: React.FC = () => {
                       <LeadStatusBadge status={lead.status} />
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{lead.agent_name || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{formatDate(lead.created_at)}</td>
+                  <td className="px-4 py-3 text-sm text-ink-secondary">{lead.agent_name || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-ink-muted">{formatDate(lead.created_at)}</td>
                 </tr>
               ))
             )}
@@ -321,22 +321,22 @@ const LeadsPage: React.FC = () => {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-            <p className="text-sm text-gray-500">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-surface-border">
+            <p className="text-sm text-ink-muted">
               Page {page} of {totalPages} ({total} leads)
             </p>
             <div className="flex gap-1">
               <button
                 disabled={page <= 1}
                 onClick={() => setPage(p => p - 1)}
-                className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-2 rounded-lg hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 disabled={page >= totalPages}
                 onClick={() => setPage(p => p + 1)}
-                className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-2 rounded-lg hover:bg-surface-subtle disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -348,24 +348,24 @@ const LeadsPage: React.FC = () => {
       {/* Cards - Mobile */}
       <div className="md:hidden space-y-3">
         {loading ? (
-          <div className="text-center py-8 text-gray-500"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />{t('common.loading')}</div>
+          <div className="text-center py-8 text-ink-muted"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />{t('common.loading')}</div>
         ) : leads.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">{t('common.no_data')}</div>
+          <div className="text-center py-8 text-ink-muted">{t('common.no_data')}</div>
         ) : (
           leads.map((lead) => (
             <div
               key={lead.id}
               onClick={() => navigate(`/leads/${lead.id}`)}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 cursor-pointer hover:shadow-md transition-shadow"
+              className="investo-card p-4 cursor-pointer hover:shadow-md transition-shadow"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                    <User className="h-5 w-5 text-blue-600" />
+                  <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center">
+                    <User className="h-5 w-5 text-brand-700" />
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">{lead.customer_name || 'Unknown'}</p>
-                    <p className="text-xs text-gray-500">{lead.source} &middot; {formatDate(lead.created_at)}</p>
+                    <p className="font-medium text-ink-primary">{lead.customer_name || 'Unknown'}</p>
+                    <p className="text-xs text-ink-muted">{lead.source} &middot; {formatDate(lead.created_at)}</p>
                   </div>
                 </div>
                 {canEditLeadStatus ? (
@@ -381,10 +381,10 @@ const LeadsPage: React.FC = () => {
                 )}
               </div>
               <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2 text-gray-600"><Phone className="h-4 w-4" />{lead.phone}</div>
-                {lead.location_preference && <div className="flex items-center gap-2 text-gray-600"><MapPin className="h-4 w-4" />{lead.location_preference}</div>}
-                <div className="text-gray-600 font-medium">{formatBudget(lead.budget_min, lead.budget_max)}</div>
-                {lead.agent_name && <div className="text-xs text-gray-400">Agent: {lead.agent_name}</div>}
+                <div className="flex items-center gap-2 text-ink-secondary"><Phone className="h-4 w-4" />{lead.phone}</div>
+                {lead.location_preference && <div className="flex items-center gap-2 text-ink-secondary"><MapPin className="h-4 w-4" />{lead.location_preference}</div>}
+                <div className="text-ink-secondary font-medium">{formatBudget(lead.budget_min, lead.budget_max)}</div>
+                {lead.agent_name && <div className="text-xs text-ink-faint">Agent: {lead.agent_name}</div>}
               </div>
             </div>
           ))
@@ -393,7 +393,7 @@ const LeadsPage: React.FC = () => {
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-4 py-2">
             <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-4 py-2 border rounded-lg disabled:opacity-40">Previous</button>
-            <span className="text-sm text-gray-500">{page} / {totalPages}</span>
+            <span className="text-sm text-ink-muted">{page} / {totalPages}</span>
             <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="px-4 py-2 border rounded-lg disabled:opacity-40">Next</button>
           </div>
         )}
@@ -470,74 +470,74 @@ const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ agents, onClose, onCr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{t('leads.new_lead')}</h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Name</label>
               <input name="customer_name" value={form.customer_name} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Customer name" />
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="Customer name" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Phone *</label>
               <input name="phone" value={form.phone} onChange={handleChange} required
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="+91XXXXXXXXXX" />
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="+91XXXXXXXXXX" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Email</label>
               <input name="email" type="email" value={form.email} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="email@example.com" />
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="email@example.com" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Source</label>
               <select name="source" value={form.source} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                 {LEAD_SOURCES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Budget Min (₹)</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Budget Min (₹)</label>
               <input name="budget_min" type="number" value={form.budget_min} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g. 5000000" />
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="e.g. 5000000" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Budget Max (₹)</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Budget Max (₹)</label>
               <input name="budget_max" type="number" value={form.budget_max} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g. 15000000" />
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="e.g. 15000000" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Location</label>
               <input name="location_preference" value={form.location_preference} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g. Whitefield, Bangalore" />
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="e.g. Whitefield, Bangalore" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Property Type</label>
               <select name="property_type" value={form.property_type} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                 <option value="">Any</option>
                 {PROPERTY_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
             {agents.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Assign Agent</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Assign Agent</label>
                 <select name="assigned_agent_id" value={form.assigned_agent_id} onChange={handleChange}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                   <option value="">Auto-assign (round robin)</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">Language</label>
               <select name="language" value={form.language} onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                 <option value="en">English</option>
                 <option value="hi">Hindi</option>
                 <option value="kn">Kannada</option>
@@ -554,15 +554,15 @@ const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ agents, onClose, onCr
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <label className="block text-sm font-medium text-ink-secondary mb-1">Notes</label>
             <textarea name="notes" value={form.notes} onChange={handleChange} rows={3}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Any additional notes..." />
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="Any additional notes..." />
           </div>
 
           <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">{t('common.cancel')}</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 border border-surface-border-strong rounded-lg hover:bg-surface-muted">{t('common.cancel')}</button>
             <button type="submit" disabled={saving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+              className="px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center gap-2">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('leads.new_lead')}
             </button>

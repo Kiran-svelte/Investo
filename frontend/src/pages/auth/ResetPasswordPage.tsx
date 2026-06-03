@@ -59,12 +59,12 @@ export default function ResetPasswordPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">
         <div className="max-w-md w-full space-y-8 text-center">
-          <div className="bg-white rounded-2xl shadow-xl p-8">
+          <div className="investo-card-pad shadow-xl">
             <AlertCircle className="mx-auto h-16 w-16 text-red-500 mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            <h2 className="text-2xl font-bold text-ink-primary mb-2">
               {t('auth.invalid_link') || 'Invalid Reset Link'}
             </h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-ink-secondary mb-6">
               {t('auth.invalid_link_desc') || 'This password reset link is invalid or has expired. Please request a new one.'}
             </p>
             <Link
@@ -83,12 +83,12 @@ export default function ResetPasswordPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">
         <div className="max-w-md w-full space-y-8 text-center">
-          <div className="bg-white rounded-2xl shadow-xl p-8">
+          <div className="investo-card-pad shadow-xl">
             <CheckCircle className="mx-auto h-16 w-16 text-green-500 mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            <h2 className="text-2xl font-bold text-ink-primary mb-2">
               {t('auth.password_reset_success') || 'Password Reset Successfully!'}
             </h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-ink-secondary mb-6">
               {t('auth.password_reset_success_desc') || 'Your password has been changed. Redirecting to login...'}
             </p>
             <Link
@@ -109,10 +109,10 @@ export default function ResetPasswordPage() {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h1 className="text-center text-3xl font-bold text-primary-600">INVESTO</h1>
-          <h2 className="mt-6 text-center text-2xl font-bold text-gray-900">
+          <h2 className="mt-6 text-center text-2xl font-bold text-ink-primary">
             {t('auth.reset_password_title') || 'Set New Password'}
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-sm text-ink-secondary">
             {t('auth.reset_password_subtitle') || `Enter a new password for ${email}`}
           </p>
         </div>
@@ -126,11 +126,11 @@ export default function ResetPasswordPage() {
 
           <div className="space-y-4">
             <div>
-              <label htmlFor="new-password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="new-password" className="block text-sm font-medium text-ink-secondary">
                 {t('auth.new_password') || 'New Password'}
               </label>
               <div className="mt-1 relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-ink-faint" />
                 <input
                   id="new-password"
                   type="password"
@@ -138,18 +138,18 @@ export default function ResetPasswordPage() {
                   minLength={8}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                  className="block w-full pl-10 pr-3 py-3 investo-input"
                   placeholder="••••••••"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-ink-secondary">
                 {t('auth.confirm_password') || 'Confirm New Password'}
               </label>
               <div className="mt-1 relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-ink-faint" />
                 <input
                   id="confirm-password"
                   type="password"
@@ -157,7 +157,7 @@ export default function ResetPasswordPage() {
                   minLength={8}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                  className="block w-full pl-10 pr-3 py-3 investo-input"
                   placeholder="••••••••"
                 />
               </div>
@@ -179,7 +179,7 @@ export default function ResetPasswordPage() {
             )}
           </button>
 
-          <p className="text-center text-xs text-gray-500">
+          <p className="text-center text-xs text-ink-muted">
             {t('auth.password_requirements') || 'Password must be at least 8 characters long'}
           </p>
         </form>

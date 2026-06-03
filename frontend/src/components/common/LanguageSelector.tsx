@@ -73,17 +73,17 @@ const LanguageSelector: React.FC = () => {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        className="flex items-center gap-2 rounded-lg border border-surface-border-strong bg-surface-elevated px-3 py-2 text-sm text-ink-secondary shadow-sm hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-brand-500/20"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={t('common.select_language')}
       >
-        <Globe className="h-4 w-4 text-gray-500" />
+        <Globe className="h-4 w-4 text-ink-muted" />
         <span className="hidden sm:inline">
           {t(`languages.${currentLang.code}`)}
         </span>
         <ChevronDown
-          className={`h-4 w-4 text-gray-400 transition-transform ${
+          className={`h-4 w-4 text-ink-faint transition-transform ${
             open ? 'rotate-180' : ''
           }`}
         />
@@ -94,7 +94,7 @@ const LanguageSelector: React.FC = () => {
         <ul
           role="listbox"
           aria-label={t('common.select_language')}
-          className="absolute right-0 z-50 mt-1 max-h-72 w-52 overflow-y-auto rounded-lg bg-white py-1 shadow-lg ring-1 ring-gray-200 focus:outline-none"
+          className="absolute right-0 z-50 mt-1 max-h-72 w-52 overflow-y-auto rounded-lg bg-surface-elevated py-1 shadow-lg ring-1 ring-surface-border focus:outline-none"
         >
           {LANGUAGES.map((lang) => {
             const isSelected = lang.code === i18n.language;
@@ -106,12 +106,12 @@ const LanguageSelector: React.FC = () => {
                 onClick={() => selectLanguage(lang.code)}
                 className={`flex cursor-pointer items-center justify-between px-4 py-2 text-sm transition-colors ${
                   isSelected
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100'
+                    ? 'bg-brand-50 text-brand-800'
+                    : 'text-ink-secondary hover:bg-surface-subtle'
                 }`}
               >
                 <span>{t(`languages.${lang.code}`)}</span>
-                {isSelected && <Check className="h-4 w-4 text-blue-600" />}
+                {isSelected && <Check className="h-4 w-4 text-brand-700" />}
               </li>
             );
           })}

@@ -119,10 +119,10 @@ const RoleModal: React.FC<RoleModalProps> = ({ role, onClose, onSaved }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{role ? t('settings.editRole') : t('settings.createRole')}</h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+          <button onClick={onClose} className="p-1 hover:bg-surface-subtle rounded">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -130,51 +130,51 @@ const RoleModal: React.FC<RoleModalProps> = ({ role, onClose, onSaved }) => {
           {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('settings.roleName')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('settings.roleName')}</label>
               <input
                 name="role_name"
                 value={form.role_name}
                 onChange={e => setForm(p => ({ ...p, role_name: e.target.value }))}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 placeholder="e.g. team_lead"
                 disabled={!!role}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('settings.displayName')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('settings.displayName')}</label>
               <input
                 name="display_name"
                 value={form.display_name}
                 onChange={e => setForm(p => ({ ...p, display_name: e.target.value }))}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 placeholder="e.g. Team Lead"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{t('settings.permissions')}</label>
+            <label className="block text-sm font-medium text-ink-secondary mb-2">{t('settings.permissions')}</label>
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="investo-table-head">
                   <tr>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600">{t('settings.resource')}</th>
+                    <th className="text-left px-3 py-2 font-medium text-ink-secondary">{t('settings.resource')}</th>
                     {ACTIONS.map(a => (
-                      <th key={a} className="px-3 py-2 font-medium text-gray-600 text-center capitalize">{a}</th>
+                      <th key={a} className="px-3 py-2 font-medium text-ink-secondary text-center capitalize">{a}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {RESOURCES.map(resource => (
                     <tr key={resource} className="border-t">
-                      <td className="px-3 py-2 capitalize font-medium text-gray-700">{resource}</td>
+                      <td className="px-3 py-2 capitalize font-medium text-ink-secondary">{resource}</td>
                       {ACTIONS.map(action => (
                         <td key={action} className="px-3 py-2 text-center">
                           <input
                             type="checkbox"
                             checked={(permissions[resource] || []).includes(action)}
                             onChange={() => togglePermission(resource, action)}
-                            className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                            className="h-4 w-4 text-brand-700 rounded focus:ring-brand-500"
                           />
                         </td>
                       ))}
@@ -186,10 +186,10 @@ const RoleModal: React.FC<RoleModalProps> = ({ role, onClose, onSaved }) => {
           </div>
 
           <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+            <button type="button" onClick={onClose} className="px-4 py-2 border border-surface-border-strong rounded-lg hover:bg-surface-muted">
               {t('common.cancel')}
             </button>
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+            <button type="submit" disabled={saving} className="px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center gap-2">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('common.save')}
             </button>
@@ -402,34 +402,34 @@ const SettingsPage: React.FC = () => {
 
   if (!capabilities.canManageTenantSettings) {
     return (
-      <div className="p-4 md:p-6 space-y-6 max-w-xl">
+      <div className="investo-page space-y-6 max-w-xl">
         <div className="flex items-center gap-3">
-          <Settings className="h-7 w-7 text-gray-700" />
-          <h1 className="text-2xl font-bold text-gray-900">{t('nav.settings')}</h1>
+          <Settings className="h-7 w-7 text-ink-secondary" />
+          <h1 className="text-2xl font-bold text-ink-primary">{t('nav.settings')}</h1>
         </div>
         {capabilities.isPlatformAdmin && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
             Platform admin: manage agencies under <strong>Companies</strong>. Tenant profile, roles, and feature toggles are configured by each agency&apos;s <strong>Company Admin</strong> during onboarding.
           </p>
         )}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
-          <h2 className="font-semibold text-gray-900">Your account</h2>
+        <div className="investo-card-pad space-y-4">
+          <h2 className="font-semibold text-ink-primary">Your account</h2>
           <div>
-            <p className="text-sm text-gray-500">Name</p>
-            <p className="font-medium text-gray-900">{user?.name}</p>
+            <p className="text-sm text-ink-muted">Name</p>
+            <p className="font-medium text-ink-primary">{user?.name}</p>
           </div>
           <div>
-            <p className="text-sm text-gray-500">Email</p>
-            <p className="font-medium text-gray-900">{user?.email}</p>
+            <p className="text-sm text-ink-muted">Email</p>
+            <p className="font-medium text-ink-primary">{user?.email}</p>
           </div>
           <div>
-            <p className="text-sm text-gray-500">Role</p>
-            <p className="font-medium text-gray-900">{user?.role?.replace('_', ' ')}</p>
+            <p className="text-sm text-ink-muted">Role</p>
+            <p className="font-medium text-ink-primary">{user?.role?.replace('_', ' ')}</p>
           </div>
           <button
             type="button"
             onClick={() => navigate('/change-password')}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="inline-flex items-center gap-2 px-4 py-2 investo-btn-primary"
           >
             <Lock className="h-4 w-4" />
             Change password
@@ -440,15 +440,15 @@ const SettingsPage: React.FC = () => {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="investo-page space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Settings className="h-7 w-7 text-gray-700" />
-        <h1 className="text-2xl font-bold text-gray-900">{t('nav.settings')}</h1>
+        <Settings className="h-7 w-7 text-ink-secondary" />
+        <h1 className="text-2xl font-bold text-ink-primary">{t('nav.settings')}</h1>
       </div>
 
       {/* Tabs */}
-      <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1">
+      <div className="flex flex-wrap gap-1 bg-surface-subtle rounded-lg p-1">
         {tabConfig.map(tab => {
           const Icon = tab.icon;
           return (
@@ -457,8 +457,8 @@ const SettingsPage: React.FC = () => {
               onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 activeTab === tab.key
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-surface-elevated text-brand-700 shadow-sm'
+                  : 'text-ink-secondary hover:text-ink-primary'
               }`}
             >
               <Icon className="h-4 w-4" />
@@ -470,7 +470,7 @@ const SettingsPage: React.FC = () => {
 
       {/* Tab: Company Profile */}
       {activeTab === 'company' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="investo-card-pad">
           <form onSubmit={saveCompany} className="space-y-4 max-w-xl">
             {companyMsg && (
               <div className={`p-3 rounded-lg text-sm ${companyMsg.includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
@@ -478,38 +478,38 @@ const SettingsPage: React.FC = () => {
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('settings.companyName')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('settings.companyName')}</label>
               <input
                 name="name"
                 value={company.name}
                 onChange={handleCompanyChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 placeholder={t('settings.companyNamePlaceholder')}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('settings.description')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('settings.description')}</label>
               <textarea
                 name="description"
                 value={company.description}
                 onChange={handleCompanyChange}
                 rows={3}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 placeholder={t('settings.descriptionPlaceholder')}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('settings.whatsappPhone')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('settings.whatsappPhone')}</label>
               <input
                 name="whatsapp_phone"
                 value={company.whatsapp_phone}
                 onChange={handleCompanyChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 placeholder="+91XXXXXXXXXX"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('settings.primaryColor')}</label>
+              <label className="block text-sm font-medium text-ink-secondary mb-1">{t('settings.primaryColor')}</label>
               <div className="flex items-center gap-3">
                 <input
                   type="color"
@@ -518,14 +518,14 @@ const SettingsPage: React.FC = () => {
                   onChange={handleCompanyChange}
                   className="h-10 w-14 rounded border cursor-pointer"
                 />
-                <span className="text-sm text-gray-500">{company.primary_color}</span>
+                <span className="text-sm text-ink-muted">{company.primary_color}</span>
               </div>
             </div>
             <div className="pt-2">
               <button
                 type="submit"
                 disabled={companySaving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center gap-2"
               >
                 {companySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {t('common.save')}
@@ -537,9 +537,9 @@ const SettingsPage: React.FC = () => {
 
       {/* Tab: Conversion settings (Phase 2) */}
       {activeTab === 'conversion' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="investo-card-pad">
           {conversionLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
+            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-ink-faint" /></div>
           ) : (
             <form onSubmit={saveConversion} className="space-y-6 max-w-2xl">
               {conversionMsg && (
@@ -548,7 +548,7 @@ const SettingsPage: React.FC = () => {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
                   Budget stretch % (when no exact match)
                 </label>
                 <input
@@ -560,7 +560,7 @@ const SettingsPage: React.FC = () => {
                   className="w-32 px-3 py-2 border rounded-lg"
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-ink-secondary">
                 <input
                   type="checkbox"
                   checked={conversion.upsell_enabled}
@@ -569,7 +569,7 @@ const SettingsPage: React.FC = () => {
                 Enable +1 BHK upsell tier
               </label>
               <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-700">Waitlist message copy</p>
+                <p className="text-sm font-medium text-ink-secondary">Waitlist message copy</p>
                 {(['en', 'hi', 'kn'] as const).map(lang => (
                   <textarea
                     key={lang}
@@ -586,30 +586,30 @@ const SettingsPage: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <p className="text-sm font-medium text-ink-secondary flex items-center gap-1">
                     <Users className="h-4 w-4" /> Referral partners (manual list)
                   </p>
                   <button
                     type="button"
                     onClick={() => setPartnerDraft({ id: '', name: '', contact_phone: '', notes: '', active: true })}
-                    className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                    className="text-sm text-brand-700 hover:underline flex items-center gap-1"
                   >
                     <Plus className="h-3 w-3" /> Add partner
                   </button>
                 </div>
                 {conversion.partners.length === 0 ? (
-                  <p className="text-sm text-gray-500">No partners yet. Phase 4 will add inventory API.</p>
+                  <p className="text-sm text-ink-muted">No partners yet. Phase 4 will add inventory API.</p>
                 ) : (
                   <ul className="divide-y border rounded-lg">
                     {conversion.partners.map(p => (
                       <li key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
                         <span>
                           <strong>{p.name}</strong>
-                          {p.contact_phone && <span className="text-gray-500 ml-2">{p.contact_phone}</span>}
+                          {p.contact_phone && <span className="text-ink-muted ml-2">{p.contact_phone}</span>}
                           {!p.active && <span className="ml-2 text-orange-600">(inactive)</span>}
                         </span>
                         <div className="flex gap-1">
-                          <button type="button" onClick={() => setPartnerDraft(p)} className="p-1 hover:bg-gray-100 rounded"><Pencil className="h-3 w-3" /></button>
+                          <button type="button" onClick={() => setPartnerDraft(p)} className="p-1 hover:bg-surface-subtle rounded"><Pencil className="h-3 w-3" /></button>
                           <button type="button" onClick={() => removePartner(p.id)} className="p-1 hover:bg-red-50 rounded text-red-500"><Trash2 className="h-3 w-3" /></button>
                         </div>
                       </li>
@@ -618,7 +618,7 @@ const SettingsPage: React.FC = () => {
                 )}
               </div>
               {partnerDraft && (
-                <div className="border rounded-lg p-4 space-y-2 bg-gray-50">
+                <div className="border rounded-lg p-4 space-y-2 bg-surface-muted">
                   <input
                     placeholder="Partner name"
                     value={partnerDraft.name}
@@ -639,7 +639,7 @@ const SettingsPage: React.FC = () => {
                     rows={2}
                   />
                   <div className="flex gap-2">
-                    <button type="button" onClick={savePartnerDraft} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">Done</button>
+                    <button type="button" onClick={savePartnerDraft} className="px-3 py-1.5 investo-btn-primary text-sm">Done</button>
                     <button type="button" onClick={() => setPartnerDraft(null)} className="px-3 py-1.5 border rounded-lg text-sm">Cancel</button>
                   </div>
                 </div>
@@ -647,7 +647,7 @@ const SettingsPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={conversionSaving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center gap-2"
               >
                 {conversionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {t('common.save')}
@@ -663,41 +663,41 @@ const SettingsPage: React.FC = () => {
           <div className="flex justify-end">
             <button
               onClick={() => { setEditingRole(null); setShowRoleModal(true); }}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+              className="px-4 py-2 investo-btn-primary flex items-center gap-2"
             >
               <Plus className="h-4 w-4" /> {t('settings.createRole')}
             </button>
           </div>
 
           {rolesLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
+            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-ink-faint" /></div>
           ) : allRoles.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-center text-gray-500">
+            <div className="investo-card-pad text-center text-ink-muted">
               {t('common.no_data')}
             </div>
           ) : (
             <div className="grid gap-4">
               {allRoles.map(role => (
-                <div key={role.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                <div key={role.id} className="investo-card-pad">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-gray-900">{role.display_name}</h3>
+                          <h3 className="font-semibold text-ink-primary">{role.display_name}</h3>
                           {role.isDefault && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-surface-subtle text-ink-secondary rounded-full">
                               <Lock className="h-3 w-3" /> System
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500">{role.role_name}</p>
+                        <p className="text-sm text-ink-muted">{role.role_name}</p>
                       </div>
                     </div>
                     {!role.isDefault && (
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => { setEditingRole(role); setShowRoleModal(true); }}
-                          className="p-2 hover:bg-gray-100 rounded-lg text-gray-600"
+                          className="p-2 hover:bg-surface-subtle rounded-lg text-ink-secondary"
                           title={t('common.edit')}
                         >
                           <Pencil className="h-4 w-4" />
@@ -717,7 +717,7 @@ const SettingsPage: React.FC = () => {
                       {Object.entries(role.permissions).map(([resource, actions]) => (
                         <span
                           key={resource}
-                          className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-full"
+                          className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-brand-50 text-brand-800 rounded-full"
                         >
                           {resource}: {(actions as string[]).join(', ')}
                         </span>
@@ -743,28 +743,28 @@ const SettingsPage: React.FC = () => {
       {activeTab === 'features' && (
         <div>
           {featuresLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
+            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-ink-faint" /></div>
           ) : features.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-center text-gray-500">
+            <div className="investo-card-pad text-center text-ink-muted">
               {t('common.no_data')}
             </div>
           ) : (
             <div className="grid gap-4">
               {features.map(feature => (
-                <div key={feature.key} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center justify-between">
+                <div key={feature.key} className="investo-card-pad flex items-center justify-between">
                   <div>
-                    <h3 className="font-semibold text-gray-900">{feature.name}</h3>
-                    <p className="text-sm text-gray-500 mt-0.5">{feature.description}</p>
+                    <h3 className="font-semibold text-ink-primary">{feature.name}</h3>
+                    <p className="text-sm text-ink-muted mt-0.5">{feature.description}</p>
                   </div>
                   <button
                     onClick={() => toggleFeature(feature.key, !feature.enabled)}
                     disabled={togglingKey === feature.key}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      feature.enabled ? 'bg-blue-600' : 'bg-gray-300'
+                      feature.enabled ? 'bg-brand-600' : 'bg-surface-border-strong'
                     } ${togglingKey === feature.key ? 'opacity-50' : ''}`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-4 w-4 transform rounded-full bg-surface-elevated transition-transform ${
                         feature.enabled ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />

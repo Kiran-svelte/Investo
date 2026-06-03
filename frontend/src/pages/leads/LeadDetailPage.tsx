@@ -6,7 +6,7 @@ import api from '../../services/api';
 import {
   ArrowLeft, Phone, Mail, MapPin, Building2, IndianRupee,
   User, Calendar, Clock, Edit3, Save, X, Loader2,
-  AlertTriangle, MessageSquare
+  AlertTriangle, MessageSquare, CheckCircle
 } from 'lucide-react';
 import LeadStatusBadge from '../../components/leads/LeadStatusBadge';
 import LeadStatusSelect from '../../components/leads/LeadStatusSelect';
@@ -213,7 +213,7 @@ const LeadDetailPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-brand-700" />
       </div>
     );
   }
@@ -221,8 +221,8 @@ const LeadDetailPage: React.FC = () => {
   if (!lead) {
     return (
       <div className="p-6 text-center">
-        <p className="text-gray-500">{error || 'Lead not found'}</p>
-        <button onClick={() => navigate('/leads')} className="mt-4 text-blue-600 hover:underline">Back to Leads</button>
+        <p className="text-ink-muted">{error || 'Lead not found'}</p>
+        <button onClick={() => navigate('/leads')} className="mt-4 text-brand-700 hover:underline">Back to Leads</button>
       </div>
     );
   }
@@ -233,22 +233,22 @@ const LeadDetailPage: React.FC = () => {
   const canChangeStatus = canEdit;
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="investo-page space-y-6 max-w-5xl">
       {/* Back + Header */}
       <div>
-        <button onClick={() => navigate('/leads')} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
+        <button onClick={() => navigate('/leads')} className="flex items-center gap-1 text-sm text-ink-muted hover:text-ink-secondary mb-4">
           <ArrowLeft className="h-4 w-4" /> Back to Leads
         </button>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{lead.customer_name || lead.phone}</h1>
-            <p className="text-sm text-gray-500">Created {formatDate(lead.created_at)}</p>
+            <h1 className="text-2xl font-bold text-ink-primary">{lead.customer_name || lead.phone}</h1>
+            <p className="text-sm text-ink-muted">Created {formatDate(lead.created_at)}</p>
           </div>
           <div className="flex items-center gap-3">
             {lead.conversation_id && (
               <button 
                 onClick={() => navigate(`/conversations/${lead.conversation_id}`)}
-                className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm font-medium"
+                className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-brand-50 text-brand-800 hover:bg-brand-100 text-sm font-medium"
               >
                 <MessageSquare className="h-4 w-4" /> Go to Conversation
               </button>
@@ -264,7 +264,7 @@ const LeadDetailPage: React.FC = () => {
               <LeadStatusBadge status={lead.status} size="md" />
             )}
             {canEdit && !editing && (
-              <button onClick={startEditing} className="flex items-center gap-1 px-3 py-1.5 border rounded-lg hover:bg-gray-50 text-sm">
+              <button onClick={startEditing} className="flex items-center gap-1 px-3 py-1.5 border rounded-lg hover:bg-surface-muted text-sm">
                 <Edit3 className="h-4 w-4" /> Edit
               </button>
             )}
@@ -289,49 +289,49 @@ const LeadDetailPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Lead Details */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border p-5">
+          <div className="investo-card-pad">
             <h2 className="text-lg font-semibold mb-4">Lead Details</h2>
             {editing ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">Name</label>
                     <input value={editForm.customer_name} onChange={e => setEditForm(f => ({ ...f, customer_name: e.target.value }))}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">Email</label>
                     <input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Budget Min (₹)</label>
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">Budget Min (₹)</label>
                     <input type="number" value={editForm.budget_min} onChange={e => setEditForm(f => ({ ...f, budget_min: e.target.value }))}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Budget Max (₹)</label>
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">Budget Max (₹)</label>
                     <input type="number" value={editForm.budget_max} onChange={e => setEditForm(f => ({ ...f, budget_max: e.target.value }))}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">Location</label>
                     <input value={editForm.location_preference} onChange={e => setEditForm(f => ({ ...f, location_preference: e.target.value }))}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">Property Type</label>
                     <select value={editForm.property_type} onChange={e => setEditForm(f => ({ ...f, property_type: e.target.value }))}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
                       <option value="">Any</option>
                       {PROPERTY_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
                   {agents.length > 0 && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Agent</label>
+                      <label className="block text-sm font-medium text-ink-secondary mb-1">Assigned Agent</label>
                       <select value={editForm.assigned_agent_id} onChange={e => setEditForm(f => ({ ...f, assigned_agent_id: e.target.value }))}
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
                         <option value="">Unassigned</option>
                         {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                       </select>
@@ -339,15 +339,15 @@ const LeadDetailPage: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Notes</label>
                   <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={4}
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div className="flex gap-3 justify-end">
-                  <button onClick={() => setEditing(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex items-center gap-1">
+                  <button onClick={() => setEditing(false)} className="px-4 py-2 border rounded-lg hover:bg-surface-muted flex items-center gap-1">
                     <X className="h-4 w-4" /> Cancel
                   </button>
-                  <button onClick={saveEdit} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1">
+                  <button onClick={saveEdit} disabled={saving} className="px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center gap-1">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
                   </button>
                 </div>
@@ -366,8 +366,8 @@ const LeadDetailPage: React.FC = () => {
                 <InfoRow icon={<Clock className="h-4 w-4" />} label="Language" value={lead.language?.toUpperCase() || 'EN'} />
                 {lead.notes && (
                   <div className="col-span-2">
-                    <p className="text-xs text-gray-500 mb-1">Notes</p>
-                    <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg whitespace-pre-wrap">{lead.notes}</p>
+                    <p className="text-xs text-ink-muted mb-1">Notes</p>
+                    <p className="text-sm text-ink-secondary bg-surface-muted p-3 rounded-lg whitespace-pre-wrap">{lead.notes}</p>
                   </div>
                 )}
               </div>
@@ -377,10 +377,10 @@ const LeadDetailPage: React.FC = () => {
 
         {/* Timeline */}
         <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border p-5">
+          <div className="investo-card-pad">
             <h2 className="text-lg font-semibold mb-4">Activity Timeline</h2>
             {(!lead.timeline || lead.timeline.length === 0) ? (
-              <p className="text-sm text-gray-400 text-center py-4">No activity yet</p>
+              <p className="text-sm text-ink-faint text-center py-4">No activity yet</p>
             ) : (
               <div className="space-y-4">
                 {lead.timeline.map((entry) => (
@@ -391,19 +391,19 @@ const LeadDetailPage: React.FC = () => {
                           <CheckCircle className="h-3.5 w-3.5 text-green-600" />
                         </div>
                       ) : entry.action.includes('status') ? (
-                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
-                          <AlertTriangle className="h-3.5 w-3.5 text-blue-600" />
+                        <div className="w-6 h-6 rounded-full bg-brand-100 flex items-center justify-center">
+                          <AlertTriangle className="h-3.5 w-3.5 text-brand-700" />
                         </div>
                       ) : (
-                        <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
-                          <Edit3 className="h-3.5 w-3.5 text-gray-500" />
+                        <div className="w-6 h-6 rounded-full bg-surface-subtle flex items-center justify-center">
+                          <Edit3 className="h-3.5 w-3.5 text-ink-muted" />
                         </div>
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm text-gray-900 font-medium">{entry.action.replace(/_/g, ' ')}</p>
-                      {entry.details && <p className="text-xs text-gray-500 mt-0.5">{entry.details}</p>}
-                      <p className="text-xs text-gray-400 mt-1">{formatDate(entry.created_at)}</p>
+                      <p className="text-sm text-ink-primary font-medium">{entry.action.replace(/_/g, ' ')}</p>
+                      {entry.details && <p className="text-xs text-ink-muted mt-0.5">{entry.details}</p>}
+                      <p className="text-xs text-ink-faint mt-1">{formatDate(entry.created_at)}</p>
                     </div>
                   </div>
                 ))}
@@ -418,10 +418,10 @@ const LeadDetailPage: React.FC = () => {
 
 const InfoRow: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({ icon, label, value }) => (
   <div className="flex items-start gap-2">
-    <span className="text-gray-400 mt-0.5">{icon}</span>
+    <span className="text-ink-faint mt-0.5">{icon}</span>
     <div>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-sm font-medium text-gray-900">{value}</p>
+      <p className="text-xs text-ink-muted">{label}</p>
+      <p className="text-sm font-medium text-ink-primary">{value}</p>
     </div>
   </div>
 );

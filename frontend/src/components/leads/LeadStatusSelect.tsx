@@ -46,7 +46,7 @@ export default function LeadStatusSelect({
         disabled={disabled || loading}
         onChange={(e) => onChange(e.target.value)}
         onClick={(e) => e.stopPropagation()}
-        className={`appearance-none cursor-pointer rounded-lg border pl-3 pr-8 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500 disabled:opacity-50 ${leadStatusStyle(value)}`}
+        className={`appearance-none cursor-pointer rounded-lg border pl-3 pr-8 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-brand-500 disabled:opacity-50 ${leadStatusStyle(value)}`}
         title={canForceAnyStatus ? 'Set any pipeline status' : 'Change lead status'}
       >
         {options.map((status) => (
@@ -56,7 +56,7 @@ export default function LeadStatusSelect({
         ))}
       </select>
       {loading ? (
-        <Loader2 className="absolute right-2 h-3.5 w-3.5 animate-spin text-gray-500 pointer-events-none" />
+        <Loader2 className="absolute right-2 h-3.5 w-3.5 animate-spin text-ink-muted pointer-events-none" />
       ) : null}
     </div>
   );

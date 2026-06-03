@@ -50,7 +50,7 @@ function getIcon(type: Notification['type']) {
     case 'lead_status_change':
     case 'lead_reassigned':
     case 'follow_up':
-      return <UserPlus className="h-5 w-5 text-blue-600" />;
+      return <UserPlus className="h-5 w-5 text-brand-700" />;
     case 'visit_reminder':
     case 'visit_scheduled':
     case 'visit_confirmed':
@@ -64,7 +64,7 @@ function getIcon(type: Notification['type']) {
     case 'system_alert':
       return <AlertCircle className="h-5 w-5 text-red-500" />;
     default:
-      return <Bell className="h-5 w-5 text-gray-500" />;
+      return <Bell className="h-5 w-5 text-ink-muted" />;
   }
 }
 
@@ -179,7 +179,7 @@ export default function NotificationsPage() {
           <button
             onClick={handleMarkAllRead}
             disabled={markingAll}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-700 border border-brand-600 rounded-lg hover:bg-brand-50 disabled:opacity-50"
           >
             {markingAll ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -192,15 +192,15 @@ export default function NotificationsPage() {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-2 mb-6 border-b border-gray-200">
+      <div className="flex gap-2 mb-6 border-b border-surface-border">
         {FILTER_TABS.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab.key
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-brand-600 text-brand-700'
+                : 'border-transparent text-ink-muted hover:text-ink-secondary'
             }`}
           >
             {t(tab.labelKey)}
@@ -211,10 +211,10 @@ export default function NotificationsPage() {
       {/* Notification List */}
       {loading && notifications.length === 0 ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-600" />
         </div>
       ) : filteredNotifications.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-16 text-ink-faint">
           <Bell className="h-12 w-12 mb-4" />
           <p className="text-lg font-medium">{t('notifications.empty', 'No notifications')}</p>
         </div>
@@ -226,8 +226,8 @@ export default function NotificationsPage() {
               onClick={() => !notification.read && handleMarkAsRead(notification.id)}
               className={`flex items-start gap-4 p-4 rounded-lg cursor-pointer transition-colors ${
                 notification.read
-                  ? 'bg-white hover:bg-gray-50'
-                  : 'bg-blue-50 border-l-4 border-l-blue-500 hover:bg-blue-100'
+                  ? 'bg-surface-elevated hover:bg-surface-muted'
+                  : 'bg-brand-50 border-l-4 border-l-brand-500 hover:bg-brand-100'
               }`}
             >
               <div className="flex-shrink-0 mt-0.5">
@@ -235,15 +235,15 @@ export default function NotificationsPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-bold text-gray-900 truncate">
+                  <p className="text-sm font-bold text-ink-primary truncate">
                     {notification.title}
                   </p>
                   {!notification.read && (
-                    <span className="flex-shrink-0 h-2 w-2 rounded-full bg-blue-500" />
+                    <span className="flex-shrink-0 h-2 w-2 rounded-full bg-brand-500" />
                   )}
                 </div>
-                <p className="text-sm text-gray-500 mt-1">{notification.message}</p>
-                <p className="text-xs text-gray-400 mt-1">{timeAgo(notification.createdAt)}</p>
+                <p className="text-sm text-ink-muted mt-1">{notification.message}</p>
+                <p className="text-xs text-ink-faint mt-1">{timeAgo(notification.createdAt)}</p>
               </div>
             </div>
           ))}
@@ -256,7 +256,7 @@ export default function NotificationsPage() {
           <button
             onClick={handleLoadMore}
             disabled={loading}
-            className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-ink-secondary bg-surface-elevated border border-surface-border-strong rounded-lg hover:bg-surface-muted disabled:opacity-50"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />

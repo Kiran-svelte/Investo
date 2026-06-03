@@ -7,6 +7,7 @@ import ChangePasswordPage from './pages/auth/ChangePasswordPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import DashboardLayout from './components/layout/DashboardLayout';
+import RootEntry from './components/layout/RootEntry';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import LeadsPage from './pages/leads/LeadsPage';
 import LeadDetailPage from './pages/leads/LeadDetailPage';
@@ -39,10 +40,10 @@ export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
 
 export const LoadingScreen: React.FC = () => (
-  <div className="flex h-screen w-screen items-center justify-center bg-gray-50">
+  <div className="flex h-screen w-screen items-center justify-center bg-surface-muted">
     <div className="flex flex-col items-center gap-4">
-      <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
-      <span className="text-sm text-gray-500">Loading...</span>
+      <Loader2 className="h-10 w-10 animate-spin text-brand-600" />
+      <span className="text-sm font-medium text-ink-muted">Loading workspace…</span>
     </div>
   </div>
 );
@@ -179,7 +180,7 @@ export const OnboardingAccessRoute: React.FC = () => {
   }
 
   if (!ONBOARDING_ALLOWED_ROLES.has(user?.role || '')) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <Outlet />;
@@ -198,7 +199,7 @@ export const FeatureRoute: React.FC<{ featureKey: string }> = ({ featureKey }) =
   }
 
   if (!isFeatureEnabled(featureKey)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <Outlet />;
@@ -210,6 +211,8 @@ const App: React.FC = () => {
       <AuthProvider>
         <SocketProvider>
           <Routes>
+            <Route path="/" element={<RootEntry />} />
+
             <Route element={<PublicRoute />}>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
@@ -226,7 +229,7 @@ const App: React.FC = () => {
               {/* Dashboard routes - check onboarding first for company admins */}
               <Route element={<OnboardingGuard />}>
                 <Route element={<PropertyKnowledgeGuard />}>
-                <Route path="/" element={<DashboardLayout />}>
+                <Route path="/dashboard" element={<DashboardLayout />}>
                   <Route index element={<RoleAwareIndex />} />
                   <Route element={<RoleRoute path="/leads" />}>
                     <Route element={<FeatureRoute featureKey="lead_automation" />}>

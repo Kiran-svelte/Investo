@@ -223,8 +223,8 @@ const EmiCalculatorPage: React.FC = () => {
 
         {result && (
           <div className="grid gap-4 lg:grid-cols-[1fr_0.95fr]">
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Results</h2>
+            <div className="investo-card-pad">
+              <h2 className="text-lg font-semibold text-ink-primary">Results</h2>
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 {[
                   ['Monthly EMI', formatCurrency(result.monthly_emi)],
@@ -232,9 +232,9 @@ const EmiCalculatorPage: React.FC = () => {
                   ['Total interest', formatCurrency(result.total_interest)],
                   ['Total payment', formatCurrency(result.total_payment)],
                 ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-                    <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
+                  <div key={label} className="rounded-2xl border border-surface-border bg-surface-muted p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink-primary">{value}</p>
                   </div>
                 ))}
               </div>
@@ -249,7 +249,7 @@ const EmiCalculatorPage: React.FC = () => {
                 <button
                   onClick={copySummary}
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                  className="investo-btn-secondary rounded-xl"
                 >
                   <Copy className="h-4 w-4" />
                   {copied ? 'Copied' : 'Copy'}

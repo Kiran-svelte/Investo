@@ -46,10 +46,10 @@ export default function ChangePasswordPage() {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h1 className="text-center text-3xl font-bold text-primary-600">INVESTO</h1>
-          <h2 className="mt-6 text-center text-2xl font-bold text-gray-900">
+          <h2 className="mt-6 text-center text-2xl font-bold text-ink-primary">
             {t('auth.change_password_title') || 'Change Your Password'}
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-sm text-ink-secondary">
             {t('auth.change_password_subtitle') || 'You must change your password before continuing'}
           </p>
         </div>
@@ -63,7 +63,7 @@ export default function ChangePasswordPage() {
 
           <div className="space-y-4">
             <div>
-              <label htmlFor="new-password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="new-password" className="block text-sm font-medium text-ink-secondary">
                 {t('auth.new_password') || 'New Password'}
               </label>
               <input
@@ -73,13 +73,13 @@ export default function ChangePasswordPage() {
                 minLength={8}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 block w-full px-3 py-2 investo-input"
                 placeholder="••••••••"
               />
             </div>
 
             <div>
-              <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-ink-secondary">
                 {t('auth.confirm_password') || 'Confirm New Password'}
               </label>
               <input
@@ -89,7 +89,7 @@ export default function ChangePasswordPage() {
                 minLength={8}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 block w-full px-3 py-2 investo-input"
                 placeholder="••••••••"
               />
             </div>
@@ -113,7 +113,7 @@ export default function ChangePasswordPage() {
             )}
           </button>
 
-          <p className="text-center text-xs text-gray-500 mt-4">
+          <p className="text-center text-xs text-ink-muted mt-4">
             {t('auth.password_requirements') || 'Password must be at least 8 characters long'}
           </p>
         </form>

@@ -38,7 +38,7 @@ export interface NavItemSpec {
 export const NAV_ITEMS: NavItemSpec[] = [
   {
     key: 'dashboard',
-    path: '/',
+    path: '/dashboard',
     roles: ['company_admin', 'sales_agent', 'operations', 'viewer'],
   },
   {
@@ -167,7 +167,7 @@ export function getNavItemForPath(pathname: string): NavItemSpec | undefined {
   if (exact) return exact;
 
   return NAV_ITEMS.find(
-    (item) => item.path !== '/' && normalized.startsWith(`${item.path}/`),
+    (item) => normalized.startsWith(`${item.path}/`),
   );
 }
 

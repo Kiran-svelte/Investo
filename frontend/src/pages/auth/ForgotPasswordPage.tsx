@@ -35,12 +35,12 @@ export default function ForgotPasswordPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">
         <div className="max-w-md w-full space-y-8 text-center">
-          <div className="bg-white rounded-2xl shadow-xl p-8">
+          <div className="investo-card-pad shadow-xl">
             <CheckCircle className="mx-auto h-16 w-16 text-green-500 mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            <h2 className="text-2xl font-bold text-ink-primary mb-2">
               {t('auth.check_email') || 'Check Your Email'}
             </h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-ink-secondary mb-6">
               {t('auth.reset_email_sent') || 'If an account exists with this email, you will receive a password reset link shortly.'}
             </p>
             <Link
@@ -61,10 +61,10 @@ export default function ForgotPasswordPage() {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h1 className="text-center text-3xl font-bold text-primary-600">INVESTO</h1>
-          <h2 className="mt-6 text-center text-2xl font-bold text-gray-900">
+          <h2 className="mt-6 text-center text-2xl font-bold text-ink-primary">
             {t('auth.forgot_password_title') || 'Forgot Password?'}
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-sm text-ink-secondary">
             {t('auth.forgot_password_subtitle') || 'Enter your email and we\'ll send you a reset link'}
           </p>
         </div>
@@ -77,18 +77,18 @@ export default function ForgotPasswordPage() {
           )}
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="email" className="block text-sm font-medium text-ink-secondary">
               {t('auth.email') || 'Email Address'}
             </label>
             <div className="mt-1 relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-ink-faint" />
               <input
                 id="email"
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                className="block w-full pl-10 pr-3 py-3 investo-input"
                 placeholder={t('auth.email_placeholder') || 'name@company.com'}
               />
             </div>

@@ -202,21 +202,21 @@ const CompaniesPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="investo-page space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('companies.title')}</h1>
-          <p className="text-gray-500 text-sm">
+          <h1 className="text-2xl font-bold text-ink-primary">{t('companies.title')}</h1>
+          <p className="text-ink-muted text-sm">
             Create agencies, assign a plan, then invite each company&apos;s admin to onboard their team.
           </p>
-          <ol className="mt-2 text-sm text-blue-900 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 list-decimal list-inside space-y-1">
+          <ol className="mt-2 text-sm text-brand-900 bg-brand-50 border border-brand-100 rounded-lg px-4 py-3 list-decimal list-inside space-y-1">
             <li>Click <strong>New company</strong>, fill the form, and save.</li>
             <li>In the table <strong>Actions</strong> column, click <strong>Invite admin</strong> (person + icon).</li>
             <li>Enter admin name, email, and temporary password — they log in and complete the 6-step onboarding.</li>
@@ -233,7 +233,7 @@ const CompaniesPage: React.FC = () => {
             });
             setShowModal(true);
           }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 investo-btn-primary transition-colors"
         >
           <Plus className="h-4 w-4" />
           {t('companies.new_company')}
@@ -242,57 +242,57 @@ const CompaniesPage: React.FC = () => {
 
       {/* Search */}
       <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-faint" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('common.search')}
-          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full pl-10 pr-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
         />
       </div>
 
       {/* Companies Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="investo-table-wrap">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-100">
+            <thead className="investo-table-head border-b border-surface-border">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                   {t('companies.name')}
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                   {t('companies.plan')}
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                   {t('companies.agents')}
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                   {t('companies.status')}
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                   {t('common.actions')}
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-surface-border">
               {filteredCompanies.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-12 text-center text-ink-muted">
                     {t('common.no_data')}
                   </td>
                 </tr>
               ) : (
                 filteredCompanies.map((company) => (
-                  <tr key={company.id} className="hover:bg-gray-50">
+                  <tr key={company.id} className="hover:bg-surface-muted">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                          <Building2 className="h-5 w-5 text-blue-600" />
+                        <div className="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center">
+                          <Building2 className="h-5 w-5 text-brand-700" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">{company.name}</p>
-                          <p className="text-sm text-gray-500">{company.slug}</p>
+                          <p className="font-medium text-ink-primary">{company.name}</p>
+                          <p className="text-sm text-ink-muted">{company.slug}</p>
                         </div>
                       </div>
                     </td>
@@ -302,7 +302,7 @@ const CompaniesPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 text-gray-600">
+                      <div className="flex items-center gap-1 text-ink-secondary">
                         <Users className="h-4 w-4" />
                         <span>
                           {company.agent_count}
@@ -345,7 +345,7 @@ const CompaniesPage: React.FC = () => {
                         )}
                         <button
                           onClick={() => handleEdit(company)}
-                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="p-2 text-ink-faint hover:text-brand-800 hover:bg-brand-50 rounded-lg transition-colors"
                           title={t('common.edit')}
                         >
                           <Edit2 className="h-4 w-4" />
@@ -354,8 +354,8 @@ const CompaniesPage: React.FC = () => {
                           onClick={() => handleToggleStatus(company)}
                           className={`p-2 rounded-lg transition-colors ${
                             company.status === 'active'
-                              ? 'text-gray-400 hover:text-red-600 hover:bg-red-50'
-                              : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                              ? 'text-ink-faint hover:text-red-600 hover:bg-red-50'
+                              : 'text-ink-faint hover:text-green-600 hover:bg-green-50'
                           }`}
                           title={company.status === 'active' ? t('companies.deactivate') : t('companies.activate')}
                         >
@@ -387,9 +387,9 @@ const CompaniesPage: React.FC = () => {
       {inviteCompany && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setInviteCompany(null)} />
-          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Invite company admin</h2>
-            <p className="text-sm text-gray-500 mb-4">{inviteCompany.name}</p>
+          <div className="relative investo-card shadow-xl w-full max-w-md mx-4 p-6">
+            <h2 className="text-lg font-semibold text-ink-primary mb-1">Invite company admin</h2>
+            <p className="text-sm text-ink-muted mb-4">{inviteCompany.name}</p>
             {inviteError && (
               <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{inviteError}</div>
             )}
@@ -398,36 +398,36 @@ const CompaniesPage: React.FC = () => {
             )}
             <form onSubmit={handleInviteAdmin} className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Admin name *</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Admin name *</label>
                 <input
                   required
                   value={inviteForm.name}
                   onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Email *</label>
                 <input
                   type="email"
                   required
                   value={inviteForm.email}
                   onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Temporary password *</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Temporary password *</label>
                 <input
                   type="password"
                   required
                   minLength={8}
                   value={inviteForm.password}
                   onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg"
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-ink-secondary">
                 <input
                   type="checkbox"
                   checked={inviteForm.must_change_password}
@@ -436,10 +436,10 @@ const CompaniesPage: React.FC = () => {
                 Require password change on first login
               </label>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setInviteCompany(null)} className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg">
+                <button type="button" onClick={() => setInviteCompany(null)} className="px-4 py-2 text-ink-secondary hover:bg-surface-subtle rounded-lg">
                   {t('common.cancel')}
                 </button>
-                <button type="submit" disabled={inviteSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                <button type="submit" disabled={inviteSubmitting} className="px-4 py-2 investo-btn-primary disabled:opacity-50">
                   {inviteSubmitting ? t('common.loading') : 'Create admin'}
                 </button>
               </div>
@@ -455,8 +455,8 @@ const CompaniesPage: React.FC = () => {
             className="fixed inset-0 bg-black/50"
             onClick={() => setShowModal(false)}
           />
-          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          <div className="relative investo-card shadow-xl w-full max-w-md mx-4 p-6">
+            <h2 className="text-lg font-semibold text-ink-primary mb-4">
               {editingCompany ? t('companies.edit') : t('companies.new_company')}
             </h2>
 
@@ -468,7 +468,7 @@ const CompaniesPage: React.FC = () => {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
                   {t('companies.name')} *
                 </label>
                 <input
@@ -482,12 +482,12 @@ const CompaniesPage: React.FC = () => {
                       slug: editingCompany ? formData.slug : generateSlug(e.target.value),
                     });
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
                   {t('companies.slug')} *
                 </label>
                 <input
@@ -495,13 +495,13 @@ const CompaniesPage: React.FC = () => {
                   required
                   value={formData.slug}
                   onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                   disabled={!!editingCompany}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
                   {t('companies.whatsapp_phone')}
                 </label>
                 <input
@@ -509,18 +509,18 @@ const CompaniesPage: React.FC = () => {
                   value={formData.whatsapp_phone}
                   onChange={(e) => setFormData({ ...formData, whatsapp_phone: e.target.value })}
                   placeholder="+919876543210"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
                   {t('companies.plan')}
                 </label>
                 <select
                   value={formData.plan_id}
                   onChange={(e) => setFormData({ ...formData, plan_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 >
                   <option value="">Select Plan</option>
                   {plans.map((plan) => (
@@ -535,14 +535,14 @@ const CompaniesPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                  className="px-4 py-2 text-ink-secondary hover:bg-surface-subtle rounded-lg transition-colors"
                 >
                   {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 investo-btn-primary transition-colors disabled:opacity-50"
                 >
                   {submitting ? t('common.loading') : t('common.save')}
                 </button>

@@ -489,8 +489,8 @@ const OnboardingPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+      <div className="flex h-screen items-center justify-center bg-surface-muted">
+        <Loader2 className="h-10 w-10 animate-spin text-brand-700" />
       </div>
     );
   }
@@ -508,23 +508,23 @@ const OnboardingPage: React.FC = () => {
           <React.Fragment key={step}>
             {i > 0 && (
               <div
-                className={`h-0.5 w-8 sm:w-12 ${isDone || isActive ? 'bg-blue-500' : 'bg-gray-200'}`}
+                className={`h-0.5 w-8 sm:w-12 ${isDone || isActive ? 'bg-brand-500' : 'bg-surface-subtle'}`}
               />
             )}
             <div className="flex flex-col items-center gap-1">
               <div
                 className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : isDone
-                      ? 'bg-blue-100 text-blue-600'
-                      : 'bg-gray-100 text-gray-400'
+                      ? 'bg-brand-100 text-brand-700'
+                      : 'bg-surface-subtle text-ink-faint'
                 }`}
               >
                 {isDone ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
               </div>
               <span
-                className={`text-xs hidden sm:block ${isActive ? 'text-blue-600 font-medium' : 'text-gray-400'}`}
+                className={`text-xs hidden sm:block ${isActive ? 'text-brand-700 font-medium' : 'text-ink-faint'}`}
               >
                 {label}
               </span>
@@ -540,42 +540,42 @@ const OnboardingPage: React.FC = () => {
   const renderStep1 = () => (
     <div className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
+        <label className="block text-sm font-medium text-ink-secondary mb-1">Company Name *</label>
         <input
           value={companyName}
           onChange={e => setCompanyName(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           placeholder="Your company name"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+        <label className="block text-sm font-medium text-ink-secondary mb-1">Description</label>
         <textarea
           value={companyDesc}
           onChange={e => setCompanyDesc(e.target.value)}
           rows={3}
-          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           placeholder="Brief description of your company"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Phone Number</label>
+        <label className="block text-sm font-medium text-ink-secondary mb-1">WhatsApp Phone Number</label>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500 bg-gray-100 px-3 py-2 rounded-lg">+91</span>
+          <span className="text-sm text-ink-muted bg-surface-subtle px-3 py-2 rounded-lg">+91</span>
           <input
             value={whatsappPhone}
             onChange={e => setWhatsappPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
             inputMode="numeric"
-            className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             placeholder="9876543210"
           />
         </div>
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-ink-muted">
           Your agency&apos;s dedicated business WhatsApp number. It must be unique — not used by another agency on Investo.
         </p>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Primary Color</label>
+        <label className="block text-sm font-medium text-ink-secondary mb-1">Primary Color</label>
         <div className="flex items-center gap-3">
           <input
             type="color"
@@ -583,7 +583,7 @@ const OnboardingPage: React.FC = () => {
             onChange={e => setPrimaryColor(e.target.value)}
             className="h-10 w-14 cursor-pointer rounded border p-1"
           />
-          <span className="text-sm text-gray-500">{primaryColor}</span>
+          <span className="text-sm text-ink-muted">{primaryColor}</span>
         </div>
       </div>
     </div>
@@ -599,25 +599,25 @@ const OnboardingPage: React.FC = () => {
                 type="checkbox"
                 checked={role.enabled}
                 onChange={e => updateRole(idx, 'enabled', e.target.checked)}
-                className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 rounded text-brand-700 focus:ring-brand-500"
               />
               {role.isCustom ? (
                 <div className="flex gap-2">
                   <input
                     value={role.role_name}
                     onChange={e => updateRole(idx, 'role_name', e.target.value.toLowerCase().replace(/\s/g, '_'))}
-                    className="px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                     placeholder="role_slug"
                   />
                   <input
                     value={role.display_name}
                     onChange={e => updateRole(idx, 'display_name', e.target.value)}
-                    className="px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                     placeholder="Display Name"
                   />
                 </div>
               ) : (
-                <span className="font-medium text-gray-800">{role.display_name}</span>
+                <span className="font-medium text-ink-primary">{role.display_name}</span>
               )}
             </div>
             {role.isCustom && (
@@ -632,23 +632,23 @@ const OnboardingPage: React.FC = () => {
               <table className="text-sm w-full">
                 <thead>
                   <tr>
-                    <th className="text-left py-1 pr-4 text-gray-500 font-medium">Resource</th>
+                    <th className="text-left py-1 pr-4 text-ink-muted font-medium">Resource</th>
                     {ACTIONS.map(a => (
-                      <th key={a} className="px-2 py-1 text-gray-500 font-medium capitalize">{a}</th>
+                      <th key={a} className="px-2 py-1 text-ink-muted font-medium capitalize">{a}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {RESOURCES.map(res => (
                     <tr key={res}>
-                      <td className="py-1 pr-4 capitalize text-gray-700">{res}</td>
+                      <td className="py-1 pr-4 capitalize text-ink-secondary">{res}</td>
                       {ACTIONS.map(act => (
                         <td key={act} className="px-2 py-1 text-center">
                           <input
                             type="checkbox"
                             checked={(role.permissions[res] || []).includes(act)}
                             onChange={() => toggleRolePermission(idx, res, act)}
-                            className="h-3.5 w-3.5 rounded text-blue-600 focus:ring-blue-500"
+                            className="h-3.5 w-3.5 rounded text-brand-700 focus:ring-brand-500"
                           />
                         </td>
                       ))}
@@ -662,7 +662,7 @@ const OnboardingPage: React.FC = () => {
       ))}
       <button
         onClick={addCustomRole}
-        className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+        className="flex items-center gap-2 text-sm text-brand-700 hover:text-brand-800 font-medium"
       >
         <Plus className="h-4 w-4" /> Add Custom Role
       </button>
@@ -674,8 +674,8 @@ const OnboardingPage: React.FC = () => {
       {features.map((feat, idx) => (
         <div key={feat.key} className="flex items-center justify-between border rounded-lg p-4">
           <div>
-            <p className="font-medium text-gray-800">{feat.label}</p>
-            <p className="text-sm text-gray-500">{feat.description}</p>
+            <p className="font-medium text-ink-primary">{feat.label}</p>
+            <p className="text-sm text-ink-muted">{feat.description}</p>
           </div>
           <button
             type="button"
@@ -685,11 +685,11 @@ const OnboardingPage: React.FC = () => {
               )
             }
             className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${
-              feat.enabled ? 'bg-blue-600' : 'bg-gray-200'
+              feat.enabled ? 'bg-brand-600' : 'bg-surface-subtle'
             }`}
           >
             <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform mt-0.5 ${
+              className={`inline-block h-5 w-5 transform rounded-full bg-surface-elevated shadow transition-transform mt-0.5 ${
                 feat.enabled ? 'translate-x-5 ml-0.5' : 'translate-x-0.5'
               }`}
             />
@@ -703,19 +703,19 @@ const OnboardingPage: React.FC = () => {
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Business Name</label>
+          <label className="block text-sm font-medium text-ink-secondary mb-1">Business Name</label>
           <input
             value={aiConfig.business_name}
             onChange={e => setAiConfig(p => ({ ...p, business_name: e.target.value }))}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Response Tone</label>
+          <label className="block text-sm font-medium text-ink-secondary mb-1">Response Tone</label>
           <select
             value={aiConfig.response_tone}
             onChange={e => setAiConfig(p => ({ ...p, response_tone: e.target.value }))}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           >
             {TONES.map(t => (
               <option key={t.value} value={t.value}>{t.label}</option>
@@ -724,24 +724,24 @@ const OnboardingPage: React.FC = () => {
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Business Description</label>
+        <label className="block text-sm font-medium text-ink-secondary mb-1">Business Description</label>
         <textarea
           value={aiConfig.business_description}
           onChange={e => setAiConfig(p => ({ ...p, business_description: e.target.value }))}
           rows={2}
-          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Operating Locations (comma-separated)</label>
+        <label className="block text-sm font-medium text-ink-secondary mb-1">Operating Locations (comma-separated)</label>
         <input
           value={locationsInput}
           onChange={e => setLocationsInput(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           placeholder="Mumbai, Pune, Bangalore"
         />
       </div>
-      <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+      <div className="rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-900">
         <span className="font-medium">Project budget</span>
         {' — '}
         {PROJECT_BUDGET_HELP}
@@ -749,7 +749,7 @@ const OnboardingPage: React.FC = () => {
         You will set Price min and Price max when you add or import each property.
       </div>
       <div>
-        <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1">
+        <label className="flex items-center gap-1.5 text-sm font-medium text-ink-secondary mb-1">
           <span>Persuasion Level: {aiConfig.persuasion_level}</span>
           <InfoTooltip label="What is persuasion level?" content={PERSUASION_LEVEL_HELP} />
         </label>
@@ -759,20 +759,20 @@ const OnboardingPage: React.FC = () => {
           max={10}
           value={aiConfig.persuasion_level}
           onChange={e => setAiConfig(p => ({ ...p, persuasion_level: Number(e.target.value) }))}
-          className="w-full accent-blue-600"
+          className="w-full accent-brand-600"
         />
-        <div className="flex justify-between text-xs text-gray-400">
+        <div className="flex justify-between text-xs text-ink-faint">
           <span>Subtle</span>
           <span>Aggressive</span>
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Default Language</label>
+          <label className="block text-sm font-medium text-ink-secondary mb-1">Default Language</label>
           <select
             value={aiConfig.default_language}
             onChange={e => setAiConfig(p => ({ ...p, default_language: e.target.value }))}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           >
             {LANGUAGES.map(l => (
               <option key={l.value} value={l.value}>{l.label}</option>
@@ -780,31 +780,31 @@ const OnboardingPage: React.FC = () => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Working Hours Start</label>
+          <label className="block text-sm font-medium text-ink-secondary mb-1">Working Hours Start</label>
           <input
             type="time"
             value={aiConfig.working_hours_start}
             onChange={e => setAiConfig(p => ({ ...p, working_hours_start: e.target.value }))}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Working Hours End</label>
+          <label className="block text-sm font-medium text-ink-secondary mb-1">Working Hours End</label>
           <input
             type="time"
             value={aiConfig.working_hours_end}
             onChange={e => setAiConfig(p => ({ ...p, working_hours_end: e.target.value }))}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Greeting Template</label>
+        <label className="block text-sm font-medium text-ink-secondary mb-1">Greeting Template</label>
         <textarea
           value={aiConfig.greeting_template}
           onChange={e => setAiConfig(p => ({ ...p, greeting_template: e.target.value }))}
           rows={3}
-          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           placeholder={DEFAULT_GREETING}
         />
       </div>
@@ -813,7 +813,7 @@ const OnboardingPage: React.FC = () => {
 
   const renderStep5 = () => (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-ink-muted">
         Set a temporary password for each invited team member. They will be prompted to change it on first login.
       </p>
       {invites.map((inv, idx) => (
@@ -822,20 +822,20 @@ const OnboardingPage: React.FC = () => {
             <input
               value={inv.name}
               onChange={e => updateInvite(idx, 'name', e.target.value)}
-              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               placeholder="Name"
             />
             <input
               type="email"
               value={inv.email}
               onChange={e => updateInvite(idx, 'email', e.target.value)}
-              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               placeholder="email@example.com"
             />
             <select
               value={inv.role}
               onChange={e => updateInvite(idx, 'role', e.target.value)}
-              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             >
               {enabledRoles.map(r => (
                 <option key={r.role_name} value={r.role_name}>{r.display_name}</option>
@@ -845,7 +845,7 @@ const OnboardingPage: React.FC = () => {
               type="password"
               value={inv.password}
               onChange={e => updateInvite(idx, 'password', e.target.value)}
-              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               placeholder="Temporary password"
               minLength={8}
             />
@@ -859,7 +859,7 @@ const OnboardingPage: React.FC = () => {
       ))}
       <button
         onClick={addInviteRow}
-        className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+        className="flex items-center gap-2 text-sm text-brand-700 hover:text-brand-800 font-medium"
       >
         <Plus className="h-4 w-4" /> Add Another
       </button>
@@ -873,8 +873,8 @@ const OnboardingPage: React.FC = () => {
           <div className="h-20 w-20 rounded-full bg-green-100 flex items-center justify-center mb-4">
             <CheckCircle2 className="h-10 w-10 text-green-600" />
           </div>
-          <h3 className="text-xl font-semibold text-gray-800">Setup Complete!</h3>
-          <p className="text-gray-500 mt-2">Redirecting to dashboard…</p>
+          <h3 className="text-xl font-semibold text-ink-primary">Setup Complete!</h3>
+          <p className="text-ink-muted mt-2">Redirecting to dashboard…</p>
         </div>
       );
     }
@@ -883,27 +883,27 @@ const OnboardingPage: React.FC = () => {
 
     return (
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-gray-800">Review Your Setup</h3>
+        <h3 className="text-lg font-semibold text-ink-primary">Review Your Setup</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="border rounded-lg p-4">
-            <p className="text-sm text-gray-500">Company</p>
-            <p className="font-medium text-gray-800">{companyName || '—'}</p>
+            <p className="text-sm text-ink-muted">Company</p>
+            <p className="font-medium text-ink-primary">{companyName || '—'}</p>
           </div>
           <div className="border rounded-lg p-4">
-            <p className="text-sm text-gray-500">Roles Configured</p>
-            <p className="font-medium text-gray-800">{enabledRoles.length}</p>
+            <p className="text-sm text-ink-muted">Roles Configured</p>
+            <p className="font-medium text-ink-primary">{enabledRoles.length}</p>
           </div>
           <div className="border rounded-lg p-4">
-            <p className="text-sm text-gray-500">Features Enabled</p>
-            <p className="font-medium text-gray-800">{features.filter(f => f.enabled).length}</p>
+            <p className="text-sm text-ink-muted">Features Enabled</p>
+            <p className="font-medium text-ink-primary">{features.filter(f => f.enabled).length}</p>
           </div>
           <div className="border rounded-lg p-4">
-            <p className="text-sm text-gray-500">AI Configured</p>
-            <p className="font-medium text-gray-800">{completedSteps.includes(4) ? 'Yes' : 'No'}</p>
+            <p className="text-sm text-ink-muted">AI Configured</p>
+            <p className="font-medium text-ink-primary">{completedSteps.includes(4) ? 'Yes' : 'No'}</p>
           </div>
           <div className="border rounded-lg p-4 sm:col-span-2">
-            <p className="text-sm text-gray-500">Team Members Invited</p>
-            <p className="font-medium text-gray-800">{validInvites.length}</p>
+            <p className="text-sm text-ink-muted">Team Members Invited</p>
+            <p className="font-medium text-ink-primary">{validInvites.length}</p>
           </div>
         </div>
       </div>
@@ -922,12 +922,12 @@ const OnboardingPage: React.FC = () => {
   const current = stepContent[currentStep];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-surface-muted py-8 px-4">
       <div className="max-w-3xl mx-auto">
         <ProgressBar />
 
-        <div className="bg-white rounded-xl shadow-sm p-6 sm:p-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">{current.title}</h2>
+        <div className="bg-surface-elevated rounded-xl shadow-sm p-6 sm:p-8">
+          <h2 className="text-xl font-bold text-ink-primary mb-6">{current.title}</h2>
 
           {error && (
             <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
@@ -941,14 +941,14 @@ const OnboardingPage: React.FC = () => {
             <button
               onClick={handleBack}
               disabled={currentStep === 1}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 bg-white border hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-ink-secondary bg-surface-elevated border hover:bg-surface-muted disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="h-4 w-4" /> Back
             </button>
             <button
               onClick={handleNext}
               disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               {currentStep === 6 ? 'Complete Setup' : 'Next'}

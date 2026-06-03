@@ -190,7 +190,7 @@ export default function PropertyImportKnowledgeWizard({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+      <div className="w-full max-w-lg investo-card shadow-2xl">
         <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-violet-100 p-2 text-violet-700">

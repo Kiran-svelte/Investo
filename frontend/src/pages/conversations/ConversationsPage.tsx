@@ -296,55 +296,55 @@ const ConversationsPage: React.FC = () => {
     <div className="h-[calc(100vh-64px)] flex">
       {/* Conversation List */}
       <div
-        className={`w-full md:w-80 lg:w-96 border-r border-gray-200 flex flex-col bg-white ${
+        className={`w-full md:w-80 lg:w-96 border-r border-surface-border flex flex-col bg-surface-elevated ${
           selectedConv ? 'hidden md:flex' : 'flex'
         }`}
       >
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900 mb-3">
+        <div className="p-4 border-b border-surface-border">
+          <h1 className="text-xl font-bold text-ink-primary mb-3">
             {t('conversations.title')}
           </h1>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-faint" />
             <input
               type="text"
               placeholder={t('common.search')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="w-full pl-10 pr-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-4 text-center text-gray-500">{t('common.loading')}</div>
+            <div className="p-4 text-center text-ink-muted">{t('common.loading')}</div>
           ) : conversations.length === 0 ? (
-            <div className="p-4 text-center text-gray-500">{t('common.no_data')}</div>
+            <div className="p-4 text-center text-ink-muted">{t('common.no_data')}</div>
           ) : (
             conversations.map((conv) => (
               <div
                 key={conv.id}
                 onClick={() => setSelectedConv(conv)}
-                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  selectedConv?.id === conv.id ? 'bg-blue-50' : ''
+                className={`p-4 border-b border-surface-border cursor-pointer hover:bg-surface-muted transition-colors ${
+                  selectedConv?.id === conv.id ? 'bg-brand-50' : ''
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                    <User className="h-5 w-5 text-gray-500" />
+                  <div className="w-10 h-10 rounded-full bg-surface-subtle flex items-center justify-center flex-shrink-0">
+                    <User className="h-5 w-5 text-ink-muted" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="font-medium text-gray-900 truncate">
+                      <p className="font-medium text-ink-primary truncate">
                         {conv.customer_name || conv.customer_phone}
                       </p>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-ink-muted">
                         {formatTime(conv.updated_at)}
                       </span>
                     </div>
                     {conv.last_message && (
-                      <p className="text-sm text-gray-500 truncate mt-0.5">
+                      <p className="text-sm text-ink-muted truncate mt-0.5">
                         {conv.last_message.sender_type === 'ai' && '🤖 '}
                         {conv.last_message.content}
                       </p>
@@ -355,8 +355,8 @@ const ConversationsPage: React.FC = () => {
                           conv.status === 'ai_active'
                             ? 'bg-green-100 text-green-700'
                             : conv.status === 'agent_active'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-700'
+                            ? 'bg-brand-100 text-brand-800'
+                            : 'bg-surface-subtle text-ink-secondary'
                         }`}
                       >
                         {conv.status === 'ai_active'
@@ -365,7 +365,7 @@ const ConversationsPage: React.FC = () => {
                           ? 'Agent'
                           : 'Closed'}
                       </span>
-                      <span className="text-xs text-gray-400">{conv.language.toUpperCase()}</span>
+                      <span className="text-xs text-ink-faint">{conv.language.toUpperCase()}</span>
                     </div>
                   </div>
                 </div>
@@ -373,7 +373,7 @@ const ConversationsPage: React.FC = () => {
             ))
           )}
         </div>
-        <div className="border-t border-gray-200 p-2">
+        <div className="border-t border-surface-border p-2">
           <Pagination
             page={convPage}
             totalPages={convTotalPages}
@@ -386,30 +386,30 @@ const ConversationsPage: React.FC = () => {
 
       {/* Chat View */}
       <div
-        className={`flex-1 flex flex-col bg-gray-50 ${
+        className={`flex-1 flex flex-col bg-surface-muted ${
           selectedConv ? 'flex' : 'hidden md:flex'
         }`}
       >
         {selectedConv ? (
           <>
             {/* Chat Header */}
-            <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+            <div className="bg-surface-elevated border-b border-surface-border p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSelectedConv(null)}
                   aria-label="Back to conversation list"
-                  className="md:hidden p-1 hover:bg-gray-100 rounded"
+                  className="md:hidden p-1 hover:bg-surface-subtle rounded"
                 >
-                  <ArrowRight className="h-5 w-5 text-gray-600 rotate-180" />
+                  <ArrowRight className="h-5 w-5 text-ink-secondary rotate-180" />
                 </button>
-                <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-                  <User className="h-5 w-5 text-gray-500" />
+                <div className="w-10 h-10 rounded-full bg-surface-subtle flex items-center justify-center">
+                  <User className="h-5 w-5 text-ink-muted" />
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">
+                  <p className="font-medium text-ink-primary">
                     {selectedConv.customer_name || selectedConv.customer_phone}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-ink-muted">
                     {selectedConv.customer_phone} • {selectedConv.language.toUpperCase()}
                   </p>
                 </div>
@@ -418,7 +418,7 @@ const ConversationsPage: React.FC = () => {
                 {selectedConv.status === 'ai_active' ? (
                   <button
                     onClick={() => takeOver(selectedConv.id)}
-                    className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 flex items-center gap-1"
+                    className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 flex items-center gap-1"
                   >
                     <UserCheck className="h-4 w-4" />
                     {t('conversations.takeover')}
@@ -447,10 +447,10 @@ const ConversationsPage: React.FC = () => {
                     <div
                       className={`max-w-[75%] rounded-2xl px-4 py-2 ${
                         isCustomer
-                          ? 'bg-white border border-gray-200'
+                          ? 'bg-surface-elevated border border-surface-border'
                           : msg.sender_type === 'ai'
                           ? 'bg-green-100 text-green-900'
-                          : 'bg-blue-600 text-white'
+                          : 'bg-brand-600 text-white'
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1">
@@ -467,7 +467,7 @@ const ConversationsPage: React.FC = () => {
                       <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                       <p
                         className={`text-xs mt-1 ${
-                          isCustomer ? 'text-gray-400' : 'opacity-75'
+                          isCustomer ? 'text-ink-faint' : 'opacity-75'
                         }`}
                       >
                         {new Date(msg.created_at).toLocaleTimeString('en-IN', {
@@ -481,7 +481,7 @@ const ConversationsPage: React.FC = () => {
               })}
             </div>
             {msgTotalPages > 1 && (
-              <div className="border-t border-gray-200 bg-white px-4 py-2">
+              <div className="border-t border-surface-border bg-surface-elevated px-4 py-2">
                 <Pagination
                   page={msgPage}
                   totalPages={msgTotalPages}
@@ -493,15 +493,15 @@ const ConversationsPage: React.FC = () => {
             )}
 
             {/* Composer */}
-            <div className="bg-white border-t border-gray-200 p-4">
+            <div className="bg-surface-elevated border-t border-surface-border p-4">
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setComposerMode('text')}
                     className={`px-3 py-1.5 rounded-lg text-sm border ${
                       composerMode === 'text'
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-gray-700 border-gray-300'
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-surface-elevated text-ink-secondary border-surface-border-strong'
                     }`}
                   >
                     Text
@@ -510,8 +510,8 @@ const ConversationsPage: React.FC = () => {
                     onClick={() => setComposerMode('document')}
                     className={`px-3 py-1.5 rounded-lg text-sm border ${
                       composerMode === 'document'
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-gray-700 border-gray-300'
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-surface-elevated text-ink-secondary border-surface-border-strong'
                     }`}
                   >
                     Document
@@ -520,8 +520,8 @@ const ConversationsPage: React.FC = () => {
                     onClick={() => setComposerMode('quick_reply')}
                     className={`px-3 py-1.5 rounded-lg text-sm border ${
                       composerMode === 'quick_reply'
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-gray-700 border-gray-300'
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-surface-elevated text-ink-secondary border-surface-border-strong'
                     }`}
                   >
                     Quick Reply
@@ -534,7 +534,7 @@ const ConversationsPage: React.FC = () => {
                     onChange={(e) => setTextMessage(e.target.value)}
                     placeholder="Type a message"
                     rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                   />
                 )}
 
@@ -545,21 +545,21 @@ const ConversationsPage: React.FC = () => {
                       value={documentUrl}
                       onChange={(e) => setDocumentUrl(e.target.value)}
                       placeholder="Document URL (https://...)"
-                      className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className="md:col-span-2 px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                     />
                     <input
                       type="text"
                       value={documentFilename}
                       onChange={(e) => setDocumentFilename(e.target.value)}
                       placeholder="Filename (optional)"
-                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className="px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                     />
                     <input
                       type="text"
                       value={documentCaption}
                       onChange={(e) => setDocumentCaption(e.target.value)}
                       placeholder="Caption (optional)"
-                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className="px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                     />
                   </div>
                 )}
@@ -571,7 +571,7 @@ const ConversationsPage: React.FC = () => {
                       value={quickReplyBody}
                       onChange={(e) => setQuickReplyBody(e.target.value)}
                       placeholder="Quick-reply message body"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                     />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <input
@@ -579,14 +579,14 @@ const ConversationsPage: React.FC = () => {
                         value={quickReplyHeader}
                         onChange={(e) => setQuickReplyHeader(e.target.value)}
                         placeholder="Header (optional)"
-                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        className="px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                       />
                       <input
                         type="text"
                         value={quickReplyFooter}
                         onChange={(e) => setQuickReplyFooter(e.target.value)}
                         placeholder="Footer (optional)"
-                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        className="px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                       />
                     </div>
 
@@ -597,19 +597,19 @@ const ConversationsPage: React.FC = () => {
                           value={button.id}
                           onChange={(e) => updateQuickReplyButton(index, 'id', e.target.value)}
                           placeholder={`Button ${index + 1} ID`}
-                          className="col-span-5 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          className="col-span-5 px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                         />
                         <input
                           type="text"
                           value={button.title}
                           onChange={(e) => updateQuickReplyButton(index, 'title', e.target.value)}
                           placeholder={`Button ${index + 1} Title`}
-                          className="col-span-5 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          className="col-span-5 px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm"
                         />
                         <button
                           onClick={() => removeQuickReplyButton(index)}
                           disabled={quickReplyButtons.length <= 1}
-                          className="col-span-2 px-2 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm disabled:opacity-50"
+                          className="col-span-2 px-2 py-2 border border-surface-border-strong text-ink-secondary rounded-lg text-sm disabled:opacity-50"
                         >
                           Remove
                         </button>
@@ -619,7 +619,7 @@ const ConversationsPage: React.FC = () => {
                     <button
                       onClick={addQuickReplyButton}
                       disabled={quickReplyButtons.length >= 3}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 disabled:opacity-50"
+                      className="px-3 py-1.5 border border-surface-border-strong rounded-lg text-sm text-ink-secondary disabled:opacity-50"
                     >
                       Add Button
                     </button>
@@ -631,13 +631,13 @@ const ConversationsPage: React.FC = () => {
                 )}
 
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-ink-muted">
                     Sending as {user?.name || 'Agent'}
                   </p>
                   <button
                     onClick={sendMessage}
                     disabled={sendLoading}
-                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                    className="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-60"
                   >
                     {sendLoading ? 'Sending...' : 'Send'}
                   </button>
@@ -646,9 +646,9 @@ const ConversationsPage: React.FC = () => {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
+          <div className="flex-1 flex items-center justify-center text-ink-muted">
             <div className="text-center">
-              <MessageSquare className="h-12 w-12 mx-auto text-gray-300 mb-3" />
+              <MessageSquare className="h-12 w-12 mx-auto text-ink-faint mb-3" />
               <p>Select a conversation to view</p>
             </div>
           </div>

@@ -216,6 +216,22 @@ export default function PropertyImportSimplePage() {
     syncFormFromDraft(normalized.draftData);
   };
 
+  const handleDeferKnowledge = useCallback(async () => {
+    if (!draft?.id) {
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const saved = await deferPropertyImportKnowledge(draft.id);
+      applyDraftUpdate(saved);
+      navigate('/properties', { replace: true });
+    } catch (error) {
+      setPageError(getErrorMessage(error, 'Failed to defer knowledge step'));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [draft?.id, navigate]);
+
   const persistDraft = async (
     nextFormValues = formValues,
     nextDraftData: Record<string, unknown> | null | undefined = draft?.draftData,
@@ -421,25 +437,25 @@ export default function PropertyImportSimplePage() {
   if (!canManageProperties) {
     return (
       <div className="p-6">
-        <p className="text-sm text-gray-600">Only company admins can import properties.</p>
+        <p className="text-sm text-ink-secondary">Only company admins can import properties.</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
+    <div className="investo-page mx-auto max-w-3xl space-y-6">
       <button
         type="button"
         onClick={() => navigate('/properties')}
-        className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+        className="inline-flex items-center gap-2 text-sm text-ink-secondary hover:text-ink-primary"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to properties
       </button>
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Add a property</h1>
-        <p className="mt-1 text-sm text-gray-600">
+        <h1 className="text-2xl font-bold text-ink-primary">Add a property</h1>
+        <p className="mt-1 text-sm text-ink-secondary">
           Pick type, upload brochure, answer a few questions, then go live on WhatsApp AI.
         </p>
       </div>
@@ -453,10 +469,10 @@ export default function PropertyImportSimplePage() {
               key={label}
               className={`flex-1 rounded-lg border px-3 py-2 text-center text-xs font-semibold ${
                 current
-                  ? 'border-blue-500 bg-blue-50 text-blue-800'
+                  ? 'border-brand-500 bg-brand-50 text-brand-800'
                   : done
                     ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                    : 'border-gray-200 bg-gray-50 text-gray-500'
+                    : 'border-surface-border bg-surface-muted text-ink-muted'
               }`}
             >
               {done ? <CheckCircle2 className="mx-auto mb-1 h-4 w-4" /> : null}
@@ -481,9 +497,9 @@ export default function PropertyImportSimplePage() {
       )}
 
       {activeStepIndex === 0 && (
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Step 1 - Property type</h2>
-          <p className="mt-1 text-sm text-gray-500">Choose one. Questions in step 3 depend on this.</p>
+        <section className="rounded-2xl border border-surface-border bg-surface-elevated p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-ink-primary">Step 1 - Property type</h2>
+          <p className="mt-1 text-sm text-ink-muted">Choose one. Questions in step 3 depend on this.</p>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             {TYPE_CARDS.map((card) => (
               <button
@@ -491,15 +507,15 @@ export default function PropertyImportSimplePage() {
                 type="button"
                 disabled={isSaving}
                 onClick={() => void selectPropertyType(card.type)}
-                className={`flex flex-col items-center gap-3 rounded-xl border-2 p-6 text-center transition-colors hover:border-blue-400 hover:bg-blue-50 ${
+                className={`flex flex-col items-center gap-3 rounded-xl border-2 p-6 text-center transition-colors hover:border-brand-400 hover:bg-brand-50 ${
                   formValues.property_type === card.type
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200'
+                    ? 'border-brand-500 bg-brand-50'
+                    : 'border-surface-border'
                 }`}
               >
-                <span className="text-blue-600">{card.icon}</span>
-                <span className="font-semibold text-gray-900">{card.label}</span>
-                <span className="text-xs text-gray-500">{card.description}</span>
+                <span className="text-brand-700">{card.icon}</span>
+                <span className="font-semibold text-ink-primary">{card.label}</span>
+                <span className="text-xs text-ink-muted">{card.description}</span>
               </button>
             ))}
           </div>
@@ -507,9 +523,9 @@ export default function PropertyImportSimplePage() {
       )}
 
       {activeStepIndex === 1 && (
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Step 2 - Upload brochure</h2>
-          <p className="mt-1 text-sm text-gray-500">
+        <section className="rounded-2xl border border-surface-border bg-surface-elevated p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-ink-primary">Step 2 - Upload brochure</h2>
+          <p className="mt-1 text-sm text-ink-muted">
             PDF or images. We extract facts automatically - {SUPPORTED_FILE_LABELS.join(', ')}.
           </p>
           {draft?.extractionStatus === 'extracted' ? (
@@ -518,26 +534,26 @@ export default function PropertyImportSimplePage() {
               Extraction complete ({draft.mediaAssets?.length ?? 0} file(s))
             </p>
           ) : draft?.extractionStatus === 'queued' || draft?.extractionStatus === 'processing' || draft?.status === 'extracting' ? (
-            <p className="mt-3 flex items-center gap-2 text-sm text-blue-700">
+            <p className="mt-3 flex items-center gap-2 text-sm text-brand-800">
               <Loader2 className="h-4 w-4 animate-spin" />
               Extracting brochure...
             </p>
           ) : null}
 
           <div
-            className="mt-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 p-8 text-center"
+            className="mt-4 rounded-xl border-2 border-dashed border-surface-border bg-surface-muted p-8 text-center"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
               void processFiles(Array.from(e.dataTransfer.files));
             }}
           >
-            <Upload className="mx-auto h-10 w-10 text-blue-500" />
+            <Upload className="mx-auto h-10 w-10 text-brand-600" />
             <button
               type="button"
               disabled={isUploading}
               onClick={() => fileInputRef.current?.click()}
-              className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              className="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
             >
               {isUploading ? 'Uploading...' : 'Choose files'}
             </button>
@@ -555,7 +571,7 @@ export default function PropertyImportSimplePage() {
           </div>
 
           {uploadItems.length > 0 && (
-            <ul className="mt-4 space-y-2 text-sm text-gray-600">
+            <ul className="mt-4 space-y-2 text-sm text-ink-secondary">
               {uploadItems.map((item) => (
                 <li key={item.id}>
                   {item.fileName} - {item.status}
@@ -565,13 +581,13 @@ export default function PropertyImportSimplePage() {
             </ul>
           )}
 
-          <label className="mt-4 block text-sm font-medium text-gray-700">
+          <label className="mt-4 block text-sm font-medium text-ink-secondary">
             Project name
             <input
               value={formValues.name}
               onChange={(e) => setFormValues((f) => ({ ...f, name: e.target.value }))}
               onBlur={() => void persistDraft()}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-sm"
               placeholder="From brochure or type here"
             />
           </label>
@@ -581,12 +597,12 @@ export default function PropertyImportSimplePage() {
       {activeStepIndex === 2 && publishReadiness.missingQuestions.length > 0 && (
         <section
           ref={knowledgeSectionRef}
-          className="rounded-2xl border border-violet-200 bg-white p-6 shadow-sm"
+          className="investo-card-pad border border-violet-200 shadow-sm"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Step 3 - AI knowledge</h2>
-              <p className="mt-1 text-sm text-gray-500">
+              <h2 className="text-lg font-semibold text-ink-primary">Step 3 - AI knowledge</h2>
+              <p className="mt-1 text-sm text-ink-muted">
                 Answer what is missing so WhatsApp AI can reply accurately.
               </p>
             </div>
@@ -594,7 +610,7 @@ export default function PropertyImportSimplePage() {
               type="button"
               disabled={isSaving}
               onClick={() => void handleDeferKnowledge()}
-              className="text-sm font-medium text-gray-600 underline hover:text-gray-900 disabled:opacity-50"
+              className="text-sm font-medium text-ink-secondary underline hover:text-ink-primary disabled:opacity-50"
             >
               Finish later
             </button>
@@ -632,8 +648,8 @@ export default function PropertyImportSimplePage() {
       )}
 
       {activeStepIndex === 3 && draft?.extractionStatus === 'extracted' && (
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Step 4 - Ready to go</h2>
+        <section className="rounded-2xl border border-surface-border bg-surface-elevated p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-ink-primary">Step 4 - Ready to go</h2>
           <div
             className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
               openAiEmbeddingsReady
@@ -688,7 +704,7 @@ export default function PropertyImportSimplePage() {
             {isPublishing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             Ready to go
           </button>
-          <p className="mt-2 flex items-center gap-1 text-xs text-gray-500">
+          <p className="mt-2 flex items-center gap-1 text-xs text-ink-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
             Publishes to catalog and indexes WhatsApp AI knowledge.
           </p>
@@ -696,7 +712,7 @@ export default function PropertyImportSimplePage() {
       )}
 
       {import.meta.env.DEV && PROPERTY_KNOWLEDGE_TYPES.length > 0 && (
-        <p className="text-xs text-gray-400">Draft: {draft?.id?.slice(0, 8) ?? 'none'}</p>
+        <p className="text-xs text-ink-faint">Draft: {draft?.id?.slice(0, 8) ?? 'none'}</p>
       )}
     </div>
   );

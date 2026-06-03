@@ -18,7 +18,7 @@ const InfoTooltip: React.FC<InfoTooltipProps> = ({ label = 'More information', c
         type="button"
         aria-label={label}
         aria-describedby={open ? tooltipId : undefined}
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:text-blue-600 focus:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-ink-faint hover:text-brand-800 focus:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
@@ -30,7 +30,7 @@ const InfoTooltip: React.FC<InfoTooltipProps> = ({ label = 'More information', c
         <span
           id={tooltipId}
           role="tooltip"
-          className="absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 rounded-lg border border-gray-200 bg-gray-900 px-3 py-2 text-xs font-normal leading-relaxed text-white shadow-lg"
+          className="absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 rounded-lg border border-surface-border bg-ink-primary px-3 py-2 text-xs font-normal leading-relaxed text-surface-base shadow-lg"
         >
           {content}
         </span>

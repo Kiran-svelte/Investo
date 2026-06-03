@@ -66,36 +66,36 @@ const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
 
   const visibleItems = getVisibleNavItems(user?.role, isFeatureEnabled);
 
-  if (loading && user?.role !== 'super_admin') {
-    return (
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:z-30 lg:flex lg:w-64 lg:flex-col border-r border-gray-200 bg-white" />
-    );
-  }
-
   const linkClasses = (isActive: boolean) =>
-    `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+    `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
       isActive
-        ? 'bg-blue-50 text-blue-700'
-        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+        ? 'bg-sidebar-accent/15 text-sidebar-active'
+        : 'text-sidebar-text hover:bg-white/5 hover:text-sidebar-active'
     }`;
 
   const sidebarContent = (
     <>
-      <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white">
+      <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white shadow-sm">
           <Building2 className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <span className="text-lg font-bold text-gray-900">Investo</span>
+          <span className="text-base font-semibold tracking-tight text-sidebar-active">Investo</span>
           {user?.role && (
-            <p className="truncate text-xs text-gray-500">{ROLE_LABELS[user.role] || user.role}</p>
+            <p className="truncate text-xs text-sidebar-text">{ROLE_LABELS[user.role] || user.role}</p>
           )}
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {visibleItems.length === 0 ? (
-          <p className="px-3 text-sm text-gray-500">No pages available for your role.</p>
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+        {loading && user?.role !== 'super_admin' ? (
+          <div className="space-y-2 px-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-9 animate-pulse rounded-lg bg-white/5" />
+            ))}
+          </div>
+        ) : visibleItems.length === 0 ? (
+          <p className="px-3 text-sm text-sidebar-text">No pages available for your role.</p>
         ) : (
           visibleItems.map((item) => {
             const Icon = NAV_ICONS[item.key];
@@ -103,37 +103,39 @@ const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
               <NavLink
                 key={item.path}
                 to={item.path}
-                end={item.path === '/'}
+                end={item.path === '/dashboard'}
                 onClick={onClose}
                 className={({ isActive }) => linkClasses(isActive)}
               >
-                <Icon className="h-5 w-5 flex-shrink-0" />
+                <Icon className={`h-[1.125rem] w-[1.125rem] flex-shrink-0 ${'opacity-80'}`} />
                 {t(`nav.${item.key}`, { defaultValue: item.labelFallback || item.key })}
               </NavLink>
             );
           })
         )}
       </nav>
+
+      <div className="border-t border-sidebar-border p-3">
+        <p className="px-2 text-[10px] font-medium uppercase tracking-wider text-sidebar-text/70">
+          Enterprise CRM
+        </p>
+      </div>
     </>
   );
 
   return (
     <>
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:z-30 lg:flex lg:w-64 lg:flex-col border-r border-gray-200 bg-white">
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:z-30 lg:flex lg:w-[260px] lg:flex-col border-r border-sidebar-border bg-sidebar">
         {sidebarContent}
       </aside>
 
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
-          <div
-            className="fixed inset-0 bg-black/40 transition-opacity"
-            onClick={onClose}
-            aria-hidden="true"
-          />
-          <aside className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-white shadow-xl">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
+          <aside className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col bg-sidebar shadow-investo-lg">
             <button
               type="button"
-              className="absolute right-3 top-4 rounded-md p-1 text-gray-400 hover:text-gray-600"
+              className="absolute right-3 top-4 rounded-lg p-1.5 text-sidebar-text hover:bg-white/10 hover:text-sidebar-active"
               onClick={onClose}
             >
               <X className="h-5 w-5" />
@@ -147,26 +149,17 @@ const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
   );
 };
 
-interface HeaderProps {
-  onMenuClick: () => void;
-}
-
-const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
+const Header: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login', { replace: true });
-  };
-
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-gray-200 bg-white px-4 sm:px-6">
+    <header className="sticky top-0 z-20 flex h-14 items-center gap-4 border-b border-surface-border bg-surface-base/95 px-4 backdrop-blur-md sm:px-6">
       <button
         type="button"
-        className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 lg:hidden"
+        className="rounded-lg p-2 text-ink-muted hover:bg-surface-subtle hover:text-ink-primary lg:hidden"
         onClick={onMenuClick}
       >
         <Menu className="h-5 w-5" />
@@ -175,16 +168,16 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
       <div className="flex-1" />
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <LanguageSelector />
 
         <div className="relative">
           <button
             type="button"
             onClick={() => setUserMenuOpen((prev) => !prev)}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            className="flex items-center gap-2 rounded-lg border border-surface-border px-2 py-1.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-surface-subtle"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-100 text-xs font-bold text-brand-800">
               {user?.name
                 ?.split(' ')
                 .map((n) => n[0])
@@ -192,31 +185,30 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                 .toUpperCase()
                 .slice(0, 2) ?? '?'}
             </div>
-            <span className="hidden sm:block max-w-[140px] truncate">{user?.name}</span>
-            <ChevronDown className="h-4 w-4 text-gray-400" />
+            <span className="hidden max-w-[140px] truncate sm:block">{user?.name}</span>
+            <ChevronDown className="h-4 w-4 text-ink-faint" />
           </button>
 
           {userMenuOpen && (
             <>
-              <div
-                className="fixed inset-0 z-30"
-                onClick={() => setUserMenuOpen(false)}
-                aria-hidden="true"
-              />
-              <div className="absolute right-0 z-40 mt-1 w-56 rounded-lg bg-white py-1 shadow-lg ring-1 ring-gray-200">
-                <div className="border-b border-gray-100 px-4 py-2">
-                  <p className="text-sm font-medium text-gray-900">{user?.name}</p>
-                  <p className="truncate text-xs text-gray-500">{user?.email}</p>
+              <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} aria-hidden="true" />
+              <div className="absolute right-0 z-40 mt-1 w-56 rounded-xl border border-surface-border bg-surface-elevated py-1 shadow-investo">
+                <div className="border-b border-surface-border px-4 py-3">
+                  <p className="text-sm font-semibold text-ink-primary">{user?.name}</p>
+                  <p className="truncate text-xs text-ink-muted">{user?.email}</p>
                   {user?.role && (
-                    <p className="mt-1 text-xs font-medium text-blue-600">
+                    <p className="mt-1.5 text-xs font-medium text-brand-700">
                       {ROLE_LABELS[user.role] || user.role}
                     </p>
                   )}
                 </div>
                 <button
                   type="button"
-                  onClick={handleLogout}
-                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                  onClick={() => {
+                    logout();
+                    navigate('/', { replace: true });
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
                 >
                   <LogOut className="h-4 w-4" />
                   {t('nav.logout')}
@@ -234,15 +226,13 @@ const DashboardLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-muted">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="lg:pl-64">
+      <div className="lg:pl-[260px]">
         <Header onMenuClick={() => setSidebarOpen(true)} />
-
         <KnowledgeGateBanner />
-
-        <main className="min-h-[calc(100vh-4rem)]">
+        <main className="min-h-[calc(100vh-3.5rem)]">
           <Outlet />
         </main>
       </div>

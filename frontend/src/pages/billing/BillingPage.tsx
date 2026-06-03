@@ -148,7 +148,7 @@ const BillingPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
       </div>
     );
   }
@@ -156,11 +156,11 @@ const BillingPage: React.FC = () => {
   const isSuperAdmin = user?.role === 'super_admin';
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="investo-page space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">{t('billing.title')}</h1>
-        <p className="text-gray-500 text-sm">
+        <h1 className="text-2xl font-bold text-ink-primary">{t('billing.title')}</h1>
+        <p className="text-ink-muted text-sm">
           {t('billing.subtitle')}
         </p>
       </div>
@@ -170,11 +170,11 @@ const BillingPage: React.FC = () => {
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-6 text-white">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <p className="text-blue-100 text-sm">{t('billing.current_plan')}</p>
+              <p className="text-brand-100 text-sm">{t('billing.current_plan')}</p>
               <h2 className="text-2xl font-bold mt-1">
                 {currentSubscription.plan_name || t('common.no_data')}
               </h2>
-              <p className="text-blue-100 mt-2">
+              <p className="text-brand-100 mt-2">
                 {currentSubscription.agent_count} {t('billing.agents_used')}
                 {currentSubscription.max_agents && ` ${t('billing.agents_of')} ${currentSubscription.max_agents}`}
               </p>
@@ -184,7 +184,7 @@ const BillingPage: React.FC = () => {
                 {currentSubscription.price_monthly
                   ? formatCurrency(currentSubscription.price_monthly)
                   : '₹0'}
-                <span className="text-lg font-normal text-blue-100">{t('billing.per_month')}</span>
+                <span className="text-lg font-normal text-brand-100">{t('billing.per_month')}</span>
               </p>
               {!isSuperAdmin && (
                 <button
@@ -195,7 +195,7 @@ const BillingPage: React.FC = () => {
                     }
                   }}
                   disabled={updatingPlanId !== null}
-                  className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-lg font-medium hover:bg-blue-50 transition-colors disabled:opacity-60"
+                  className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-surface-elevated text-brand-700 rounded-lg font-medium hover:bg-brand-50 transition-colors disabled:opacity-60"
                 >
                   <Zap className="h-4 w-4" />
                   {t('billing.upgrade')}
@@ -208,48 +208,48 @@ const BillingPage: React.FC = () => {
 
       {/* Plans Grid */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('billing.available_plans')}</h2>
+        <h2 className="text-lg font-semibold text-ink-primary mb-4">{t('billing.available_plans')}</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {plans.map((plan) => (
             <div
               key={plan.id}
-              className={`bg-white rounded-xl shadow-sm border p-6 ${
+              className={`investo-card p-6 ${
                 currentSubscription?.plan_name === plan.name
-                  ? 'border-blue-500 ring-2 ring-blue-100'
-                  : 'border-gray-100'
+                  ? 'border-brand-500 ring-2 ring-brand-100'
+                  : 'border-surface-border'
               }`}
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">{plan.name}</h3>
+                <h3 className="text-lg font-semibold text-ink-primary">{plan.name}</h3>
                 {currentSubscription?.plan_name === plan.name && (
-                  <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded">
+                  <span className="px-2 py-1 text-xs font-medium bg-brand-100 text-brand-800 rounded">
                     {t('billing.current')}
                   </span>
                 )}
               </div>
 
               <div className="mb-4">
-                <span className="text-3xl font-bold text-gray-900">
+                <span className="text-3xl font-bold text-ink-primary">
                   {formatCurrency(plan.priceMonthly)}
                 </span>
-                <span className="text-gray-500">{t('billing.per_month')}</span>
+                <span className="text-ink-muted">{t('billing.per_month')}</span>
               </div>
 
               <ul className="space-y-3 mb-6">
-                <li className="flex items-center gap-2 text-sm text-gray-600">
+                <li className="flex items-center gap-2 text-sm text-ink-secondary">
                   <Check className="h-4 w-4 text-green-500" />
                   {t('billing.up_to_agents', { count: plan.maxAgents })}
                 </li>
-                <li className="flex items-center gap-2 text-sm text-gray-600">
+                <li className="flex items-center gap-2 text-sm text-ink-secondary">
                   <Check className="h-4 w-4 text-green-500" />
                   {plan.maxLeads ? t('billing.leads_per_month', { count: plan.maxLeads }) : t('billing.unlimited_leads')}
                 </li>
-                <li className="flex items-center gap-2 text-sm text-gray-600">
+                <li className="flex items-center gap-2 text-sm text-ink-secondary">
                   <Check className="h-4 w-4 text-green-500" />
                   {plan.maxProperties ? t('billing.properties_count', { count: plan.maxProperties }) : t('billing.unlimited_properties')}
                 </li>
                 {plan.features.slice(0, 3).map((feature) => (
-                  <li key={feature} className="flex items-center gap-2 text-sm text-gray-600">
+                  <li key={feature} className="flex items-center gap-2 text-sm text-ink-secondary">
                     <Check className="h-4 w-4 text-green-500" />
                     {feature.replace(/_/g, ' ')}
                   </li>
@@ -260,7 +260,7 @@ const BillingPage: React.FC = () => {
                 <button
                   onClick={() => void handleSelectPlan(plan.id)}
                   disabled={updatingPlanId !== null}
-                  className="w-full py-2 px-4 border border-blue-600 text-blue-600 rounded-lg font-medium hover:bg-blue-50 transition-colors disabled:opacity-60"
+                  className="w-full py-2 px-4 border border-brand-600 text-brand-700 rounded-lg font-medium hover:bg-brand-50 transition-colors disabled:opacity-60"
                 >
                   {t('billing.select_plan')}
                 </button>
@@ -272,50 +272,50 @@ const BillingPage: React.FC = () => {
 
       {/* Invoices */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('billing.invoices')}</h2>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <h2 className="text-lg font-semibold text-ink-primary mb-4">{t('billing.invoices')}</h2>
+        <div className="investo-table-wrap">
           {invoices.length === 0 ? (
-            <div className="p-12 text-center text-gray-500">
-              <CreditCard className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+            <div className="p-12 text-center text-ink-muted">
+              <CreditCard className="h-12 w-12 mx-auto text-ink-faint mb-4" />
               <p>{t('billing.no_invoices')}</p>
             </div>
           ) : (
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="investo-table-head border-b border-surface-border">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                     {t('billing.invoice')}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                     {t('billing.invoice_date')}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                     {t('billing.invoice_amount')}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                     {t('billing.invoice_status')}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider">
                     {t('common.actions')}
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-surface-border">
                 {invoices.map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium text-gray-900">
+                  <tr key={invoice.id} className="hover:bg-surface-muted">
+                    <td className="px-6 py-4 font-medium text-ink-primary">
                       {invoice.invoiceNumber}
                     </td>
-                    <td className="px-6 py-4 text-gray-600">
+                    <td className="px-6 py-4 text-ink-secondary">
                       {new Date(invoice.dueDate).toLocaleDateString('en-IN')}
                     </td>
-                    <td className="px-6 py-4 font-medium text-gray-900">
+                    <td className="px-6 py-4 font-medium text-ink-primary">
                       {formatCurrency(invoice.amount)}
                     </td>
                     <td className="px-6 py-4">{getStatusBadge(invoice.status)}</td>
                     <td className="px-6 py-4">
                       <button 
-                        className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                        className="inline-flex items-center gap-1 text-sm text-brand-700 hover:text-brand-800"
                         onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
                       >
                         <Download className="h-4 w-4" />

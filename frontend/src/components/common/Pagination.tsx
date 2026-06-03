@@ -24,7 +24,7 @@ const Pagination: React.FC<PaginationProps> = ({
 
   return (
     <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${className}`}>
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-ink-muted">
         Page {page} of {safeTotalPages} ({total} {label})
       </p>
       <div className="flex items-center gap-2">
@@ -32,7 +32,7 @@ const Pagination: React.FC<PaginationProps> = ({
           type="button"
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={page <= 1}
-          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-surface-border bg-surface-elevated px-3 py-1.5 text-sm text-ink-secondary disabled:cursor-not-allowed disabled:opacity-50 hover:bg-surface-muted"
         >
           <ChevronLeft className="h-4 w-4" />
           Previous
@@ -41,7 +41,7 @@ const Pagination: React.FC<PaginationProps> = ({
           type="button"
           onClick={() => onPageChange(Math.min(safeTotalPages, page + 1))}
           disabled={page >= safeTotalPages}
-          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-surface-border bg-surface-elevated px-3 py-1.5 text-sm text-ink-secondary disabled:cursor-not-allowed disabled:opacity-50 hover:bg-surface-muted"
         >
           Next
           <ChevronRight className="h-4 w-4" />

@@ -125,7 +125,7 @@ const AgentsPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-brand-700" />
       </div>
     );
   }
@@ -136,13 +136,13 @@ const AgentsPage: React.FC = () => {
   const totalActive = agentStats.reduce((s, a) => s + a.active_leads, 0);
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="investo-page space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">{t('agents.title') || 'Team Members'}</h1>
+        <h1 className="text-2xl font-bold text-ink-primary">{t('agents.title') || 'Team Members'}</h1>
         {canCreateUsers && (
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+            className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700"
           >
             <Plus className="h-4 w-4" /> Add Team Member
           </button>
@@ -151,29 +151,29 @@ const AgentsPage: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border p-5">
+        <div className="investo-card-pad">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-100 p-3 rounded-lg"><Users className="h-5 w-5 text-blue-600" /></div>
-            <div><p className="text-sm text-gray-500">Total Agents</p><p className="text-2xl font-bold">{agentUsers.length}</p></div>
+            <div className="bg-brand-100 p-3 rounded-lg"><Users className="h-5 w-5 text-brand-700" /></div>
+            <div><p className="text-sm text-ink-muted">Total Agents</p><p className="text-2xl font-bold">{agentUsers.length}</p></div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border p-5">
+        <div className="investo-card-pad">
           <div className="flex items-center gap-3">
             <div className="bg-green-100 p-3 rounded-lg"><TrendingUp className="h-5 w-5 text-green-600" /></div>
-            <div><p className="text-sm text-gray-500">Active Leads</p><p className="text-2xl font-bold">{totalActive}</p></div>
+            <div><p className="text-sm text-ink-muted">Active Leads</p><p className="text-2xl font-bold">{totalActive}</p></div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border p-5">
+        <div className="investo-card-pad">
           <div className="flex items-center gap-3">
             <div className="bg-purple-100 p-3 rounded-lg"><Award className="h-5 w-5 text-purple-600" /></div>
-            <div><p className="text-sm text-gray-500">Deals Closed</p><p className="text-2xl font-bold">{totalWon}</p></div>
+            <div><p className="text-sm text-ink-muted">Deals Closed</p><p className="text-2xl font-bold">{totalWon}</p></div>
           </div>
         </div>
       </div>
 
       {/* Agent Cards */}
       {agentUsers.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">No agents found. Add sales agents from Settings.</div>
+        <div className="text-center py-12 text-ink-muted">No agents found. Add sales agents from Settings.</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {agentUsers.map((agent) => {
@@ -183,18 +183,18 @@ const AgentsPage: React.FC = () => {
               : 0;
 
             return (
-              <div key={agent.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
+              <div key={agent.id} className="investo-card-pad hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-                    <Users className="h-6 w-6 text-blue-600" />
+                  <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center">
+                    <Users className="h-6 w-6 text-brand-700" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-900">{agent.name}</h3>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <h3 className="font-semibold text-ink-primary">{agent.name}</h3>
+                    <div className="flex items-center gap-2 text-xs text-ink-muted">
                       <Mail className="h-3 w-3" />{agent.email}
                     </div>
                     {agent.phone && (
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-2 text-xs text-ink-muted">
                         <Phone className="h-3 w-3" />{agent.phone}
                       </div>
                     )}
@@ -203,9 +203,9 @@ const AgentsPage: React.FC = () => {
 
                 {stats ? (
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-blue-50 rounded-lg p-3 text-center">
-                      <p className="text-lg font-bold text-blue-700">{stats.active_leads}</p>
-                      <p className="text-xs text-blue-600">Active Leads</p>
+                    <div className="bg-brand-50 rounded-lg p-3 text-center">
+                      <p className="text-lg font-bold text-brand-800">{stats.active_leads}</p>
+                      <p className="text-xs text-brand-700">Active Leads</p>
                     </div>
                     <div className="bg-green-50 rounded-lg p-3 text-center">
                       <p className="text-lg font-bold text-green-700">{stats.closed_won}</p>
@@ -221,7 +221,7 @@ const AgentsPage: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-400 text-center py-4">No data yet</p>
+                  <p className="text-sm text-ink-faint text-center py-4">No data yet</p>
                 )}
               </div>
             );
@@ -242,10 +242,10 @@ const AgentsPage: React.FC = () => {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowModal(false)} />
-          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+          <div className="relative investo-card shadow-xl w-full max-w-md mx-4 p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Add Team Member</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowModal(false)} className="text-ink-faint hover:text-ink-secondary">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -260,12 +260,12 @@ const AgentsPage: React.FC = () => {
               {/* Company selector - only for super_admin */}
               {user?.role === 'super_admin' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Company *</label>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Company *</label>
                   <select
                     required
                     value={formData.company_id}
                     onChange={(e) => setFormData({ ...formData, company_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                   >
                     <option value="">Select Company</option>
                     {companies.map((c) => (
@@ -276,38 +276,38 @@ const AgentsPage: React.FC = () => {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Name *</label>
                 <input
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                   placeholder="John Doe"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Email *</label>
                 <input
                   type="email"
                   required
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                   placeholder="john@company.com"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Password *</label>
                 <input
                   type="password"
                   required
                   minLength={8}
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                   placeholder="Min 8 characters"
                 />
               </div>
@@ -318,30 +318,30 @@ const AgentsPage: React.FC = () => {
                   type="checkbox"
                   checked={formData.must_change_password}
                   onChange={(e) => setFormData({ ...formData, must_change_password: e.target.checked })}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-surface-border-strong text-brand-700 focus:ring-brand-500"
                 />
-                <label htmlFor="must-change-password" className="text-sm text-gray-700">
+                <label htmlFor="must-change-password" className="text-sm text-ink-secondary">
                   Force password change on first login
                 </label>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Phone</label>
                 <input
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                   placeholder="+919876543210"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">Role *</label>
                 <select
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                 >
                   <option value="sales_agent">Sales Agent</option>
                   <option value="operations">Operations</option>
@@ -354,14 +354,14 @@ const AgentsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  className="flex-1 px-4 py-2 border border-surface-border-strong text-ink-secondary rounded-lg hover:bg-surface-muted"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   Create

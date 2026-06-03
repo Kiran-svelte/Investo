@@ -139,19 +139,19 @@ const PropertiesPage: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
+    <div className="investo-page space-y-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">{t('properties.title')}</h1>
+        <h1 className="text-2xl font-bold text-ink-primary">{t('properties.title')}</h1>
         {capabilities.canUploadProperties && (
           <div className="flex flex-wrap gap-3">
             <button
               onClick={() => navigate('/properties/import')}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-blue-200 bg-white text-blue-700 rounded-lg hover:bg-blue-50 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-brand-200 bg-surface-elevated text-brand-800 rounded-lg hover:bg-brand-50 transition-colors"
             >
               <Upload className="h-4 w-4" /> Import from media
             </button>
             <button onClick={() => { setEditingProperty(null); setShowModal(true); }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+              className="inline-flex items-center gap-2 px-4 py-2 investo-btn-primary transition-colors">
               <Plus className="h-4 w-4" />{t('properties.new_property')}
             </button>
           </div>
@@ -165,21 +165,21 @@ const PropertiesPage: React.FC = () => {
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-faint" />
           <input type="text" placeholder={t('common.search')} value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            className="w-full pl-10 pr-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
         </div>
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Filter by property type"
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          className="px-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent">
           <option value="">{t('common.all_types')}</option>
           {PROPERTY_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
       </div>
 
       {loading ? (
-        <div className="text-center py-8 text-gray-500"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />{t('common.loading')}</div>
+        <div className="text-center py-8 text-ink-muted"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />{t('common.loading')}</div>
       ) : properties.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">{t('common.no_data')}</div>
+        <div className="text-center py-12 text-ink-muted">{t('common.no_data')}</div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {properties.map((property) => {
@@ -188,13 +188,13 @@ const PropertiesPage: React.FC = () => {
             const hasRichMedia = Boolean(property.brochure_url || property.price_list_url || floorPlans.length > 0);
             return (
               <div key={property.id}
-                className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                className="investo-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
                 onClick={() => setDetailProperty(property)}>
-                <div className="h-40 bg-gray-100 relative">
+                <div className="h-40 bg-surface-subtle relative">
                   {images.length > 0 ? (
                     <img src={images[0]} alt={property.name} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center"><ImageIcon className="h-12 w-12 text-gray-300" /></div>
+                    <div className="w-full h-full flex items-center justify-center"><ImageIcon className="h-12 w-12 text-ink-faint" /></div>
                   )}
                   <span className={`absolute top-2 right-2 px-2 py-1 text-xs font-medium rounded-full ${
                     property.status === 'available' ? 'bg-green-100 text-green-700' :
@@ -204,33 +204,33 @@ const PropertiesPage: React.FC = () => {
                 <div className="p-4">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="font-semibold text-gray-900 mb-1">{property.name}</h3>
-                      {property.builder && <p className="text-xs text-gray-500 mb-2">by {property.builder}</p>}
+                      <h3 className="font-semibold text-ink-primary mb-1">{property.name}</h3>
+                      {property.builder && <p className="text-xs text-ink-muted mb-2">by {property.builder}</p>}
                     </div>
                     {capabilities.canManageProperties && (
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => handleEdit(property)} title="Edit property" aria-label="Edit property" className="p-1.5 hover:bg-gray-100 rounded"><Edit3 className="h-3.5 w-3.5 text-gray-500" /></button>
+                        <button onClick={() => handleEdit(property)} title="Edit property" aria-label="Edit property" className="p-1.5 hover:bg-surface-subtle rounded"><Edit3 className="h-3.5 w-3.5 text-ink-muted" /></button>
                         <button onClick={() => handleDelete(property.id)} disabled={deleting === property.id}
                           title="Delete property" aria-label="Delete property" className="p-1.5 hover:bg-red-50 rounded"><Trash2 className="h-3.5 w-3.5 text-red-500" /></button>
                       </div>
                     )}
                   </div>
-                  <div className="space-y-2 text-sm text-gray-600">
+                  <div className="space-y-2 text-sm text-ink-secondary">
                     {(property.location_area || property.location_city) && (
-                      <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-gray-400" />{[property.location_area, property.location_city].filter(Boolean).join(', ')}</div>
+                      <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-ink-faint" />{[property.location_area, property.location_city].filter(Boolean).join(', ')}</div>
                     )}
-                    <div className="flex items-center gap-2"><IndianRupee className="h-4 w-4 text-gray-400" />{formatPrice(property.price_min, property.price_max)}</div>
+                    <div className="flex items-center gap-2"><IndianRupee className="h-4 w-4 text-ink-faint" />{formatPrice(property.price_min, property.price_max)}</div>
                     <div className="flex items-center gap-4">
-                      {property.bedrooms !== null && property.bedrooms !== undefined && <div className="flex items-center gap-1"><Bed className="h-4 w-4 text-gray-400" />{property.bedrooms} BHK</div>}
-                      {property.property_type && <div className="flex items-center gap-1"><Building2 className="h-4 w-4 text-gray-400" />{property.property_type}</div>}
+                      {property.bedrooms !== null && property.bedrooms !== undefined && <div className="flex items-center gap-1"><Bed className="h-4 w-4 text-ink-faint" />{property.bedrooms} BHK</div>}
+                      {property.property_type && <div className="flex items-center gap-1"><Building2 className="h-4 w-4 text-ink-faint" />{property.property_type}</div>}
                     </div>
                     {hasRichMedia && (
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-ink-muted">
                         {[property.brochure_url ? 'Brochure' : '', property.price_list_url ? 'Price list' : '', floorPlans.length > 0 ? `${floorPlans.length} floor plan${floorPlans.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' | ')}
                       </div>
                     )}
                     {(property.latitude !== null && property.latitude !== undefined && property.longitude !== null && property.longitude !== undefined) && (
-                      <div className="text-xs text-gray-500">Coords: {property.latitude}, {property.longitude}</div>
+                      <div className="text-xs text-ink-muted">Coords: {property.latitude}, {property.longitude}</div>
                     )}
                   </div>
                 </div>
@@ -392,46 +392,46 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{isEdit ? 'Edit Property' : 'New Property'}</h2>
-          <button onClick={onClose} disabled={saving} title="Close modal" aria-label="Close modal" className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} disabled={saving} title="Close modal" aria-label="Close modal" className="p-1 hover:bg-surface-subtle rounded disabled:opacity-50"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <fieldset disabled={saving} className="space-y-4">
             {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm" role="alert">{error}</div>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-              <input id="name" name="name" aria-label="Name *" value={form.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label htmlFor="name" className="block text-sm font-medium text-ink-secondary mb-1">Name *</label>
+              <input id="name" name="name" aria-label="Name *" value={form.name} onChange={handleChange} required className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
             </div>
-            <div><label htmlFor="builder" className="block text-sm font-medium text-gray-700 mb-1">Builder</label><input id="builder" name="builder" aria-label="Builder" value={form.builder} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="property_type" className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select id="property_type" name="property_type" aria-label="Type" value={form.property_type} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            <div><label htmlFor="builder" className="block text-sm font-medium text-ink-secondary mb-1">Builder</label><input id="builder" name="builder" aria-label="Builder" value={form.builder} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="property_type" className="block text-sm font-medium text-ink-secondary mb-1">Type</label>
+              <select id="property_type" name="property_type" aria-label="Type" value={form.property_type} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
                 <option value="">Select</option>{PROPERTY_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
-            <div><label htmlFor="location_city" className="block text-sm font-medium text-gray-700 mb-1">City</label><input id="location_city" name="location_city" aria-label="City" value={form.location_city} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="location_area" className="block text-sm font-medium text-gray-700 mb-1">Area</label><input id="location_area" name="location_area" aria-label="Area" value={form.location_area} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="location_pincode" className="block text-sm font-medium text-gray-700 mb-1">Pincode</label><input id="location_pincode" name="location_pincode" aria-label="Pincode" value={form.location_pincode} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="bedrooms" className="block text-sm font-medium text-gray-700 mb-1">Bedrooms</label><input id="bedrooms" name="bedrooms" aria-label="Bedrooms" type="number" value={form.bedrooms} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="price_min" className="block text-sm font-medium text-gray-700 mb-1">Price Min (₹) *</label><input id="price_min" name="price_min" aria-label="Price Min (₹)" type="number" required value={form.price_min} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="price_max" className="block text-sm font-medium text-gray-700 mb-1">Price Max (₹) *</label><input id="price_max" name="price_max" aria-label="Price Max (₹)" type="number" required value={form.price_max} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="rera_number" className="block text-sm font-medium text-gray-700 mb-1">RERA Number</label><input id="rera_number" name="rera_number" aria-label="RERA Number" value={form.rera_number} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-            <div><label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select id="status" name="status" aria-label="Status" value={form.status} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            <div><label htmlFor="location_city" className="block text-sm font-medium text-ink-secondary mb-1">City</label><input id="location_city" name="location_city" aria-label="City" value={form.location_city} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="location_area" className="block text-sm font-medium text-ink-secondary mb-1">Area</label><input id="location_area" name="location_area" aria-label="Area" value={form.location_area} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="location_pincode" className="block text-sm font-medium text-ink-secondary mb-1">Pincode</label><input id="location_pincode" name="location_pincode" aria-label="Pincode" value={form.location_pincode} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="bedrooms" className="block text-sm font-medium text-ink-secondary mb-1">Bedrooms</label><input id="bedrooms" name="bedrooms" aria-label="Bedrooms" type="number" value={form.bedrooms} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="price_min" className="block text-sm font-medium text-ink-secondary mb-1">Price Min (₹) *</label><input id="price_min" name="price_min" aria-label="Price Min (₹)" type="number" required value={form.price_min} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="price_max" className="block text-sm font-medium text-ink-secondary mb-1">Price Max (₹) *</label><input id="price_max" name="price_max" aria-label="Price Max (₹)" type="number" required value={form.price_max} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="rera_number" className="block text-sm font-medium text-ink-secondary mb-1">RERA Number</label><input id="rera_number" name="rera_number" aria-label="RERA Number" value={form.rera_number} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+            <div><label htmlFor="status" className="block text-sm font-medium text-ink-secondary mb-1">Status</label>
+              <select id="status" name="status" aria-label="Status" value={form.status} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500">
                 {PROPERTY_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-              <div><label htmlFor="brochure_url" className="block text-sm font-medium text-gray-700 mb-1">Brochure URL</label><input id="brochure_url" name="brochure_url" aria-label="Brochure URL" type="url" value={form.brochure_url} onChange={handleChange} placeholder="https://example.com/brochure.pdf" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-              <div><label htmlFor="price_list_url" className="block text-sm font-medium text-gray-700 mb-1">Price List URL</label><input id="price_list_url" name="price_list_url" aria-label="Price List URL" type="url" value={form.price_list_url} onChange={handleChange} placeholder="https://example.com/pricelist.pdf" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-              <div><label htmlFor="latitude" className="block text-sm font-medium text-gray-700 mb-1">Latitude</label><input id="latitude" name="latitude" aria-label="Latitude" type="number" step="any" min={-90} max={90} value={form.latitude} onChange={handleChange} placeholder="12.9716" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
-              <div><label htmlFor="longitude" className="block text-sm font-medium text-gray-700 mb-1">Longitude</label><input id="longitude" name="longitude" aria-label="Longitude" type="number" step="any" min={-180} max={180} value={form.longitude} onChange={handleChange} placeholder="77.5946" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" /></div>
+              <div><label htmlFor="brochure_url" className="block text-sm font-medium text-ink-secondary mb-1">Brochure URL</label><input id="brochure_url" name="brochure_url" aria-label="Brochure URL" type="url" value={form.brochure_url} onChange={handleChange} placeholder="https://example.com/brochure.pdf" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+              <div><label htmlFor="price_list_url" className="block text-sm font-medium text-ink-secondary mb-1">Price List URL</label><input id="price_list_url" name="price_list_url" aria-label="Price List URL" type="url" value={form.price_list_url} onChange={handleChange} placeholder="https://example.com/pricelist.pdf" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+              <div><label htmlFor="latitude" className="block text-sm font-medium text-ink-secondary mb-1">Latitude</label><input id="latitude" name="latitude" aria-label="Latitude" type="number" step="any" min={-90} max={90} value={form.latitude} onChange={handleChange} placeholder="12.9716" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
+              <div><label htmlFor="longitude" className="block text-sm font-medium text-ink-secondary mb-1">Longitude</label><input id="longitude" name="longitude" aria-label="Longitude" type="number" step="any" min={-180} max={180} value={form.longitude} onChange={handleChange} placeholder="77.5946" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" /></div>
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">Floor Plan URLs</label>
-                <button type="button" onClick={handleAddFloorPlan} className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100">Add floor plan</button>
+                <label className="block text-sm font-medium text-ink-secondary">Floor Plan URLs</label>
+                <button type="button" onClick={handleAddFloorPlan} className="px-2 py-1 text-xs bg-brand-50 text-brand-800 rounded hover:bg-brand-100">Add floor plan</button>
               </div>
               <div className="space-y-2">
                 {form.floor_plan_urls.map((url, index) => (
@@ -442,12 +442,12 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
                       onChange={(e) => handleFloorPlanChange(index, e.target.value)}
                       placeholder="https://example.com/floor-plan.pdf"
                       aria-label={`Floor plan URL ${index + 1}`}
-                      className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                     />
                     <button
                       type="button"
                       onClick={() => handleRemoveFloorPlan(index)}
-                      className="px-3 py-2 border rounded-lg hover:bg-gray-50"
+                      className="px-3 py-2 border rounded-lg hover:bg-surface-muted"
                       aria-label={`Remove floor plan ${index + 1}`}
                     >
                       Remove
@@ -456,13 +456,13 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
                 ))}
               </div>
             </div>
-            <div><label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea id="description" name="description" aria-label="Description" value={form.description} onChange={handleChange} rows={3} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+            <div><label htmlFor="description" className="block text-sm font-medium text-ink-secondary mb-1">Description</label>
+              <textarea id="description" name="description" aria-label="Description" value={form.description} onChange={handleChange} rows={3} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500" />
             </div>
           </fieldset>
           <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={onClose} disabled={saving} className="px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50">{t('common.cancel')}</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+            <button type="button" onClick={onClose} disabled={saving} className="px-4 py-2 border rounded-lg hover:bg-surface-muted disabled:opacity-50">{t('common.cancel')}</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 investo-btn-primary disabled:opacity-50 flex items-center gap-2">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}{isEdit ? t('common.update') : t('common.create')}
             </button>
           </div>
@@ -491,10 +491,10 @@ const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{property.name}</h2>
-          <button onClick={onClose} title="Close details" aria-label="Close details" className="p-1 hover:bg-gray-100 rounded"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} title="Close details" aria-label="Close details" className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>
         </div>
         <div className="p-4 space-y-4">
           {images.length > 0 && (
@@ -503,25 +503,25 @@ const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }>
             </div>
           )}
           <div className="grid grid-cols-2 gap-4 text-sm">
-            <div><span className="text-gray-500">Builder</span><p className="font-medium">{property.builder || '-'}</p></div>
-            <div><span className="text-gray-500">Type</span><p className="font-medium">{property.property_type || '-'}</p></div>
-            <div><span className="text-gray-500">Location</span><p className="font-medium">{[property.location_area, property.location_city].filter(Boolean).join(', ') || '-'}</p></div>
-            <div><span className="text-gray-500">Pincode</span><p className="font-medium">{property.location_pincode || '-'}</p></div>
-            <div><span className="text-gray-500">Price Range</span><p className="font-medium">{fmt(property.price_min)} - {fmt(property.price_max)}</p></div>
-            <div><span className="text-gray-500">Bedrooms</span><p className="font-medium">{property.bedrooms !== null && property.bedrooms !== undefined ? `${property.bedrooms} BHK` : '-'}</p></div>
-            <div><span className="text-gray-500">RERA</span><p className="font-medium">{property.rera_number || '-'}</p></div>
-            <div><span className="text-gray-500">Status</span><p className="font-medium capitalize">{property.status}</p></div>
-            <div><span className="text-gray-500">Brochure</span><p className="font-medium">{property.brochure_url ? <a href={property.brochure_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Open brochure</a> : '-'}</p></div>
-            <div><span className="text-gray-500">Price List</span><p className="font-medium">{property.price_list_url ? <a href={property.price_list_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Open price list</a> : '-'}</p></div>
-            <div><span className="text-gray-500">Latitude</span><p className="font-medium">{property.latitude !== null && property.latitude !== undefined ? property.latitude : '-'}</p></div>
-            <div><span className="text-gray-500">Longitude</span><p className="font-medium">{property.longitude !== null && property.longitude !== undefined ? property.longitude : '-'}</p></div>
+            <div><span className="text-ink-muted">Builder</span><p className="font-medium">{property.builder || '-'}</p></div>
+            <div><span className="text-ink-muted">Type</span><p className="font-medium">{property.property_type || '-'}</p></div>
+            <div><span className="text-ink-muted">Location</span><p className="font-medium">{[property.location_area, property.location_city].filter(Boolean).join(', ') || '-'}</p></div>
+            <div><span className="text-ink-muted">Pincode</span><p className="font-medium">{property.location_pincode || '-'}</p></div>
+            <div><span className="text-ink-muted">Price Range</span><p className="font-medium">{fmt(property.price_min)} - {fmt(property.price_max)}</p></div>
+            <div><span className="text-ink-muted">Bedrooms</span><p className="font-medium">{property.bedrooms !== null && property.bedrooms !== undefined ? `${property.bedrooms} BHK` : '-'}</p></div>
+            <div><span className="text-ink-muted">RERA</span><p className="font-medium">{property.rera_number || '-'}</p></div>
+            <div><span className="text-ink-muted">Status</span><p className="font-medium capitalize">{property.status}</p></div>
+            <div><span className="text-ink-muted">Brochure</span><p className="font-medium">{property.brochure_url ? <a href={property.brochure_url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">Open brochure</a> : '-'}</p></div>
+            <div><span className="text-ink-muted">Price List</span><p className="font-medium">{property.price_list_url ? <a href={property.price_list_url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">Open price list</a> : '-'}</p></div>
+            <div><span className="text-ink-muted">Latitude</span><p className="font-medium">{property.latitude !== null && property.latitude !== undefined ? property.latitude : '-'}</p></div>
+            <div><span className="text-ink-muted">Longitude</span><p className="font-medium">{property.longitude !== null && property.longitude !== undefined ? property.longitude : '-'}</p></div>
           </div>
           {floorPlans.length > 0 && (
             <div>
-              <p className="text-gray-500 text-sm mb-2">Floor Plans</p>
+              <p className="text-ink-muted text-sm mb-2">Floor Plans</p>
               <div className="flex flex-col gap-2">
                 {floorPlans.map((url, index) => (
-                  <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline break-all">
+                  <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="text-sm text-brand-700 hover:underline break-all">
                     Floor plan {index + 1}
                   </a>
                 ))}
@@ -529,11 +529,11 @@ const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }>
             </div>
           )}
           {property.description && (
-            <div><p className="text-gray-500 text-sm mb-1">Description</p><p className="text-sm text-gray-700">{property.description}</p></div>
+            <div><p className="text-ink-muted text-sm mb-1">Description</p><p className="text-sm text-ink-secondary">{property.description}</p></div>
           )}
           {amenities.length > 0 && (
-            <div><p className="text-gray-500 text-sm mb-2">Amenities</p>
-              <div className="flex flex-wrap gap-2">{amenities.map((a, i) => <span key={i} className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full">{a}</span>)}</div>
+            <div><p className="text-ink-muted text-sm mb-2">Amenities</p>
+              <div className="flex flex-wrap gap-2">{amenities.map((a, i) => <span key={i} className="px-2 py-1 bg-surface-subtle text-ink-secondary text-xs rounded-full">{a}</span>)}</div>
             </div>
           )}
         </div>

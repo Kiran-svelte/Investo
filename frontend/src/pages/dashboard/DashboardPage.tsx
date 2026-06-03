@@ -51,14 +51,14 @@ interface UpcomingVisit {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-700',
+  new: 'bg-brand-100 text-brand-800',
   contacted: 'bg-yellow-100 text-yellow-700',
   visit_scheduled: 'bg-indigo-100 text-indigo-700',
   visited: 'bg-purple-100 text-purple-700',
   negotiation: 'bg-orange-100 text-orange-700',
   closed_won: 'bg-green-100 text-green-700',
   closed_lost: 'bg-red-100 text-red-700',
-  scheduled: 'bg-blue-100 text-blue-700',
+  scheduled: 'bg-brand-100 text-brand-800',
   confirmed: 'bg-green-100 text-green-700',
 };
 
@@ -133,7 +133,7 @@ const DashboardPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
       </div>
     );
   }
@@ -149,7 +149,7 @@ const DashboardPage: React.FC = () => {
       label: t('dashboard.leads_today'),
       value: stats?.leads_today || 0,
       icon: Users,
-      color: 'bg-blue-500',
+      color: 'bg-brand-500',
       trend: trendValue('leads'),
     },
     {
@@ -190,12 +190,12 @@ const DashboardPage: React.FC = () => {
   ];
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="investo-page space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('dashboard.title')}</h1>
-          <p className="text-gray-500 text-sm">
+          <h1 className="text-2xl font-bold text-ink-primary">{t('dashboard.title')}</h1>
+          <p className="text-ink-muted text-sm">
             {t('common.welcome')}, {user?.name}
           </p>
         </div>
@@ -203,7 +203,7 @@ const DashboardPage: React.FC = () => {
           <select
             value={period}
             onChange={handlePeriodChange}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-surface-border-strong rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           >
             <option value="today">{t('common.today')}</option>
             <option value="week">{t('common.this_week')}</option>
@@ -217,12 +217,12 @@ const DashboardPage: React.FC = () => {
         {statCards.map((card, idx) => (
           <div
             key={idx}
-            className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow"
+            className="investo-card-pad hover:shadow-md transition-shadow"
           >
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-gray-500 text-sm font-medium">{card.label}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
+                <p className="text-ink-muted text-sm font-medium">{card.label}</p>
+                <p className="text-2xl font-bold text-ink-primary mt-1">{card.value}</p>
               </div>
               <div className={`${card.color} p-3 rounded-lg`}>
                 <card.icon className="h-5 w-5 text-white" />
@@ -237,7 +237,7 @@ const DashboardPage: React.FC = () => {
               <span className={card.trend.up ? 'text-green-600' : 'text-red-600'}>
                 {card.trend.text}
               </span>
-              <span className="text-gray-400 ml-1">{t('common.vs_last_period')}</span>
+              <span className="text-ink-faint ml-1">{t('common.vs_last_period')}</span>
             </div>
           </div>
         ))}
@@ -246,43 +246,43 @@ const DashboardPage: React.FC = () => {
       {/* Recent Leads + Upcoming Visits */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Leads - Real Data */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="investo-card-pad">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-ink-primary">
               {t('dashboard.recent_leads')}
             </h2>
             <button
               onClick={() => navigate('/leads')}
-              className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+              className="text-sm text-brand-700 hover:text-brand-800 font-medium flex items-center gap-1"
             >
               View all <Eye className="h-3.5 w-3.5" />
             </button>
           </div>
           <div className="space-y-1">
             {recentLeads.length === 0 ? (
-              <p className="text-gray-400 text-sm py-8 text-center">{t('common.no_data')}</p>
+              <p className="text-ink-faint text-sm py-8 text-center">{t('common.no_data')}</p>
             ) : (
               recentLeads.map((lead) => (
                 <div
                   key={lead.id}
                   onClick={() => navigate(`/leads/${lead.id}`)}
-                  className="flex items-center justify-between py-2.5 px-2 border-b border-gray-50 last:border-0 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="flex items-center justify-between py-2.5 px-2 border-b border-surface-border/60 last:border-0 rounded-lg hover:bg-surface-muted cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                      <Users className="h-4 w-4 text-gray-500" />
+                    <div className="w-9 h-9 rounded-full bg-surface-subtle flex items-center justify-center flex-shrink-0">
+                      <Users className="h-4 w-4 text-ink-muted" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900 text-sm truncate">
+                      <p className="font-medium text-ink-primary text-sm truncate">
                         {lead.customer_name || lead.phone}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-ink-muted">
                         {lead.source} &middot; {formatTimeAgo(lead.created_at)}
                         {lead.agent_name && <span> &middot; {lead.agent_name}</span>}
                       </p>
                     </div>
                   </div>
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full flex-shrink-0 ${STATUS_BADGE[lead.status] || 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full flex-shrink-0 ${STATUS_BADGE[lead.status] || 'bg-surface-subtle text-ink-secondary'}`}>
                     {lead.status.replace('_', ' ')}
                   </span>
                 </div>
@@ -292,36 +292,36 @@ const DashboardPage: React.FC = () => {
         </div>
 
         {/* Upcoming Visits - Real Data */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="investo-card-pad">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-ink-primary">
               {t('dashboard.upcoming_visits')}
             </h2>
             <button
               onClick={() => navigate('/calendar')}
-              className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+              className="text-sm text-brand-700 hover:text-brand-800 font-medium flex items-center gap-1"
             >
               View all <Eye className="h-3.5 w-3.5" />
             </button>
           </div>
           <div className="space-y-1">
             {upcomingVisits.length === 0 ? (
-              <p className="text-gray-400 text-sm py-8 text-center">{t('common.no_data')}</p>
+              <p className="text-ink-faint text-sm py-8 text-center">{t('common.no_data')}</p>
             ) : (
               upcomingVisits.map((visit) => (
                 <div
                   key={visit.id}
-                  className="flex items-center justify-between py-2.5 px-2 border-b border-gray-50 last:border-0 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex items-center justify-between py-2.5 px-2 border-b border-surface-border/60 last:border-0 rounded-lg hover:bg-surface-muted transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0">
                       <Calendar className="h-4 w-4 text-green-600" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900 text-sm truncate">
+                      <p className="font-medium text-ink-primary text-sm truncate">
                         {visit.customer_name || visit.customer_phone}
                       </p>
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-2 text-xs text-ink-muted">
                         <span className="flex items-center gap-0.5">
                           <Clock className="h-3 w-3" />
                           {formatVisitTime(visit.scheduled_at)}
@@ -334,13 +334,13 @@ const DashboardPage: React.FC = () => {
                         )}
                       </div>
                       {visit.agent_name && (
-                        <p className="text-xs text-gray-400 flex items-center gap-0.5">
+                        <p className="text-xs text-ink-faint flex items-center gap-0.5">
                           <Phone className="h-3 w-3" /> {visit.agent_name}
                         </p>
                       )}
                     </div>
                   </div>
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full flex-shrink-0 ${STATUS_BADGE[visit.status] || 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full flex-shrink-0 ${STATUS_BADGE[visit.status] || 'bg-surface-subtle text-ink-secondary'}`}>
                     {visit.status}
                   </span>
                 </div>

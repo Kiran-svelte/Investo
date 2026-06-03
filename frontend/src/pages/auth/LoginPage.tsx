@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getRoleHomePath } from '../../config/navigation.config';
 import { AxiosError } from 'axios';
 import { isTransientAuthError } from '../../services/api';
-import { Loader2, Building2 } from 'lucide-react';
+import { ArrowLeft, Building2, Loader2 } from 'lucide-react';
 import LanguageSelector from '../../components/common/LanguageSelector';
 
 const LoginPage: React.FC = () => {
@@ -18,37 +18,26 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ── Validation ───────────────────────────────
-
   const isFormValid = email.trim().length > 0 && password.trim().length > 0;
-
-  // ── Submit ───────────────────────────────────
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
-
     if (!isFormValid) return;
 
     setIsSubmitting(true);
-
     try {
       const loggedInUser = await login(email, password);
       navigate(getRoleHomePath(loggedInUser.role), { replace: true });
     } catch (err) {
       if (isTransientAuthError(err)) {
-        setError(
-          'The server is waking up or temporarily unavailable. Wait a few seconds and try again.',
-        );
+        setError('The server is waking up. Wait a few seconds and try again.');
         return;
       }
       const axiosError = err as AxiosError<{ message?: string }>;
       const apiMessage = axiosError.response?.data?.message;
       if (axiosError.response?.status === 401) {
-        setError(
-          apiMessage
-            ?? 'Invalid email or password. If you were invited, use the exact email and temporary password from your invite.',
-        );
+        setError(apiMessage ?? 'Invalid email or password.');
         return;
       }
       setError(apiMessage ?? t('auth.login_error'));
@@ -57,123 +46,102 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  // ── Render ───────────────────────────────────
-
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
-      {/* Language selector – top-right corner */}
-      <div className="flex justify-end p-4">
-        <LanguageSelector />
+    <div className="flex min-h-screen bg-surface-muted">
+      <div className="hidden w-[42%] flex-col justify-between border-r border-surface-border bg-slate-900 p-10 text-slate-200 lg:flex">
+        <div>
+          <Link to="/" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
+            <ArrowLeft className="h-4 w-4" />
+            Back to home
+          </Link>
+          <h2 className="mt-12 font-display text-3xl leading-tight text-white">
+            Your agency CRM and WhatsApp AI in one place.
+          </h2>
+          <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-400">
+            Sign in to manage leads, properties, visits, and AI conversations for your team.
+          </p>
+        </div>
+        <p className="text-xs text-slate-500">Investo · Real estate operations platform</p>
       </div>
 
-      {/* Centred card */}
-      <div className="flex flex-1 items-center justify-center px-4 pb-12 sm:px-6 lg:px-8">
-        <div className="w-full max-w-md space-y-8">
-          {/* Brand area */}
-          <div className="flex flex-col items-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg">
-              <Building2 className="h-8 w-8" />
-            </div>
-            <h1 className="mt-4 text-3xl font-bold tracking-tight text-gray-900">
-              Investo
-            </h1>
-            <p className="mt-2 text-sm text-gray-500">{t('auth.login')}</p>
-          </div>
-
-          {/* Form card */}
-          <form
-            onSubmit={handleSubmit}
-            noValidate
-            className="mt-8 space-y-6 rounded-xl bg-white p-8 shadow-sm ring-1 ring-gray-200"
-          >
-            {/* Error alert */}
-            {error && (
-              <div
-                role="alert"
-                className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-              >
-                {error}
-              </div>
-            )}
-
-            {/* Email */}
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700"
-              >
-                {t('auth.email')}
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={isSubmitting}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder-gray-400 shadow-sm
-                           focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20
-                           disabled:cursor-not-allowed disabled:bg-gray-100 sm:text-sm"
-                placeholder="name@company.com"
-              />
+      <div className="flex flex-1 flex-col">
+        <div className="flex justify-end p-4">
+          <LanguageSelector />
+        </div>
+        <div className="flex flex-1 items-center justify-center px-4 pb-12">
+          <div className="w-full max-w-md">
+            <div className="mb-8 flex flex-col items-center lg:items-start">
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
+                <Building2 className="h-7 w-7" />
+              </span>
+              <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">Sign in</h1>
+              <p className="mt-1 text-sm text-ink-muted">{t('auth.login')}</p>
             </div>
 
-            {/* Password */}
-            <div>
-              <div className="flex items-center justify-between">
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  {t('auth.password')}
-                </label>
-                <Link
-                  to="/forgot-password"
-                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                >
-                  {t('auth.forgot_password') || 'Forgot password?'}
-                </Link>
-              </div>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isSubmitting}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder-gray-400 shadow-sm
-                           focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20
-                           disabled:cursor-not-allowed disabled:bg-gray-100 sm:text-sm"
-                placeholder="••••••••"
-              />
-            </div>
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={isSubmitting || !isFormValid}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm
-                         hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                         disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t('auth.logging_in')}
-                </>
-              ) : (
-                t('auth.login_button')
+            <form onSubmit={handleSubmit} noValidate className="investo-card-pad space-y-5">
+              {error && (
+                <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  {error}
+                </div>
               )}
-            </button>
-          </form>
 
-          <p className="mt-4 text-center text-xs text-gray-500">
-            <Link to="/privacy" className="text-blue-600 hover:underline">Privacy Policy</Link>
-          </p>
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-ink-secondary">
+                  {t('auth.email')}
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={isSubmitting}
+                  className="investo-input mt-1.5"
+                  placeholder="name@company.com"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="password" className="block text-sm font-medium text-ink-secondary">
+                    {t('auth.password')}
+                  </label>
+                  <Link to="/forgot-password" className="text-sm font-medium text-brand-700 hover:text-brand-800">
+                    {t('auth.forgot_password') || 'Forgot password?'}
+                  </Link>
+                </div>
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isSubmitting}
+                  className="investo-input mt-1.5"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <button type="submit" disabled={isSubmitting || !isFormValid} className="investo-btn-primary w-full py-3">
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('auth.logging_in')}
+                  </>
+                ) : (
+                  t('auth.login_button')
+                )}
+              </button>
+            </form>
+
+            <p className="mt-6 text-center text-xs text-ink-muted">
+              <Link to="/privacy" className="font-medium text-brand-700 hover:underline">
+                Privacy Policy
+              </Link>
+            </p>
+          </div>
         </div>
       </div>
     </div>

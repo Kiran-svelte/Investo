@@ -1,4 +1,3 @@
-import React from 'react';
 import { formatLeadStatus, leadStatusStyle } from '../../config/leadStatus.config';
 
 interface LeadStatusBadgeProps {
