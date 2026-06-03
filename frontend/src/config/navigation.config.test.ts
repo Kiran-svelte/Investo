@@ -54,4 +54,11 @@ describe('navigation.config', () => {
     expect(caps.canManageTenantSettings).toBe(true);
     expect(caps.canUploadProperties).toBe(true);
   });
+
+  it('hides feature-gated nav when toggle is off', () => {
+    const leadsOff = (key?: string) => key !== 'lead_automation';
+    const items = getVisibleNavItems('company_admin', leadsOff);
+    expect(items.some((i) => i.key === 'leads')).toBe(false);
+    expect(items.some((i) => i.key === 'dashboard')).toBe(true);
+  });
 });

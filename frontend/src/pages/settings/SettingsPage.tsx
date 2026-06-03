@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
 import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
+import { dispatchCompanyFeaturesReload } from '../../utils/featureReload';
 import {
   Settings, Building2, Shield, ToggleLeft, Save, Plus, Pencil, Trash2,
   X, Loader2, Lock, Users, Sparkles,
@@ -377,6 +378,7 @@ const SettingsPage: React.FC = () => {
     try {
       await api.put(`/features/${key}`, { enabled });
       setFeatures(prev => prev.map(f => f.key === key ? { ...f, enabled } : f));
+      dispatchCompanyFeaturesReload();
     } catch (err) {
       console.error('Failed to toggle feature', err);
     } finally {

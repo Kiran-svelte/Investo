@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api, { ApiResponse } from '../../services/api';
@@ -9,6 +8,8 @@ import {
   Plus, Trash2, Loader2, ChevronLeft, ChevronRight, Check,
 } from 'lucide-react';
 import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
+import { buildDefaultFeatureState } from '../../config/tenantFeatures';
+import { dispatchCompanyFeaturesReload } from '../../utils/featureReload';
 
 export { formatIndianPhoneForApi, stripIndianCountryCode };
 
@@ -98,18 +99,7 @@ const DEFAULT_ROLES: RoleConfig[] = [
   { role_name: 'viewer', display_name: 'Viewer', permissions: {}, enabled: false },
 ];
 
-const DEFAULT_FEATURES: FeatureConfig[] = [
-  { key: 'ai_bot', label: 'AI Bot', description: 'Automated customer engagement', enabled: true },
-  { key: 'lead_automation', label: 'Lead Automation', description: 'Track and manage lead lifecycle', enabled: true },
-  { key: 'visit_scheduling', label: 'Visit Scheduling', description: 'Schedule & manage property visits', enabled: true },
-  { key: 'notifications', label: 'Notifications', description: 'Notify teams about critical events', enabled: true },
-  { key: 'agent_management', label: 'Agent Management', description: 'Manage team members and assignments', enabled: true },
-  { key: 'conversation_center', label: 'Conversation Center', description: 'Handle customer chats and handoffs', enabled: true },
-  { key: 'property_management', label: 'Property Management', description: 'Manage inventory and listing details', enabled: true },
-  { key: 'analytics', label: 'Analytics Dashboard', description: 'Business insights & reports', enabled: true },
-  { key: 'audit_logs', label: 'Audit Logging', description: 'Track all user actions', enabled: false },
-  { key: 'csv_export', label: 'CSV Export', description: 'Export operational data as CSV', enabled: false },
-];
+const DEFAULT_FEATURES: FeatureConfig[] = buildDefaultFeatureState();
 
 const LANGUAGES = [
   { value: 'en', label: 'English' },
@@ -214,7 +204,6 @@ export function buildSafeOnboardingRolesPayload(roles: RoleConfig[]) {
 // ── Component ──────────────────────────────────
 
 const OnboardingPage: React.FC = () => {
-  const { t } = useTranslation();
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -260,6 +249,23 @@ const OnboardingPage: React.FC = () => {
 
   // ── Load onboarding status ────────────────────
 
+  const loadSavedFeatures = useCallback(async () => {
+    try {
+      const { data } = await api.get<ApiResponse<Array<{ key: string; enabled: boolean }>>>('/features');
+      const rows = data.data || [];
+      if (rows.length === 0) return;
+      const byKey = new Map(rows.map((r) => [r.key, r.enabled !== false]));
+      setFeatures((prev) =>
+        prev.map((f) => ({
+          ...f,
+          enabled: byKey.has(f.key) ? byKey.get(f.key)! : f.enabled,
+        })),
+      );
+    } catch {
+      // Keep defaults
+    }
+  }, []);
+
   const loadStatus = useCallback(async () => {
     try {
       const { data } = await api.get<ApiResponse<OnboardingStatus>>('/onboarding/status');
@@ -273,12 +279,15 @@ const OnboardingPage: React.FC = () => {
         if (cd.whatsapp_phone) setWhatsappPhone(stripIndianCountryCode(cd.whatsapp_phone));
         if (cd.primary_color) setPrimaryColor(cd.primary_color);
       }
+      if ((status.completedSteps || []).includes(3) || (status.currentStep || 1) >= 3) {
+        await loadSavedFeatures();
+      }
     } catch {
       // First time – start fresh
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadSavedFeatures]);
 
   useEffect(() => {
     loadStatus();
@@ -345,6 +354,7 @@ const OnboardingPage: React.FC = () => {
       await api.post('/onboarding/features', {
         features: features.map(f => ({ key: f.key, enabled: f.enabled })),
       });
+      dispatchCompanyFeaturesReload();
       markStepComplete(3);
       setCurrentStep(4);
     } catch (err: any) {
@@ -935,7 +945,7 @@ const OnboardingPage: React.FC = () => {
         <ProgressBar />
 
         <div className="bg-white rounded-xl shadow-sm p-6 sm:p-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">{t(current.title)}</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-6">{current.title}</h2>
 
           {error && (
             <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>

@@ -217,7 +217,7 @@ async function updateCompanySetup(companyId: string, body: any) {
         logo_url: logo_url ?? prevSettings.logo_url ?? null,
         primary_color: primary_color || prevSettings.primary_color || '#3B82F6',
         description: description ?? prevSettings.description ?? '',
-      },
+      } as object,
     },
   });
 
@@ -544,8 +544,10 @@ router.post(
         return;
       }
 
+      const validKeys = new Set(DEFAULT_FEATURES);
       const results = [];
       for (const feature of featureEntries) {
+        if (!validKeys.has(feature.key)) continue;
         const result = await prisma.companyFeature.upsert({
           where: { companyId_featureKey: { companyId, featureKey: feature.key } },
           create: { companyId, featureKey: feature.key, enabled: feature.enabled },

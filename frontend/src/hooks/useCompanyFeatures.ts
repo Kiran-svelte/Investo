@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,60 +13,42 @@ export const useCompanyFeatures = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
+  const loadFeatures = useCallback(async () => {
+    if (!isAuthenticated || !user) {
+      setFeatures({});
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
-    const loadFeatures = async () => {
-      if (!isAuthenticated || !user) {
-        if (active) {
-          setFeatures({});
-          setError(null);
-          setLoading(false);
-        }
-        return;
-      }
+    if (user.role === 'super_admin') {
+      setFeatures({});
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
-      if (user.role === 'super_admin') {
-        if (active) {
-          setFeatures({});
-          setError(null);
-          setLoading(false);
-        }
-        return;
-      }
-
-      try {
-        const response = await api.get('/features');
-        const items: FeatureItem[] = response.data?.data || [];
-        const map: Record<string, boolean> = {};
-        items.forEach((item) => {
-          map[item.key] = item.enabled !== false;
-        });
-
-        if (active) {
-          setFeatures(map);
-          setError(null);
-        }
-      } catch {
-        if (active) {
-          setFeatures({});
-          setError('Failed to load company features');
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    setLoading(true);
-    void loadFeatures();
-
-    return () => {
-      active = false;
-    };
+    try {
+      setLoading(true);
+      const response = await api.get('/features');
+      const items: FeatureItem[] = response.data?.data || [];
+      const map: Record<string, boolean> = {};
+      items.forEach((item) => {
+        map[item.key] = item.enabled !== false;
+      });
+      setFeatures(map);
+      setError(null);
+    } catch {
+      setFeatures({});
+      setError('Failed to load company features');
+    } finally {
+      setLoading(false);
+    }
   }, [isAuthenticated, user]);
 
+  useEffect(() => {
+    void loadFeatures();
+  }, [loadFeatures]);
   const isFeatureEnabled = useMemo(() => {
     return (featureKey?: string): boolean => {
       if (!featureKey) {
@@ -78,7 +60,8 @@ export const useCompanyFeatures = () => {
       if (Object.prototype.hasOwnProperty.call(features, featureKey)) {
         return features[featureKey];
       }
-      return false;
+      // Match backend: features default to enabled when not stored yet
+      return true;
     };
   }, [features, user?.role]);
 
@@ -87,6 +70,7 @@ export const useCompanyFeatures = () => {
     isFeatureEnabled,
     loading,
     error,
+    reload: loadFeatures,
   };
 };
 

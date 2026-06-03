@@ -42,7 +42,7 @@ describe('useCompanyFeatures', () => {
     };
   });
 
-  it('fails closed for unknown feature keys', async () => {
+  it('defaults unknown feature keys to enabled (matches backend)', async () => {
     apiGetMock.mockResolvedValueOnce({
       data: {
         data: [{ key: 'analytics', enabled: true }],
@@ -56,11 +56,11 @@ describe('useCompanyFeatures', () => {
     });
 
     expect(result.current.isFeatureEnabled('analytics')).toBe(true);
-    expect(result.current.isFeatureEnabled('property_management')).toBe(false);
+    expect(result.current.isFeatureEnabled('property_management')).toBe(true);
     expect(result.current.isFeatureEnabled(undefined)).toBe(true);
   });
 
-  it('returns explicit error and denies features when fetch fails', async () => {
+  it('returns explicit error but keeps default-enabled gates when fetch fails', async () => {
     apiGetMock.mockRejectedValueOnce(new Error('network failure'));
 
     const { result } = renderHook(() => useCompanyFeatures());
@@ -70,6 +70,6 @@ describe('useCompanyFeatures', () => {
     });
 
     expect(result.current.error).toBe('Failed to load company features');
-    expect(result.current.isFeatureEnabled('analytics')).toBe(false);
+    expect(result.current.isFeatureEnabled('analytics')).toBe(true);
   });
 });
