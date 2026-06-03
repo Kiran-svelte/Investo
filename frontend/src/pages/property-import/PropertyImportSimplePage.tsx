@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
@@ -41,6 +41,7 @@ import {
 import { PROPERTY_KNOWLEDGE_TYPES, type PropertyKnowledgeType } from './propertyTypeKnowledgeSchema';
 import { getPublishReadiness } from './propertyImportPublishReadiness';
 import PropertyImportKnowledgeWizard from './PropertyImportKnowledgeWizard';
+import { clearPropertyKnowledgeGateCache } from '../../utils/propertyKnowledgeGateCache';
 
 const SUPPORTED_FILE_LABELS = ['JPEG', 'PNG', 'WebP', 'PDF'];
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
@@ -81,6 +82,8 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 export default function PropertyImportSimplePage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const gateReason = (location.state as { knowledgeGateReason?: string } | null)?.knowledgeGateReason;
   const { draftId: routeDraftId } = useParams();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -346,6 +349,10 @@ export default function PropertyImportSimplePage() {
         applyDraftUpdate(published.draft);
         return;
       }
+      const companyId = typeof user?.company_id === 'string' ? user.company_id : '';
+      if (companyId) {
+        clearPropertyKnowledgeGateCache(companyId);
+      }
       navigate('/properties', { replace: true });
     } catch (error) {
       setPageError(getErrorMessage(error, 'Publish failed'));
@@ -401,6 +408,13 @@ export default function PropertyImportSimplePage() {
           );
         })}
       </nav>
+
+      {gateReason && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900">
+          <Sparkles className="mr-2 inline h-4 w-4" />
+          {gateReason}
+        </div>
+      )}
 
       {pageError && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -515,9 +529,17 @@ export default function PropertyImportSimplePage() {
           draftData={draft?.draftData}
           onComplete={(next) => {
             handleKnowledgeUpdate(next);
+            void persistDraft(next.formValues, next.draftData).then(() => {
+              const companyId = typeof user?.company_id === 'string' ? user.company_id : '';
+              if (companyId) {
+                clearPropertyKnowledgeGateCache(companyId);
+              }
+            });
+          }}
+          onStepAnswer={(next) => {
+            handleKnowledgeUpdate(next);
             void persistDraft(next.formValues, next.draftData);
           }}
-          onStepAnswer={handleKnowledgeUpdate}
         />
       )}
 

@@ -216,6 +216,19 @@ export async function getPropertyImportDraft(draftId: string) {
   return normalizePropertyImportDraft(data.data);
 }
 
+export interface PropertyImportKnowledgeGate {
+  blocked: boolean;
+  draftId: string | null;
+  gapCount: number;
+  propertyType: string | null;
+  reason: string | null;
+}
+
+export async function getPropertyImportKnowledgeGate(): Promise<PropertyImportKnowledgeGate> {
+  const { data } = await api.get<ApiResponse<PropertyImportKnowledgeGate>>('/property-imports/knowledge-gate');
+  return data.data;
+}
+
 export async function registerPropertyImportUpload(draftId: string, input: RegisterPropertyImportUploadInput) {
   const { data } = await api.post<ApiResponse<RegisterPropertyImportUploadResult>>(
     `/property-imports/drafts/${draftId}/uploads`,

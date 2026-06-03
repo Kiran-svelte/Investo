@@ -213,8 +213,22 @@ describe('Property Import Service publish gate', () => {
       draftData: {
         name: 'Sunrise Residences',
         property_type: 'apartment',
+        bedrooms: 3,
+        price_min: 8000000,
+        price_max: 12000000,
+        amenities: 'Pool, Gym',
+        description: 'East facing 3 BHK possession Dec 2027 clubhouse pool parking security',
         type_knowledge: {
-          price: 'Price on request',
+          carpet_area_sqft: '1200 sq ft',
+          bhk: '3 BHK',
+          price: '₹80 L – ₹1.2 Cr',
+          floor_number: 'Mid rise',
+          tower_name: 'Tower A',
+          possession_date: 'Within 12 months',
+          maintenance_fee: '₹3/sqft',
+          facing: 'East',
+          parking: '1 covered',
+          amenities: 'Pool, Gym',
           anything_else: 'Nothing else',
         },
       },
@@ -242,8 +256,8 @@ describe('Property Import Service publish gate', () => {
         companyId: 'company-1',
         name: 'Sunrise Residences',
         propertyType: 'apartment',
-        priceMin: null,
-        priceMax: null,
+        priceMin: 8000000,
+        priceMax: 12000000,
       }),
     }));
     expect(mockPrisma.propertyImportDraft.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -258,7 +272,7 @@ describe('Property Import Service publish gate', () => {
     expect(indexPropertyKnowledge).toHaveBeenCalledWith(expect.objectContaining({
       draftData: expect.objectContaining({
         type_knowledge: expect.objectContaining({
-          price: 'Price on request',
+          price: '₹80 L – ₹1.2 Cr',
         }),
       }),
     }));
@@ -266,7 +280,7 @@ describe('Property Import Service publish gate', () => {
     expect(result.draft?.status).toBe('published');
   });
 
-  test('rejects publishing when the draft still needs review', async () => {
+  test('rejects publishing when AI knowledge gaps remain', async () => {
     mockPrisma.propertyImportDraft.findFirst.mockResolvedValue({
       id: 'draft-1',
       companyId: 'company-1',
@@ -275,17 +289,7 @@ describe('Property Import Service publish gate', () => {
       publishedPropertyId: null,
       draftData: {
         name: 'Sunrise Residences',
-        import_review: {
-          status: 'needs_review',
-          confidence_hints: [
-            {
-              field: 'name',
-              confidence: 0.42,
-              source_field: 'headline',
-              note: 'Low OCR confidence',
-            },
-          ],
-        },
+        property_type: 'villa',
       },
       mediaAssets: [],
     });
@@ -293,7 +297,7 @@ describe('Property Import Service publish gate', () => {
     await expect(
       propertyImportService.publishDraft('company-1', 'draft-1', 'user-1', false),
     ).rejects.toMatchObject({
-      message: 'Draft requires review before publishing',
+      message: expect.stringMatching(/AI knowledge/i),
       statusCode: 409,
     } as PropertyImportError);
 

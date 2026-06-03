@@ -3,6 +3,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PropertyImportPage from './PropertyImportPage';
 
@@ -110,7 +111,11 @@ describe('PropertyImportPage simplified flow', () => {
   });
 
   it('renders simplified steps and ready to go when knowledge complete', async () => {
-    render(<PropertyImportPage />);
+    render(
+      <MemoryRouter initialEntries={['/properties/import/draft-1']}>
+        <PropertyImportPage />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByRole('heading', { name: 'Add a property' })).toBeInTheDocument();
     expect(screen.getByText('Knowledge')).toBeInTheDocument();
@@ -119,7 +124,11 @@ describe('PropertyImportPage simplified flow', () => {
 
   it('publishes when ready to go is clicked', async () => {
     const user = userEvent.setup();
-    render(<PropertyImportPage />);
+    render(
+      <MemoryRouter initialEntries={['/properties/import/draft-1']}>
+        <PropertyImportPage />
+      </MemoryRouter>,
+    );
 
     await screen.findByRole('button', { name: 'Ready to go' });
     await user.click(screen.getByRole('button', { name: 'Ready to go' }));

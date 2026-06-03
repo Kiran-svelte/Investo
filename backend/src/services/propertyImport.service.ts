@@ -16,10 +16,13 @@ import {
   indexPropertyKnowledge,
 } from './propertyKnowledge.service';
 import {
-  isPropertyImportReviewPending,
   normalizePropertyImportDraftData,
   normalizePropertyImportMappingProfile,
 } from './propertyImport.metadata';
+import {
+  countMissingKnowledgeFields,
+  isPropertyKnowledgeComplete,
+} from './propertyTypeKnowledge.service';
 
 interface CreateDraftInput {
   draftData?: Record<string, unknown>;
@@ -588,10 +591,6 @@ export class PropertyImportService {
       throw new PropertyImportError('Cancelled drafts cannot be published', 409);
     }
 
-    if (isPropertyImportReviewPending(draft.draftData as Record<string, unknown>)) {
-      throw new PropertyImportError('Draft requires review before publishing', 409);
-    }
-
     const isExtractionComplete = draft.extractionStatus === 'extracted';
     const canPublishNow = draft.status === 'publish_ready' && isExtractionComplete;
     const canRepublish = draft.status === 'published' && isExtractionComplete;
@@ -638,6 +637,14 @@ export class PropertyImportService {
       throw new PropertyImportError(
         'Property type is required (apartment, villa, plot, or commercial) before publishing.',
         400,
+      );
+    }
+
+    if (!isPropertyKnowledgeComplete(draftData)) {
+      const { gapCount } = countMissingKnowledgeFields(draftData);
+      throw new PropertyImportError(
+        `Complete AI knowledge Q&A before publishing (${gapCount} question(s) remaining).`,
+        409,
       );
     }
 
@@ -949,6 +956,67 @@ export class PropertyImportService {
 
     return this.getDraft(companyId, draftId);
   }
+
+  async getKnowledgeGate(companyId: string): Promise<{
+    blocked: boolean;
+    draftId: string | null;
+    gapCount: number;
+    propertyType: string | null;
+    reason: string | null;
+  }> {
+    const blockingStatuses = ['review_ready', 'publish_ready', 'extracting', 'draft'] as const;
+
+    const drafts = await prisma.propertyImportDraft.findMany({
+      where: {
+        companyId,
+        status: { in: [...blockingStatuses] },
+        extractionStatus: 'extracted',
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+      select: {
+        id: true,
+        draftData: true,
+        status: true,
+      },
+    });
+
+    for (const candidate of drafts) {
+      const draftData = (candidate.draftData || {}) as Record<string, unknown>;
+      const name = asTrimmedString(draftData.name);
+      const propertyType = asTrimmedString(draftData.property_type ?? draftData.propertyType);
+      if (!propertyType) {
+        continue;
+      }
+
+      const { gapCount } = countMissingKnowledgeFields(draftData);
+      if (gapCount === 0) {
+        continue;
+      }
+
+      return {
+        blocked: true,
+        draftId: candidate.id,
+        gapCount,
+        propertyType,
+        reason: name
+          ? `Finish AI knowledge for "${name}" (${gapCount} questions left).`
+          : `Finish AI knowledge for this ${propertyType} import (${gapCount} questions left).`,
+      };
+    }
+
+    return {
+      blocked: false,
+      draftId: null,
+      gapCount: 0,
+      propertyType: null,
+      reason: null,
+    };
+  }
+}
+
+function asTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 export const propertyImportService = new PropertyImportService();

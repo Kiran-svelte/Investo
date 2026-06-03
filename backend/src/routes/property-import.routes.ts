@@ -83,6 +83,24 @@ function handleRouteError(err: unknown, res: Response, fallbackMessage: string):
 }
 
 /**
+ * GET /api/property-imports/knowledge-gate
+ * Whether company admin must complete in-progress import AI knowledge before using the app.
+ */
+router.get(
+  '/knowledge-gate',
+  authorize('properties', 'read'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const gate = await propertyImportService.getKnowledgeGate(companyId);
+      res.json({ data: gate });
+    } catch (err) {
+      handleRouteError(err, res, 'Failed to check property knowledge gate');
+    }
+  },
+);
+
+/**
  * POST /api/property-imports/drafts
  * Create a new import draft for the authenticated tenant.
  */
