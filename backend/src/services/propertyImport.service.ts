@@ -393,8 +393,10 @@ export class PropertyImportService {
     }
 
     if (media.status === 'extracted' || media.status === 'queued_for_extraction' || media.status === 'verified') {
+      const draft = await this.getDraft(companyId, draftId);
       return {
         media,
+        draft,
         queued: media.status === 'queued_for_extraction' || media.status === 'extracted',
       };
     }
@@ -492,9 +494,11 @@ export class PropertyImportService {
       });
     }
 
+    const draft = await this.getDraft(companyId, draftId);
+
     return {
       media: result.verifiedMedia,
-      draft: result.draftUpdate,
+      draft,
       job: result.job,
       queued: true,
     };

@@ -92,6 +92,15 @@ export interface PropertyImportProperty {
   rera_number: string | null;
 }
 
+/** Ensure list relations exist so UI never reads `.length` on undefined. */
+export function normalizePropertyImportDraft(draft: PropertyImportDraft): PropertyImportDraft {
+  return {
+    ...draft,
+    mediaAssets: Array.isArray(draft.mediaAssets) ? draft.mediaAssets : [],
+    extractionJobs: Array.isArray(draft.extractionJobs) ? draft.extractionJobs : [],
+  };
+}
+
 export interface PropertyImportDraft {
   id: string;
   companyId: string;
@@ -199,12 +208,12 @@ export function isPropertyImportMimeTypeSupported(mimeType: string): boolean {
 
 export async function createPropertyImportDraft(input: CreatePropertyImportDraftInput) {
   const { data } = await api.post<ApiResponse<PropertyImportDraft>>('/property-imports/drafts', input);
-  return data.data;
+  return normalizePropertyImportDraft(data.data);
 }
 
 export async function getPropertyImportDraft(draftId: string) {
   const { data } = await api.get<ApiResponse<PropertyImportDraft>>(`/property-imports/drafts/${draftId}`);
-  return data.data;
+  return normalizePropertyImportDraft(data.data);
 }
 
 export async function registerPropertyImportUpload(draftId: string, input: RegisterPropertyImportUploadInput) {
@@ -285,12 +294,16 @@ export async function confirmPropertyImportUpload(draftId: string, uploadToken: 
     `/property-imports/drafts/${draftId}/uploads/confirm`,
     { upload_token: uploadToken },
   );
-  return data.data;
+  const payload = data.data;
+  return {
+    ...payload,
+    ...(payload.draft ? { draft: normalizePropertyImportDraft(payload.draft) } : {}),
+  };
 }
 
 export async function savePropertyImportDraft(draftId: string, input: SavePropertyImportDraftInput) {
   const { data } = await api.put<ApiResponse<PropertyImportDraft>>(`/property-imports/drafts/${draftId}`, input);
-  return data.data;
+  return normalizePropertyImportDraft(data.data);
 }
 
 export interface PublishPropertyImportDraftResult {
@@ -306,7 +319,11 @@ export async function publishPropertyImportDraft(draftId: string, input: Publish
     `/property-imports/drafts/${draftId}/publish`,
     input,
   );
-  return data.data;
+  const result = data.data;
+  return {
+    ...result,
+    draft: normalizePropertyImportDraft(result.draft),
+  };
 }
 
 export async function retryPropertyImportDraft(draftId: string, input: RetryPropertyImportDraftInput = {}) {

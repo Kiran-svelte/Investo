@@ -29,6 +29,7 @@ import {
   inferPropertyImportAssetType,
   isPropertyImportMimeTypeSupported,
   publishPropertyImportDraft,
+  normalizePropertyImportDraft,
   registerPropertyImportUpload,
   retryPropertyImportDraft,
   savePropertyImportDraft,
@@ -355,9 +356,13 @@ export default function PropertyImportPage() {
   };
 
   const applyDraftUpdate = (nextDraft: PropertyImportDraft) => {
-    setDraft(nextDraft);
-    syncApprovalState(nextDraft, true);
-    syncFormFromDraft(nextDraft.draftData);
+    const normalized = normalizePropertyImportDraft(nextDraft);
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',runId:'post-fix',hypothesisId:'H1',location:'PropertyImportPage.tsx:applyDraftUpdate',message:'draft normalized after update',data:{draftId:normalized.id,mediaCount:normalized.mediaAssets.length,hadRawMediaAssets:Array.isArray(nextDraft.mediaAssets)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    setDraft(normalized);
+    syncApprovalState(normalized, true);
+    syncFormFromDraft(normalized.draftData);
   };
 
   const persistDraft = useCallback(
@@ -508,7 +513,12 @@ export default function PropertyImportPage() {
         }));
 
         const confirmed = await confirmPropertyImportUpload(draftIdForUpload, registered.upload.upload_token);
-        applyDraftUpdate(confirmed.draft);
+        // #region agent log
+        fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',runId:'post-fix',hypothesisId:'H1',location:'PropertyImportPage.tsx:processFiles',message:'confirm upload response',data:{hasDraft:Boolean(confirmed.draft),rawMediaAssetsLen:confirmed.draft?.mediaAssets?.length??null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        if (confirmed.draft) {
+          applyDraftUpdate(confirmed.draft);
+        }
 
         setUploadItems((items) => items.map((entry) => {
           if (entry.id !== id) {
@@ -768,7 +778,7 @@ export default function PropertyImportPage() {
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-300">Media assets</p>
-                  <p className="mt-1 text-lg font-semibold">{draft?.mediaAssets.length || 0} files</p>
+                  <p className="mt-1 text-lg font-semibold">{draft?.mediaAssets?.length ?? 0} files</p>
                 </div>
               </div>
             </div>
@@ -912,9 +922,9 @@ export default function PropertyImportPage() {
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 Loading draft...
               </div>
-            ) : draft?.mediaAssets.length ? (
+            ) : (draft?.mediaAssets?.length ?? 0) > 0 ? (
               <div className="mt-5 grid gap-3 md:grid-cols-2">
-                {draft.mediaAssets.map((media) => {
+                {(draft?.mediaAssets ?? []).map((media) => {
                   const mediaStatus = getPropertyImportMediaLabel(media.status);
                   return (
                     <div key={media.id} className="rounded-xl border border-gray-200 p-4">
