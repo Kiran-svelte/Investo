@@ -42,6 +42,12 @@ import { PROPERTY_KNOWLEDGE_TYPES, type PropertyKnowledgeType } from './property
 import { getPublishReadiness } from './propertyImportPublishReadiness';
 import PropertyImportKnowledgeWizard from './PropertyImportKnowledgeWizard';
 import { clearPropertyKnowledgeGateCache } from '../../utils/propertyKnowledgeGateCache';
+import {
+  embeddingHealthMessage,
+  getSystemHealth,
+  isOpenAiEmbeddingsReady,
+  type SystemHealth,
+} from '../../services/health';
 
 const SUPPORTED_FILE_LABELS = ['JPEG', 'PNG', 'WebP', 'PDF'];
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
@@ -108,6 +114,23 @@ export default function PropertyImportSimplePage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [embeddingHealth, setEmbeddingHealth] = useState<SystemHealth | null>(null);
+  const [embeddingHealthLoading, setEmbeddingHealthLoading] = useState(false);
+
+  const loadEmbeddingHealth = useCallback(async () => {
+    setEmbeddingHealthLoading(true);
+    try {
+      setEmbeddingHealth(await getSystemHealth());
+    } catch {
+      setEmbeddingHealth(null);
+    } finally {
+      setEmbeddingHealthLoading(false);
+    }
+  }, []);
+
+  const openAiEmbeddingsReady = isOpenAiEmbeddingsReady(embeddingHealth);
+  const embeddingHealthFailed =
+    embeddingHealth?.dependencies?.property_knowledge_embeddings?.status === 'error';
 
   const publishReadiness = useMemo(
     () => getPublishReadiness({
@@ -175,6 +198,15 @@ export default function PropertyImportSimplePage() {
     const interval = window.setInterval(() => void loadDraft(routeDraftId, true), 5000);
     return () => window.clearInterval(interval);
   }, [draft, loadDraft, routeDraftId, publishReadiness.missingQuestions.length]);
+
+  useEffect(() => {
+    if (activeStepIndex < 2) {
+      return;
+    }
+    void loadEmbeddingHealth();
+    const interval = window.setInterval(() => void loadEmbeddingHealth(), 30000);
+    return () => window.clearInterval(interval);
+  }, [activeStepIndex, loadEmbeddingHealth]);
 
   const applyDraftUpdate = (nextDraft: PropertyImportDraft) => {
     const normalized = normalizePropertyImportDraft(nextDraft);
@@ -351,6 +383,22 @@ export default function PropertyImportSimplePage() {
   const handlePublish = async () => {
     if (!draft?.id || !publishReadiness.ready) {
       setPageError(publishReadiness.blockers[0] || 'Not ready to publish');
+      return;
+    }
+
+    let health: SystemHealth | null = null;
+    try {
+      health = await getSystemHealth();
+      setEmbeddingHealth(health);
+    } catch {
+      setPageError('Could not reach server health check. Try again in a moment.');
+      return;
+    }
+    if (!isOpenAiEmbeddingsReady(health)) {
+      setPageError(
+        embeddingHealthMessage(health)
+          || 'OpenAI embeddings are not ready on the server. Update OPENAI_API_KEY on Render and redeploy.',
+      );
       return;
     }
 
@@ -573,6 +621,30 @@ export default function PropertyImportSimplePage() {
       {activeStepIndex >= 2 && draft?.extractionStatus === 'extracted' && (
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">Step 4 - Ready to go</h2>
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+              openAiEmbeddingsReady
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                : embeddingHealthFailed
+                  ? 'border-red-200 bg-red-50 text-red-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-900'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p>
+                {embeddingHealthLoading
+                  ? 'Checking OpenAI indexing…'
+                  : embeddingHealthMessage(embeddingHealth)}
+              </p>
+              <button
+                type="button"
+                onClick={() => void loadEmbeddingHealth()}
+                className="shrink-0 text-xs font-medium underline"
+              >
+                Recheck
+              </button>
+            </div>
+          </div>
           {publishReadiness.warnings.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-sm text-amber-800">
               {publishReadiness.warnings.map((w) => (
@@ -589,7 +661,14 @@ export default function PropertyImportSimplePage() {
           )}
           <button
             type="button"
-            disabled={!publishReadiness.ready || isPublishing || loadingDraft}
+            disabled={
+              !publishReadiness.ready
+              || isPublishing
+              || loadingDraft
+              || embeddingHealthLoading
+              || embeddingHealthFailed
+              || !openAiEmbeddingsReady
+            }
             onClick={() => void handlePublish()}
             className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
           >

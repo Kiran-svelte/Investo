@@ -38,6 +38,23 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+vi.mock('../../services/health', () => ({
+  getSystemHealth: vi.fn().mockResolvedValue({
+    status: 'ok',
+    dependencies: {
+      property_knowledge_embeddings: {
+        status: 'ok',
+        provider: 'openai',
+        detail: 'OpenAI embeddings ready',
+      },
+    },
+  }),
+  isOpenAiEmbeddingsReady: (health: { dependencies?: { property_knowledge_embeddings?: { status: string; provider: string } } } | null) =>
+    health?.dependencies?.property_knowledge_embeddings?.status === 'ok'
+    && health?.dependencies?.property_knowledge_embeddings?.provider === 'openai',
+  embeddingHealthMessage: () => 'OpenAI embeddings ready',
+}));
+
 vi.mock('../../services/propertyImport', () => ({
   normalizePropertyImportDraft: (draft: unknown) => draft,
   cancelPropertyImportDraft: vi.fn(),

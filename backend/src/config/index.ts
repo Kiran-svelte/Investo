@@ -390,7 +390,7 @@ const config = {
     kimi25Model: process.env.KIMI_2_5_MODEL || 'kimi-k2-2504',
     claudeApiKey: process.env.CLAUDE_API_KEY || '',
     claudeModel: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
-    openaiApiKey: process.env.OPENAI_API_KEY || '',
+    openaiApiKey: (process.env.OPENAI_API_KEY || '').trim(),
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
     embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
   },

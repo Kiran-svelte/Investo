@@ -313,8 +313,12 @@ function formatEmbeddingApiError(status: number, errText: string): string {
   return `Embedding API failed (${status}). Check OPENAI_API_KEY and billing on OpenAI.`;
 }
 
+function openAiApiKey(): string {
+  return config.ai.openaiApiKey.trim();
+}
+
 function openAiKeyProblem(): string | null {
-  const key = config.ai.openaiApiKey?.trim();
+  const key = openAiApiKey();
   if (!key) {
     return 'OPENAI_API_KEY is not set on the server.';
   }
@@ -387,7 +391,7 @@ async function createEmbeddings(texts: string[]): Promise<number[][]> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.ai.openaiApiKey}`,
+      Authorization: `Bearer ${openAiApiKey()}`,
     },
     body: JSON.stringify({
       model: embeddingModel(),
@@ -397,7 +401,11 @@ async function createEmbeddings(texts: string[]): Promise<number[][]> {
 
   if (!response.ok) {
     const errText = await response.text();
-    return fallbackEmbeddings(texts, formatEmbeddingApiError(response.status, errText));
+    const reason = formatEmbeddingApiError(response.status, errText);
+    if (!localEmbeddingFallbackEnabled()) {
+      throw new Error(reason);
+    }
+    return fallbackEmbeddings(texts, reason);
   }
 
   const payload = await response.json() as {
@@ -441,7 +449,7 @@ export async function getPropertyKnowledgeEmbeddingHealth(): Promise<{
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.ai.openaiApiKey}`,
+        Authorization: `Bearer ${openAiApiKey()}`,
       },
       body: JSON.stringify({
         model: embeddingModel(),
@@ -450,7 +458,7 @@ export async function getPropertyKnowledgeEmbeddingHealth(): Promise<{
     });
 
     if (response.ok) {
-      return { status: 'ok', provider: 'openai' };
+      return { status: 'ok', provider: 'openai', detail: 'OpenAI embeddings ready for publish and WhatsApp AI.' };
     }
 
     const detail = response.status === 401
@@ -586,7 +594,7 @@ export async function searchPropertyKnowledge(
   limit = 8,
 ): Promise<PropertyKnowledgeChunk[]> {
   const trimmed = query.trim();
-  if (!trimmed || !config.ai.openaiApiKey) {
+  if (!trimmed) {
     return [];
   }
 
