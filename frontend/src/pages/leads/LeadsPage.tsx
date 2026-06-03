@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { dashboardPath } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
@@ -282,7 +283,7 @@ const LeadsPage: React.FC = () => {
               leads.map((lead) => (
                 <tr
                   key={lead.id}
-                  onClick={() => navigate(`/leads/${lead.id}`)}
+                  onClick={() => navigate(dashboardPath(`/leads/${lead.id}`))}
                   className="hover:bg-surface-muted cursor-pointer transition-colors"
                 >
                   <td className="px-4 py-3">
@@ -355,7 +356,7 @@ const LeadsPage: React.FC = () => {
           leads.map((lead) => (
             <div
               key={lead.id}
-              onClick={() => navigate(`/leads/${lead.id}`)}
+              onClick={() => navigate(dashboardPath(`/leads/${lead.id}`))}
               className="investo-card p-4 cursor-pointer hover:shadow-md transition-shadow"
             >
               <div className="flex items-start justify-between mb-3">

@@ -11,7 +11,7 @@ describe('navigation.config', () => {
   const allFeatures = () => true;
 
   it('super_admin home is companies', () => {
-    expect(getRoleHomePath('super_admin')).toBe('/companies');
+    expect(getRoleHomePath('super_admin')).toBe('/dashboard/companies');
   });
 
   it('company_admin home is dashboard', () => {
@@ -33,17 +33,17 @@ describe('navigation.config', () => {
   });
 
   it('blocks super_admin from tenant leads URL', () => {
-    expect(isPathAllowedForRole('/leads', 'super_admin', allFeatures)).toBe(false);
-    expect(isPathAllowedForRole('/companies', 'super_admin', allFeatures)).toBe(true);
+    expect(isPathAllowedForRole('/dashboard/leads', 'super_admin', allFeatures)).toBe(false);
+    expect(isPathAllowedForRole('/dashboard/companies', 'super_admin', allFeatures)).toBe(true);
   });
 
   it('allows sales_agent leads but not agents page', () => {
-    expect(isPathAllowedForRole('/leads', 'sales_agent', allFeatures)).toBe(true);
-    expect(isPathAllowedForRole('/agents', 'sales_agent', allFeatures)).toBe(false);
+    expect(isPathAllowedForRole('/dashboard/leads', 'sales_agent', allFeatures)).toBe(true);
+    expect(isPathAllowedForRole('/dashboard/agents', 'sales_agent', allFeatures)).toBe(false);
   });
 
   it('property import is company_admin only', () => {
-    const spec = getNavItemForPath('/properties/import');
+    const spec = getNavItemForPath('/dashboard/properties/import');
     expect(spec?.roles).toEqual(['company_admin']);
   });
 

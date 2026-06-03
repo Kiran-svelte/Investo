@@ -153,6 +153,6 @@ describe('PropertyImportPage simplified flow', () => {
     await waitFor(() => {
       expect(publishPropertyImportDraftMock).toHaveBeenCalledWith('draft-1', {});
     });
-    expect(navigateMock).toHaveBeenCalledWith('/properties', { replace: true });
+    expect(navigateMock).toHaveBeenCalledWith('/dashboard/properties', { replace: true });
   });
 });

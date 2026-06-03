@@ -74,12 +74,12 @@ describe('route guard behavior', () => {
     authState.user.role = 'super_admin';
 
     render(
-      <MemoryRouter initialEntries={['/leads']}>
+      <MemoryRouter initialEntries={['/dashboard/leads']}>
         <Routes>
-          <Route element={<RoleRoute path="/leads" />}>
-            <Route path="/leads" element={<div>Leads page</div>} />
+          <Route element={<RoleRoute path="/dashboard/leads" />}>
+            <Route path="/dashboard/leads" element={<div>Leads page</div>} />
           </Route>
-          <Route path="/companies" element={<div>Companies page</div>} />
+          <Route path="/dashboard/companies" element={<div>Companies page</div>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -143,10 +143,10 @@ describe('route guard behavior', () => {
     featureState.isFeatureEnabled.mockImplementation((featureKey?: string) => featureKey === 'analytics');
 
     render(
-      <MemoryRouter initialEntries={['/properties/import']}>
+      <MemoryRouter initialEntries={['/dashboard/properties/import']}>
         <Routes>
           <Route element={<FeatureRoute featureKey={PROPERTY_MANAGEMENT_FEATURE_KEY} />}>
-            <Route path="/properties/import" element={<div>Property import page</div>} />
+            <Route path="/dashboard/properties/import" element={<div>Property import page</div>} />
           </Route>
           <Route path="/dashboard" element={<div>Home page</div>} />
         </Routes>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkles, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { dashboardPath } from '../../config/navigation.config';
 import { getPropertyImportKnowledgeGate } from '../../services/propertyImport';
 import { setPropertyKnowledgeGateCache } from '../../utils/propertyKnowledgeGateCache';
 
@@ -53,8 +54,8 @@ export default function KnowledgeGateBanner() {
   }
 
   const importHref = gate.draftId
-    ? `/properties/import/${gate.draftId}`
-    : '/properties/import';
+    ? dashboardPath(`/properties/import/${gate.draftId}`)
+    : dashboardPath('/properties/import');
 
   return (
     <div className="border-b border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-brand-900">

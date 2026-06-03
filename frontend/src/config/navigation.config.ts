@@ -1,5 +1,15 @@
 import type { UserRole } from '../context/AuthContext';
 
+/** Authenticated app shell — all tenant CRM routes live under this prefix. */
+export const DASHBOARD_BASE = '/dashboard';
+
+/** Build a path under the dashboard layout (e.g. `/dashboard/leads`). */
+export function dashboardPath(subpath = ''): string {
+  if (!subpath || subpath === '/') return DASHBOARD_BASE;
+  const normalized = subpath.startsWith('/') ? subpath : `/${subpath}`;
+  return `${DASHBOARD_BASE}${normalized}`;
+}
+
 /** Nav keys map to sidebar labels (i18n `nav.*`) and routes. */
 export type NavRouteKey =
   | 'dashboard'
@@ -43,77 +53,77 @@ export const NAV_ITEMS: NavItemSpec[] = [
   },
   {
     key: 'leads',
-    path: '/leads',
+    path: dashboardPath('/leads'),
     roles: ['company_admin', 'sales_agent', 'operations', 'viewer'],
     featureKey: 'lead_automation',
   },
   {
     key: 'properties',
-    path: '/properties',
+    path: dashboardPath('/properties'),
     roles: ['company_admin', 'sales_agent', 'operations', 'viewer'],
     featureKey: 'property_management',
   },
   {
     key: 'conversations',
-    path: '/conversations',
+    path: dashboardPath('/conversations'),
     roles: ['company_admin', 'sales_agent', 'viewer'],
     featureKey: 'conversation_center',
   },
   {
     key: 'calendar',
-    path: '/calendar',
+    path: dashboardPath('/calendar'),
     roles: ['company_admin', 'sales_agent', 'operations'],
     featureKey: 'visit_scheduling',
   },
   {
     key: 'agents',
-    path: '/agents',
+    path: dashboardPath('/agents'),
     roles: ['company_admin'],
     featureKey: 'agent_management',
   },
   {
     key: 'analytics',
-    path: '/analytics',
+    path: dashboardPath('/analytics'),
     roles: ['company_admin', 'viewer'],
     featureKey: 'analytics',
   },
   {
     key: 'ai_settings',
-    path: '/ai-settings',
+    path: dashboardPath('/ai-settings'),
     roles: ['company_admin'],
     featureKey: 'ai_bot',
   },
   {
     key: 'companies',
-    path: '/companies',
+    path: dashboardPath('/companies'),
     roles: ['super_admin'],
   },
   {
     key: 'billing',
-    path: '/billing',
+    path: dashboardPath('/billing'),
     roles: ['company_admin'],
   },
   {
     key: 'emi_calculator',
-    path: '/emi-calculator',
+    path: dashboardPath('/emi-calculator'),
     roles: ['company_admin', 'sales_agent'],
     labelFallback: 'EMI Calculator',
   },
   {
     key: 'audit_logs',
-    path: '/audit-logs',
+    path: dashboardPath('/audit-logs'),
     roles: ['super_admin'],
     featureKey: 'audit_logs',
   },
   {
     key: 'notifications',
-    path: '/notifications',
+    path: dashboardPath('/notifications'),
     roles: ['company_admin', 'sales_agent', 'operations'],
     featureKey: 'notifications',
   },
   {
     key: 'settings',
-    path: '/settings',
+    path: dashboardPath('/settings'),
     roles: ['super_admin', 'company_admin', 'sales_agent', 'operations', 'viewer'],
   },
 ];
@@ -124,20 +134,20 @@ const EXTRA_ROUTE_GUARDS: Array<{
   roles: UserRole[];
   featureKey?: string;
 }> = [
-  { pathPrefix: '/properties/import', roles: ['company_admin'], featureKey: 'property_management' },
-  { pathPrefix: '/leads/', roles: ['company_admin', 'sales_agent', 'operations', 'viewer'], featureKey: 'lead_automation' },
+  { pathPrefix: dashboardPath('/properties/import'), roles: ['company_admin'], featureKey: 'property_management' },
+  { pathPrefix: dashboardPath('/leads/'), roles: ['company_admin', 'sales_agent', 'operations', 'viewer'], featureKey: 'lead_automation' },
 ];
 
 export function getRoleHomePath(role: UserRole | undefined): string {
   switch (role) {
     case 'super_admin':
-      return '/companies';
+      return dashboardPath('/companies');
     case 'operations':
-      return '/calendar';
+      return dashboardPath('/calendar');
     case 'viewer':
-      return '/leads';
+      return dashboardPath('/leads');
     default:
-      return '/dashboard';
+      return DASHBOARD_BASE;
   }
 }
 
@@ -145,8 +155,37 @@ export function getNavItemByKey(key: NavRouteKey): NavItemSpec | undefined {
   return NAV_ITEMS.find((item) => item.key === key);
 }
 
-export function getNavItemForPath(pathname: string): NavItemSpec | undefined {
+/** Map legacy top-level paths (pre-/dashboard nesting) to dashboard paths. */
+export function resolveDashboardPath(pathname: string): string {
   const normalized = pathname.split('?')[0] || '/';
+  if (normalized === DASHBOARD_BASE || normalized.startsWith(`${DASHBOARD_BASE}/`)) {
+    return normalized;
+  }
+  const legacyRoots = [
+    'leads',
+    'properties',
+    'conversations',
+    'calendar',
+    'agents',
+    'analytics',
+    'ai-settings',
+    'billing',
+    'settings',
+    'notifications',
+    'companies',
+    'emi-calculator',
+    'audit-logs',
+  ];
+  for (const root of legacyRoots) {
+    if (normalized === `/${root}` || normalized.startsWith(`/${root}/`)) {
+      return `${DASHBOARD_BASE}${normalized}`;
+    }
+  }
+  return normalized;
+}
+
+export function getNavItemForPath(pathname: string): NavItemSpec | undefined {
+  const normalized = resolveDashboardPath(pathname);
 
   for (const extra of EXTRA_ROUTE_GUARDS) {
     if (normalized === extra.pathPrefix || normalized.startsWith(`${extra.pathPrefix}/`)) {
@@ -159,7 +198,7 @@ export function getNavItemForPath(pathname: string): NavItemSpec | undefined {
     }
   }
 
-  if (normalized.startsWith('/leads/')) {
+  if (normalized.startsWith(`${dashboardPath('/leads')}/`)) {
     return getNavItemByKey('leads');
   }
 

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import useCompanyFeatures from '../../hooks/useCompanyFeatures';
-import { getVisibleNavItems } from '../../config/navigation.config';
+import { dashboardPath, getVisibleNavItems } from '../../config/navigation.config';
 import type { NavRouteKey } from '../../config/navigation.config';
 import LanguageSelector from '../common/LanguageSelector';
 import KnowledgeGateBanner from './KnowledgeGateBanner';
@@ -26,6 +26,8 @@ import {
   Menu,
   X,
   ChevronDown,
+  User,
+  KeyRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -154,9 +156,21 @@ const Header: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [userMenuOpen]);
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-4 border-b border-surface-border bg-surface-base/95 px-4 backdrop-blur-md sm:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-surface-border bg-surface-base/95 px-4 backdrop-blur-md sm:px-6">
       <button
         type="button"
         className="rounded-lg p-2 text-ink-muted hover:bg-surface-subtle hover:text-ink-primary lg:hidden"
@@ -171,10 +185,12 @@ const Header: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
       <div className="flex items-center gap-2">
         <LanguageSelector />
 
-        <div className="relative">
+        <div ref={userMenuRef} className="relative">
           <button
             type="button"
             onClick={() => setUserMenuOpen((prev) => !prev)}
+            aria-expanded={userMenuOpen}
+            aria-haspopup="menu"
             className="flex items-center gap-2 rounded-lg border border-surface-border px-2 py-1.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-surface-subtle"
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-100 text-xs font-bold text-brand-800">
@@ -186,35 +202,55 @@ const Header: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
                 .slice(0, 2) ?? '?'}
             </div>
             <span className="hidden max-w-[140px] truncate sm:block">{user?.name}</span>
-            <ChevronDown className="h-4 w-4 text-ink-faint" />
+            <ChevronDown className={`h-4 w-4 text-ink-faint transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
           {userMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} aria-hidden="true" />
-              <div className="absolute right-0 z-40 mt-1 w-56 rounded-xl border border-surface-border bg-surface-elevated py-1 shadow-investo">
-                <div className="border-b border-surface-border px-4 py-3">
-                  <p className="text-sm font-semibold text-ink-primary">{user?.name}</p>
-                  <p className="truncate text-xs text-ink-muted">{user?.email}</p>
-                  {user?.role && (
-                    <p className="mt-1.5 text-xs font-medium text-brand-700">
-                      {ROLE_LABELS[user.role] || user.role}
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    logout();
-                    navigate('/', { replace: true });
-                  }}
-                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
-                >
-                  <LogOut className="h-4 w-4" />
-                  {t('nav.logout')}
-                </button>
+            <div
+              role="menu"
+              className="absolute right-0 z-50 mt-1 w-60 rounded-xl border border-surface-border bg-surface-elevated py-1 shadow-investo-lg"
+            >
+              <div className="border-b border-surface-border px-4 py-3">
+                <p className="text-sm font-semibold text-ink-primary">{user?.name}</p>
+                <p className="truncate text-xs text-ink-muted">{user?.email}</p>
+                {user?.role && (
+                  <p className="mt-1.5 text-xs font-medium text-brand-700">
+                    {ROLE_LABELS[user.role] || user.role}
+                  </p>
+                )}
               </div>
-            </>
+              <Link
+                to={dashboardPath('/settings')}
+                role="menuitem"
+                onClick={() => setUserMenuOpen(false)}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-ink-secondary hover:bg-surface-subtle"
+              >
+                <User className="h-4 w-4" />
+                {t('nav.settings', { defaultValue: 'Settings' })}
+              </Link>
+              <Link
+                to="/change-password"
+                role="menuitem"
+                onClick={() => setUserMenuOpen(false)}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-ink-secondary hover:bg-surface-subtle"
+              >
+                <KeyRound className="h-4 w-4" />
+                {t('nav.change_password', { defaultValue: 'Change password' })}
+              </Link>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  logout();
+                  navigate('/', { replace: true });
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
+              >
+                <LogOut className="h-4 w-4" />
+                {t('nav.logout')}
+              </button>
+            </div>
           )}
         </div>
       </div>

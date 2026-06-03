@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { dashboardPath } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
@@ -252,7 +253,7 @@ const DashboardPage: React.FC = () => {
               {t('dashboard.recent_leads')}
             </h2>
             <button
-              onClick={() => navigate('/leads')}
+              onClick={() => navigate(dashboardPath('/leads'))}
               className="text-sm text-brand-700 hover:text-brand-800 font-medium flex items-center gap-1"
             >
               View all <Eye className="h-3.5 w-3.5" />
@@ -298,7 +299,7 @@ const DashboardPage: React.FC = () => {
               {t('dashboard.upcoming_visits')}
             </h2>
             <button
-              onClick={() => navigate('/calendar')}
+              onClick={() => navigate(dashboardPath('/calendar'))}
               className="text-sm text-brand-700 hover:text-brand-800 font-medium flex items-center gap-1"
             >
               View all <Eye className="h-3.5 w-3.5" />

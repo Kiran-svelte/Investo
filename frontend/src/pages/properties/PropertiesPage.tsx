@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { dashboardPath } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
@@ -142,7 +143,7 @@ const PropertiesPage: React.FC = () => {
         {capabilities.canUploadProperties && (
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => navigate('/properties/import')}
+              onClick={() => navigate(dashboardPath('/properties/import'))}
               className="inline-flex items-center gap-2 px-4 py-2 border border-brand-200 bg-surface-elevated text-brand-800 rounded-lg hover:bg-brand-50 transition-colors"
             >
               <Upload className="h-4 w-4" /> Import from media

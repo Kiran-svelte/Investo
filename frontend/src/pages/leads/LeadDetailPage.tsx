@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { dashboardPath } from '../../config/navigation.config';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
@@ -222,7 +223,7 @@ const LeadDetailPage: React.FC = () => {
     return (
       <div className="p-6 text-center">
         <p className="text-ink-muted">{error || 'Lead not found'}</p>
-        <button onClick={() => navigate('/leads')} className="mt-4 text-brand-700 hover:underline">Back to Leads</button>
+        <button onClick={() => navigate(dashboardPath('/leads'))} className="mt-4 text-brand-700 hover:underline">Back to Leads</button>
       </div>
     );
   }
@@ -236,7 +237,7 @@ const LeadDetailPage: React.FC = () => {
     <div className="investo-page space-y-6 max-w-5xl">
       {/* Back + Header */}
       <div>
-        <button onClick={() => navigate('/leads')} className="flex items-center gap-1 text-sm text-ink-muted hover:text-ink-secondary mb-4">
+        <button onClick={() => navigate(dashboardPath('/leads'))} className="flex items-center gap-1 text-sm text-ink-muted hover:text-ink-secondary mb-4">
           <ArrowLeft className="h-4 w-4" /> Back to Leads
         </button>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -247,7 +248,7 @@ const LeadDetailPage: React.FC = () => {
           <div className="flex items-center gap-3">
             {lead.conversation_id && (
               <button 
-                onClick={() => navigate(`/conversations/${lead.conversation_id}`)}
+                onClick={() => navigate(dashboardPath('/conversations'))}
                 className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-brand-50 text-brand-800 hover:bg-brand-100 text-sm font-medium"
               >
                 <MessageSquare className="h-4 w-4" /> Go to Conversation

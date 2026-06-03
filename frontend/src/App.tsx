@@ -34,7 +34,13 @@ import {
   getOnboardingCompletionFromCache,
   setOnboardingCompletionCache,
 } from './utils/onboardingCompletionCache';
-import { getRoleHomePath, isPathAllowedForRole } from './config/navigation.config';
+import {
+  DASHBOARD_BASE,
+  dashboardPath,
+  getRoleHomePath,
+  isPathAllowedForRole,
+  resolveDashboardPath,
+} from './config/navigation.config';
 
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
@@ -160,9 +166,15 @@ export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
 export const RoleAwareIndex: React.FC = () => {
   const { user } = useAuth();
   if (user?.role === 'super_admin') {
-    return <Navigate to="/companies" replace />;
+    return <Navigate to={dashboardPath('/companies')} replace />;
   }
   return <DashboardPage />;
+};
+
+/** Redirect old top-level CRM URLs (/leads → /dashboard/leads) for bookmarks and emails. */
+export const LegacyDashboardRedirect: React.FC = () => {
+  const location = useLocation();
+  return <Navigate to={resolveDashboardPath(location.pathname) + location.search + location.hash} replace />;
 };
 
 const RoleAwareNotFound: React.FC = () => {
@@ -229,7 +241,7 @@ const App: React.FC = () => {
               {/* Dashboard routes - check onboarding first for company admins */}
               <Route element={<OnboardingGuard />}>
                 <Route element={<PropertyKnowledgeGuard />}>
-                <Route path="/dashboard" element={<DashboardLayout />}>
+                <Route path={DASHBOARD_BASE} element={<DashboardLayout />}>
                   <Route index element={<RoleAwareIndex />} />
                   <Route element={<RoleRoute path="/leads" />}>
                     <Route element={<FeatureRoute featureKey="lead_automation" />}>
@@ -298,6 +310,21 @@ const App: React.FC = () => {
                 </Route>
                 </Route>
               </Route>
+
+              {/* Legacy CRM paths without /dashboard prefix */}
+              <Route path="/leads/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/properties/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/conversations/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/calendar/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/agents/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/analytics/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/ai-settings/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/billing/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/settings/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/notifications/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/companies/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/emi-calculator/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/audit-logs/*" element={<LegacyDashboardRedirect />} />
             </Route>
 
             <Route path="*" element={<RoleAwareNotFound />} />

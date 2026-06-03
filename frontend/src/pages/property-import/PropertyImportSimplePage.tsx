@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
-import { getRoleCapabilities } from '../../config/navigation.config';
+import { dashboardPath, getRoleCapabilities } from '../../config/navigation.config';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -224,7 +224,7 @@ export default function PropertyImportSimplePage() {
     try {
       const saved = await deferPropertyImportKnowledge(draft.id);
       applyDraftUpdate(saved);
-      navigate('/properties', { replace: true });
+      navigate(dashboardPath('/properties'), { replace: true });
     } catch (error) {
       setPageError(getErrorMessage(error, 'Failed to defer knowledge step'));
     } finally {
@@ -290,7 +290,7 @@ export default function PropertyImportSimplePage() {
         max_retries: 3,
       });
       applyDraftUpdate(created);
-      navigate(`/properties/import/${created.id}`, { replace: true });
+      navigate(dashboardPath(`/properties/import/${created.id}`), { replace: true });
     } catch (error) {
       setPageError(getErrorMessage(error, 'Failed to create draft'));
     } finally {
@@ -321,7 +321,7 @@ export default function PropertyImportSimplePage() {
       });
       applyDraftUpdate(created);
       draftId = created.id;
-      navigate(`/properties/import/${draftId}`, { replace: true });
+      navigate(dashboardPath(`/properties/import/${draftId}`), { replace: true });
     }
 
     setIsUploading(true);
@@ -426,7 +426,7 @@ export default function PropertyImportSimplePage() {
       if (companyId) {
         clearPropertyKnowledgeGateCache(companyId);
       }
-      navigate('/properties', { replace: true });
+      navigate(dashboardPath('/properties'), { replace: true });
     } catch (error) {
       setPageError(getErrorMessage(error, 'Publish failed'));
     } finally {
@@ -446,7 +446,7 @@ export default function PropertyImportSimplePage() {
     <div className="investo-page mx-auto max-w-3xl space-y-6">
       <button
         type="button"
-        onClick={() => navigate('/properties')}
+        onClick={() => navigate(dashboardPath('/properties'))}
         className="inline-flex items-center gap-2 text-sm text-ink-secondary hover:text-ink-primary"
       >
         <ArrowLeft className="h-4 w-4" />
