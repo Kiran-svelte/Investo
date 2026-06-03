@@ -21,6 +21,7 @@ import EmiCalculatorPage from './pages/finance/EmiCalculatorPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import OnboardingPage from './pages/onboarding/OnboardingPage';
+import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage';
 import CompaniesPage from './pages/companies/CompaniesPage';
 import BillingPage from './pages/billing/BillingPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
@@ -208,6 +209,7 @@ const App: React.FC = () => {
           <Routes>
             <Route element={<PublicRoute />}>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
             </Route>

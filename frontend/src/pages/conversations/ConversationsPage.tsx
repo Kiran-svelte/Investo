@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { SOCKET_EVENTS, useSocketEvent } from '../../context/SocketContext';
 import api from '../../services/api';
+import Pagination from '../../components/common/Pagination';
 import {
   Search, MessageSquare, User, Bot, UserCheck,
   ArrowRight
@@ -55,17 +56,32 @@ const ConversationsPage: React.FC = () => {
   ]);
   const [sendLoading, setSendLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [convPage, setConvPage] = useState(1);
+  const [convTotalPages, setConvTotalPages] = useState(1);
+  const [convTotal, setConvTotal] = useState(0);
+  const [msgPage, setMsgPage] = useState(1);
+  const [msgTotalPages, setMsgTotalPages] = useState(1);
 
   useEffect(() => {
     loadConversations();
+  }, [search, convPage]);
+
+  useEffect(() => {
+    setConvPage(1);
   }, [search]);
 
   useEffect(() => {
     if (selectedConv) {
-      loadMessages(selectedConv.id);
+      setMsgPage(1);
+    }
+  }, [selectedConv?.id]);
+
+  useEffect(() => {
+    if (selectedConv) {
+      loadMessages(selectedConv.id, msgPage);
       setSendError(null);
     }
-  }, [selectedConv]);
+  }, [selectedConv, msgPage]);
 
   useSocketEvent(
     SOCKET_EVENTS.CONVERSATION_UPDATED,
@@ -90,8 +106,12 @@ const ConversationsPage: React.FC = () => {
       setLoading(true);
       const params = new URLSearchParams();
       if (search) params.append('search', search);
+      params.append('page', String(convPage));
+      params.append('limit', '25');
       const res = await api.get(`/conversations?${params.toString()}`);
       setConversations(res.data.data);
+      setConvTotalPages(res.data.pagination?.pages || 1);
+      setConvTotal(res.data.pagination?.total || 0);
     } catch (err) {
       console.error('Failed to load conversations', err);
     } finally {
@@ -99,11 +119,16 @@ const ConversationsPage: React.FC = () => {
     }
   };
 
-  const loadMessages = async (convId: string) => {
+  const loadMessages = async (convId: string, page = 1) => {
     try {
-      const res = await api.get(`/conversations/${convId}`);
+      const params = new URLSearchParams();
+      params.append('page', String(page));
+      params.append('limit', '50');
+      params.append('sort', 'desc');
+      const res = await api.get(`/conversations/${convId}?${params.toString()}`);
       const apiMessages = (res.data.data.messages || []).map((msg: any) => normalizeMessage(msg));
       setMessages(apiMessages);
+      setMsgTotalPages(res.data.pagination?.pages || 1);
     } catch (err) {
       console.error('Failed to load messages', err);
     }
@@ -348,6 +373,15 @@ const ConversationsPage: React.FC = () => {
             ))
           )}
         </div>
+        <div className="border-t border-gray-200 p-2">
+          <Pagination
+            page={convPage}
+            totalPages={convTotalPages}
+            total={convTotal}
+            onPageChange={setConvPage}
+            label="conversations"
+          />
+        </div>
       </div>
 
       {/* Chat View */}
@@ -446,6 +480,17 @@ const ConversationsPage: React.FC = () => {
                 );
               })}
             </div>
+            {msgTotalPages > 1 && (
+              <div className="border-t border-gray-200 bg-white px-4 py-2">
+                <Pagination
+                  page={msgPage}
+                  totalPages={msgTotalPages}
+                  total={0}
+                  onPageChange={setMsgPage}
+                  label="messages"
+                />
+              </div>
+            )}
 
             {/* Composer */}
             <div className="bg-white border-t border-gray-200 p-4">

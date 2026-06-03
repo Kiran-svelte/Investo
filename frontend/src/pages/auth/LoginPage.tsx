@@ -170,6 +170,10 @@ const LoginPage: React.FC = () => {
               )}
             </button>
           </form>
+
+          <p className="mt-4 text-center text-xs text-gray-500">
+            <Link to="/privacy" className="text-blue-600 hover:underline">Privacy Policy</Link>
+          </p>
         </div>
       </div>
     </div>

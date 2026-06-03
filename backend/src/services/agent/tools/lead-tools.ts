@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
+import { parseAgentListPagination, buildPaginationMeta } from '../../../utils/pagination';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
 import { buildAgentScopeFilter, formatCurrencyINR, formatDateIST, getStatusEmoji, maskPhone, truncate } from './format-helpers';
@@ -24,18 +25,33 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
     new DynamicStructuredTool({
       name: 'listLeads',
       description: 'List leads by status or search term. Sales agents see only assigned leads.',
-      schema: z.object({ status: leadStatus.optional(), search: z.string().optional(), limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional() }),
-      func: async ({ status, search, limit }) => {
+      schema: z.object({
+        status: leadStatus.optional(),
+        search: z.string().optional(),
+        page: z.number().int().min(1).optional(),
+        limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional(),
+      }),
+      func: async ({ status, search, page, limit }) => {
         const where: any = { ...leadScope(context), ...(status ? { status } : {}) };
         if (search) where.OR = [{ customerName: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }];
-        const leads = await prisma.lead.findMany({
-          where,
-          include: { assignedAgent: { select: { name: true } } },
-          orderBy: { updatedAt: 'desc' },
-          take: limit ?? DEFAULT_LIST_LIMIT,
-        });
+        const paging = parseAgentListPagination({ page, limit }, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
+        const [leads, total] = await Promise.all([
+          prisma.lead.findMany({
+            where,
+            include: { assignedAgent: { select: { name: true } } },
+            orderBy: { updatedAt: 'desc' },
+            skip: paging.offset,
+            take: paging.limit,
+          }),
+          prisma.lead.count({ where }),
+        ]);
         if (!leads.length) return 'No leads found.';
-        return ['*Leads*', ...leads.map((lead, i) => `${i + 1}. ${getStatusEmoji(lead.status)} *${lead.customerName ?? 'Unknown'}* ${maskPhone(lead.phone)}\n   Status: ${lead.status} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}\n   Budget: ${formatBudget(lead.budgetMin, lead.budgetMax)}\n   ID: ${lead.id}`)].join('\n\n');
+        const meta = buildPaginationMeta(paging.page, paging.limit, total);
+        return [
+          '*Leads*',
+          ...leads.map((lead, i) => `${(paging.page - 1) * paging.limit + i + 1}. ${getStatusEmoji(lead.status)} *${lead.customerName ?? 'Unknown'}* ${maskPhone(lead.phone)}\n   Status: ${lead.status} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}\n   Budget: ${formatBudget(lead.budgetMin, lead.budgetMax)}\n   ID: ${lead.id}`),
+          `\nPage ${meta.page}/${meta.pages} (${meta.total} total). Use page=${meta.page + 1} for more.`,
+        ].join('\n\n');
       },
     }),
     new DynamicStructuredTool({

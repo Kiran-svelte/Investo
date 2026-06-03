@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
+import Pagination from '../../components/common/Pagination';
 import {
   Building2, Plus, Search, Users, Check, X,
   Edit2, Power, PowerOff, UserPlus,
@@ -56,15 +57,24 @@ const CompaniesPage: React.FC = () => {
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const loadData = async () => {
     try {
+      const params = new URLSearchParams();
+      if (search) params.append('search', search);
+      params.append('page', String(page));
+      params.append('limit', '25');
       const [companiesRes, plansRes] = await Promise.all([
-        api.get('/companies'),
+        api.get(`/companies?${params.toString()}`),
         api.get('/subscriptions/plans'),
       ]);
       const planList = plansRes.data.data || [];
       setCompanies(companiesRes.data.data || []);
+      setTotalPages(companiesRes.data.pagination?.pages || 1);
+      setTotal(companiesRes.data.pagination?.total || 0);
       setPlans(planList);
     } catch (err) {
       console.error('Failed to load companies', err);
@@ -75,7 +85,11 @@ const CompaniesPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [page, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -360,6 +374,15 @@ const CompaniesPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        onPageChange={setPage}
+        label="companies"
+        className="mt-4"
+      />
 
       {inviteCompany && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">

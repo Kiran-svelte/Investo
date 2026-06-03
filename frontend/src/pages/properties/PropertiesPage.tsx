@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import Pagination from '../../components/common/Pagination';
 import {
   Search, Plus, MapPin, Bed, IndianRupee, Building2,
   Image as ImageIcon, X, Loader2, Edit3, Trash2, Upload
@@ -74,6 +75,9 @@ const PropertiesPage: React.FC = () => {
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [detailProperty, setDetailProperty] = useState<Property | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const loadProperties = useCallback(async () => {
     try {
@@ -81,14 +85,20 @@ const PropertiesPage: React.FC = () => {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (typeFilter) params.append('property_type', typeFilter);
+      params.append('page', String(page));
+      params.append('limit', '25');
       const res = await api.get(`/properties?${params.toString()}`);
       setProperties(res.data.data);
+      setTotalPages(res.data.pagination?.pages || 1);
+      setTotal(res.data.pagination?.total || 0);
     } catch (err) {
       console.error('Failed to load properties', err);
     } finally {
       setLoading(false);
     }
-  }, [search, typeFilter]);
+  }, [search, typeFilter, page]);
+
+  useEffect(() => { setPage(1); }, [search, typeFilter]);
 
   useEffect(() => { loadProperties(); }, [loadProperties]);
 
@@ -224,6 +234,15 @@ const PropertiesPage: React.FC = () => {
           })}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        onPageChange={setPage}
+        label="properties"
+        className="mt-6"
+      />
 
       {showModal && <PropertyModal property={editingProperty} onClose={() => { setShowModal(false); setEditingProperty(null); }} onSaved={() => { setShowModal(false); setEditingProperty(null); loadProperties(); }} />}
       {detailProperty && <PropertyDetailModal property={detailProperty} onClose={() => setDetailProperty(null)} />}

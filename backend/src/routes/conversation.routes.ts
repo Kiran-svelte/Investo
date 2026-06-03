@@ -11,6 +11,7 @@ import logger from '../config/logger';
 import config from '../config';
 import { whatsappService } from '../services/whatsapp.service';
 import { socketService, SOCKET_EVENTS } from '../services/socket.service';
+import { buildPaginationMeta, parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -144,13 +145,20 @@ router.get(
         }
       }
 
-      const conversations = await prisma.conversation.findMany({
-        where,
-        include: {
-          lead: { select: { customerName: true, phone: true, assignedAgentId: true } },
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
+      const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>);
+
+      const [conversations, total] = await Promise.all([
+        prisma.conversation.findMany({
+          where,
+          include: {
+            lead: { select: { customerName: true, phone: true, assignedAgentId: true } },
+          },
+          orderBy: { updatedAt: 'desc' },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.conversation.count({ where }),
+      ]);
 
       // Get last message for each conversation
       const convIds = conversations.map((c) => c.id);
@@ -171,7 +179,10 @@ router.get(
         mapConversationToSnakeCaseDTO(conv, { lastMessage: lastMsgMap.get(conv.id) || null })
       );
 
-      res.json({ data: enriched, total: enriched.length });
+      res.json({
+        data: enriched,
+        pagination: buildPaginationMeta(page, limit, total),
+      });
     } catch (err: any) {
       logger.error('Failed to fetch conversations', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch conversations' });
@@ -206,18 +217,32 @@ router.get(
         return;
       }
 
-      // Get all messages
-      const messages = await prisma.message.findMany({
-        where: { conversationId: conversation.id },
-        orderBy: { createdAt: 'asc' },
+      // Paginated messages (default chronological page 1 = oldest chunk; use sort=desc for latest-first)
+      const sortDesc = req.query.sort === 'desc';
+      const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, {
+        limit: 50,
+        maxLimit: 100,
       });
+
+      const [messages, messageTotal] = await Promise.all([
+        prisma.message.findMany({
+          where: { conversationId: conversation.id },
+          orderBy: { createdAt: sortDesc ? 'desc' : 'asc' },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.message.count({ where: { conversationId: conversation.id } }),
+      ]);
+
+      const orderedMessages = sortDesc ? [...messages].reverse() : messages;
 
       const dto = mapConversationToSnakeCaseDTO(conversation);
       res.json({
         data: {
           ...dto,
-          messages: messages.map((msg: any) => mapMessageToDTO(msg)),
+          messages: orderedMessages.map((msg: any) => mapMessageToDTO(msg)),
         },
+        pagination: buildPaginationMeta(page, limit, messageTotal),
       });
     } catch (err: any) {
       logger.error('Failed to fetch conversation', { error: err.message });

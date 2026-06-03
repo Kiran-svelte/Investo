@@ -97,6 +97,18 @@ export const sensitiveRateLimiter: RateLimitRequestHandler = rateLimit({
  * Export endpoints rate limiter (prevents bulk data exfiltration)
  * 10 exports per hour per user
  */
+export const webhookRateLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: WINDOW_MS,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request): string => `webhook:${req.ip || 'unknown'}`,
+  message: {
+    error: 'Webhook rate limit exceeded.',
+    retryAfter: 60,
+  },
+});
+
 export const exportRateLimiter: RateLimitRequestHandler = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
@@ -104,9 +116,9 @@ export const exportRateLimiter: RateLimitRequestHandler = rateLimit({
     const user = (req as any).user;
     return user?.id ? `export:${user.id}` : `export:ip:${req.ip || 'unknown'}`;
   },
-  message: { 
+  message: {
     error: 'Export limit reached. Maximum 10 exports per hour.',
-    retryAfter: 3600
+    retryAfter: 3600,
   },
 });
 

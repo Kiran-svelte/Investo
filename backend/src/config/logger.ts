@@ -1,11 +1,13 @@
 import winston from 'winston';
 import config from './index';
+import { redactSensitiveData } from '../utils/sanitize';
 
 const logger = winston.createLogger({
   level: config.env === 'production' ? 'info' : 'debug',
   format: winston.format.combine(
     winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     winston.format.errors({ stack: true }),
+    winston.format((info) => redactSensitiveData(info))(),
     winston.format.json()
   ),
   defaultMeta: { service: 'investo-api' },
@@ -20,15 +22,6 @@ const logger = winston.createLogger({
       ),
     }),
   ],
-});
-
-// Never log sensitive data
-logger.on('data', (info) => {
-  if (info.password || info.token || info.secret) {
-    delete info.password;
-    delete info.token;
-    delete info.secret;
-  }
 });
 
 export default logger;

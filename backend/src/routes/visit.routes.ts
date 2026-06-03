@@ -13,6 +13,7 @@ import { scheduleVisit } from '../services/visitBooking.service';
 import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import { transitionLeadStatus } from '../services/leadTransition.service';
 import { automationService } from '../services/automation.service';
+import { buildPaginationMeta, parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -85,19 +86,32 @@ router.get(
       if (status) where.status = status as string;
       if (agent_id) where.agentId = agent_id as string;
 
-      const visits = await prisma.visit.findMany({
-        where,
-        include: {
-          lead: { select: { customerName: true, phone: true } },
-          property: { select: { name: true, locationArea: true } },
-          agent: { select: { name: true } },
-        },
-        orderBy: { scheduledAt: 'asc' },
+      const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, {
+        limit: 50,
+        maxLimit: 200,
       });
+
+      const [visits, total] = await Promise.all([
+        prisma.visit.findMany({
+          where,
+          include: {
+            lead: { select: { customerName: true, phone: true } },
+            property: { select: { name: true, locationArea: true } },
+            agent: { select: { name: true } },
+          },
+          orderBy: { scheduledAt: 'asc' },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.visit.count({ where }),
+      ]);
 
       const data = visits.map((visit) => mapVisitToSnakeCaseDTO(visit));
 
-      res.json({ data, total: data.length });
+      res.json({
+        data,
+        pagination: buildPaginationMeta(page, limit, total),
+      });
     } catch (err: any) {
       logger.error('Failed to fetch visits', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch visits' });

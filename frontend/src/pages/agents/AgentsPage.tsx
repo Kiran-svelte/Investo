@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { Users, TrendingUp, Award, Phone, Mail, Loader2, Plus, X } from 'lucide-react';
+import Pagination from '../../components/common/Pagination';
 
 interface AgentStats {
   agent_id: string;
@@ -49,17 +50,23 @@ const AgentsPage: React.FC = () => {
     company_id: '',
     must_change_password: true,
   });
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [page]);
 
   const loadData = async () => {
     try {
       setLoading(true);
+      const params = new URLSearchParams();
+      params.append('page', String(page));
+      params.append('limit', '25');
       const requests: Promise<any>[] = [
         api.get('/analytics/agents'),
-        api.get('/users'),
+        api.get(`/users?${params.toString()}`),
       ];
       
       // Super admin needs company list
@@ -69,9 +76,10 @@ const AgentsPage: React.FC = () => {
       
       const results = await Promise.all(requests);
       setAgentStats(results[0].data.data || []);
-      // Filter to show sales_agent and operations roles
       const allUsers = results[1].data.data || [];
       setAgentUsers(allUsers.filter((u: AgentUser) => ['sales_agent', 'operations'].includes(u.role)));
+      setTotalPages(results[1].data.pagination?.pages || 1);
+      setTotalUsers(results[1].data.pagination?.total || 0);
       
       if (user?.role === 'super_admin' && results[2]) {
         setCompanies(results[2].data.data || []);
@@ -220,6 +228,15 @@ const AgentsPage: React.FC = () => {
           })}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={totalUsers}
+        onPageChange={setPage}
+        label="team members"
+        className="mt-6"
+      />
 
       {/* Add Team Member Modal */}
       {showModal && (

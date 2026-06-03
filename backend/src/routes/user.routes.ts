@@ -12,6 +12,7 @@ import { emailService } from '../services/email.service';
 import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { buildPaginationMeta, parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -58,14 +59,21 @@ router.get(
         where.role = role as string;
       }
 
-      const users = await prisma.user.findMany({
-        where,
-        select: {
-          id: true, companyId: true, name: true, email: true, phone: true,
-          role: true, status: true, lastLogin: true, createdAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>);
+
+      const [users, total] = await Promise.all([
+        prisma.user.findMany({
+          where,
+          select: {
+            id: true, companyId: true, name: true, email: true, phone: true,
+            role: true, status: true, lastLogin: true, createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.user.count({ where }),
+      ]);
 
       // Enrich with lead counts for agents
       if (users.length > 0) {
@@ -98,11 +106,17 @@ router.get(
           sales_count: salesMap.get(u.id) || 0,
         }));
 
-        res.json({ data: enriched, total: enriched.length });
+        res.json({
+          data: enriched,
+          pagination: buildPaginationMeta(page, limit, total),
+        });
         return;
       }
 
-      res.json({ data: users, total: users.length });
+      res.json({
+        data: users,
+        pagination: buildPaginationMeta(page, limit, total),
+      });
     } catch (err: any) {
       logger.error('Failed to fetch users', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch users' });

@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import config from './config';
 import logger from './config/logger';
-import { userRateLimiter, companyRateLimiter, sensitiveRateLimiter } from './middleware/rateLimiter';
+import { userRateLimiter, companyRateLimiter, sensitiveRateLimiter, webhookRateLimiter } from './middleware/rateLimiter';
 import authRoutes from './routes/auth.routes';
 import companyRoutes from './routes/company.routes';
 import userRoutes from './routes/user.routes';
@@ -58,12 +58,11 @@ app.use(
 app.use('/api/health', healthRoutes);
 app.use('/api/readiness', readinessRoutes);
 
-// Webhook routes (no rate limiting - verified by signature)
-// IMPORTANT: This must run before global JSON parsing so we can verify signatures against raw request bytes.
-app.use('/api/webhook', webhookRoutes);
+// Webhook routes (signature verified; light rate limit against abuse)
+app.use('/api/webhook', webhookRateLimiter, webhookRoutes);
 
 // GreenAPI webhook route (guarded internally for production)
-app.use('/api/greenapi/webhook', greenApiWebhookRoutes);
+app.use('/api/greenapi/webhook', webhookRateLimiter, greenApiWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));

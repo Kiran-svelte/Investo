@@ -8,6 +8,8 @@ import { createCompanySchema, normalizeIndianPhoneNumber, isIndianE164Phone } fr
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { provisionNewCompany } from '../services/companyProvisioning.service';
+import { buildPaginationMeta, parsePagination } from '../utils/pagination';
+import { sanitizeCompanyRecord, mergeSettingsPreservingSecrets } from '../utils/sanitize';
 
 const router = Router();
 
@@ -22,10 +24,27 @@ router.use(authenticate);
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     if (req.user!.role === 'super_admin') {
-      const companies = await prisma.company.findMany({
-        include: { plan: true },
-        orderBy: { createdAt: 'desc' },
-      });
+      const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>);
+      const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+      const where = search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' as const } },
+              { slug: { contains: search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {};
+
+      const [companies, total] = await Promise.all([
+        prisma.company.findMany({
+          where,
+          include: { plan: true },
+          orderBy: { createdAt: 'desc' },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.company.count({ where }),
+      ]);
 
       // Get agent counts per company
       const agentCounts = await prisma.user.groupBy({
@@ -35,15 +54,20 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       });
 
       const countsMap = new Map(agentCounts.map((c) => [c.companyId, c._count.id]));
-      const enriched = companies.map(({ plan, ...c }) => ({
-        ...c,
-        plan_name: plan?.name ?? null,
-        max_agents: plan?.maxAgents ?? null,
-        price_monthly: plan?.priceMonthly ?? null,
-        agent_count: countsMap.get(c.id) || 0,
-      }));
+      const enriched = companies.map(({ plan, ...c }) =>
+        sanitizeCompanyRecord({
+          ...c,
+          plan_name: plan?.name ?? null,
+          max_agents: plan?.maxAgents ?? null,
+          price_monthly: plan?.priceMonthly ?? null,
+          agent_count: countsMap.get(c.id) || 0,
+        }),
+      );
 
-      res.json({ data: enriched, total: enriched.length });
+      res.json({
+        data: enriched,
+        pagination: buildPaginationMeta(page, limit, total),
+      });
     } else {
       const company = await prisma.company.findFirst({
         where: { id: req.user!.company_id },
@@ -56,12 +80,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }
 
       const { plan, ...companyData } = company;
-      const data = {
+      const data = sanitizeCompanyRecord({
         ...companyData,
         plan_name: plan?.name ?? null,
         max_agents: plan?.maxAgents ?? null,
         price_monthly: plan?.priceMonthly ?? null,
-      };
+      });
 
       res.json({ data });
     }
@@ -179,6 +203,10 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
+      const existingCompany = await prisma.company.findFirst({
+        where: { id },
+        select: { settings: true },
+      });
 
       if (req.user!.role === 'super_admin') {
         // Super admin can update everything including settings
@@ -223,7 +251,11 @@ router.put(
             ...(whatsapp_phone !== undefined && { whatsappPhone: normalizedWhatsAppPhone }),
             ...(plan_id !== undefined && { planId: plan_id }),
             ...(status && { status }),
-            ...(settings !== undefined && { settings }),
+            ...(settings !== undefined && {
+              settings: mergeSettingsPreservingSecrets(existingCompany?.settings, settings) as Parameters<
+                typeof prisma.company.update
+              >[0]['data']['settings'],
+            }),
           },
         });
       } else if (req.user!.role === 'company_admin' && id === req.user!.company_id) {
@@ -233,7 +265,11 @@ router.put(
           where: { id },
           data: {
             ...(name && { name }),
-            ...(settings && { settings }),
+            ...(settings && {
+              settings: mergeSettingsPreservingSecrets(existingCompany?.settings, settings) as Parameters<
+                typeof prisma.company.update
+              >[0]['data']['settings'],
+            }),
           },
         });
       } else {
@@ -242,7 +278,7 @@ router.put(
       }
 
       const updated = await prisma.company.findFirst({ where: { id } });
-      res.json({ data: updated });
+      res.json({ data: updated ? sanitizeCompanyRecord(updated as Record<string, unknown>) : updated });
     } catch (err: any) {
       logger.error('Failed to update company', { error: err.message });
       res.status(500).json({ error: 'Failed to update company' });
