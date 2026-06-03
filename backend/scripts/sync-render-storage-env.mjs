@@ -31,9 +31,10 @@ async function upsert(auth, key, value) {
     console.warn(`Skip ${key} (empty)`);
     return;
   }
+  const authorization = auth.startsWith('Bearer ') ? auth : `Bearer ${auth}`;
   const res = await fetch(`https://api.render.com/v1/services/${SERVICE_ID}/env-vars/${encodeURIComponent(key)}`, {
     method: 'PUT',
-    headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: authorization, 'Content-Type': 'application/json' },
     body: JSON.stringify({ value }),
   });
   if (!res.ok) {

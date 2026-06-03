@@ -31,7 +31,7 @@ const login = await api('/auth/login', {
   method: 'POST',
   body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
 });
-const token = login.data?.access_token || login.data?.token;
+const token = login.data?.tokens?.access_token || login.data?.access_token || login.data?.token;
 if (!token) {
   throw new Error('Login did not return token');
 }
