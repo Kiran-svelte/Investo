@@ -57,55 +57,57 @@ afterEach(() => {
   cleanup();
 });
 
+const persistedProperty = {
+  id: 'property-1',
+  name: 'Aurora Homes',
+  builder: null,
+  location_city: null,
+  location_area: null,
+  location_pincode: null,
+  price_min: null,
+  price_max: null,
+  bedrooms: null,
+  property_type: null,
+  status: 'available',
+  images: [],
+  amenities: [],
+  description: null,
+  rera_number: null,
+  brochure_url: 'https://cdn.example.com/brochure.pdf',
+  price_list_url: 'https://cdn.example.com/prices.pdf',
+  floor_plan_urls: ['https://cdn.example.com/floor-1.pdf'],
+  latitude: 0,
+  longitude: 0,
+};
+
 describe('PropertiesPage rich media form flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getMock.mockResolvedValue({ data: { data: [] } });
+    getMock.mockImplementation(() =>
+      Promise.resolve({
+        data: {
+          data: postMock.mock.calls.length > 0 ? [persistedProperty] : [],
+        },
+      }),
+    );
     postMock.mockResolvedValue({ data: { data: { id: 'property-1' } } });
   });
 
   it('supports add/remove floor plan rows, serializes payload, and re-renders persisted rich media/location fields', async () => {
     const user = userEvent.setup();
 
-    getMock.mockReset();
-    getMock
-      .mockResolvedValueOnce({ data: { data: [] } })
-      .mockResolvedValueOnce({
-        data: {
-          data: [
-            {
-              id: 'property-1',
-              name: 'Aurora Homes',
-              builder: null,
-              location_city: null,
-              location_area: null,
-              location_pincode: null,
-              price_min: null,
-              price_max: null,
-              bedrooms: null,
-              property_type: null,
-              status: 'available',
-              images: [],
-              amenities: [],
-              description: null,
-              rera_number: null,
-              brochure_url: 'https://cdn.example.com/brochure.pdf',
-              price_list_url: 'https://cdn.example.com/prices.pdf',
-              floor_plan_urls: ['https://cdn.example.com/floor-1.pdf'],
-              latitude: 0,
-              longitude: 0,
-            },
-          ],
-        },
-      });
-
     render(<PropertiesPage />);
 
-    await screen.findByText('common.no_data');
+    await waitFor(() => {
+      expect(screen.queryByText('common.loading')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('common.no_data')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'properties.new_property' }));
 
     await user.type(screen.getByLabelText('Name *'), 'Aurora Homes');
+    await user.type(screen.getByLabelText('Price Min (₹)'), '5000000');
+    await user.type(screen.getByLabelText('Price Max (₹)'), '8000000');
     await user.type(screen.getByLabelText('Brochure URL'), 'https://cdn.example.com/brochure.pdf');
     await user.type(screen.getByLabelText('Price List URL'), 'https://cdn.example.com/prices.pdf');
     await user.clear(screen.getByLabelText('Latitude'));
@@ -161,10 +163,15 @@ describe('PropertiesPage rich media form flow', () => {
 
     render(<PropertiesPage />);
 
-    await screen.findByText('common.no_data');
+    await waitFor(() => {
+      expect(screen.queryByText('common.loading')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('common.no_data')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'properties.new_property' }));
 
     await user.type(screen.getByLabelText('Name *'), 'Failure Case Homes');
+    await user.type(screen.getByLabelText('Price Min (₹)'), '3000000');
+    await user.type(screen.getByLabelText('Price Max (₹)'), '6000000');
     await user.click(screen.getByRole('button', { name: 'common.create' }));
 
     expect(await screen.findByText('Failed to save property from API')).toBeInTheDocument();

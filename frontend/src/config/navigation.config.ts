@@ -137,7 +137,7 @@ export function getRoleHomePath(role: UserRole | undefined): string {
     case 'viewer':
       return '/leads';
     default:
-      return '/';
+      return '/dashboard';
   }
 }
 

@@ -97,7 +97,7 @@ describe('route guard behavior', () => {
           <Route element={<OnboardingAccessRoute />}>
             <Route path="/onboarding" element={<div>Onboarding page</div>} />
           </Route>
-          <Route path="/" element={<div>Home page</div>} />
+          <Route path="/dashboard" element={<div>Home page</div>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -130,7 +130,7 @@ describe('route guard behavior', () => {
           <Route element={<OnboardingAccessRoute />}>
             <Route path="/onboarding" element={<div>Onboarding page</div>} />
           </Route>
-          <Route path="/" element={<div>Home page</div>} />
+          <Route path="/dashboard" element={<div>Home page</div>} />
         </Routes>
       </MemoryRouter>,
     );

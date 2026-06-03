@@ -90,9 +90,6 @@ const PropertiesPage: React.FC = () => {
       const res = await api.get(`/properties?${params.toString()}`);
       const body = res.data as { data?: Property[]; pagination?: { pages?: number; total?: number } };
       const list = Array.isArray(body?.data) ? body.data : [];
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',runId:'post-fix',hypothesisId:'H2',location:'PropertiesPage.tsx:loadProperties',message:'properties list loaded',data:{count:list.length,isArray:Array.isArray(body?.data)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       setProperties(list);
       setTotalPages(body.pagination?.pages || 1);
       setTotal(body.pagination?.total || 0);
