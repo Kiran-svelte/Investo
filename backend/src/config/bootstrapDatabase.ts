@@ -28,6 +28,9 @@ async function applyCompatibilityPatches(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS property_knowledge_chunks_company_property_idx ON property_knowledge_chunks (company_id, property_id)`,
   );
 
+  // Lead CRM metadata (8-pillar: lead_score, tags, source_detail, lost_reason).
+  await prisma.$executeRawUnsafe(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`);
+
   // users table compatibility (for Neon Auth migration + RBAC custom roles).
   await prisma.$executeRawUnsafe(`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider_id VARCHAR(255)`);
   await prisma.$executeRawUnsafe(`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`);
