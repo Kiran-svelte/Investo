@@ -186,6 +186,16 @@ export function buildPropertyKnowledgeSections(input: {
   }
 
   if (input.draftData) {
+    const marketing = input.draftData.ai_marketing_answers ?? input.draftData.aiMarketingAnswers;
+    if (marketing && typeof marketing === 'object' && !Array.isArray(marketing)) {
+      const lines = Object.entries(marketing as Record<string, unknown>)
+        .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+        .map(([k, v]) => `${k}: ${String(v)}`);
+      if (lines.length > 0) {
+        sections.push(`Marketing knowledge (admin confirmed):\n${lines.join('\n')}`);
+      }
+    }
+
     const reviewNotes = typeof input.draftData.review_notes === 'string' ? input.draftData.review_notes.trim() : '';
     if (reviewNotes) {
       sections.push(`Internal review notes:\n${reviewNotes}`);

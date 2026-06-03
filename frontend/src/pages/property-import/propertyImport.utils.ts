@@ -373,6 +373,13 @@ export function serializePropertyImportFormValues(
       ...existingReview,
       review_notes: values.review_notes.trim() || null,
     },
+    ai_marketing_answers: (() => {
+      if (!existingDraftData || typeof existingDraftData !== 'object') {
+        return {};
+      }
+      const prior = existingDraftData.ai_marketing_answers ?? existingDraftData.aiMarketingAnswers;
+      return prior && typeof prior === 'object' && !Array.isArray(prior) ? prior : {};
+    })(),
   };
 }
 

@@ -40,6 +40,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../services/propertyImport', () => ({
+  normalizePropertyImportDraft: (draft: unknown) => draft,
   cancelPropertyImportDraft: vi.fn(),
   confirmPropertyImportUpload: vi.fn(),
   createPropertyImportDraft: vi.fn(),
@@ -73,6 +74,18 @@ function createDraft(overrides: Record<string, unknown> = {}) {
     failureReason: null,
     draftData: {
       name: 'Skyline Towers',
+      property_type: 'apartment',
+      price_min: 8500000,
+      price_max: 12500000,
+      location_city: 'Bengaluru',
+      amenities: ['Pool', 'Gym'],
+      ai_marketing_answers: {
+        target_buyer: 'End-user families',
+        possession_timeline: 'Within 12 months',
+        payment_plan: 'Bank loan / EMI assistance',
+        key_selling_point: 'Prime location / connectivity',
+        amenities_focus: 'Clubhouse & pool',
+      },
       import_mapping: {
         source_type: 'brochure',
         profile_name: 'default-profile',
@@ -140,6 +153,8 @@ describe('PropertyImportPage review workflow', () => {
       property: { id: 'property-1', name: 'Skyline Towers' },
       draft: createDraft({ status: 'published', publishedPropertyId: 'property-1' }),
       alreadyPublished: false,
+      knowledge_indexed: true,
+      knowledge_chunk_count: 3,
     });
   });
 
@@ -147,8 +162,8 @@ describe('PropertyImportPage review workflow', () => {
     render(<PropertyImportPage />);
 
     expect(await screen.findByRole('heading', { name: 'Review draft details' })).toBeInTheDocument();
-    expect(screen.getByText('Mapping profile')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save review' })).toBeInTheDocument();
+    expect(screen.getByText(/Advanced: field mapping/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish property' })).toBeInTheDocument();
   });
 
@@ -166,17 +181,14 @@ describe('PropertyImportPage review workflow', () => {
 
     await screen.findByRole('heading', { name: 'Review draft details' });
 
-    const approveCheckbox = screen.getByLabelText('Approve this review and mark the draft ready to publish');
-    await user.click(approveCheckbox);
-
-    const saveButton = screen.getByRole('button', { name: 'Save review' });
+    const saveButton = screen.getByRole('button', { name: 'Save draft' });
     await user.click(saveButton);
 
     expect(savePropertyImportDraftMock).toHaveBeenCalledTimes(1);
     expect(savePropertyImportDraftMock).toHaveBeenCalledWith(
       'draft-1',
       expect.objectContaining({
-        mark_publish_ready: true,
+        mark_publish_ready: false,
       }),
     );
     expect(saveButton).toBeDisabled();
@@ -196,7 +208,7 @@ describe('PropertyImportPage review workflow', () => {
     }));
 
     await waitFor(() => {
-      expect(screen.getByText('This draft is approved for publishing.')).toBeInTheDocument();
+      expect(saveButton).not.toBeDisabled();
     });
   });
 
@@ -208,7 +220,7 @@ describe('PropertyImportPage review workflow', () => {
 
     await screen.findByRole('heading', { name: 'Review draft details' });
 
-    const saveButton = screen.getByRole('button', { name: 'Save review' });
+    const saveButton = screen.getByRole('button', { name: 'Save draft' });
     await user.click(saveButton);
 
     expect(await screen.findByText('Save failed for network timeout')).toBeInTheDocument();
@@ -221,9 +233,6 @@ describe('PropertyImportPage review workflow', () => {
     render(<PropertyImportPage />);
 
     await screen.findByRole('heading', { name: 'Review draft details' });
-
-    const approveCheckbox = screen.getByLabelText('Approve this review and mark the draft ready to publish');
-    await user.click(approveCheckbox);
 
     const publishButton = screen.getByRole('button', { name: 'Publish property' });
     await user.click(publishButton);

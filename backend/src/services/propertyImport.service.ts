@@ -639,7 +639,15 @@ export class PropertyImportService {
     const images = successfulMedia.filter((item) => item.assetType === 'image').map((item) => item.publicUrl);
     const brochure = successfulMedia.find((item) => item.assetType === 'brochure');
 
-    const propertyData = mapDraftToPropertyData(draft.draftData as Record<string, unknown>, {
+    const propertyType = draftData.property_type ?? draftData.propertyType;
+    if (!propertyType || String(propertyType).trim() === '') {
+      throw new PropertyImportError(
+        'Property type is required (apartment, villa, plot, or commercial) before publishing.',
+        400,
+      );
+    }
+
+    const propertyData = mapDraftToPropertyData(draftData, {
       images,
       brochureUrl: brochure?.publicUrl || null,
     });

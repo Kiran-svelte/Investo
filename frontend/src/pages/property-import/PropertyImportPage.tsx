@@ -55,6 +55,8 @@ import {
   type PropertyImportFieldMappingFormValue,
   type PropertyImportFormValues,
 } from './propertyImport.utils';
+import { getPublishReadiness } from './propertyImportPublishReadiness';
+import PropertyImportKnowledgeWizard from './PropertyImportKnowledgeWizard';
 
 type DraftUploadStatus = 'pending' | 'registering' | 'uploading' | 'confirming' | 'done' | 'failed';
 
@@ -189,6 +191,8 @@ export default function PropertyImportPage() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [markPublishReady, setMarkPublishReady] = useState(false);
   const [retryReason, setRetryReason] = useState('');
+  const [showKnowledgeWizard, setShowKnowledgeWizard] = useState(false);
+  const [showAdvancedMapping, setShowAdvancedMapping] = useState(false);
 
   const stage = useMemo(() => getPropertyImportStage(draft), [draft]);
   const mappingMetadata = useMemo(() => getPropertyImportMappingMetadata(draft?.draftData), [draft?.draftData]);
@@ -561,39 +565,33 @@ export default function PropertyImportPage() {
       return;
     }
 
-    const minPrice = formValues.price_min.trim();
-    const maxPrice = formValues.price_max.trim();
-    if (!minPrice || !maxPrice) {
-      setPageError('Set Price min (₹) and Price max (₹) for this project before publishing.');
-      return;
-    }
-    if (Number(minPrice) > Number(maxPrice)) {
-      setPageError('Price min cannot be greater than price max.');
-      return;
-    }
+    const readiness = getPublishReadiness({
+      formValues,
+      draft,
+      isUploading,
+      activeUploadCount: activeUploads.length,
+    });
 
-    if (activeUploads.length > 0 || isUploading) {
-      setPageError('Wait for all file uploads to finish before publishing.');
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b4d7f2'},body:JSON.stringify({sessionId:'b4d7f2',runId:'publish',hypothesisId:'P1',location:'PropertyImportPage.tsx:handlePublish',message:'publish clicked',data:{ready:readiness.ready,blockers:readiness.blockers.length,missingQuestions:readiness.missingQuestions.length,markPublishReady,draftStatus:draft.status},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
+    if (!readiness.ready) {
+      setPageError(readiness.blockers.join(' '));
       return;
     }
 
     setIsPublishing(true);
     try {
-      const persistedReview = getPropertyImportReviewMetadata(draft.draftData);
-      const isDraftMarkedReady =
-        draft.status === 'publish_ready' ||
-        draft.status === 'published' ||
-        persistedReview.status === 'approved';
-
-      if (isDirty || markPublishReady !== isDraftMarkedReady) {
-        const saved = await savePropertyImportDraft(draft.id, {
-          draft_data: serializePropertyImportFormValues(formValues, draft.draftData),
-          review_notes: formValues.review_notes.trim() || null,
-          mark_publish_ready: markPublishReady,
-        });
-        applyDraftUpdate(saved);
-        setPageError('');
-      }
+      const serialized = serializePropertyImportFormValues(formValues, draft.draftData);
+      const saved = await savePropertyImportDraft(draft.id, {
+        draft_data: serialized,
+        review_notes: formValues.review_notes.trim() || null,
+        mark_publish_ready: true,
+      });
+      applyDraftUpdate(saved);
+      setMarkPublishReady(true);
+      setPageError('');
 
       const published = await publishPropertyImportDraft(draft.id, {});
       if (!published.knowledge_indexed) {
@@ -659,6 +657,18 @@ export default function PropertyImportPage() {
 
   const activeUploads = uploadItems.filter((item) => item.status !== 'done');
   const completedUploads = uploadItems.filter((item) => item.status === 'done');
+
+  const publishReadiness = useMemo(
+    () => getPublishReadiness({
+      formValues,
+      draft,
+      isUploading,
+      activeUploadCount: activeUploads.length,
+    }),
+    [formValues, draft, isUploading, activeUploads.length],
+  );
+
+  const showUploadPanel = !draft || draft.status === 'draft' || draft.extractionStatus === 'pending_upload';
 
   if (!canManageProperties) {
     return (
@@ -820,6 +830,8 @@ export default function PropertyImportPage() {
             </div>
           </section>
 
+          {showUploadPanel ? (
+          <>
           <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -954,6 +966,30 @@ export default function PropertyImportPage() {
               </div>
             )}
           </section>
+          </>
+          ) : (
+            <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+              <p className="text-sm font-medium text-gray-900">Media uploaded</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {(draft?.mediaAssets?.length ?? 0)} file(s) in storage. Use &quot;Add more media&quot; below if you need another brochure.
+              </p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 text-sm font-medium text-blue-600 hover:text-blue-800"
+              >
+                Add more media
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={PROPERTY_IMPORT_SUPPORTED_MIME_TYPES.join(',')}
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </section>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -1021,6 +1057,8 @@ export default function PropertyImportPage() {
                 onChange={(value) => updateField('property_type', value)}
                 options={PROPERTY_IMPORT_PROPERTY_TYPES.map((option) => ({ value: option, label: option }))}
                 disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
+                required
+                highlight={!formValues.property_type.trim()}
               />
               <Field
                 label="City"
@@ -1114,16 +1152,26 @@ export default function PropertyImportPage() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAdvancedMapping((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 text-left"
+              >
                 <div>
                   <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
                     <ListFilter className="h-3.5 w-3.5" />
-                    Mapping profile
+                    Advanced: field mapping
                   </div>
                   <p className="mt-2 text-sm text-slate-600">
-                    Save company-specific source mappings and review thresholds with the draft so future imports can reuse the same structure.
+                    Optional — only needed if extraction confidence is low.
                   </p>
                 </div>
+                <span className="text-sm font-medium text-blue-600">{showAdvancedMapping ? 'Hide' : 'Show'}</span>
+              </button>
+
+              {showAdvancedMapping && (
+              <>
+              <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-slate-200 pt-4">
                 <div className="text-xs text-slate-500">
                   Source type: <span className="font-medium text-slate-700">{mappingMetadata.source_type}</span>
                 </div>
@@ -1264,22 +1312,32 @@ export default function PropertyImportPage() {
                       : 'No review is currently required for this mapping profile.'}
                 </p>
               </div>
+              </>
+              )}
             </div>
 
-            <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={markPublishReady}
-                  onChange={(event) => setMarkPublishReady(event.target.checked)}
-                  disabled={!!draft && isPropertyImportTerminalStatus(draft.status)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                Approve this review and mark the draft ready to publish
-              </label>
-              <p className="mt-2 text-xs text-gray-500">
-                Publishing stays blocked until you explicitly approve the review.
+            <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50/80 p-4">
+              <p className="text-sm font-semibold text-emerald-900">Ready to go live?</p>
+              <p className="mt-1 text-xs text-emerald-800">
+                Publish saves your review, approves the draft, and indexes AI knowledge for WhatsApp.
               </p>
+              {publishReadiness.blockers.length > 0 && (
+                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-red-800">
+                  {publishReadiness.blockers.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              )}
+              {publishReadiness.missingQuestions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowKnowledgeWizard(true)}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-700"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Answer {publishReadiness.missingQuestions.length} AI questions
+                </button>
+              )}
             </div>
 
             <div className="mt-4">
@@ -1301,15 +1359,31 @@ export default function PropertyImportPage() {
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={!draft?.id || isSaving || (draft ? isPropertyImportTerminalStatus(draft.status) : false)}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save review
+                Save draft
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowKnowledgeWizard(true)}
+                disabled={!draft?.id || publishReadiness.missingQuestions.length === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+              >
+                <Sparkles className="h-4 w-4" />
+                AI knowledge Q&amp;A
               </button>
               <button
                 type="button"
                 onClick={() => void handlePublish()}
-                disabled={!draft?.id || isPublishing || !markPublishReady || (!draft || isPropertyImportTerminalStatus(draft.status))}
+                disabled={!draft?.id || isPublishing || !publishReadiness.ready || (!draft || isPropertyImportTerminalStatus(draft.status))}
+                title={
+                  !publishReadiness.ready
+                    ? publishReadiness.blockers[0]
+                    : publishReadiness.missingQuestions.length > 0
+                      ? 'Optional: complete AI knowledge Q&A for better WhatsApp answers'
+                      : 'Publish to catalog and index AI knowledge'
+                }
                 className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
               >
                 {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -1317,6 +1391,23 @@ export default function PropertyImportPage() {
               </button>
             </div>
           </section>
+
+          <PropertyImportKnowledgeWizard
+            open={showKnowledgeWizard}
+            questions={publishReadiness.missingQuestions}
+            formValues={formValues}
+            draftData={draft?.draftData}
+            onClose={() => setShowKnowledgeWizard(false)}
+            onComplete={({ formValues: nextForm, draftData: nextDraftData }) => {
+              setFormValues(nextForm);
+              setIsDirty(true);
+              if (draft) {
+                setDraft({ ...draft, draftData: nextDraftData });
+              }
+              setShowKnowledgeWizard(false);
+              setPageError('');
+            }}
+          />
 
           {draft?.status === 'failed' && (
             <section className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
@@ -1430,17 +1521,23 @@ interface SelectFieldProps {
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
   className?: string;
+  required?: boolean;
+  highlight?: boolean;
 }
 
-function SelectField({ label, value, onChange, options, disabled, className }: SelectFieldProps) {
+function SelectField({ label, value, onChange, options, disabled, className, required, highlight }: SelectFieldProps) {
   return (
     <label className={`block ${className || ''}`}>
-      <span className="mb-1 block text-sm font-medium text-gray-700">{label}</span>
+      <span className="mb-1 block text-sm font-medium text-gray-700">
+        {label}{required ? ' *' : ''}
+      </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+        className={`w-full rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
+          highlight ? 'border-amber-400 bg-amber-50' : 'border-gray-300'
+        }`}
       >
         <option value="">Select</option>
         {options.map((option) => (
