@@ -168,11 +168,11 @@ const LeadsPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-ink-primary">{t('leads.title')}</h1>
           <p className="text-sm text-ink-muted">{total} total leads</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           {capabilities.canExportLeads && (
             <button
               onClick={handleExportCSV}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-surface-border-strong text-ink-secondary rounded-lg hover:bg-surface-muted transition-colors"
+              className="investo-btn-secondary w-full justify-center sm:w-auto"
             >
               <Download className="h-4 w-4" />
               {t('common.export')}
@@ -181,7 +181,7 @@ const LeadsPage: React.FC = () => {
           {capabilities.canCreateLeads && !capabilities.isReadOnly && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 investo-btn-primary transition-colors"
+              className="investo-btn-primary w-full justify-center sm:w-auto"
             >
               <Plus className="h-4 w-4" />
               {t('leads.new_lead')}
@@ -191,12 +191,12 @@ const LeadsPage: React.FC = () => {
       </div>
 
       {/* AI hybrid + pipeline */}
-      <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-sky-50 p-4 shadow-sm">
+      <div className="rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 via-surface-elevated to-surface-muted p-3 shadow-sm sm:p-4">
         <div className="flex items-start gap-3">
-          <Sparkles className="h-5 w-5 text-violet-600 mt-0.5 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-violet-900">AI + human hybrid (ready)</p>
-            <p className="mt-1 text-xs text-violet-800/90">
+          <Sparkles className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-600" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-brand-900">AI + human hybrid (ready)</p>
+            <p className="mt-1 text-xs text-brand-800/90">
               WhatsApp AI handles FAQs, availability, and visit booking 24/7. After repeated price questions,
               a specialist takes over (set name &amp; phone in AI Settings).
             </p>
@@ -469,8 +469,8 @@ const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ agents, onClose, onCr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="investo-modal-overlay">
+      <div className="investo-modal-panel sm:max-w-lg">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{t('leads.new_lead')}</h2>
           <button onClick={onClose} className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>

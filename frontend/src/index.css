@@ -29,8 +29,39 @@
 }
 
 @layer components {
+  /* Mobile-first page shell (taste-skill: explicit <768px collapse, safe areas) */
   .investo-page {
-    @apply mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8 md:py-8;
+    @apply mx-auto w-full max-w-[1400px] px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-6 md:px-8 md:py-8;
+  }
+
+  .investo-app-shell {
+    @apply min-h-[100dvh] overflow-x-hidden;
+  }
+
+  .investo-scroll-x {
+    @apply -mx-3 overflow-x-auto px-3 sm:mx-0 sm:overflow-visible sm:px-0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .investo-touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  .investo-modal-overlay {
+    @apply fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4;
+  }
+
+  .investo-modal-panel {
+    @apply max-h-[min(92dvh,720px)] w-full overflow-y-auto rounded-t-2xl border border-surface-border bg-surface-elevated p-4 shadow-investo-lg sm:max-w-lg sm:rounded-xl sm:p-6;
+  }
+
+  .investo-table-scroll {
+    @apply investo-scroll-x;
+  }
+
+  .investo-table-scroll > table,
+  .investo-table-scroll > .investo-table-inner {
+    @apply min-w-[640px] sm:min-w-0;
   }
 
   .investo-card {

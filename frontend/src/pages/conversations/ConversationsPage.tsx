@@ -293,7 +293,7 @@ const ConversationsPage: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-64px)] flex">
+    <div className="flex h-[calc(100dvh-3.5rem)] max-w-[100vw] overflow-hidden">
       {/* Conversation List */}
       <div
         className={`w-full md:w-80 lg:w-96 border-r border-surface-border flex flex-col bg-surface-elevated ${
@@ -445,7 +445,7 @@ const ConversationsPage: React.FC = () => {
                     className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}
                   >
                     <div
-                      className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                      className={`max-w-[min(85%,20rem)] rounded-2xl px-3 py-2 text-sm sm:px-4 sm:text-base ${
                         isCustomer
                           ? 'bg-surface-elevated border border-surface-border'
                           : msg.sender_type === 'ai'

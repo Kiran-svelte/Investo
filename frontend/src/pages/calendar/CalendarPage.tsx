@@ -125,10 +125,10 @@ const CalendarPage: React.FC = () => {
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 investo-card p-4">
-        <div className="flex items-center gap-2">
-          <button onClick={() => navigate('prev')} className="p-2 hover:bg-surface-subtle rounded-lg"><ChevronLeft className="h-5 w-5 text-ink-secondary" /></button>
-          <span className="font-medium text-ink-primary min-w-[200px] text-center">{formatDateHeader()}</span>
+      <div className="flex flex-col gap-4 investo-card p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+        <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-2">
+          <button type="button" onClick={() => navigate('prev')} className="investo-touch-target rounded-lg p-2 hover:bg-surface-subtle"><ChevronLeft className="h-5 w-5 text-ink-secondary" /></button>
+          <span className="min-w-0 flex-1 text-center text-sm font-medium text-ink-primary sm:min-w-[12rem] sm:text-base">{formatDateHeader()}</span>
           <button onClick={() => navigate('next')} className="p-2 hover:bg-surface-subtle rounded-lg"><ChevronRight className="h-5 w-5 text-ink-secondary" /></button>
           <button onClick={() => setCurrentDate(new Date())} className="ml-2 px-3 py-1 text-sm border rounded-lg hover:bg-surface-muted">{t('calendar.today')}</button>
         </div>
@@ -148,7 +148,8 @@ const CalendarPage: React.FC = () => {
         <>
           {/* Week View */}
           {view === 'week' && (
-            <div className="investo-table-wrap">
+            <div className="hidden investo-table-wrap investo-scroll-x md:block">
+              <div className="investo-table-inner min-w-[36rem] sm:min-w-0">
               <div className="grid grid-cols-7 border-b border-surface-border">
                 {getWeekDays().map((day, idx) => {
                   const isToday = day.toDateString() === new Date().toDateString();
@@ -174,12 +175,13 @@ const CalendarPage: React.FC = () => {
                   </div>);
                 })}
               </div>
+              </div>
             </div>
           )}
 
           {/* Day View */}
           {view === 'day' && (
-            <div className="investo-card p-4 space-y-3">
+            <div className="investo-card space-y-3 p-3 sm:p-4">
               {getVisitsForDay(currentDate).length === 0 ? (
                 <p className="text-center text-ink-faint py-8">No visits scheduled for this day</p>
               ) : getVisitsForDay(currentDate).map(visit => {
@@ -204,7 +206,8 @@ const CalendarPage: React.FC = () => {
 
           {/* Month View */}
           {view === 'month' && (
-            <div className="investo-table-wrap">
+            <div className="hidden investo-table-wrap investo-scroll-x md:block">
+              <div className="investo-table-inner min-w-[36rem] sm:min-w-0">
               <div className="grid grid-cols-7 border-b">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
                   <div key={d} className="p-2 text-center text-xs font-semibold text-ink-muted border-r last:border-r-0">{d}</div>
@@ -227,13 +230,14 @@ const CalendarPage: React.FC = () => {
                   </div>);
                 })}
               </div>
+              </div>
             </div>
           )}
         </>
       )}
 
       {/* Mobile list */}
-      <div className="md:hidden space-y-3">
+      <div className="space-y-3 md:hidden">
         {visits.map(visit => {
           const StatusIcon = STATUS_ICONS[visit.status] || Clock;
           const time = new Date(visit.scheduled_at);
@@ -257,8 +261,8 @@ const CalendarPage: React.FC = () => {
 
       {/* Visit Detail/Status Modal */}
       {selectedVisit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setSelectedVisit(null)}>
-          <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="investo-modal-overlay" onClick={() => setSelectedVisit(null)}>
+          <div className="investo-modal-panel sm:max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="font-semibold">Visit Details</h3>
               <button onClick={() => setSelectedVisit(null)} className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>
@@ -344,8 +348,8 @@ const ScheduleVisitModal: React.FC<{ onClose: () => void; onCreated: () => void 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="investo-modal-overlay">
+      <div className="investo-modal-panel sm:max-w-lg">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">Schedule Visit</h2>
           <button onClick={onClose} className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>

@@ -240,9 +240,8 @@ const AgentsPage: React.FC = () => {
 
       {/* Add Team Member Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setShowModal(false)} />
-          <div className="relative investo-card shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="investo-modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="investo-modal-panel sm:max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Add Team Member</h2>
               <button onClick={() => setShowModal(false)} className="text-ink-faint hover:text-ink-secondary">

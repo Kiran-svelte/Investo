@@ -14,6 +14,10 @@ describe('navigation.config', () => {
     expect(getRoleHomePath('super_admin')).toBe('/companies');
   });
 
+  it('company_admin home is dashboard', () => {
+    expect(getRoleHomePath('company_admin')).toBe('/dashboard');
+  });
+
   it('super_admin does not see tenant leads in nav', () => {
     const items = getVisibleNavItems('super_admin', allFeatures);
     expect(items.some((i) => i.key === 'leads')).toBe(false);

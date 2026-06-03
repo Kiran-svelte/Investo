@@ -148,7 +148,7 @@ describe('route guard behavior', () => {
           <Route element={<FeatureRoute featureKey={PROPERTY_MANAGEMENT_FEATURE_KEY} />}>
             <Route path="/properties/import" element={<div>Property import page</div>} />
           </Route>
-          <Route path="/" element={<div>Home page</div>} />
+          <Route path="/dashboard" element={<div>Home page</div>} />
         </Routes>
       </MemoryRouter>,
     );

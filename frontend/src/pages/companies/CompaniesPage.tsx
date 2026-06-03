@@ -253,8 +253,8 @@ const CompaniesPage: React.FC = () => {
       </div>
 
       {/* Companies Table */}
-      <div className="investo-table-wrap">
-        <div className="overflow-x-auto">
+      <div className="investo-table-wrap investo-scroll-x">
+          <div className="investo-table-inner min-w-[48rem] sm:min-w-0">
           <table className="w-full">
             <thead className="investo-table-head border-b border-surface-border">
               <tr>
@@ -372,7 +372,7 @@ const CompaniesPage: React.FC = () => {
               )}
             </tbody>
           </table>
-        </div>
+          </div>
       </div>
 
       <Pagination
@@ -385,9 +385,8 @@ const CompaniesPage: React.FC = () => {
       />
 
       {inviteCompany && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setInviteCompany(null)} />
-          <div className="relative investo-card shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="investo-modal-overlay" onClick={() => setInviteCompany(null)}>
+          <div className="investo-modal-panel sm:max-w-md" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-ink-primary mb-1">Invite company admin</h2>
             <p className="text-sm text-ink-muted mb-4">{inviteCompany.name}</p>
             {inviteError && (
@@ -450,12 +449,8 @@ const CompaniesPage: React.FC = () => {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="fixed inset-0 bg-black/50"
-            onClick={() => setShowModal(false)}
-          />
-          <div className="relative investo-card shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="investo-modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="investo-modal-panel sm:max-w-md" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-ink-primary mb-4">
               {editingCompany ? t('companies.edit') : t('companies.new_company')}
             </h2>

@@ -226,13 +226,13 @@ const DashboardLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-surface-muted">
+    <div className="investo-app-shell bg-surface-muted">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="lg:pl-[260px]">
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <KnowledgeGateBanner />
-        <main className="min-h-[calc(100vh-3.5rem)]">
+        <main className="min-h-[calc(100dvh-3.5rem)] w-full max-w-[100vw] overflow-x-hidden">
           <Outlet />
         </main>
       </div>

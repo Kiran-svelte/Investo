@@ -391,8 +391,8 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="investo-modal-overlay">
+      <div className="investo-modal-panel sm:max-w-lg">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{isEdit ? 'Edit Property' : 'New Property'}</h2>
           <button onClick={onClose} disabled={saving} title="Close modal" aria-label="Close modal" className="p-1 hover:bg-surface-subtle rounded disabled:opacity-50"><X className="h-5 w-5" /></button>
@@ -491,7 +491,7 @@ const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-surface-elevated rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="investo-modal-panel sm:max-w-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{property.name}</h2>
           <button onClick={onClose} title="Close details" aria-label="Close details" className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>

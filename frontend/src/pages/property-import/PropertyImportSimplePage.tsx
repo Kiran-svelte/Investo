@@ -460,14 +460,14 @@ export default function PropertyImportSimplePage() {
         </p>
       </div>
 
-      <nav className="flex gap-2">
+      <nav className="investo-scroll-x flex gap-2 pb-1">
         {SIMPLE_STEPS.map((label, index) => {
           const done = index < activeStepIndex;
           const current = index === activeStepIndex;
           return (
             <div
               key={label}
-              className={`flex-1 rounded-lg border px-3 py-2 text-center text-xs font-semibold ${
+              className={`min-w-[4.5rem] flex-1 flex-shrink-0 rounded-lg border px-2 py-2 text-center text-[10px] font-semibold sm:min-w-0 sm:px-3 sm:text-xs ${
                 current
                   ? 'border-brand-500 bg-brand-50 text-brand-800'
                   : done
