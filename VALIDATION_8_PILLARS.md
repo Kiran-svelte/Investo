@@ -2,7 +2,8 @@
 
 **Production:** https://biginvesto.online  
 **API:** https://investo-backend-v2.onrender.com/api  
-**Validated:** Run `scripts/validate-8-pillars.ps1` after deploy.
+**Validated:** 2026-06-03 — `scripts/validate-8-pillars.ps1` **ALL PASS** (with `INVESTO_TEST_TOKEN` from login).  
+**Live commit:** `aa4ccbef5` on Render.
 
 ## Gap matrix (post-implementation)
 
