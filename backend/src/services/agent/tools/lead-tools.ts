@@ -207,5 +207,88 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
         return `Re-engagement sent to ${lead.customerName ?? maskPhone(lead.phone)}.`;
       },
     }),
+    new DynamicStructuredTool({
+      name: 'addLeadNote',
+      description: 'Append a timestamped note to a lead without overwriting existing notes.',
+      schema: z.object({
+        leadId: z.string().uuid(),
+        note: z.string().min(1).max(2000),
+      }),
+      func: async ({ leadId, note }) => {
+        const lead = await prisma.lead.findFirst({
+          where: { id: leadId, ...leadScope(context) },
+          select: { id: true, customerName: true, notes: true },
+        });
+        if (!lead) return 'Lead not found or access denied.';
+        const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        const newNote = `[${now}] ${note}`;
+        const combined = lead.notes ? `${lead.notes}\n${newNote}` : newNote;
+        await prisma.lead.update({ where: { id: leadId }, data: { notes: combined } });
+        return `Note added to ${lead.customerName ?? 'lead'}.`;
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'flagLeadPriority',
+      description: 'Set a lead priority flag (hot, warm, cold) in the lead metadata for AI routing.',
+      schema: z.object({
+        leadId: z.string().uuid(),
+        priority: z.enum(['hot', 'warm', 'cold']),
+      }),
+      func: async ({ leadId, priority }) => {
+        const lead = await prisma.lead.findFirst({
+          where: { id: leadId, ...leadScope(context) },
+          select: { id: true, customerName: true, metadata: true },
+        });
+        if (!lead) return 'Lead not found or access denied.';
+        const existingMeta = typeof lead.metadata === 'object' && lead.metadata !== null && !Array.isArray(lead.metadata)
+          ? lead.metadata as Record<string, unknown>
+          : {};
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { metadata: { ...existingMeta, lead_score: priority } },
+        });
+        return `${lead.customerName ?? 'Lead'} marked as ${priority}.`;
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'transferLeadPortfolio',
+      description:
+        'Transfer all active leads from one agent to another. ' +
+        'Use when an agent leaves the company. Requires yes/no confirmation. Admin only.',
+      schema: z.object({
+        fromAgentId: z.string().uuid().describe('Agent whose leads to transfer'),
+        toAgentId: z.string().uuid().describe('Agent who will receive the leads'),
+      }),
+      func: async ({ fromAgentId, toAgentId }) => {
+        if (context.userRole !== 'company_admin' && context.userRole !== 'super_admin') {
+          return 'Only admins can transfer lead portfolios.';
+        }
+        const [fromAgent, toAgent] = await Promise.all([
+          prisma.user.findFirst({ where: { id: fromAgentId, companyId: context.companyId }, select: { id: true, name: true } }),
+          prisma.user.findFirst({ where: { id: toAgentId, companyId: context.companyId, status: 'active' }, select: { id: true, name: true } }),
+        ]);
+        if (!fromAgent) return 'Source agent not found.';
+        if (!toAgent) return 'Target agent not found or inactive.';
+        const count = await prisma.lead.count({
+          where: {
+            companyId: context.companyId,
+            assignedAgentId: fromAgentId,
+            status: { notIn: ['closed_won', 'closed_lost'] },
+          },
+        });
+        if (count === 0) return `${fromAgent.name} has no active leads to transfer.`;
+        if (!context.sessionId) return 'Confirmation session unavailable.';
+        const message =
+          `Confirm transfer of ${count} active lead(s) from ${fromAgent.name} to ${toAgent.name}?\n` +
+          `Reply "yes" to confirm or "no" to cancel.`;
+        await createPendingConfirmation(
+          context.sessionId,
+          'reassignLead',
+          { fromAgentId, toAgentId, bulkTransfer: true },
+          message,
+        );
+        return message;
+      },
+    }),
   ];
 }

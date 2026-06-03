@@ -24,6 +24,7 @@ import {
 import { searchAlternativeTiers } from './alternativeInventory.service';
 import { transitionLeadStatus, transitionLeadToVisitScheduled } from './leadTransition.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
+import { notifyAgentOfNewLead } from './leadAssignment.service';
 import { assignLeadWithRouting } from './leadRouting.service';
 import { syncLeadScoreFromConversation } from './leadScoring.service';
 import {
@@ -788,6 +789,10 @@ export class WhatsAppService {
         },
       });
 
+      if (lead.assignedAgentId) {
+        void notifyAgentOfNewLead(lead.assignedAgentId, lead.id, companyId);
+      }
+
       logger.info('Auto-created lead from WhatsApp', { leadId: lead.id, companyId });
 
       socketService.emitToCompany(companyId, SOCKET_EVENTS.LEAD_CREATED, {
@@ -1038,20 +1043,25 @@ export class WhatsAppService {
         const customerMessageCount =
           history.filter((m) => m.senderType === 'customer').length + 1;
 
-        const aiResponse = await aiService.generateResponse({
-          companyId,
-          customerMessage: msg.messageText,
-          conversationHistory: history,
-          lead,
-          properties,
-          aiSettings: aiSettings || {},
-          companyName: company.name,
-          conversationState,
-          conversionPromptBlock: neverSayNoCtx.promptBlock,
-          neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
-          neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
-          customerMessageCount,
-        });
+        const aiResponse = await Promise.race([
+          aiService.generateResponse({
+            companyId,
+            customerMessage: msg.messageText,
+            conversationHistory: history,
+            lead,
+            properties,
+            aiSettings: aiSettings || {},
+            companyName: company.name,
+            conversationState,
+            conversionPromptBlock: neverSayNoCtx.promptBlock,
+            neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
+            neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
+            customerMessageCount,
+          }),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('AI response timed out after 45s')), 45_000);
+          }),
+        ]);
 
         const groundedProperties = properties.map(propertyToCompletenessInput);
         const groundedFactsBlock = buildGroundedFactsBlock(
@@ -1081,7 +1091,12 @@ export class WhatsAppService {
           priceUpdatedAt: latestPriceUpdate,
           admitsUncertainty: guarded.guardApplied || properties.length === 0,
         });
-        const outboundText = appendTransparencyFooter(polished.text, transparencyFooter);
+        let outboundText = appendTransparencyFooter(polished.text, transparencyFooter);
+        if (!outboundText.trim()) {
+          outboundText =
+            `Thanks for messaging *${company.name}*! I'm your property assistant.\n\n` +
+            `Please share your *area*, *budget*, and *property type* so I can help.`;
+        }
 
         logger.info('AI response generated', {
           conversationId: conversation.id,
@@ -1473,6 +1488,11 @@ export class WhatsAppService {
    * Uses company-specific config for multi-tenant support.
    */
   async sendMessage(to: string, text: string, whatsappConfig: CompanyWhatsAppConfig): Promise<boolean> {
+    if (!text.trim()) {
+      logger.error('Refusing to send empty WhatsApp message');
+      return false;
+    }
+
     const providerName = this.resolveOutboundProviderName(whatsappConfig);
 
     if (providerName === 'meta') {

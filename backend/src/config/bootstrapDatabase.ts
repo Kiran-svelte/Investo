@@ -206,6 +206,35 @@ async function applyCompatibilityPatches(): Promise<void> {
       created_at TIMESTAMP NOT NULL DEFAULT now()
     )
   `);
+  // Agent action log — AI transparency / audit trail (90-day TTL via cron purge).
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS agent_action_logs (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      triggered_by VARCHAR(40) NOT NULL,
+      actor_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+      actor_role VARCHAR(40) NULL,
+      action VARCHAR(100) NOT NULL,
+      resource_type VARCHAR(40) NULL,
+      resource_id UUID NULL,
+      inputs JSONB DEFAULT '{}'::jsonb,
+      result TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'success',
+      error_message TEXT NULL,
+      duration_ms INTEGER NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS agent_action_logs_company_created_idx ON agent_action_logs (company_id, created_at)`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS agent_action_logs_company_action_idx ON agent_action_logs (company_id, action)`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS agent_action_logs_resource_idx ON agent_action_logs (resource_type, resource_id)`,
+  );
+
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_session_status_idx ON pending_actions(session_id, status)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_expires_idx ON pending_actions(expires_at)`);
   await prisma.$executeRawUnsafe(`

@@ -1,6 +1,7 @@
 import config from '../../config';
 import logger from '../../config/logger';
 import { MAX_TOOL_CALLS_PER_MESSAGE } from '../../constants/agent-ai.constants';
+import { logAgentAction } from '../agent-action-log.service';
 import { ToolContext } from './agent-state';
 import { getCheckpointer } from './agent-memory.service';
 import { buildSystemPrompt } from './prompts/system-prompt';
@@ -89,9 +90,36 @@ export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
     return 'tools';
   }
 
+  async function toolsNodeWithLogging(state: { messages: BaseMessageLike[] }) {
+    const toolNode = new ToolNode(tools);
+    const started = Date.now();
+    const lastAi = [...state.messages].reverse().find((m) => m instanceof AIMessage && Array.isArray(m.tool_calls) && m.tool_calls.length);
+    const toolCalls = lastAi instanceof AIMessage ? lastAi.tool_calls ?? [] : [];
+    const result = await toolNode.invoke(state);
+    const toolMessages = result.messages?.filter((m: BaseMessageLike) => m?.name) ?? [];
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = toolCalls[i] as { name?: string; args?: Record<string, unknown>; id?: string };
+      const toolResult = toolMessages[i];
+      const output = typeof toolResult?.content === 'string' ? toolResult.content : '';
+      const failed = output.toLowerCase().includes('not found') || output.toLowerCase().includes('access denied') || output.toLowerCase().includes('only ');
+      void logAgentAction({
+        companyId: params.toolContext.companyId,
+        triggeredBy: 'agent_tool',
+        action: tc.name ?? 'unknown_tool',
+        actorId: params.toolContext.userId,
+        actorRole: params.toolContext.userRole,
+        inputs: tc.args ?? {},
+        result: output.slice(0, 500) || null,
+        status: failed ? 'failed' : 'success',
+        durationMs: Date.now() - started,
+      });
+    }
+    return result;
+  }
+
   const graph = new StateGraph(MessagesAnnotation)
     .addNode('agent', agentNode)
-    .addNode('tools', new ToolNode(tools))
+    .addNode('tools', toolsNodeWithLogging)
     .addEdge(START, 'agent')
     .addConditionalEdges('agent', shouldContinue, { tools: 'tools', [END]: END })
     .addEdge('tools', 'agent');

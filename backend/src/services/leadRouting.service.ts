@@ -1,5 +1,5 @@
 import prisma from '../config/prisma';
-import { assignLeadRoundRobin } from './leadAssignment.service';
+import { assignLeadRoundRobin, notifyAgentOfNewLead } from './leadAssignment.service';
 import type { Lead } from '@prisma/client';
 import { parseLeadMetadata } from './leadMetadata.service';
 
@@ -62,7 +62,12 @@ async function pickFromMap(
 export async function assignLeadWithRouting(
   companyId: string,
   lead?: Pick<Lead, 'locationPreference' | 'metadata'> | null,
+  leadId?: string,
 ): Promise<string | null> {
+  const notify = (agentId: string | null) => {
+    if (agentId && leadId) void notifyAgentOfNewLead(agentId, leadId, companyId);
+    return agentId;
+  };
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: { settings: true },
@@ -95,18 +100,18 @@ export async function assignLeadWithRouting(
     const valid = await prisma.user.findFirst({
       where: { id: minId, companyId, status: 'active', role: 'sales_agent' },
     });
-    if (valid) return minId;
+    if (valid) return notify(minId);
   }
 
   if (routing.method === 'by_location' && lead?.locationPreference) {
     const byLoc = await pickFromMap(routing.location_agent_map, lead.locationPreference, companyId);
-    if (byLoc) return byLoc;
+    if (byLoc) return notify(byLoc);
   }
 
   if (routing.method === 'by_project' && sourceDetail) {
     const byProj = await pickFromMap(routing.project_agent_map, sourceDetail, companyId);
-    if (byProj) return byProj;
+    if (byProj) return notify(byProj);
   }
 
-  return assignLeadRoundRobin(companyId);
+  return assignLeadRoundRobin(companyId, leadId);
 }

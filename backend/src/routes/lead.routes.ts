@@ -13,7 +13,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from '../services/notification.engine';
 import { socketService, SOCKET_EVENTS } from '../services/socket.service';
-import { assignLeadRoundRobin } from '../services/leadAssignment.service';
+import { assignLeadRoundRobin, notifyAgentOfNewLead } from '../services/leadAssignment.service';
 import { assignLeadWithRouting } from '../services/leadRouting.service';
 import {
   metadataToDto,
@@ -328,6 +328,9 @@ router.post(
       });
 
       if (lead.assignedAgentId) {
+        if (!req.body.assigned_agent_id) {
+          void notifyAgentOfNewLead(lead.assignedAgentId, lead.id, companyId);
+        }
         await notificationEngine.onLeadAssigned(lead, lead.assignedAgentId);
       }
 

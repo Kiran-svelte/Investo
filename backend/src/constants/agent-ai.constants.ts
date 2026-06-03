@@ -68,6 +68,18 @@ export const CRON_SCHEDULES = {
   STALE_LEAD_ALERT: '0 5 * * 1',
   /** Clean up expired pending confirmations — every 5 minutes */
   EXPIRED_CONFIRMATION_CLEANUP: '*/5 * * * *',
+  /** Auto-detect no-show visits (30 min past scheduled time) — every 30 minutes */
+  NO_SHOW_CHECK: '*/30 * * * *',
+  /** Alert agents about hot leads with no contact in 4h — every 4h Mon-Sat */
+  HOT_LEAD_SLA_CHECK: '0 */4 * * 1-6',
+  /** Per-agent weekly pipeline WhatsApp — Monday 9:00 AM IST = 03:30 UTC */
+  AGENT_WEEKLY_PIPELINE: '30 3 * * 1',
+  /** Nudge agent 2h after a visit is marked completed — every 2 hours */
+  VISIT_COMPLETED_NUDGE: '0 */2 * * *',
+  /** Monthly full report to admins — 1st of month 9:00 AM IST = 03:30 UTC */
+  MONTHLY_ADMIN_REPORT: '30 3 1 * *',
+  /** Purge AgentActionLog entries older than 90 days — nightly at 2:00 AM IST = 20:30 UTC */
+  ACTION_LOG_PURGE: '30 20 * * *',
 } as const;
 
 // ─── Emoji Maps ─────────────────────────────────────────────────────

@@ -58,6 +58,7 @@ model Company {
   propertyImportJobs   PropertyImportJob[]
   propertyImportMediaBlobs PropertyImportMediaBlob[]
   agentSessions     AgentSession[]
+  agentActionLogs   AgentActionLog[]
 
   @@map("companies")
 }
@@ -90,6 +91,7 @@ model User {
   createdPropertyImportDrafts PropertyImportDraft[] @relation("PropertyImportCreatedBy")
   reviewedPropertyImportDrafts PropertyImportDraft[] @relation("PropertyImportReviewedBy")
   agentSessions       AgentSession[]
+  agentActionLogs     AgentActionLog[]
 
   @@index([companyId, role])
   @@map("users")
@@ -849,4 +851,36 @@ enum PropertyImportUnitStatus {
   ready
   published
   failed
+}
+
+// ─── Agent Action Log (AI transparency + audit trail) ────────────────
+model AgentActionLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  /// Who triggered the action: cron, agent_tool, automation, or inbound_message
+  triggeredBy  String   @map("triggered_by") @db.VarChar(40)
+  /// userId of the team member if triggered by an agent tool call; null for cron/automation
+  actorId      String?  @map("actor_id") @db.Uuid
+  actorRole    String?  @map("actor_role") @db.VarChar(40)
+  /// Name of the action or tool (e.g. rescheduleVisit, sendFollowUp, detectNoShow)
+  action       String   @db.VarChar(100)
+  resourceType String?  @map("resource_type") @db.VarChar(40)
+  resourceId   String?  @map("resource_id") @db.Uuid
+  /// Tool inputs or trigger payload stored as JSON for replay/debug
+  inputs       Json?    @default("{}")
+  /// Human-readable summary of what the action produced
+  result       String?  @db.Text
+  /// success | failed | skipped
+  status       String   @default("success") @db.VarChar(20)
+  errorMessage String?  @map("error_message") @db.Text
+  durationMs   Int?     @map("duration_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([companyId, action])
+  @@index([resourceType, resourceId])
+  @@map("agent_action_logs")
 }
