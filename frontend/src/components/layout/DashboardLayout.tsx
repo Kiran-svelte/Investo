@@ -39,6 +39,7 @@ import {
   KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
+  AlertTriangle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -55,6 +56,7 @@ const NAV_ICONS: Record<NavRouteKey, LucideIcon> = {
   billing: CreditCard,
   emi_calculator: Calculator,
   audit_logs: ClipboardList,
+  error_logs: AlertTriangle,
   notifications: Bell,
   settings: Settings,
 };

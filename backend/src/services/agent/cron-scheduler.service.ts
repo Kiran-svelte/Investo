@@ -74,12 +74,80 @@ async function sendEndOfDaySummaries(): Promise<void> {
 }
 
 async function sendFollowUpAlerts(): Promise<void> {
-  const threshold = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const threshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, phone: true, companyId: true } });
   for (const agent of agents) {
     if (!agent.phone) continue;
     const count = await prisma.lead.count({ where: { companyId: agent.companyId, assignedAgentId: agent.id, status: { in: ['contacted', 'visit_scheduled', 'visited', 'negotiation'] }, lastContactAt: { lt: threshold } } });
     if (count > 0) await sendNotification(agent.phone, agent.companyId, `*Follow-up Reminder*\n${count} lead(s) need follow-up.`);
+  }
+}
+
+async function sendOwnerDailySummaries(): Promise<void> {
+  const [start, end] = istDayBounds();
+  const yesterday = new Date(start.getTime() - 24 * 60 * 60 * 1000);
+  const admins = await prisma.user.findMany({
+    where: { status: 'active', role: 'company_admin', phone: { not: null } },
+    select: { name: true, phone: true, companyId: true },
+  });
+  for (const admin of admins) {
+    if (!admin.phone) continue;
+    const [newLeads, hotLeads, visitsToday, won] = await Promise.all([
+      prisma.lead.count({ where: { companyId: admin.companyId, createdAt: { gte: yesterday, lte: end } } }),
+      prisma.lead.count({
+        where: {
+          companyId: admin.companyId,
+          status: { notIn: ['closed_won', 'closed_lost'] },
+          metadata: { path: ['lead_score'], equals: 'hot' },
+        },
+      }),
+      prisma.visit.count({
+        where: {
+          companyId: admin.companyId,
+          scheduledAt: { gte: start, lte: end },
+          status: { in: ['scheduled', 'confirmed'] },
+        },
+      }),
+      prisma.lead.count({
+        where: { companyId: admin.companyId, status: 'closed_won', updatedAt: { gte: yesterday } },
+      }),
+    ]);
+    await sendNotification(
+      admin.phone,
+      admin.companyId,
+      [
+        `*Daily Lead Summary*`,
+        `New leads (24h): ${newLeads}`,
+        `Hot leads (active): ${hotLeads}`,
+        `Visits today: ${visitsToday}`,
+        `Deals won (24h): ${won}`,
+      ].join('\n'),
+    );
+  }
+}
+
+async function sendStaleLeadAlerts(): Promise<void> {
+  const threshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const admins = await prisma.user.findMany({
+    where: { status: 'active', role: 'company_admin', phone: { not: null } },
+    select: { name: true, phone: true, companyId: true },
+  });
+  for (const admin of admins) {
+    if (!admin.phone) continue;
+    const stale = await prisma.lead.count({
+      where: {
+        companyId: admin.companyId,
+        status: { in: ['contacted', 'visit_scheduled', 'visited', 'negotiation'] },
+        lastContactAt: { lt: threshold },
+      },
+    });
+    if (stale > 0) {
+      await sendNotification(
+        admin.phone,
+        admin.companyId,
+        `*Stale Lead Alert*\n${stale} lead(s) with no contact in 7+ days.`,
+      );
+    }
   }
 }
 
@@ -107,9 +175,11 @@ export function startCronScheduler(): void {
   if (!config.agentAi.cronEnabled || tasks.length) return;
   tasks.push(
     cron.schedule(CRON_SCHEDULES.MORNING_BRIEFING, wrap('morningBriefing', sendMorningBriefings)),
+    cron.schedule(CRON_SCHEDULES.OWNER_DAILY_SUMMARY, wrap('ownerDailySummary', sendOwnerDailySummaries)),
     cron.schedule(CRON_SCHEDULES.END_OF_DAY_SUMMARY, wrap('endOfDaySummary', sendEndOfDaySummaries)),
     cron.schedule(CRON_SCHEDULES.VISIT_REMINDER_CHECK, wrap('visitReminder', sendVisitReminders)),
     cron.schedule(CRON_SCHEDULES.FOLLOW_UP_ALERT, wrap('followUpAlert', sendFollowUpAlerts)),
+    cron.schedule(CRON_SCHEDULES.STALE_LEAD_ALERT, wrap('staleLeadAlert', sendStaleLeadAlerts)),
     cron.schedule(CRON_SCHEDULES.WEEKLY_ADMIN_REPORT, wrap('weeklyAdminReport', sendWeeklyAdminReports)),
     cron.schedule(CRON_SCHEDULES.EXPIRED_CONFIRMATION_CLEANUP, wrap('confirmationCleanup', cleanupExpiredConfirmations)),
   );

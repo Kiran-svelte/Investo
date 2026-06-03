@@ -33,8 +33,16 @@ interface Lead {
   status: string;
   source: string;
   agent_name: string | null;
+  lead_score?: string | null;
+  tags?: string[];
   created_at: string;
 }
+
+const SCORE_STYLES: Record<string, string> = {
+  hot: 'bg-red-100 text-red-800',
+  warm: 'bg-amber-100 text-amber-800',
+  cold: 'bg-slate-100 text-slate-700',
+};
 
 interface Agent {
   id: string;
@@ -127,9 +135,16 @@ const LeadsPage: React.FC = () => {
     }
   }, [capabilities.canAssignLeads]);
 
+  const buildExportQuery = () => {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    if (statusFilter) params.append('status', statusFilter);
+    return params.toString() ? `?${params}` : '';
+  };
+
   const handleExportCSV = async () => {
     try {
-      const res = await api.get('/leads/export/csv', { responseType: 'blob' });
+      const res = await api.get(`/leads/export/csv${buildExportQuery()}`, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -139,6 +154,21 @@ const LeadsPage: React.FC = () => {
       link.remove();
     } catch (err) {
       console.error('Export failed', err);
+    }
+  };
+
+  const handleExportJSON = async () => {
+    try {
+      const res = await api.get(`/leads/export/json${buildExportQuery()}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'leads_export.json');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error('JSON export failed', err);
     }
   };
 
@@ -172,13 +202,22 @@ const LeadsPage: React.FC = () => {
         actions={
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           {capabilities.canExportLeads && (
-            <button
-              onClick={handleExportCSV}
-              className="investo-btn-secondary w-full justify-center sm:w-auto"
-            >
-              <Download className="h-4 w-4" />
-              {t('common.export')}
-            </button>
+            <>
+              <button
+                onClick={handleExportCSV}
+                className="investo-btn-secondary w-full justify-center sm:w-auto"
+              >
+                <Download className="h-4 w-4" />
+                CSV
+              </button>
+              <button
+                onClick={handleExportJSON}
+                className="investo-btn-secondary w-full justify-center sm:w-auto"
+              >
+                <Download className="h-4 w-4" />
+                JSON
+              </button>
+            </>
           )}
           {capabilities.canCreateLeads && !capabilities.isReadOnly && (
             <button
@@ -294,7 +333,14 @@ const LeadsPage: React.FC = () => {
                         <User className="h-4 w-4 text-brand-700" />
                       </div>
                       <div>
-                        <p className="font-medium text-ink-primary">{lead.customer_name || 'Unknown'}</p>
+                        <p className="font-medium text-ink-primary flex items-center gap-2 flex-wrap">
+                          {lead.customer_name || 'Unknown'}
+                          {lead.lead_score && (
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${SCORE_STYLES[lead.lead_score] || ''}`}>
+                              {lead.lead_score}
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-ink-muted">{lead.source}</p>
                       </div>
                     </div>

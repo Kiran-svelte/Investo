@@ -24,6 +24,19 @@ import {
 import { searchAlternativeTiers } from './alternativeInventory.service';
 import { transitionLeadStatus, transitionLeadToVisitScheduled } from './leadTransition.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
+import { assignLeadWithRouting } from './leadRouting.service';
+import { syncLeadScoreFromConversation } from './leadScoring.service';
+import {
+  appendTransparencyFooter,
+  buildPropertySources,
+  buildTransparencyFooter,
+  inferConfidenceFromProperties,
+} from './aiTransparency.service';
+import {
+  handleWrongReport,
+  isWrongReportMessage,
+  WRONG_ACK_MESSAGE,
+} from './wrongReport.service';
 import {
   GreenApiWhatsAppProvider,
   MetaWhatsAppProvider,
@@ -744,7 +757,13 @@ export class WhatsAppService {
 
     if (!lead) {
       // Auto-create lead
-      const agentId = await this.assignRoundRobin(companyId);
+      const sourceDetail = msg.interactiveId
+        ? `wa_interactive:${msg.interactiveId}`
+        : 'whatsapp_inbound';
+      const agentId = await assignLeadWithRouting(companyId, {
+        locationPreference: null,
+        metadata: { source_detail: sourceDetail },
+      });
 
       lead = await prisma.lead.create({
         data: {
@@ -755,6 +774,7 @@ export class WhatsAppService {
           status: 'new',
           assignedAgentId: agentId,
           language: 'en',
+          metadata: { source_detail: sourceDetail },
         },
       });
 
@@ -852,6 +872,37 @@ export class WhatsAppService {
       where: { id: lead.id },
       data: { lastContactAt: new Date() },
     });
+
+    if (isWrongReportMessage(msg.messageText)) {
+      await handleWrongReport({
+        companyId,
+        leadId: lead.id,
+        conversationId: conversation.id,
+        customerPhone,
+        messageText: msg.messageText,
+      });
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: 'ai',
+          content: WRONG_ACK_MESSAGE,
+          status: 'sent',
+        },
+      });
+      await this.sendMessage(customerPhone, WRONG_ACK_MESSAGE, whatsappConfig!);
+      return {
+        status: 'processed',
+        companyId,
+        leadId: lead.id,
+        conversationId: conversation.id,
+        propagation: await this.propagateConversationUpdate({
+          companyId,
+          conversationId: conversation.id,
+          leadId: lead.id,
+          trigger: 'wrong_report',
+        }),
+      };
+    }
 
     let propagation = await this.propagateConversationUpdate({
       companyId,
@@ -1020,7 +1071,17 @@ export class WhatsAppService {
           channel: 'whatsapp',
           language: aiResponse.detectedLanguage,
         });
-        const outboundText = polished.text;
+        const { sources, latestPriceUpdate } = buildPropertySources(properties);
+        const transparencyFooter = buildTransparencyFooter({
+          confidence: inferConfidenceFromProperties(
+            properties.length,
+            neverSayNoCtx.exactPropertyIds.length > 0,
+          ),
+          sources,
+          priceUpdatedAt: latestPriceUpdate,
+          admitsUncertainty: guarded.guardApplied || properties.length === 0,
+        });
+        const outboundText = appendTransparencyFooter(polished.text, transparencyFooter);
 
         logger.info('AI response generated', {
           conversationId: conversation.id,
@@ -1068,6 +1129,14 @@ export class WhatsAppService {
               }),
             },
           });
+
+          if (aiResponse.newState) {
+            await syncLeadScoreFromConversation(
+              lead.id,
+              aiResponse.newState.urgencyScore,
+              aiResponse.newState.valueScore,
+            );
+          }
 
           // Sync CRM pipeline when policy brain suggests (price → negotiation)
           const suggestedStatus = aiResponse.nextAction?.suggestedLeadStatus;
@@ -1477,36 +1546,7 @@ export class WhatsAppService {
    * Round-robin agent assignment (least-loaded).
    */
   private async assignRoundRobin(companyId: string): Promise<string | null> {
-    const agents = await prisma.user.findMany({
-      where: { companyId, role: 'sales_agent', status: 'active' },
-      select: { id: true },
-    });
-
-    if (agents.length === 0) return null;
-
-    const leadCounts = await prisma.lead.groupBy({
-      by: ['assignedAgentId'],
-      where: {
-        companyId,
-        status: { notIn: ['closed_won', 'closed_lost'] },
-        assignedAgentId: { in: agents.map((a) => a.id) },
-      },
-      _count: { id: true },
-    });
-
-    const countMap = new Map(leadCounts.map((l) => [l.assignedAgentId, l._count.id]));
-
-    let minAgent = agents[0].id;
-    let minCount = countMap.get(agents[0].id) || 0;
-    for (const agent of agents) {
-      const count = countMap.get(agent.id) || 0;
-      if (count < minCount) {
-        minCount = count;
-        minAgent = agent.id;
-      }
-    }
-
-    return minAgent;
+    return assignLeadWithRouting(companyId, null);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

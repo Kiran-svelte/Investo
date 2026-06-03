@@ -28,6 +28,15 @@ interface DashStats {
   revenue: number;
 }
 
+interface ExtendedAnalytics {
+  avg_response_ms: number | null;
+  escalation_rate_pct: number;
+  escalated_count: number;
+  peak_hours: { hour: number; count: number }[];
+  lost_reasons: Record<string, number>;
+  source_roi: { source: string; leads: number; won: number; conversion_pct: number }[];
+}
+
 const STATUS_COLORS: Record<string, string> = {
   new: '#3B82F6', contacted: '#F59E0B', visit_scheduled: '#8B5CF6',
   visited: '#6366F1', negotiation: '#F97316', closed_won: '#10B981', closed_lost: '#EF4444',
@@ -38,6 +47,7 @@ const AnalyticsPage: React.FC = () => {
   const [leadData, setLeadData] = useState<LeadAnalytics | null>(null);
   const [agentData, setAgentData] = useState<AgentStat[]>([]);
   const [dashStats, setDashStats] = useState<DashStats | null>(null);
+  const [extended, setExtended] = useState<ExtendedAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
 
@@ -48,14 +58,16 @@ const AnalyticsPage: React.FC = () => {
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [leadsRes, agentsRes, dashRes] = await Promise.all([
+      const [leadsRes, agentsRes, dashRes, extRes] = await Promise.all([
         api.get(`/analytics/leads?days=${days}`),
         api.get('/analytics/agents'),
         api.get('/analytics/dashboard'),
+        api.get(`/analytics/extended?days=${days}`),
       ]);
       setLeadData(leadsRes.data.data);
       setAgentData(agentsRes.data.data || []);
       setDashStats(dashRes.data.data);
+      setExtended(extRes.data.data);
     } catch (err) {
       console.error('Failed to load analytics', err);
     } finally {
@@ -222,6 +234,55 @@ const AnalyticsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {extended && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="investo-card-pad">
+            <h2 className="text-lg font-semibold mb-4">AI & response metrics</h2>
+            <ul className="space-y-2 text-sm text-ink-secondary">
+              <li>Avg response time: {extended.avg_response_ms != null ? `${Math.round(extended.avg_response_ms / 1000)}s` : '—'}</li>
+              <li>AI escalation rate: {extended.escalation_rate_pct}% ({extended.escalated_count} conversations)</li>
+            </ul>
+          </div>
+          <div className="investo-card-pad">
+            <h2 className="text-lg font-semibold mb-4">Peak inquiry hours (IST)</h2>
+            {extended.peak_hours?.length ? (
+              <ul className="space-y-1 text-sm">
+                {extended.peak_hours.slice(0, 6).map((h) => (
+                  <li key={h.hour} className="flex justify-between">
+                    <span>{h.hour}:00</span>
+                    <span className="font-medium">{h.count}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-ink-faint text-sm">No data yet</p>
+            )}
+          </div>
+          <div className="investo-card-pad">
+            <h2 className="text-lg font-semibold mb-4">Source ROI (conversion %)</h2>
+            {extended.source_roi?.map((s) => (
+              <div key={s.source} className="flex justify-between text-sm py-1">
+                <span className="capitalize">{s.source}</span>
+                <span>{s.leads} leads · {s.conversion_pct}% won</span>
+              </div>
+            ))}
+          </div>
+          <div className="investo-card-pad">
+            <h2 className="text-lg font-semibold mb-4">Lost reasons</h2>
+            {Object.keys(extended.lost_reasons || {}).length ? (
+              Object.entries(extended.lost_reasons).map(([reason, count]) => (
+                <div key={reason} className="flex justify-between text-sm py-1">
+                  <span>{reason}</span>
+                  <span className="font-medium">{count}</span>
+                </div>
+              ))
+            ) : (
+              <p className="text-ink-faint text-sm">No lost-reason tags yet</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
     </PageLoader>
   );

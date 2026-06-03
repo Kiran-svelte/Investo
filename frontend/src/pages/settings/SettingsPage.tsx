@@ -10,6 +10,7 @@ import {
   Settings, Building2, Shield, ToggleLeft, Save, Plus, Pencil, Trash2,
   X, Loader2, Lock, Users, Sparkles,
 } from 'lucide-react';
+import LeadRoutingSettings from '../../components/settings/LeadRoutingSettings';
 
 // ── Types ──────────────────────────────────────
 
@@ -532,6 +533,11 @@ const SettingsPage: React.FC = () => {
               </button>
             </div>
           </form>
+          {user?.role === 'company_admin' && (
+            <div className="mt-6">
+              <LeadRoutingSettings />
+            </div>
+          )}
         </div>
       )}
 

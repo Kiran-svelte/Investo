@@ -369,4 +369,109 @@ router.get(
   }
 );
 
+/**
+ * GET /api/analytics/extended
+ * Response time, escalation rate, peak hours, lost reasons, source ROI proxy.
+ */
+router.get(
+  '/extended',
+  authorize('analytics', 'read'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const days = parseInt(req.query.days as string) || 30;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const [escalated, totalConvos, messages] = await Promise.all([
+        prisma.conversation.count({
+          where: { companyId, escalatedAt: { not: null, gte: since } },
+        }),
+        prisma.conversation.count({ where: { companyId, createdAt: { gte: since } } }),
+        prisma.message.findMany({
+          where: {
+            conversation: { companyId },
+            createdAt: { gte: since },
+            senderType: { in: ['customer', 'ai'] },
+          },
+          select: { senderType: true, createdAt: true, conversationId: true },
+          orderBy: { createdAt: 'asc' },
+          take: 5000,
+        }),
+      ]);
+
+      const responseSamples: number[] = [];
+      const byConvo = new Map<string, { lastCustomer?: Date }>();
+      for (const m of messages) {
+        const state = byConvo.get(m.conversationId) || {};
+        if (m.senderType === 'customer') {
+          state.lastCustomer = m.createdAt;
+        } else if (m.senderType === 'ai' && state.lastCustomer) {
+          responseSamples.push(m.createdAt.getTime() - state.lastCustomer.getTime());
+          state.lastCustomer = undefined;
+        }
+        byConvo.set(m.conversationId, state);
+      }
+      const avgResponseMs =
+        responseSamples.length > 0
+          ? Math.round(responseSamples.reduce((a, b) => a + b, 0) / responseSamples.length)
+          : null;
+
+      const peakHoursRaw = await prisma.$queryRaw<{ hour: number; count: number }[]>`
+        SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata')::int as hour, COUNT(id)::int as count
+        FROM messages m
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE c.company_id = ${companyId}::uuid
+        AND m.sender_type = 'customer'
+        AND m.created_at >= ${since}
+        GROUP BY hour
+        ORDER BY count DESC
+      `;
+
+      const lostLeads = await prisma.lead.findMany({
+        where: { companyId, status: 'closed_lost', updatedAt: { gte: since } },
+        select: { metadata: true },
+        take: 200,
+      });
+      const lostReasons: Record<string, number> = {};
+      for (const l of lostLeads) {
+        const meta = (l.metadata as { lost_reason?: string }) || {};
+        const reason = meta.lost_reason || 'unspecified';
+        lostReasons[reason] = (lostReasons[reason] || 0) + 1;
+      }
+
+      const sourcesRaw = await prisma.lead.groupBy({
+        by: ['source'],
+        where: { companyId, createdAt: { gte: since } },
+        _count: { id: true },
+      });
+      const wonBySource = await prisma.lead.groupBy({
+        by: ['source'],
+        where: { companyId, status: 'closed_won', updatedAt: { gte: since } },
+        _count: { id: true },
+      });
+      const wonMap = new Map(wonBySource.map((s) => [s.source, s._count.id]));
+      const source_roi = sourcesRaw.map((s) => ({
+        source: s.source,
+        leads: s._count.id,
+        won: wonMap.get(s.source) || 0,
+        conversion_pct: s._count.id > 0 ? Math.round(((wonMap.get(s.source) || 0) / s._count.id) * 100) : 0,
+      }));
+
+      res.json({
+        data: {
+          avg_response_ms: avgResponseMs,
+          escalation_rate_pct: totalConvos > 0 ? Math.round((escalated / totalConvos) * 100) : 0,
+          escalated_count: escalated,
+          peak_hours: peakHoursRaw,
+          lost_reasons: lostReasons,
+          source_roi,
+        },
+      });
+    } catch (err: any) {
+      logger.error('Failed to fetch extended analytics', { error: err.message });
+      res.status(500).json({ error: 'Failed to fetch extended analytics' });
+    }
+  },
+);
+
 export default router;

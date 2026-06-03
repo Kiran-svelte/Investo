@@ -14,6 +14,14 @@ import logger from '../config/logger';
 import { notificationEngine } from '../services/notification.engine';
 import { socketService, SOCKET_EVENTS } from '../services/socket.service';
 import { assignLeadRoundRobin } from '../services/leadAssignment.service';
+import { assignLeadWithRouting } from '../services/leadRouting.service';
+import {
+  metadataToDto,
+  mergeLeadMetadata,
+  parseLeadMetadata,
+  type LeadMetadata,
+} from '../services/leadMetadata.service';
+import { syncLeadScoreFromConversation } from '../services/leadScoring.service';
 
 const router = Router();
 
@@ -76,6 +84,7 @@ function stringifyDetails(details: unknown): string | null {
 }
 
 export function mapLeadToSnakeCaseDTO(lead: any) {
+  const meta = metadataToDto(lead.metadata);
   return {
     id: lead.id,
     customer_name: lead.customerName,
@@ -91,11 +100,34 @@ export function mapLeadToSnakeCaseDTO(lead: any) {
     agent_name: lead.assignedAgent?.name || null,
     notes: lead.notes,
     language: lead.language || 'en',
+    lead_score: meta.lead_score ?? null,
+    tags: meta.tags ?? [],
+    source_detail: meta.source_detail ?? null,
+    intent: meta.intent ?? null,
+    lost_reason: meta.lost_reason ?? null,
     created_at: toIsoString(lead.createdAt),
     updated_at: toIsoString(lead.updatedAt),
     last_contact_at: toIsoString(lead.lastContactAt),
     conversation_id: lead.conversations?.[0]?.id || null,
   };
+}
+
+function buildLeadExportWhere(companyId: string, query: Record<string, unknown>, userRole: string, userId: string): Record<string, unknown> {
+  const where: Record<string, unknown> = { companyId };
+  if (userRole === 'sales_agent') where.assignedAgentId = userId;
+  if (query.status) where.status = query.status;
+  if (query.assigned_agent_id) where.assignedAgentId = query.assigned_agent_id;
+  if (query.property_type) where.propertyType = query.property_type;
+  if (query.source) where.source = query.source;
+  if (query.search) {
+    const search = String(query.search);
+    where.OR = [
+      { customerName: { contains: search, mode: 'insensitive' } },
+      { phone: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+  return where;
 }
 
 function mapLeadTimelineToSnakeCaseDTO(entry: LeadTimelineRow) {
@@ -262,8 +294,19 @@ router.post(
       // After Zod validation, req.body uses snake_case field names
       let agentId = req.body.assigned_agent_id;
       if (!agentId) {
-        agentId = await assignLeadRoundRobin(companyId);
+        agentId = await assignLeadWithRouting(companyId, {
+          locationPreference: req.body.location_preference || null,
+          metadata: req.body.source_detail
+            ? { source_detail: req.body.source_detail }
+            : {},
+        });
       }
+
+      const initialMeta: LeadMetadata = {};
+      if (req.body.lead_score) initialMeta.lead_score = req.body.lead_score;
+      if (Array.isArray(req.body.tags)) initialMeta.tags = req.body.tags;
+      if (req.body.source_detail) initialMeta.source_detail = req.body.source_detail;
+      if (req.body.intent) initialMeta.intent = req.body.intent;
 
       const lead = await prisma.lead.create({
         data: {
@@ -280,6 +323,7 @@ router.post(
           status: 'new',
           notes: req.body.notes || null,
           language: req.body.language || 'en',
+          metadata: Object.keys(initialMeta).length ? (initialMeta as object) : {},
         },
       });
 
@@ -325,9 +369,21 @@ router.put(
         return;
       }
 
-      const { customer_name, email, budget_min, budget_max, location_preference, property_type, assigned_agent_id, notes, language } = req.body;
+      const {
+        customer_name, email, budget_min, budget_max, location_preference, property_type,
+        assigned_agent_id, notes, language, tags, lead_score, source_detail, lost_reason,
+      } = req.body;
 
       const oldAgentId = lead.assignedAgentId;
+      const metaPatch: LeadMetadata = {};
+      if (tags !== undefined) metaPatch.tags = Array.isArray(tags) ? tags : [];
+      if (lead_score !== undefined) metaPatch.lead_score = lead_score;
+      if (source_detail !== undefined) metaPatch.source_detail = source_detail;
+      if (lost_reason !== undefined) metaPatch.lost_reason = lost_reason;
+      const metadata =
+        Object.keys(metaPatch).length > 0
+          ? mergeLeadMetadata(lead.metadata, metaPatch)
+          : undefined;
 
       const updated = await prisma.lead.update({
         where: { id },
@@ -341,6 +397,7 @@ router.put(
           ...(assigned_agent_id !== undefined && { assignedAgentId: assigned_agent_id }),
           ...(notes !== undefined && { notes }),
           ...(language !== undefined && { language }),
+          ...(metadata !== undefined && { metadata: metadata as object }),
           lastContactAt: new Date(),
         },
       });
@@ -627,10 +684,33 @@ router.get(
   }
 );
 
+function serializeLeadExportRow(l: LeadWithAgent & { metadata?: unknown }): string[] {
+  const meta = metadataToDto(l.metadata);
+  return [
+    l.customerName || '',
+    l.phone,
+    l.email || '',
+    String(l.budgetMin ?? ''),
+    String(l.budgetMax ?? ''),
+    l.locationPreference || '',
+    l.propertyType || '',
+    l.status,
+    l.assignedAgent?.name || '',
+    l.source || '',
+    meta.lead_score || '',
+    (meta.tags || []).join(';'),
+    meta.source_detail || '',
+    l.createdAt.toISOString(),
+  ];
+}
+
+const EXPORT_HEADERS = [
+  'Name', 'Phone', 'Email', 'Budget Min', 'Budget Max', 'Location', 'Type',
+  'Status', 'Agent', 'Source', 'Lead Score', 'Tags', 'Source Detail', 'Created',
+];
+
 /**
- * GET /api/leads/export/csv
- * Export leads as CSV. Company admin only.
- * Rate limited: 10 exports per hour per user
+ * GET /api/leads/export/csv — supports same filters as list (?status=&search=&source=)
  */
 router.get(
   '/export/csv',
@@ -640,34 +720,53 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-
       if (req.user!.role !== 'company_admin' && req.user!.role !== 'super_admin') {
         res.status(403).json({ error: 'Only admins can export data' });
         return;
       }
-
+      const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
       const leads = await prisma.lead.findMany({
-        where: { companyId },
+        where: where as any,
         include: { assignedAgent: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
       });
-
-      // Build CSV
-      const headers = ['Name', 'Phone', 'Email', 'Budget Min', 'Budget Max', 'Location', 'Type', 'Status', 'Agent', 'Source', 'Created'];
-      const rows = leads.map((l) => [
-        l.customerName || '', l.phone, l.email || '',
-        l.budgetMin || '', l.budgetMax || '', l.locationPreference || '',
-        l.propertyType || '', l.status, l.assignedAgent?.name || '', l.source || '',
-        l.createdAt,
-      ].join(','));
-
-      const csv = [headers.join(','), ...rows].join('\n');
-
+      const rows = leads.map((l) => serializeLeadExportRow(l as LeadWithAgent).join(','));
+      const csv = [EXPORT_HEADERS.join(','), ...rows].join('\n');
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename=leads_export.csv');
       res.send(csv);
     } catch (err: any) {
       logger.error('Failed to export leads', { error: err.message });
+      res.status(500).json({ error: 'Failed to export leads' });
+    }
+  }
+);
+
+/**
+ * GET /api/leads/export/json — filtered JSON export
+ */
+router.get(
+  '/export/json',
+  authorize('leads', 'read'),
+  exportRateLimiter,
+  auditLog('export', 'leads'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      if (req.user!.role !== 'company_admin' && req.user!.role !== 'super_admin') {
+        res.status(403).json({ error: 'Only admins can export data' });
+        return;
+      }
+      const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
+      const leads = await prisma.lead.findMany({
+        where: where as any,
+        include: { assignedAgent: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename=leads_export.json');
+      res.json({ exported_at: new Date().toISOString(), count: leads.length, data: leads.map(mapLeadToSnakeCaseDTO) });
+    } catch (err: any) {
       res.status(500).json({ error: 'Failed to export leads' });
     }
   }

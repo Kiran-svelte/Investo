@@ -29,6 +29,7 @@ import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage';
 import CompaniesPage from './pages/companies/CompaniesPage';
 import BillingPage from './pages/billing/BillingPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
+import ErrorLogsPage from './pages/error-logs/ErrorLogsPage';
 import useCompanyFeatures from './hooks/useCompanyFeatures';
 import './i18n/i18n';
 import api from './services/api';
@@ -316,6 +317,11 @@ const App: React.FC = () => {
                   <Route element={<RoleRoute path="/audit-logs" />}>
                     <Route element={<FeatureRoute featureKey="audit_logs" />}>
                       <Route path="audit-logs" element={<AuditLogsPage />} />
+                    </Route>
+                  </Route>
+                  <Route element={<RoleRoute path="/error-logs" />}>
+                    <Route element={<FeatureRoute featureKey="audit_logs" />}>
+                      <Route path="error-logs" element={<ErrorLogsPage />} />
                     </Route>
                   </Route>
                 </Route>

@@ -216,6 +216,8 @@ model Lead {
   reEngagementSentAt  DateTime?    @map("re_engagement_sent_at")
   /// Number of re-engagement messages sent to this lead
   reEngagementCount   Int          @default(0) @map("re_engagement_count")
+  /// Extensible CRM fields: lead_score (hot|warm|cold), tags[], source_detail, lost_reason
+  metadata            Json         @default("{}")
 
   company         Company       @relation(fields: [companyId], references: [id])
   assignedAgent   User?         @relation("AgentLeads", fields: [assignedAgentId], references: [id])

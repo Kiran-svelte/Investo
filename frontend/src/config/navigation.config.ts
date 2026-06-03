@@ -24,6 +24,7 @@ export type NavRouteKey =
   | 'billing'
   | 'emi_calculator'
   | 'audit_logs'
+  | 'error_logs'
   | 'notifications'
   | 'settings';
 
@@ -61,6 +62,7 @@ export const NAV_ITEM_GROUP: Record<NavRouteKey, NavGroupKey> = {
   settings: 'admin',
   companies: 'platform',
   audit_logs: 'platform',
+  error_logs: 'admin',
 };
 
 export interface NavGroupSpec {
@@ -146,6 +148,13 @@ export const NAV_ITEMS: NavItemSpec[] = [
     path: dashboardPath('/audit-logs'),
     roles: ['super_admin'],
     featureKey: 'audit_logs',
+  },
+  {
+    key: 'error_logs',
+    path: dashboardPath('/error-logs'),
+    roles: ['company_admin'],
+    featureKey: 'audit_logs',
+    labelFallback: 'Error Log',
   },
   {
     key: 'notifications',

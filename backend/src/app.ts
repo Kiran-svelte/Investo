@@ -24,6 +24,8 @@ import roleRoutes from './routes/role.routes';
 import featureRoutes from './routes/feature.routes';
 import onboardingRoutes from './routes/onboarding.routes';
 import auditRoutes from './routes/audit.routes';
+import errorLogRoutes from './routes/error-log.routes';
+import assignmentSettingsRoutes from './routes/assignment-settings.routes';
 import propertyImportRoutes from './routes/property-import.routes';
 import propertyImportUploadRoutes from './routes/property-import-upload.routes';
 import financeRoutes from './routes/finance.routes';
@@ -94,6 +96,8 @@ app.use('/api/roles', companyRateLimiter, roleRoutes);
 app.use('/api/features', companyRateLimiter, featureRoutes);
 app.use('/api/onboarding', companyRateLimiter, onboardingRoutes);
 app.use('/api/audit', companyRateLimiter, auditRoutes);
+app.use('/api/error-logs', companyRateLimiter, errorLogRoutes);
+app.use('/api/assignment-settings', companyRateLimiter, assignmentSettingsRoutes);
 app.use('/api', financeRoutes);
 
 // 404 handler
