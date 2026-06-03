@@ -18,6 +18,12 @@ function loadAiService(configOverride: any) {
     },
   }));
 
+  jest.doMock('../../services/propertyKnowledge.service', () => ({
+    __esModule: true,
+    searchPropertyKnowledge: jest.fn().mockResolvedValue([]),
+    formatKnowledgeContextForPrompt: jest.fn(() => ''),
+  }));
+
   let aiService: any;
   jest.isolateModules(() => {
     aiService = require('../../services/ai.service').aiService;
@@ -120,7 +126,7 @@ describe('AIService fallback behavior', () => {
     const systemPrompt = body.messages[0].content;
 
     expect(systemPrompt).toContain('LEGAL SAFETY');
-    expect(systemPrompt).toContain('Do not invent builder, RERA, approvals, possession date, availability, amenities, discount, ROI, or price.');
-    expect(systemPrompt).toContain('If a required property fact is missing, say it is not in our current records');
+    expect(systemPrompt).toContain('NEVER state prices, BHK, area, amenities, RERA, possession, discounts, ROI');
+    expect(systemPrompt).toContain('If a fact is missing from the data blocks, say it is not in our current records');
   });
 });

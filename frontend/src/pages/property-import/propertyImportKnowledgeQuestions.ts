@@ -33,16 +33,56 @@ function readTypeKnowledge(draftData: Record<string, unknown>): Record<string, s
   return out;
 }
 
+function priceUnitMultiplier(unit: string | null | undefined, fallbackUnit?: string): number {
+  const normalized = (unit || fallbackUnit || '').trim().toLowerCase();
+  if (normalized === 'cr' || normalized === 'crore') {
+    return 10000000;
+  }
+  if (normalized === 'l' || normalized === 'lakh') {
+    return 100000;
+  }
+  if (normalized === 'k') {
+    return 1000;
+  }
+  return 1;
+}
+
 function parsePriceRange(answer: string): { min?: string; max?: string } {
-  const nums = answer.match(/[\d.]+/g)?.map((n) => Number(n.replace(/,/g, ''))).filter(Number.isFinite) ?? [];
-  if (nums.length >= 2) {
-    const [a, b] = nums;
-    return { min: String(Math.min(a, b)), max: String(Math.max(a, b)) };
+  const normalized = answer
+    .toLowerCase()
+    .replace(/₹/g, 'rs')
+    .replace(/,/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const matches = Array.from(normalized.matchAll(/(\d+(?:\.\d+)?)\s*(cr|crore|l|lakh|k)?/g));
+  if (matches.length === 0) {
+    return {};
   }
-  if (nums.length === 1) {
-    return { min: String(nums[0]), max: String(nums[0]) };
+
+  const fallbackUnit = [...matches].reverse().find((match) => match[2])?.[2];
+  const values = matches
+    .map((match) => Number(match[1]) * priceUnitMultiplier(match[2], fallbackUnit))
+    .filter(Number.isFinite);
+
+  if (values.length === 0) {
+    return {};
   }
-  return {};
+
+  if (/^under\b/.test(normalized)) {
+    return { max: String(Math.round(values[0])) };
+  }
+
+  if (/\+$/.test(normalized)) {
+    return { min: String(Math.round(values[0])) };
+  }
+
+  if (values.length >= 2) {
+    const [a, b] = values;
+    return { min: String(Math.round(Math.min(a, b))), max: String(Math.round(Math.max(a, b))) };
+  }
+
+  return { min: String(Math.round(values[0])), max: String(Math.round(values[0])) };
 }
 
 export function applyMarketingAnswer(

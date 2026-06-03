@@ -603,13 +603,7 @@ export class PropertyImportService {
     const draftData = (draft.draftData || {}) as Record<string, unknown>;
     const priceMin = asNullableNumber(draftData.price_min ?? draftData.priceMin);
     const priceMax = asNullableNumber(draftData.price_max ?? draftData.priceMax);
-    if (priceMin === null || priceMax === null) {
-      throw new PropertyImportError(
-        'Project budget is required. Set Price min (₹) and Price max (₹) for this property before publishing.',
-        400,
-      );
-    }
-    if (priceMin > priceMax) {
+    if (priceMin !== null && priceMax !== null && priceMin > priceMax) {
       throw new PropertyImportError('Price min cannot be greater than price max', 400);
     }
 

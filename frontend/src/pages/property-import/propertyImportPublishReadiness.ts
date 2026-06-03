@@ -48,13 +48,11 @@ export function getPublishReadiness(input: {
   const missingQuestions = getMissingMarketingQuestions(formValues, draftData);
 
   if (missingQuestions.length > 0) {
-    warnings.push(
-      `${missingQuestions.length} AI knowledge question(s) still open — answer them for better WhatsApp replies.`,
-    );
+    blockers.push('Answer the remaining AI knowledge questions.');
   }
 
   if (!formValues.location_city.trim() && !formValues.location_area.trim()) {
-    warnings.push('Add city or area when you know it — helps location matching on WhatsApp.');
+    warnings.push('Add city or area when you know it. This helps location matching on WhatsApp.');
   }
 
   return {

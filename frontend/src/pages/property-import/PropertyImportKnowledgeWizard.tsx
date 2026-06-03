@@ -180,7 +180,7 @@ export default function PropertyImportKnowledgeWizard({
             <div>
               <h3 className="text-lg font-semibold text-slate-900">AI project knowledge</h3>
               <p className="text-sm text-slate-600">
-                Question {step + 1} of {queue.length} — only gaps after brochure scan.
+                Question {step + 1} of {queue.length}. Only gaps after brochure scan.
               </p>
             </div>
           </div>

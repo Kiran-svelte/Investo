@@ -23,9 +23,15 @@ jest.mock('../../config/prisma', () => ({
 }));
 
 jest.mock('../../services/storage.service', () => ({
+  isAwsStorageConfigured: jest.fn(() => false),
+  isR2StorageConfigured: jest.fn(() => false),
   storageService: {
     verifyUploadedObject: jest.fn(),
   },
+}));
+
+jest.mock('../../services/supabaseStorage.service', () => ({
+  isSupabaseStorageConfigured: jest.fn(() => false),
 }));
 
 jest.mock('../../services/propertyImportQueue.service', () => ({
@@ -34,6 +40,16 @@ jest.mock('../../services/propertyImportQueue.service', () => ({
     clearAll: jest.fn(),
     processDueJobs: jest.fn(),
   },
+}));
+
+jest.mock('../../services/propertyKnowledge.service', () => ({
+  assertPropertyKnowledgeReady: jest.fn(),
+  assertPublishStorageReady: jest.fn(),
+  indexPropertyKnowledge: jest.fn().mockResolvedValue({
+    ok: true,
+    propertyId: 'property-1',
+    chunkCount: 2,
+  }),
 }));
 
 import { PropertyImportError, propertyImportService } from '../../services/propertyImport.service';
@@ -187,14 +203,21 @@ describe('Property Import Service publish gate', () => {
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();
   });
 
-  test('publishes once extraction is complete and the draft is publish_ready', async () => {
+  test('publishes once extraction is complete and the draft is publish_ready without requiring catalog price', async () => {
     mockPrisma.propertyImportDraft.findFirst.mockResolvedValue({
       id: 'draft-1',
       companyId: 'company-1',
       status: 'publish_ready',
       extractionStatus: 'extracted',
       publishedPropertyId: null,
-      draftData: { name: 'Sunrise Residences' },
+      draftData: {
+        name: 'Sunrise Residences',
+        property_type: 'apartment',
+        type_knowledge: {
+          price: 'Price on request',
+          anything_else: 'Nothing else',
+        },
+      },
       mediaAssets: [],
     });
 
@@ -202,6 +225,7 @@ describe('Property Import Service publish gate', () => {
       id: 'property-1',
       companyId: 'company-1',
       name: 'Sunrise Residences',
+      propertyType: 'apartment',
     });
 
     mockPrisma.propertyImportDraft.update.mockResolvedValue({
@@ -217,6 +241,9 @@ describe('Property Import Service publish gate', () => {
       data: expect.objectContaining({
         companyId: 'company-1',
         name: 'Sunrise Residences',
+        propertyType: 'apartment',
+        priceMin: null,
+        priceMax: null,
       }),
     }));
     expect(mockPrisma.propertyImportDraft.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -225,6 +252,14 @@ describe('Property Import Service publish gate', () => {
         status: 'published',
         extractionStatus: 'extracted',
         publishedPropertyId: 'property-1',
+      }),
+    }));
+    const { indexPropertyKnowledge } = require('../../services/propertyKnowledge.service');
+    expect(indexPropertyKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+      draftData: expect.objectContaining({
+        type_knowledge: expect.objectContaining({
+          price: 'Price on request',
+        }),
       }),
     }));
     expect(result.draft).toBeDefined();

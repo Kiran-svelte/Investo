@@ -177,14 +177,17 @@ export default function PropertyImportSimplePage() {
     syncFormFromDraft(normalized.draftData);
   };
 
-  const persistDraft = async () => {
+  const persistDraft = async (
+    nextFormValues = formValues,
+    nextDraftData: Record<string, unknown> | null | undefined = draft?.draftData,
+  ) => {
     if (!draft?.id) {
       return null;
     }
     setIsSaving(true);
     try {
       const saved = await savePropertyImportDraft(draft.id, {
-        draft_data: serializePropertyImportFormValues(formValues, draft.draftData),
+        draft_data: serializePropertyImportFormValues(nextFormValues, nextDraftData),
         review_notes: null,
         mark_publish_ready: publishReadiness.ready,
       });
@@ -339,7 +342,7 @@ export default function PropertyImportSimplePage() {
 
       const published = await publishPropertyImportDraft(draft.id, {});
       if (!published.knowledge_indexed) {
-        setPageError('Published but AI knowledge indexing failed — check OpenAI / database.');
+        setPageError('Published but AI knowledge indexing failed. Check OpenAI or database.');
         applyDraftUpdate(published.draft);
         return;
       }
@@ -373,7 +376,7 @@ export default function PropertyImportSimplePage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Add a property</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Pick type, upload brochure, answer a few questions — then go live on WhatsApp AI.
+          Pick type, upload brochure, answer a few questions, then go live on WhatsApp AI.
         </p>
       </div>
 
@@ -408,7 +411,7 @@ export default function PropertyImportSimplePage() {
 
       {activeStepIndex === 0 && (
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Step 1 — Property type</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Step 1 - Property type</h2>
           <p className="mt-1 text-sm text-gray-500">Choose one. Questions in step 3 depend on this.</p>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             {TYPE_CARDS.map((card) => (
@@ -434,19 +437,19 @@ export default function PropertyImportSimplePage() {
 
       {activeStepIndex >= 1 && (
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Step 2 — Upload brochure</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Step 2 - Upload brochure</h2>
           <p className="mt-1 text-sm text-gray-500">
-            PDF or images. We extract facts automatically — {SUPPORTED_FILE_LABELS.join(', ')}.
+            PDF or images. We extract facts automatically - {SUPPORTED_FILE_LABELS.join(', ')}.
           </p>
           {draft?.extractionStatus === 'extracted' ? (
             <p className="mt-3 flex items-center gap-2 text-sm text-emerald-700">
               <CheckCircle2 className="h-4 w-4" />
               Extraction complete ({draft.mediaAssets?.length ?? 0} file(s))
             </p>
-          ) : draft?.extractionStatus === 'extracting' || draft?.status === 'extracting' ? (
+          ) : draft?.extractionStatus === 'queued' || draft?.extractionStatus === 'processing' || draft?.status === 'extracting' ? (
             <p className="mt-3 flex items-center gap-2 text-sm text-blue-700">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Extracting brochure…
+              Extracting brochure...
             </p>
           ) : null}
 
@@ -465,7 +468,7 @@ export default function PropertyImportSimplePage() {
               onClick={() => fileInputRef.current?.click()}
               className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
             >
-              {isUploading ? 'Uploading…' : 'Choose files'}
+              {isUploading ? 'Uploading...' : 'Choose files'}
             </button>
             <input
               ref={fileInputRef}
@@ -484,7 +487,7 @@ export default function PropertyImportSimplePage() {
             <ul className="mt-4 space-y-2 text-sm text-gray-600">
               {uploadItems.map((item) => (
                 <li key={item.id}>
-                  {item.fileName} — {item.status}
+                  {item.fileName} - {item.status}
                   {item.error ? ` (${item.error})` : ''}
                 </li>
               ))}
@@ -512,7 +515,7 @@ export default function PropertyImportSimplePage() {
           draftData={draft?.draftData}
           onComplete={(next) => {
             handleKnowledgeUpdate(next);
-            void persistDraft();
+            void persistDraft(next.formValues, next.draftData);
           }}
           onStepAnswer={handleKnowledgeUpdate}
         />
@@ -521,13 +524,13 @@ export default function PropertyImportSimplePage() {
       {activeStepIndex >= 2 && publishReadiness.missingQuestions.length === 0 && draft?.extractionStatus === 'extracted' && (
         <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900">
           <Sparkles className="mr-2 inline h-4 w-4" />
-          AI knowledge complete — ready to go live.
+          AI knowledge complete. Ready to go live.
         </section>
       )}
 
       {activeStepIndex >= 2 && draft?.extractionStatus === 'extracted' && (
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Step 4 — Ready to go</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Step 4 - Ready to go</h2>
           {publishReadiness.warnings.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-sm text-amber-800">
               {publishReadiness.warnings.map((w) => (
