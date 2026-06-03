@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { dashboardPath } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import PageLoader from '../../components/ui/PageLoader';
+import PageHeader from '../../components/ui/PageHeader';
 import {
   Users, Building2, Calendar, TrendingUp, MessageSquare,
   IndianRupee, ArrowUpRight, ArrowDownRight, Phone, MapPin,
@@ -131,14 +133,6 @@ const DashboardPage: React.FC = () => {
     return `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${time}`;
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
-      </div>
-    );
-  }
-
   const trendValue = (key: keyof Trends) => {
     if (!trends) return { text: '0%', up: true };
     const val = trends[key];
@@ -191,27 +185,23 @@ const DashboardPage: React.FC = () => {
   ];
 
   return (
+    <PageLoader loading={loading} skeleton="card" count={6}>
     <div className="investo-page space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-ink-primary">{t('dashboard.title')}</h1>
-          <p className="text-ink-muted text-sm">
-            {t('common.welcome')}, {user?.name}
-          </p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader
+        title={t('dashboard.title')}
+        description={`${t('common.welcome')}, ${user?.name ?? ''}`}
+        actions={
           <select
             value={period}
             onChange={handlePeriodChange}
-            className="px-3 py-2 border border-surface-border-strong rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="investo-select w-auto min-w-[140px]"
           >
             <option value="today">{t('common.today')}</option>
             <option value="week">{t('common.this_week')}</option>
             <option value="month">{t('common.this_month')}</option>
           </select>
-        </div>
-      </div>
+        }
+      />
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -351,6 +341,7 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
     </div>
+    </PageLoader>
   );
 };
 

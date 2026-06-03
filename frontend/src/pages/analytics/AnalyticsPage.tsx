@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
-import { Loader2, TrendingUp, Users, Calendar, BarChart3 } from 'lucide-react';
+import { TrendingUp, Users, Calendar, BarChart3 } from 'lucide-react';
+import PageLoader from '../../components/ui/PageLoader';
+import PageHeader from '../../components/ui/PageHeader';
 
 interface LeadAnalytics {
   by_status: { status: string; count: number }[];
@@ -68,23 +70,21 @@ const AnalyticsPage: React.FC = () => {
     return `₹${val}`;
   };
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-brand-700" /></div>;
-  }
-
   const totalLeadsByStatus = leadData?.by_status?.reduce((s, b) => s + Number(b.count), 0) || 1;
 
   return (
+    <PageLoader loading={loading} skeleton="card" count={6}>
     <div className="investo-page space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-ink-primary">{t('analytics.title') || 'Analytics'}</h1>
-        <select value={days} onChange={e => setDays(Number(e.target.value))}
-          className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500">
-          <option value={7}>{t('analytics.last_7_days')}</option>
-          <option value={30}>{t('analytics.last_30_days')}</option>
-          <option value={90}>{t('analytics.last_90_days')}</option>
-        </select>
-      </div>
+      <PageHeader
+        title={t('analytics.title', { defaultValue: 'Analytics' })}
+        actions={
+          <select value={days} onChange={e => setDays(Number(e.target.value))} className="investo-select w-auto">
+            <option value={7}>{t('analytics.last_7_days')}</option>
+            <option value={30}>{t('analytics.last_30_days')}</option>
+            <option value={90}>{t('analytics.last_90_days')}</option>
+          </select>
+        }
+      />
 
       {/* KPI Cards */}
       {dashStats && (
@@ -223,6 +223,7 @@ const AnalyticsPage: React.FC = () => {
         </div>
       </div>
     </div>
+    </PageLoader>
   );
 };
 

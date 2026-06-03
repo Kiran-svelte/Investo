@@ -15,7 +15,19 @@
     "audit_logs": "Audit Logs",
     "notifications": "Notifications",
     "emi_calculator": "EMI Calculator",
-    "logout": "Logout"
+    "logout": "Logout",
+    "change_password": "Change password",
+    "collapse": "Collapse menu",
+    "expand": "Expand menu",
+    "open_menu": "Open menu",
+    "empty": "No pages available for your role.",
+    "group": {
+      "workspace": "Workspace",
+      "pipeline": "Sales pipeline",
+      "intelligence": "AI & insights",
+      "admin": "Administration",
+      "platform": "Platform"
+    }
   },
   "auth": {
     "login": "Login",
@@ -345,7 +357,8 @@
       "lead": "Lead",
       "visit": "Visit",
       "system": "System"
-    }
+    },
+    "viewAll": "View all notifications"
   },
   "ai_settings": {
     "title": "AI Settings",
@@ -382,7 +395,8 @@
     "webhook_url": "Webhook URL",
     "webhook_help": "Copy this URL and paste it in your Meta app webhook configuration.",
     "save_whatsapp": "Save WhatsApp Configuration",
-    "whatsapp_saved": "WhatsApp configuration saved successfully"
+    "whatsapp_saved": "WhatsApp configuration saved successfully",
+    "test_connection": "Test connection"
   },
   "onboarding": {
     "title": "Welcome to Investo",

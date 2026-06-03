@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import LeadStatusBadge from '../../components/leads/LeadStatusBadge';
 import LeadStatusSelect from '../../components/leads/LeadStatusSelect';
+import PageLoader from '../../components/ui/PageLoader';
+import PageHeader from '../../components/ui/PageHeader';
 import {
   LEAD_STATUS_ORDER,
   LEAD_STATUS_BAR,
@@ -162,13 +164,12 @@ const LeadsPage: React.FC = () => {
   };
 
   return (
+    <PageLoader loading={loading && leads.length === 0} skeleton="lead" count={5}>
     <div className="investo-page space-y-4">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-ink-primary">{t('leads.title')}</h1>
-          <p className="text-sm text-ink-muted">{total} total leads</p>
-        </div>
+      <PageHeader
+        title={t('leads.title')}
+        description={`${total} total leads`}
+        actions={
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           {capabilities.canExportLeads && (
             <button
@@ -189,7 +190,8 @@ const LeadsPage: React.FC = () => {
             </button>
           )}
         </div>
-      </div>
+        }
+      />
 
       {/* AI hybrid + pipeline */}
       <div className="rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 via-surface-elevated to-surface-muted p-3 shadow-sm sm:p-4">
@@ -409,6 +411,7 @@ const LeadsPage: React.FC = () => {
         />
       )}
     </div>
+    </PageLoader>
   );
 };
 

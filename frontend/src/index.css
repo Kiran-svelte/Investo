@@ -64,14 +64,6 @@
     @apply min-w-[640px] sm:min-w-0;
   }
 
-  .investo-card {
-    @apply rounded-xl border border-surface-border bg-surface-elevated shadow-sm;
-  }
-
-  .investo-card-pad {
-    @apply investo-card p-5 md:p-6;
-  }
-
   .investo-input {
     @apply w-full rounded-lg border border-surface-border bg-surface-base px-3 py-2.5 text-sm text-ink-primary shadow-sm transition-colors placeholder:text-ink-faint focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20;
   }
@@ -80,20 +72,12 @@
     @apply investo-input appearance-none;
   }
 
-  .investo-btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-brand-700 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:pointer-events-none disabled:opacity-50;
-  }
-
   .investo-btn-secondary {
     @apply inline-flex items-center justify-center gap-2 rounded-lg border border-surface-border-strong bg-surface-base px-4 py-2.5 text-sm font-semibold text-ink-secondary shadow-sm transition-colors hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:opacity-50;
   }
 
   .investo-btn-ghost {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink-secondary transition-colors hover:bg-surface-subtle hover:text-ink-primary;
-  }
-
-  .investo-kpi {
-    @apply investo-card-pad flex flex-col gap-1;
   }
 
   .investo-table-wrap {
@@ -106,5 +90,100 @@
 
   .font-display {
     font-family: var(--font-display);
+  }
+
+  .investo-main-column {
+    @apply transition-[padding-left] duration-300 ease-out;
+    padding-left: 0;
+  }
+
+  @media (min-width: 1024px) {
+    .investo-main-column {
+      padding-left: var(--investo-sidebar-w, 260px);
+    }
+  }
+
+  .investo-page-enter {
+    @apply w-full;
+  }
+
+  .investo-topbar {
+    @apply flex h-14 items-center gap-3 border-b border-surface-border/80 bg-surface-base/90 px-3 backdrop-blur-md sm:px-5;
+  }
+
+  .investo-icon-btn {
+    @apply investo-touch-target inline-flex items-center justify-center rounded-xl border border-surface-border bg-surface-elevated text-ink-muted shadow-sm transition-all duration-200 hover:border-brand-200 hover:bg-surface-subtle hover:text-ink-primary hover:shadow-investo;
+  }
+
+  .investo-dropdown-panel {
+    @apply absolute z-50 overflow-hidden rounded-xl border border-surface-border bg-surface-elevated shadow-investo-lg;
+    animation: investo-dropdown-in 0.2s ease-out;
+  }
+
+  .investo-sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  }
+
+  .investo-skeleton-grid {
+    @apply grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3;
+  }
+
+  .investo-skeleton-line {
+    @apply animate-pulse rounded-md bg-surface-subtle;
+    background: linear-gradient(90deg, var(--color-surface-subtle) 0%, #e8edf4 50%, var(--color-surface-subtle) 100%);
+    background-size: 200% 100%;
+    animation: investo-shimmer 1.4s ease-in-out infinite;
+  }
+
+  .investo-card {
+    @apply rounded-xl border border-surface-border bg-surface-elevated shadow-sm transition-all duration-200;
+  }
+
+  .investo-card:hover {
+    @apply border-surface-border-strong shadow-investo;
+  }
+
+  .investo-card-pad {
+    @apply investo-card p-5 md:p-6;
+  }
+
+  .investo-kpi {
+    @apply investo-card-pad flex flex-col gap-1 transition-transform duration-200 hover:-translate-y-0.5;
+  }
+
+  .investo-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-brand-700 hover:shadow-md hover:-translate-y-px active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:pointer-events-none disabled:opacity-50;
+  }
+}
+
+@keyframes investo-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes investo-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .investo-page-enter,
+  .investo-dropdown-panel,
+  .investo-card,
+  .investo-kpi,
+  .investo-btn-primary {
+    animation: none !important;
+    transition: none !important;
   }
 }

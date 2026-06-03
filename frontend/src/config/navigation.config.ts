@@ -36,6 +36,38 @@ export interface NavItemSpec {
   labelFallback?: string;
 }
 
+export type NavGroupKey = 'workspace' | 'pipeline' | 'intelligence' | 'admin' | 'platform';
+
+export const NAV_GROUP_ORDER: NavGroupKey[] = [
+  'workspace',
+  'pipeline',
+  'intelligence',
+  'admin',
+  'platform',
+];
+
+export const NAV_ITEM_GROUP: Record<NavRouteKey, NavGroupKey> = {
+  dashboard: 'workspace',
+  leads: 'pipeline',
+  properties: 'pipeline',
+  conversations: 'pipeline',
+  calendar: 'pipeline',
+  agents: 'admin',
+  analytics: 'intelligence',
+  ai_settings: 'intelligence',
+  billing: 'admin',
+  emi_calculator: 'admin',
+  notifications: 'admin',
+  settings: 'admin',
+  companies: 'platform',
+  audit_logs: 'platform',
+};
+
+export interface NavGroupSpec {
+  key: NavGroupKey;
+  items: NavItemSpec[];
+}
+
 /**
  * Role-specific navigation — single source of truth for sidebar + route guards.
  *
@@ -245,6 +277,27 @@ export function getVisibleNavItems(
     if (role === 'super_admin') return true;
     return isFeatureEnabled(item.featureKey);
   });
+}
+
+/** Sidebar sections — same items for every role, grouped for clarity. */
+export function getVisibleNavGroups(
+  role: UserRole | undefined,
+  isFeatureEnabled: (featureKey?: string) => boolean,
+): NavGroupSpec[] {
+  const items = getVisibleNavItems(role, isFeatureEnabled);
+  const byGroup = new Map<NavGroupKey, NavItemSpec[]>();
+
+  for (const item of items) {
+    const group = NAV_ITEM_GROUP[item.key];
+    const list = byGroup.get(group) ?? [];
+    list.push(item);
+    byGroup.set(group, list);
+  }
+
+  return NAV_GROUP_ORDER.filter((key) => byGroup.has(key)).map((key) => ({
+    key,
+    items: byGroup.get(key) ?? [],
+  }));
 }
 
 /** UI capabilities derived from role (pages still enforce server-side). */

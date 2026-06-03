@@ -6,6 +6,8 @@ import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
 import Pagination from '../../components/common/Pagination';
+import PageLoader from '../../components/ui/PageLoader';
+import PageHeader from '../../components/ui/PageHeader';
 import {
   Search, Plus, MapPin, Bed, IndianRupee, Building2,
   Image as ImageIcon, X, Loader2, Edit3, Trash2, Upload
@@ -137,24 +139,24 @@ const PropertiesPage: React.FC = () => {
   };
 
   return (
+    <PageLoader loading={loading && properties.length === 0} skeleton="property" count={6}>
     <div className="investo-page space-y-4">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-ink-primary">{t('properties.title')}</h1>
-        {capabilities.canUploadProperties && (
+      <PageHeader
+        title={t('properties.title')}
+        actions={capabilities.canUploadProperties ? (
           <div className="flex flex-wrap gap-3">
             <button
               onClick={() => navigate(dashboardPath('/properties/import'))}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-brand-200 bg-surface-elevated text-brand-800 rounded-lg hover:bg-brand-50 transition-colors"
+              className="investo-btn-secondary"
             >
               <Upload className="h-4 w-4" /> Import from media
             </button>
-            <button onClick={() => { setEditingProperty(null); setShowModal(true); }}
-              className="inline-flex items-center gap-2 px-4 py-2 investo-btn-primary transition-colors">
+            <button onClick={() => { setEditingProperty(null); setShowModal(true); }} className="investo-btn-primary">
               <Plus className="h-4 w-4" />{t('properties.new_property')}
             </button>
           </div>
-        )}
-      </div>
+        ) : undefined}
+      />
       {capabilities.isPlatformAdmin && (
         <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
           Platform admin: manage tenants under <strong>Companies</strong>. Property uploads are done by each agency&apos;s <strong>Company Admin</strong>.
@@ -174,10 +176,8 @@ const PropertiesPage: React.FC = () => {
         </select>
       </div>
 
-      {loading ? (
-        <div className="text-center py-8 text-ink-muted"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />{t('common.loading')}</div>
-      ) : properties.length === 0 ? (
-        <div className="text-center py-12 text-ink-muted">{t('common.no_data')}</div>
+      {properties.length === 0 ? (
+        <div className="investo-card-pad text-center text-ink-muted">{t('common.no_data')}</div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {properties.map((property) => {
@@ -250,6 +250,7 @@ const PropertiesPage: React.FC = () => {
       {showModal && <PropertyModal property={editingProperty} onClose={() => { setShowModal(false); setEditingProperty(null); }} onSaved={() => { setShowModal(false); setEditingProperty(null); loadProperties(); }} />}
       {detailProperty && <PropertyDetailModal property={detailProperty} onClose={() => setDetailProperty(null)} />}
     </div>
+    </PageLoader>
   );
 };
 

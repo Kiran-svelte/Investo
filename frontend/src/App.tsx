@@ -2,6 +2,9 @@ import React from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
+import { NotificationProvider } from './context/NotificationContext';
+import ToastContainer from './components/notifications/ToastContainer';
+import SkeletonLoader from './components/loading/SkeletonLoader';
 import LoginPage from './pages/auth/LoginPage';
 import ChangePasswordPage from './pages/auth/ChangePasswordPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
@@ -27,7 +30,6 @@ import CompaniesPage from './pages/companies/CompaniesPage';
 import BillingPage from './pages/billing/BillingPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
 import useCompanyFeatures from './hooks/useCompanyFeatures';
-import { Loader2 } from 'lucide-react';
 import './i18n/i18n';
 import api from './services/api';
 import {
@@ -46,10 +48,17 @@ export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
 
 export const LoadingScreen: React.FC = () => (
-  <div className="flex h-screen w-screen items-center justify-center bg-surface-muted">
-    <div className="flex flex-col items-center gap-4">
-      <Loader2 className="h-10 w-10 animate-spin text-brand-600" />
-      <span className="text-sm font-medium text-ink-muted">Loading workspace…</span>
+  <div className="flex min-h-[100dvh] w-full items-center justify-center bg-surface-muted px-6">
+    <div className="w-full max-w-md space-y-6">
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 animate-pulse rounded-lg bg-brand-200" />
+        <div className="flex-1 space-y-2">
+          <div className="investo-skeleton-line h-4 w-32" />
+          <div className="investo-skeleton-line h-3 w-24" />
+        </div>
+      </div>
+      <SkeletonLoader type="card" count={3} animated />
+      <p className="text-center text-sm font-medium text-ink-muted">Loading workspace…</p>
     </div>
   </div>
 );
@@ -221,7 +230,9 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <NotificationProvider>
         <SocketProvider>
+          <ToastContainer />
           <Routes>
             <Route path="/" element={<RootEntry />} />
 
@@ -330,6 +341,7 @@ const App: React.FC = () => {
             <Route path="*" element={<RoleAwareNotFound />} />
           </Routes>
         </SocketProvider>
+        </NotificationProvider>
       </AuthProvider>
     </BrowserRouter>
   );

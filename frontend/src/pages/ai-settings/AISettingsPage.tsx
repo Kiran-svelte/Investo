@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
-  Bot, Save, Loader2, Plus, Trash2, Clock, MessageSquare, Smartphone, AlertCircle, CheckCircle
+  Save, Loader2, Plus, Trash2, Clock, MessageSquare, Smartphone, AlertCircle, CheckCircle
 } from 'lucide-react';
 import InfoTooltip from '../../components/common/InfoTooltip';
+import PageLoader from '../../components/ui/PageLoader';
+import PageHeader from '../../components/ui/PageHeader';
 import { PERSUASION_LEVEL_HELP, PROJECT_BUDGET_HELP } from '../../constants/aiFieldHelp';
 
 // ── Types ──────────────────────────────────────
@@ -435,21 +437,13 @@ const AISettingsPage: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-ink-faint" />
-      </div>
-    );
-  }
-
   return (
+    <PageLoader loading={loading} skeleton="card" count={4}>
     <div className="investo-page space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Bot className="h-7 w-7 text-ink-secondary" />
-        <h1 className="text-2xl font-bold text-ink-primary">{t('nav.ai_settings')}</h1>
-      </div>
+      <PageHeader
+        title={t('nav.ai_settings')}
+        description={t('ai_settings.title', { defaultValue: 'Configure AI and WhatsApp for your agency' })}
+      />
 
       <form onSubmit={handleSave} className="space-y-6 max-w-3xl">
         {message && (
@@ -935,7 +929,7 @@ const AISettingsPage: React.FC = () => {
                 className="px-6 py-2.5 investo-btn-primary disabled:opacity-50 flex items-center gap-2 font-medium"
               >
                 {testingWhatsApp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
-                {t('ai_settings.test_connection') || 'Test Connection'}
+                {t('ai_settings.test_connection')}
               </button>
               <button
                 type="button"
@@ -951,6 +945,7 @@ const AISettingsPage: React.FC = () => {
         </div>
       )}
     </div>
+    </PageLoader>
   );
 };
 
