@@ -16,6 +16,7 @@ import {
   getUserCatalogCompletenessBlock,
 } from '../services/propertyCompleteness.service';
 import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher';
+import { deletePropertyKnowledge, indexPropertyKnowledge } from '../services/propertyKnowledge.service';
 
 const router = Router();
 
@@ -298,7 +299,17 @@ router.post(
         },
       });
 
-      res.status(201).json({ data: mapPropertyToSnakeCaseDTO(property), id: property.id });
+      const knowledge = await indexPropertyKnowledge({
+        companyId,
+        property,
+      });
+
+      res.status(201).json({
+        data: mapPropertyToSnakeCaseDTO(property),
+        id: property.id,
+        knowledge_indexed: knowledge.ok,
+        knowledge_chunk_count: knowledge.chunkCount,
+      });
     } catch (err: any) {
       logger.error('Failed to create property', { error: err.message });
       res.status(500).json({ error: 'Failed to create property' });
@@ -453,7 +464,16 @@ router.put(
         data: updateData,
       });
 
-      res.json({ data: mapPropertyToSnakeCaseDTO(updated) });
+      const knowledge = await indexPropertyKnowledge({
+        companyId,
+        property: updated,
+      });
+
+      res.json({
+        data: mapPropertyToSnakeCaseDTO(updated),
+        knowledge_indexed: knowledge.ok,
+        knowledge_chunk_count: knowledge.chunkCount,
+      });
     } catch (err: any) {
       logger.error('Failed to update property', { error: err.message });
       res.status(500).json({ error: 'Failed to update property' });
@@ -481,6 +501,7 @@ router.delete(
         return;
       }
 
+      await deletePropertyKnowledge(id);
       await prisma.property.delete({ where: { id } });
       res.json({ message: 'Property deleted' });
     } catch (err: any) {

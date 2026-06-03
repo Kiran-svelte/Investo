@@ -98,5 +98,19 @@ if (!['queued_for_extraction', 'extracted', 'verified', 'uploaded'].includes(med
   throw new Error(`Unexpected media status after confirm: ${mediaStatus}`);
 }
 
-const provider = registerRes.data?.media?.storageKey?.startsWith('aws://') ? 'aws' : 'other';
-console.log('SMOKE_OK', { draftId, provider, mediaStatus, storageKey: registerRes.data?.media?.storageKey });
+const storageKey = registerRes.data?.media?.storageKey || '';
+const provider = storageKey.startsWith('aws://')
+  ? 'aws'
+  : storageKey.startsWith('r2://')
+    ? 'r2'
+    : storageKey.startsWith('supabase://')
+      ? 'supabase'
+      : storageKey.startsWith('db/')
+        ? 'db'
+        : 'other';
+
+if (process.env.SMOKE_REQUIRE_AWS === '1' && provider !== 'aws') {
+  throw new Error(`Expected aws:// storage key but got ${storageKey}. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY on Render.`);
+}
+
+console.log('SMOKE_OK', { draftId, provider, mediaStatus, storageKey });

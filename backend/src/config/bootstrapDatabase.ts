@@ -10,6 +10,23 @@ interface BootstrapOptions {
 async function applyCompatibilityPatches(): Promise<void> {
   // Ensure UUID helper exists.
   await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+  await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector`);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS property_knowledge_chunks (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+      source_type VARCHAR(40) NOT NULL,
+      content TEXT NOT NULL,
+      embedding vector(1536),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS property_knowledge_chunks_company_property_idx ON property_knowledge_chunks (company_id, property_id)`,
+  );
 
   // users table compatibility (for Neon Auth migration + RBAC custom roles).
   await prisma.$executeRawUnsafe(`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider_id VARCHAR(255)`);

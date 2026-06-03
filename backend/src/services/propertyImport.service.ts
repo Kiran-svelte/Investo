@@ -11,6 +11,11 @@ import {
 import { isSupabaseStorageConfigured } from './supabaseStorage.service';
 import { propertyImportQueueService } from './propertyImportQueue.service';
 import {
+  assertPropertyKnowledgeReady,
+  assertPublishStorageReady,
+  indexPropertyKnowledge,
+} from './propertyKnowledge.service';
+import {
   isPropertyImportReviewPending,
   normalizePropertyImportDraftData,
   normalizePropertyImportMappingProfile,
@@ -604,6 +609,28 @@ export class PropertyImportService {
       throw new PropertyImportError('Price min cannot be greater than price max', 400);
     }
 
+    const pendingUploads = draft.mediaAssets.filter(
+      (item) => item.status === 'upload_requested' || item.status === 'uploaded',
+    );
+    if (pendingUploads.length > 0) {
+      throw new PropertyImportError(
+        'All media uploads must be confirmed and verified before publishing.',
+        409,
+      );
+    }
+
+    const failedMedia = draft.mediaAssets.filter((item) => item.status === 'failed');
+    if (failedMedia.length > 0) {
+      throw new PropertyImportError(
+        'One or more uploads or extractions failed. Retry failed assets before publishing.',
+        409,
+      );
+    }
+
+    if (draft.mediaAssets.length > 0) {
+      assertPublishStorageReady(draft.mediaAssets.map((item) => item.storageKey));
+    }
+
     const successfulMedia = draft.mediaAssets.filter((item) => item.status === 'extracted' || item.status === 'verified');
     const images = successfulMedia.filter((item) => item.assetType === 'image').map((item) => item.publicUrl);
     const brochure = successfulMedia.find((item) => item.assetType === 'brochure');
@@ -668,7 +695,62 @@ export class PropertyImportService {
       return { property: created, draft: updatedDraft, alreadyPublished: false };
     });
 
-    return published;
+    const property = published.property;
+    const knowledge = await indexPropertyKnowledge({
+      companyId,
+      property: {
+        id: property.id,
+        name: property.name,
+        builder: property.builder,
+        locationCity: property.locationCity,
+        locationArea: property.locationArea,
+        locationPincode: property.locationPincode,
+        priceMin: property.priceMin,
+        priceMax: property.priceMax,
+        bedrooms: property.bedrooms,
+        propertyType: property.propertyType,
+        amenities: property.amenities,
+        description: property.description,
+        reraNumber: property.reraNumber,
+        brochureUrl: property.brochureUrl,
+        status: property.status,
+      },
+      draftData: draftData as Record<string, unknown>,
+      mediaExtractions: successfulMedia.map((item) => ({
+        assetType: item.assetType,
+        fileName: item.fileName,
+        extractedMetadata: (item.extractedMetadata || {}) as Record<string, unknown>,
+      })),
+    });
+
+    try {
+      await assertPropertyKnowledgeReady(knowledge);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+
+      await prisma.$transaction(async (tx) => {
+        if (!published.alreadyPublished) {
+          await tx.property.delete({ where: { id: property.id } }).catch(() => undefined);
+        }
+        await tx.propertyImportDraft.update({
+          where: { id: draftId },
+          data: {
+            status: 'publish_ready',
+            publishedPropertyId: published.alreadyPublished ? draft.publishedPropertyId : null,
+            publishedAt: published.alreadyPublished ? draft.publishedAt : null,
+            failureReason: `AI knowledge indexing failed: ${message}`,
+          },
+        });
+      });
+
+      throw new PropertyImportError(message, 503);
+    }
+
+    return {
+      ...published,
+      knowledge_indexed: knowledge.ok,
+      knowledge_chunk_count: knowledge.chunkCount,
+    };
   }
 
   async retryExtraction(companyId: string, draftId: string, input: RetryDraftInput) {

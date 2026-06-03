@@ -392,6 +392,7 @@ const config = {
     claudeModel: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
+    embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
   },
 
   agentAi: {

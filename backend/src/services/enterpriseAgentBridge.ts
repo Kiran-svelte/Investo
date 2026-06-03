@@ -17,6 +17,7 @@ export async function runEnterpriseAgent(req: BridgeRequest): Promise<any> {
 
   try {
     const aiResp = await aiService.generateResponse({
+      companyId: req.companyId,
       customerMessage: req.message,
       conversationHistory: [],
       lead: { customerName: '', phone: req.phone },

@@ -293,8 +293,16 @@ export async function savePropertyImportDraft(draftId: string, input: SaveProper
   return data.data;
 }
 
+export interface PublishPropertyImportDraftResult {
+  property: PropertyImportProperty;
+  draft: PropertyImportDraft;
+  alreadyPublished: boolean;
+  knowledge_indexed?: boolean;
+  knowledge_chunk_count?: number;
+}
+
 export async function publishPropertyImportDraft(draftId: string, input: PublishPropertyImportDraftInput = {}) {
-  const { data } = await api.post<ApiResponse<{ property: PropertyImportProperty; draft: PropertyImportDraft; alreadyPublished: boolean }>>(
+  const { data } = await api.post<ApiResponse<PublishPropertyImportDraftResult>>(
     `/property-imports/drafts/${draftId}/publish`,
     input,
   );

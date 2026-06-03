@@ -562,6 +562,11 @@ export default function PropertyImportPage() {
       return;
     }
 
+    if (activeUploads.length > 0 || isUploading) {
+      setPageError('Wait for all file uploads to finish before publishing.');
+      return;
+    }
+
     setIsPublishing(true);
     try {
       const persistedReview = getPropertyImportReviewMetadata(draft.draftData);
@@ -581,6 +586,14 @@ export default function PropertyImportPage() {
       }
 
       const published = await publishPropertyImportDraft(draft.id, {});
+      if (!published.knowledge_indexed) {
+        setPageError(
+          'Property was saved but AI knowledge indexing did not complete. Fix OPENAI_API_KEY / database vector support and publish again.',
+        );
+        setDraft(published.draft);
+        syncFormFromDraft(published.draft.draftData);
+        return;
+      }
       setDraft(published.draft);
       syncFormFromDraft(published.draft.draftData);
       setPageError('');
@@ -1352,7 +1365,7 @@ export default function PropertyImportPage() {
                 <div>
                   <h3 className="text-lg font-semibold text-emerald-900">Property published</h3>
                   <p className="mt-1 text-sm text-emerald-700">
-                    The draft was published successfully and is now available in the catalog.
+                    The draft was published successfully, media is in cloud storage, and AI knowledge was indexed for WhatsApp answers.
                   </p>
                 </div>
               </div>

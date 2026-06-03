@@ -798,6 +798,7 @@ export class WhatsAppService {
           history.filter((m) => m.senderType === 'customer').length + 1;
 
         const aiResponse = await aiService.generateResponse({
+          companyId,
           customerMessage: msg.messageText,
           conversationHistory: history,
           lead,

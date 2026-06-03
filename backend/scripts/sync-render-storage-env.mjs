@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
 dotenv.config({ path: path.join(backendRoot, '.env') });
 dotenv.config({ path: path.join(backendRoot, '.env.aws-admin') });
+dotenv.config({ path: path.join(backendRoot, '.env.render-sync') });
 
 const SERVICE_ID = 'srv-d79itik50q8c73fjqi7g';
 
@@ -57,6 +58,10 @@ const patch = {
   FRONTEND_BASE_URL: 'https://frontend-navy-eight-37.vercel.app',
   SUPABASE_URL: process.env.SUPABASE_URL || '',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+  OPENAI_EMBEDDING_MODEL: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
+  REQUIRE_PROPERTY_KNOWLEDGE_INDEX: process.env.REQUIRE_PROPERTY_KNOWLEDGE_INDEX || 'true',
+  REQUIRE_CLOUD_STORAGE_ON_PUBLISH: process.env.REQUIRE_CLOUD_STORAGE_ON_PUBLISH || 'true',
 };
 
 for (const [key, value] of Object.entries(patch)) {

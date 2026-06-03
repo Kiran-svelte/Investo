@@ -12,10 +12,15 @@ import {
   classifyMessageIntent,
   getStageConfig,
 } from './conversationStateMachine';
+import {
+  formatKnowledgeContextForPrompt,
+  searchPropertyKnowledge,
+} from './propertyKnowledge.service';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
 
 interface AIRequest {
+  companyId?: string;
   customerMessage: string;
   conversationHistory: any[];
   lead: any;
@@ -85,8 +90,13 @@ export class AIService {
       promptModifiers: nextAction.promptModifiers,
     });
 
+    const knowledgeChunks = request.companyId
+      ? await searchPropertyKnowledge(request.companyId, request.customerMessage, 8)
+      : [];
+    const knowledgeContext = formatKnowledgeContextForPrompt(knowledgeChunks);
+
     // LANGUAGE BRAIN: Generate response with policy-guided prompt
-    const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction);
+    const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction, knowledgeContext);
     const messages = this.buildMessages(request);
     const providers = this.getProviderOrder();
     let lastError: Error | null = null;
@@ -152,7 +162,8 @@ export class AIService {
   private buildGoalDirectedPrompt(
     request: AIRequest,
     state: ConversationState,
-    nextAction: NextBestAction
+    nextAction: NextBestAction,
+    knowledgeContext = '',
   ): string {
     const { aiSettings, companyName, properties, lead } = request;
     const stageConfig = getStageConfig(state.stage);
@@ -214,6 +225,8 @@ ${this.disclaimerPromptLine(request)}
 
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
+
+${knowledgeContext ? `\n${knowledgeContext}\n` : ''}
 
 ${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 
