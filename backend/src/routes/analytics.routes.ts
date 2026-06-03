@@ -416,27 +416,38 @@ router.get(
           ? Math.round(responseSamples.reduce((a, b) => a + b, 0) / responseSamples.length)
           : null;
 
-      const peakHoursRaw = await prisma.$queryRaw<{ hour: number; count: number }[]>`
-        SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata')::int as hour, COUNT(id)::int as count
-        FROM messages m
-        JOIN conversations c ON c.id = m.conversation_id
-        WHERE c.company_id = ${companyId}::uuid
-        AND m.sender_type = 'customer'
-        AND m.created_at >= ${since}
-        GROUP BY hour
-        ORDER BY count DESC
-      `;
-
-      const lostLeads = await prisma.lead.findMany({
-        where: { companyId, status: 'closed_lost', updatedAt: { gte: since } },
-        select: { metadata: true },
-        take: 200,
+      const customerMessages = await prisma.message.findMany({
+        where: {
+          senderType: 'customer',
+          createdAt: { gte: since },
+          conversation: { companyId },
+        },
+        select: { createdAt: true },
+        take: 8000,
       });
+      const hourCounts = new Map<number, number>();
+      for (const m of customerMessages) {
+        const hour = new Date(m.createdAt).getUTCHours();
+        hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1);
+      }
+      const peakHoursRaw = [...hourCounts.entries()]
+        .map(([hour, count]) => ({ hour, count }))
+        .sort((a, b) => b.count - a.count);
+
       const lostReasons: Record<string, number> = {};
-      for (const l of lostLeads) {
-        const meta = (l.metadata as { lost_reason?: string }) || {};
-        const reason = meta.lost_reason || 'unspecified';
-        lostReasons[reason] = (lostReasons[reason] || 0) + 1;
+      try {
+        const lostLeads = await prisma.lead.findMany({
+          where: { companyId, status: 'closed_lost', updatedAt: { gte: since } },
+          select: { metadata: true },
+          take: 200,
+        });
+        for (const l of lostLeads) {
+          const meta = (l.metadata as { lost_reason?: string }) || {};
+          const reason = meta.lost_reason || 'unspecified';
+          lostReasons[reason] = (lostReasons[reason] || 0) + 1;
+        }
+      } catch {
+        // metadata column may be migrating on older DBs
       }
 
       const sourcesRaw = await prisma.lead.groupBy({
