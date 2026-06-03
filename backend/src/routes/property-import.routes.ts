@@ -7,6 +7,8 @@ import { validate } from '../middleware/validate';
 import { auditLog } from '../middleware/audit';
 import {
   cancelPropertyImportDraftSchema,
+  propertyImportReplaceUnitsSchema,
+  propertyImportSpreadsheetImportSchema,
   confirmPropertyImportUploadSchema,
   createPropertyImportDraftSchema,
   publishPropertyImportDraftSchema,
@@ -96,6 +98,24 @@ router.get(
       res.json({ data: gate });
     } catch (err) {
       handleRouteError(err, res, 'Failed to check property knowledge gate');
+    }
+  },
+);
+
+/**
+ * GET /api/property-imports/drafts
+ * List in-progress import drafts (not yet published).
+ */
+router.get(
+  '/drafts',
+  authorize('properties', 'read'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const drafts = await propertyImportService.listInProgressDrafts(companyId);
+      res.json({ data: drafts });
+    } catch (err) {
+      handleRouteError(err, res, 'Failed to list property import drafts');
     }
   },
 );
@@ -232,6 +252,61 @@ router.put(
       res.json({ data: draft });
     } catch (err) {
       handleRouteError(err, res, 'Failed to save draft changes');
+    }
+  },
+);
+
+/**
+ * POST /api/property-imports/drafts/:id/spreadsheet/import
+ * Parse CSV/Excel and create import units on the draft.
+ */
+router.post(
+  '/drafts/:id/spreadsheet/import',
+  authorize('properties', 'update'),
+  validate(propertyImportSpreadsheetImportSchema),
+  auditLog('spreadsheet_import', 'property_imports'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const result = await propertyImportService.importSpreadsheet(companyId, req.params.id, {
+        fileBuffer: Buffer.alloc(0),
+        mimeType: 'text/csv',
+        columnMapping: req.body.column_mapping,
+        rawRows: req.body.raw_rows,
+        propertyType: req.body.property_type,
+        projectName: req.body.project_name,
+      });
+      res.status(201).json({ data: result });
+    } catch (err) {
+      handleRouteError(err, res, 'Failed to import spreadsheet');
+    }
+  },
+);
+
+/**
+ * PUT /api/property-imports/drafts/:id/units
+ * Replace draft units after column-mapping review.
+ */
+router.put(
+  '/drafts/:id/units',
+  authorize('properties', 'update'),
+  validate(propertyImportReplaceUnitsSchema),
+  auditLog('replace_units', 'property_imports'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const draft = await propertyImportService.replaceSpreadsheetUnits(
+        companyId,
+        req.params.id,
+        req.body.units.map((unit: { label?: string | null; unit_data: Record<string, unknown>; sort_order?: number }, index: number) => ({
+          label: unit.label ?? null,
+          unitData: unit.unit_data,
+          sortOrder: unit.sort_order ?? index,
+        })),
+      );
+      res.json({ data: draft });
+    } catch (err) {
+      handleRouteError(err, res, 'Failed to update import units');
     }
   },
 );

@@ -3,7 +3,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 import config from './config';
 import logger from './config/logger';
-import { userRateLimiter, companyRateLimiter, sensitiveRateLimiter, webhookRateLimiter } from './middleware/rateLimiter';
+import {
+  userRateLimiter,
+  companyRateLimiter,
+  companyAiRateLimiter,
+  userAiRateLimiter,
+  sensitiveRateLimiter,
+  webhookRateLimiter,
+} from './middleware/rateLimiter';
 import authRoutes from './routes/auth.routes';
 import companyRoutes from './routes/company.routes';
 import userRoutes from './routes/user.routes';
@@ -28,6 +35,7 @@ import errorLogRoutes from './routes/error-log.routes';
 import assignmentSettingsRoutes from './routes/assignment-settings.routes';
 import propertyImportRoutes from './routes/property-import.routes';
 import propertyImportUploadRoutes from './routes/property-import-upload.routes';
+import propertyImportBulkRoutes from './routes/property-import-bulk.routes';
 import financeRoutes from './routes/finance.routes';
 import { isAllowedCorsOrigin } from './config';
 import greenApiWebhookRoutes from './routes/greenapi-webhook.routes';
@@ -83,7 +91,9 @@ app.use('/api/leads', companyRateLimiter, leadRoutes);
 app.use('/api/properties', companyRateLimiter, propertyRoutes);
 // Public upload endpoint (no auth headers) must be mounted before the authenticated router.
 app.use('/api/property-imports/uploads', propertyImportUploadRoutes);
-app.use('/api/property-imports', companyRateLimiter, propertyImportRoutes);
+// Bulk CSV/XLSX import must be mounted before the main router (prevents /:id wildcard capturing /bulk).
+app.use('/api/property-imports/bulk', companyRateLimiter, propertyImportBulkRoutes);
+app.use('/api/property-imports', companyRateLimiter, userAiRateLimiter, companyAiRateLimiter, propertyImportRoutes);
 app.use('/api/visits', companyRateLimiter, visitRoutes);
 app.use('/api/conversations', companyRateLimiter, conversationRoutes);
 app.use('/api/ai-settings', companyRateLimiter, aiSettingsRoutes);

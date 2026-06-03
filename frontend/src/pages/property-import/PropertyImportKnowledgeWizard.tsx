@@ -56,8 +56,30 @@ export default function PropertyImportKnowledgeWizard({
     }
   }, [questions, sessionQueue]);
 
+  useEffect(() => {
+    if (questions.length === 0) {
+      return;
+    }
+    const nextIds = questions.map(questionKey).join('|');
+    const frozenIds = sessionQueue?.map(questionKey).join('|') ?? '';
+    if (sessionQueue !== null && frozenIds !== nextIds) {
+      setSessionQueue([...questions]);
+      setStep(0);
+      setSelected('');
+      setCustom('');
+    }
+  }, [questions, sessionQueue]);
+
   const queue = sessionQueue ?? questions;
-  const current = queue[step];
+  const current = queue[Math.min(step, Math.max(0, queue.length - 1))];
+
+  useEffect(() => {
+    if (step >= queue.length && queue.length > 0) {
+      setStep(0);
+      setSelected('');
+      setCustom('');
+    }
+  }, [step, queue.length]);
 
   useEffect(() => {
     setWorkingForm(formValues);
@@ -72,8 +94,10 @@ export default function PropertyImportKnowledgeWizard({
     selected === 'Nothing else'
     || (selected && (selected !== CUSTOM_OPTION || custom.trim().length > 0));
 
+  const safeStep = Math.min(step, Math.max(0, queue.length - 1));
+
   const handleNext = () => {
-    if (!canContinue) {
+    if (!canContinue || !current) {
       return;
     }
 
@@ -82,13 +106,13 @@ export default function PropertyImportKnowledgeWizard({
     setWorkingDraft(applied.draftData);
     onStepAnswer?.(applied);
 
-    if (step >= queue.length - 1) {
+    if (safeStep >= queue.length - 1) {
       setSessionQueue(null);
       onComplete(applied);
       return;
     }
 
-    setStep(step + 1);
+    setStep(safeStep + 1);
     setSelected('');
     setCustom('');
   };

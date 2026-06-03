@@ -114,7 +114,16 @@ export const CONVERSATION_TRANSITIONS: Record<ConversationStatus, ConversationSt
 
 // Property types
 export const PROPERTY_TYPES = ['villa', 'apartment', 'plot', 'commercial'] as const;
-export const PROPERTY_ASSET_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'video/mp4'] as const;
+export const PROPERTY_ASSET_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+  'video/mp4',
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+] as const;
 export const PROPERTY_IMPORT_DRAFT_STATUSES = ['draft', 'extracting', 'review_ready', 'publish_ready', 'published', 'failed', 'cancelled'] as const;
 export type PropertyImportDraftStatus = typeof PROPERTY_IMPORT_DRAFT_STATUSES[number];
 
@@ -246,6 +255,21 @@ export const retryPropertyImportDraftSchema = z.object({
 
 export const cancelPropertyImportDraftSchema = z.object({
   reason: z.string().max(1000).optional().nullable(),
+});
+
+export const propertyImportSpreadsheetImportSchema = z.object({
+  project_name: z.string().min(1).max(255),
+  property_type: z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']),
+  column_mapping: z.record(z.string()),
+  raw_rows: z.array(z.record(z.string())).min(1).max(500),
+});
+
+export const propertyImportReplaceUnitsSchema = z.object({
+  units: z.array(z.object({
+    label: z.string().max(255).optional().nullable(),
+    unit_data: z.record(z.any()),
+    sort_order: z.number().int().min(0).optional(),
+  })).min(1),
 });
 
 export const createVisitSchema = z.object({

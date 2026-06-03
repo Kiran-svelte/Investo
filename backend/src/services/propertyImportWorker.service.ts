@@ -12,6 +12,11 @@ import {
   isPropertyImportReviewPending,
   normalizePropertyImportMappingProfile,
 } from './propertyImport.metadata';
+import {
+  buildBatchProgress,
+  normalizeExtractedUnits,
+  syncPropertyImportUnits,
+} from './propertyImportUnit.service';
 
 type PropertyImportWorkerJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
 type PropertyImportWorkerDraftStatus = 'draft' | 'extracting' | 'review_ready' | 'publish_ready' | 'published' | 'failed' | 'cancelled';
@@ -27,6 +32,7 @@ type PropertyImportWorkerConfidenceHint = {
 
 type PropertyImportWorkerExtractionResult = {
   structuredData?: Record<string, unknown> | null;
+  units?: Array<Record<string, unknown>>;
   confidenceHints?: PropertyImportWorkerConfidenceHint[];
   reviewRequired?: boolean;
   metadata?: Record<string, unknown>;
@@ -308,7 +314,9 @@ export class PropertyImportWorkerService {
         : null;
 
       const extractedDraftData = extractionOutput
-        ? this.mergeExtractionIntoDraftData(
+        ? await this.mergeExtractionIntoDraftData(
+            jobRecord.companyId,
+            jobRecord.draftId,
             jobRecord.draft.draftData,
             extractionOutput,
             jobRecord.media.fileName,
@@ -645,11 +653,13 @@ export class PropertyImportWorkerService {
     });
   }
 
-  private mergeExtractionIntoDraftData(
+  private async mergeExtractionIntoDraftData(
+    companyId: string,
+    draftId: string,
     draftData: Record<string, unknown>,
     extractionOutput: PropertyImportWorkerExtractionResult,
     fileName: string,
-  ): Record<string, unknown> {
+  ): Promise<Record<string, unknown>> {
     const merged = { ...(draftData || {}) } as Record<string, unknown>;
     const structuredData = extractionOutput.structuredData && typeof extractionOutput.structuredData === 'object'
       ? extractionOutput.structuredData
@@ -707,6 +717,14 @@ export class PropertyImportWorkerService {
       reviewed_at: null,
       approved_at: null,
     };
+
+    const unitInputs = normalizeExtractedUnits(extractionOutput.units, structuredData);
+    if (unitInputs.length > 0) {
+      await syncPropertyImportUnits(companyId, draftId, unitInputs);
+      merged.batch_progress = buildBatchProgress(unitInputs.length, 'extracted');
+    } else {
+      merged.batch_progress = buildBatchProgress(0, 'extracted');
+    }
 
     return merged;
   }

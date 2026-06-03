@@ -3,6 +3,12 @@ const mockPrisma = {
     findFirst: jest.fn(),
     update: jest.fn(),
   },
+  propertyImportUnit: {
+    findMany: jest.fn().mockResolvedValue([]),
+    deleteMany: jest.fn(),
+    createMany: jest.fn(),
+    update: jest.fn(),
+  },
   propertyImportMedia: {
     update: jest.fn(),
   },
@@ -57,6 +63,7 @@ import { PropertyImportError, propertyImportService } from '../../services/prope
 describe('Property Import Service publish gate', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.propertyImportUnit.findMany.mockResolvedValue([]);
     mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
   });
 

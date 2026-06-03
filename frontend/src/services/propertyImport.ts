@@ -98,6 +98,7 @@ export function normalizePropertyImportDraft(draft: PropertyImportDraft): Proper
     ...draft,
     mediaAssets: Array.isArray(draft.mediaAssets) ? draft.mediaAssets : [],
     extractionJobs: Array.isArray(draft.extractionJobs) ? draft.extractionJobs : [],
+    units: Array.isArray(draft.units) ? draft.units : [],
   };
 }
 
@@ -122,6 +123,7 @@ export interface PropertyImportDraft {
   updatedAt: string;
   mediaAssets: PropertyImportMedia[];
   extractionJobs: PropertyImportJob[];
+  units?: PropertyImportUnitRecord[];
   publishedProperty: PropertyImportProperty | null;
 }
 
@@ -178,7 +180,29 @@ export const PROPERTY_IMPORT_SUPPORTED_MIME_TYPES = [
   'image/webp',
   'application/pdf',
   'video/mp4',
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ] as const;
+
+export const PROPERTY_IMPORT_SPREADSHEET_MIME_TYPES = [
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+] as const;
+
+export interface PropertyImportUnitRecord {
+  id: string;
+  draftId: string;
+  companyId: string;
+  sortOrder: number;
+  label: string | null;
+  unitData: Record<string, unknown>;
+  publishedPropertyId: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export const PROPERTY_IMPORT_ASSET_TYPE_LABELS: Record<PropertyImportAssetType, string> = {
   image: 'Image',
@@ -193,6 +217,14 @@ export function inferPropertyImportAssetType(file: File): PropertyImportAssetTyp
     return 'brochure';
   }
 
+  if (
+    mimeType === 'text/csv'
+    || mimeType.includes('spreadsheet')
+    || mimeType.includes('excel')
+  ) {
+    return 'brochure';
+  }
+
   if (mimeType.startsWith('video/')) {
     return 'video';
   }
@@ -204,6 +236,24 @@ export function isPropertyImportMimeTypeSupported(mimeType: string): boolean {
   return PROPERTY_IMPORT_SUPPORTED_MIME_TYPES.includes(
     mimeType as typeof PROPERTY_IMPORT_SUPPORTED_MIME_TYPES[number],
   );
+}
+
+export interface PropertyImportDraftSummary {
+  id: string;
+  status: PropertyImportDraftStatus;
+  extractionStatus: string;
+  name: string;
+  property_type: string | null;
+  knowledge_deferred: boolean;
+  knowledge_gap_count: number;
+  media_count: number;
+  updated_at: string;
+  created_at: string;
+}
+
+export async function listPropertyImportDrafts(): Promise<PropertyImportDraftSummary[]> {
+  const { data } = await api.get<ApiResponse<PropertyImportDraftSummary[]>>('/property-imports/drafts');
+  return Array.isArray(data.data) ? data.data : [];
 }
 
 export async function createPropertyImportDraft(input: CreatePropertyImportDraftInput) {
@@ -328,10 +378,12 @@ export async function savePropertyImportDraft(draftId: string, input: SaveProper
 
 export interface PublishPropertyImportDraftResult {
   property: PropertyImportProperty;
+  properties?: Array<{ id: string; name: string }>;
   draft: PropertyImportDraft;
   alreadyPublished: boolean;
   knowledge_indexed?: boolean;
   knowledge_chunk_count?: number;
+  properties_published?: number;
 }
 
 export async function publishPropertyImportDraft(draftId: string, input: PublishPropertyImportDraftInput = {}) {

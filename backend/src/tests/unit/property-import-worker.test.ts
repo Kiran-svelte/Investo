@@ -1,3 +1,16 @@
+jest.mock('../../services/propertyImportUnit.service', () => {
+  const actual = jest.requireActual('../../services/propertyImportUnit.service');
+  return {
+    ...actual,
+    syncPropertyImportUnits: jest.fn().mockResolvedValue(undefined),
+  };
+});
+
+jest.mock('../../services/propertyCompleteness.service', () => ({
+  assessDraftCompleteness: jest.fn(() => ({ missingFields: [], completenessScore: 1 })),
+  notifyUploaderOfMissingFields: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { PropertyImportWorkerService } from '../../services/propertyImportWorker.service';
 
 const mockDb = {

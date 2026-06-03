@@ -23,6 +23,14 @@ import {
   countMissingKnowledgeFields,
   isPropertyKnowledgeComplete,
 } from './propertyTypeKnowledge.service';
+import { csvImportService, type ColumnMapping } from './csv-import.service';
+import {
+  buildBatchProgress,
+  listPropertyImportUnits,
+  syncPropertyImportUnits,
+  type PropertyImportUnitInput,
+} from './propertyImportUnit.service';
+import { isPropertyImportReviewPending } from './propertyImport.metadata';
 
 interface CreateDraftInput {
   draftData?: Record<string, unknown>;
@@ -179,6 +187,186 @@ export class PropertyImportService {
     });
   }
 
+  async listInProgressDrafts(companyId: string) {
+    const statuses = ['draft', 'review_ready', 'publish_ready', 'extracting'] as const;
+
+    const rows = await prisma.propertyImportDraft.findMany({
+      where: {
+        companyId,
+        status: { in: [...statuses] },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        extractionStatus: true,
+        updatedAt: true,
+        createdAt: true,
+        draftData: true,
+        _count: { select: { mediaAssets: true, units: true } },
+      },
+    });
+
+    return rows.map((row) => {
+      const draftData = (row.draftData || {}) as Record<string, unknown>;
+      const name = asTrimmedString(draftData.name) || 'Untitled import';
+      const propertyType = asTrimmedString(draftData.property_type ?? draftData.propertyType) || null;
+      const knowledgeDeferred =
+        draftData.knowledge_gate_deferred === true || draftData.knowledgeGateDeferred === true;
+      const { gapCount } = countMissingKnowledgeFields(draftData);
+
+      return {
+        id: row.id,
+        status: row.status,
+        extractionStatus: row.extractionStatus,
+        name,
+        property_type: propertyType,
+        knowledge_deferred: knowledgeDeferred,
+        knowledge_gap_count: gapCount,
+        media_count: row._count.mediaAssets,
+        units_count: row._count.units,
+        updated_at: row.updatedAt.toISOString(),
+        created_at: row.createdAt.toISOString(),
+      };
+    });
+  }
+
+  async importSpreadsheet(
+    companyId: string,
+    draftId: string,
+    input: {
+      fileBuffer: Buffer;
+      mimeType: string;
+      columnMapping: ColumnMapping;
+      rawRows: Array<Record<string, string>>;
+      propertyType: string;
+      projectName: string;
+    },
+  ) {
+    const draft = await prisma.propertyImportDraft.findFirst({
+      where: { id: draftId, companyId },
+      select: { id: true, status: true, draftData: true },
+    });
+
+    if (!draft) {
+      throw new PropertyImportError('Draft not found', 404);
+    }
+
+    if (isTerminalStatus(draft.status)) {
+      throw new PropertyImportError(`Draft is ${draft.status} and cannot accept spreadsheet import`, 409);
+    }
+
+    csvImportService.validateMapping(input.columnMapping, Object.keys(input.columnMapping));
+    const { candidates, validCount, invalidCount } = csvImportService.applyMappingToRows(
+      input.rawRows,
+      input.columnMapping,
+      input.propertyType,
+    );
+
+    const mappedUnits = candidates
+      .filter((row) => row.isValid)
+      .map((row, index) => ({
+        label: row.data.name || `Row ${row.rowNumber}`,
+        unitData: row.data as unknown as Record<string, unknown>,
+        sortOrder: index,
+      }));
+
+    if (mappedUnits.length === 0) {
+      throw new PropertyImportError('No valid rows found in spreadsheet', 400);
+    }
+
+    await syncPropertyImportUnits(companyId, draftId, mappedUnits);
+
+    const projectDefaults = {
+      ...((draft.draftData || {}) as Record<string, unknown>),
+      name: input.projectName,
+      property_type: input.propertyType,
+    };
+
+    const mergedDraftData = normalizePropertyImportDraftData({
+      ...projectDefaults,
+      import_mode: 'bulk_csv',
+      import_mapping: {
+        source_type: 'spreadsheet',
+        profile_name: 'CRM / builder export',
+        field_mappings: Object.entries(input.columnMapping)
+          .filter(([, target]) => target && target !== 'skip')
+          .map(([source, target]) => ({
+            source_field: source,
+            target_field: target,
+            confidence: 0.9,
+            required: false,
+            label: target,
+            notes: 'Mapped from spreadsheet column',
+          })),
+        review_settings: {
+          confidence_threshold: 0.75,
+          low_confidence_threshold: 0.55,
+          require_human_review: true,
+        },
+        source_record: mappedUnits[0]?.unitData ?? null,
+      },
+      import_review: {
+        status: 'needs_review',
+        confidence_hints: [],
+        review_notes: `Imported ${mappedUnits.length} valid row(s), ${invalidCount} invalid`,
+        reviewed_by_user_id: null,
+        reviewed_at: null,
+        approved_at: null,
+      },
+      batch_progress: buildBatchProgress(mappedUnits.length, 'spreadsheet_imported'),
+      csv_rows: candidates,
+      valid_count: validCount,
+      invalid_count: invalidCount,
+      ai_knowledge_context: csvImportService.buildAiKnowledgeContext(candidates, input.projectName),
+    }, (draft.draftData || {}) as Record<string, unknown>);
+
+    const updated = await prisma.propertyImportDraft.update({
+      where: { id: draftId },
+      data: {
+        draftData: normalizeDraftData(mergedDraftData),
+        status: 'review_ready',
+        extractionStatus: 'extracted',
+        failureReason: null,
+      },
+      include: {
+        mediaAssets: { orderBy: { createdAt: 'asc' } },
+        units: { orderBy: { sortOrder: 'asc' } },
+        extractionJobs: { orderBy: { createdAt: 'desc' }, take: 25 },
+      },
+    });
+
+    return {
+      draft: updated,
+      units_count: mappedUnits.length,
+      valid_count: validCount,
+      invalid_count: invalidCount,
+    };
+  }
+
+  async replaceSpreadsheetUnits(
+    companyId: string,
+    draftId: string,
+    units: PropertyImportUnitInput[],
+  ) {
+    const draft = await prisma.propertyImportDraft.findFirst({
+      where: { id: draftId, companyId },
+      select: { id: true, status: true },
+    });
+
+    if (!draft) {
+      throw new PropertyImportError('Draft not found', 404);
+    }
+
+    if (isTerminalStatus(draft.status)) {
+      throw new PropertyImportError(`Draft is ${draft.status} and cannot be modified`, 409);
+    }
+
+    await syncPropertyImportUnits(companyId, draftId, units);
+    return this.getDraft(companyId, draftId);
+  }
+
   async getDraft(companyId: string, draftId: string) {
     const draft = await prisma.propertyImportDraft.findFirst({
       where: { id: draftId, companyId },
@@ -189,6 +377,9 @@ export class PropertyImportService {
         extractionJobs: {
           orderBy: { createdAt: 'desc' },
           take: 25,
+        },
+        units: {
+          orderBy: { sortOrder: 'asc' },
         },
         publishedProperty: true,
       },
@@ -648,6 +839,28 @@ export class PropertyImportService {
       );
     }
 
+    if (isPropertyImportReviewPending(draftData)) {
+      throw new PropertyImportError(
+        'Confirm extracted field mapping before publishing.',
+        409,
+      );
+    }
+
+    const importUnits = await listPropertyImportUnits(companyId, draftId);
+    if (importUnits.length > 0) {
+      return this.publishDraftUnits(
+        companyId,
+        draftId,
+        userId,
+        forceRepublish,
+        draft,
+        draftData,
+        importUnits,
+        { images, brochureUrl: brochure?.publicUrl || null },
+        successfulMedia,
+      );
+    }
+
     const propertyData = mapDraftToPropertyData(draftData, {
       images,
       brochureUrl: brochure?.publicUrl || null,
@@ -763,6 +976,172 @@ export class PropertyImportService {
       ...published,
       knowledge_indexed: knowledge.ok,
       knowledge_chunk_count: knowledge.chunkCount,
+      properties_published: 1,
+    };
+  }
+
+  private async publishDraftUnits(
+    companyId: string,
+    draftId: string,
+    userId: string,
+    forceRepublish: boolean,
+    draft: {
+      id: string;
+      status: string;
+      publishedPropertyId: string | null;
+      publishedAt: Date | null;
+    },
+    projectDraftData: Record<string, unknown>,
+    importUnits: Array<{
+      id: string;
+      label: string | null;
+      unitData: unknown;
+      publishedPropertyId: string | null;
+      status: string;
+    }>,
+    mediaUrls: { images: string[]; brochureUrl: string | null },
+    successfulMedia: Array<{
+      assetType: string;
+      fileName: string;
+      extractedMetadata: unknown;
+    }>,
+  ) {
+    const publishedProperties: Array<{ id: string; name: string }> = [];
+    let totalChunks = 0;
+    let knowledgeOk = true;
+
+    for (let index = 0; index < importUnits.length; index += 1) {
+      const unit = importUnits[index];
+      const unitData = {
+        ...projectDraftData,
+        ...((unit.unitData || {}) as Record<string, unknown>),
+      };
+      if (unit.label && !unitData.name) {
+        unitData.name = unit.label;
+      }
+
+      const propertyData = mapDraftToPropertyData(unitData, mediaUrls);
+
+      const property = await prisma.$transaction(async (tx) => {
+        if (unit.publishedPropertyId && unit.status === 'published' && !forceRepublish) {
+          const existing = await tx.property.findFirst({
+            where: { id: unit.publishedPropertyId, companyId },
+          });
+          if (existing) {
+            return existing;
+          }
+        }
+
+        let propertyId = unit.publishedPropertyId;
+        if (propertyId && forceRepublish) {
+          return tx.property.update({
+            where: { id: propertyId },
+            data: propertyData,
+          });
+        }
+
+        const created = await tx.property.create({
+          data: {
+            companyId,
+            ...(propertyData as any),
+          },
+        });
+        propertyId = created.id;
+
+        await tx.propertyImportUnit.update({
+          where: { id: unit.id },
+          data: {
+            status: 'published',
+            publishedPropertyId: propertyId,
+          },
+        });
+
+        return created;
+      });
+
+      publishedProperties.push({ id: property.id, name: property.name });
+
+      const knowledge = await indexPropertyKnowledge({
+        companyId,
+        property: {
+          id: property.id,
+          name: property.name,
+          builder: property.builder,
+          locationCity: property.locationCity,
+          locationArea: property.locationArea,
+          locationPincode: property.locationPincode,
+          priceMin: property.priceMin,
+          priceMax: property.priceMax,
+          bedrooms: property.bedrooms,
+          propertyType: property.propertyType,
+          amenities: property.amenities,
+          description: property.description,
+          reraNumber: property.reraNumber,
+          brochureUrl: property.brochureUrl,
+          status: property.status,
+        },
+        draftData: unitData,
+        mediaExtractions: successfulMedia.map((item) => ({
+          assetType: item.assetType,
+          fileName: item.fileName,
+          extractedMetadata: (item.extractedMetadata || {}) as Record<string, unknown>,
+        })),
+      });
+
+      try {
+        await assertPropertyKnowledgeReady(knowledge);
+      } catch (err: unknown) {
+        knowledgeOk = false;
+        const message = err instanceof Error ? err.message : String(err);
+        await prisma.property.delete({ where: { id: property.id } }).catch(() => undefined);
+        await prisma.propertyImportUnit.update({
+          where: { id: unit.id },
+          data: { status: 'failed' },
+        });
+        throw new PropertyImportError(`AI knowledge indexing failed for ${unit.label || property.name}: ${message}`, 503);
+      }
+
+      totalChunks += knowledge.chunkCount;
+    }
+
+    const primaryPropertyId = publishedProperties[0]?.id ?? null;
+    const updatedDraft = await prisma.propertyImportDraft.update({
+      where: { id: draftId },
+      data: {
+        status: 'published',
+        extractionStatus: 'extracted',
+        publishedPropertyId: primaryPropertyId,
+        publishedAt: new Date(),
+        reviewedAt: new Date(),
+        reviewedByUserId: userId,
+        failureReason: null,
+        draftData: normalizeDraftData({
+          ...projectDraftData,
+          batch_progress: {
+            phase: 'published',
+            units_total: importUnits.length,
+            units_ready: importUnits.length,
+            units_published: publishedProperties.length,
+            message: `${publishedProperties.length} properties published`,
+            updated_at: new Date().toISOString(),
+          },
+        }),
+      },
+      include: {
+        mediaAssets: { orderBy: { createdAt: 'asc' } },
+        units: { orderBy: { sortOrder: 'asc' } },
+        extractionJobs: { orderBy: { createdAt: 'desc' }, take: 25 },
+      },
+    });
+
+    return {
+      property: publishedProperties[0] ? await prisma.property.findFirst({ where: { id: publishedProperties[0].id, companyId } }) : null,
+      properties: publishedProperties,
+      draft: updatedDraft,
+      alreadyPublished: draft.status === 'published' && !forceRepublish,
+      knowledge_indexed: knowledgeOk,
+      knowledge_chunk_count: totalChunks,
+      properties_published: publishedProperties.length,
     };
   }
 

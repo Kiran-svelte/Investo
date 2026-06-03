@@ -1,6 +1,7 @@
 import type { PropertyImportDraft } from '../../services/propertyImport';
 import type { PropertyImportFormValues } from './propertyImport.utils';
 import { getMissingMarketingQuestions, type MarketingKnowledgeQuestion } from './propertyImportKnowledgeQuestions';
+import { getPropertyImportReviewMetadata } from './propertyImport.utils';
 
 export interface PublishReadinessResult {
   ready: boolean;
@@ -21,7 +22,7 @@ export function getPublishReadiness(input: {
   const draftData = draft?.draftData;
 
   if (!draft?.id) {
-    blockers.push('Create a draft and upload at least one brochure or image.');
+    blockers.push('Create a draft and upload a brochure, image, or CRM spreadsheet.');
   }
 
   if (isUploading || activeUploadCount > 0) {
@@ -41,8 +42,14 @@ export function getPublishReadiness(input: {
   }
 
   const hasMedia = (draft?.mediaAssets?.length ?? 0) > 0;
-  if (draft && !hasMedia) {
-    blockers.push('Upload at least one brochure or image.');
+  const hasUnits = (draft?.units?.length ?? 0) > 0;
+  if (draft && !hasMedia && !hasUnits) {
+    blockers.push('Upload at least one brochure, image, or import spreadsheet rows.');
+  }
+
+  const review = getPropertyImportReviewMetadata(draftData);
+  if (review.status === 'needs_review') {
+    blockers.push('Confirm extracted field mapping before publishing.');
   }
 
   const missingQuestions = getMissingMarketingQuestions(formValues, draftData);

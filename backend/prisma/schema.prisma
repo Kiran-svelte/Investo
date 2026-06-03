@@ -53,6 +53,7 @@ model Company {
   onboarding     CompanyOnboarding?
   invoices       Invoice[]
   propertyImportDrafts PropertyImportDraft[]
+  propertyImportUnits  PropertyImportUnit[]
   propertyImportMedia  PropertyImportMedia[]
   propertyImportJobs   PropertyImportJob[]
   propertyImportMediaBlobs PropertyImportMediaBlob[]
@@ -325,6 +326,7 @@ model Property {
   company  Company  @relation(fields: [companyId], references: [id])
   visits   Visit[]
   publishedFromDrafts PropertyImportDraft[] @relation("PropertyImportPublishedProperty")
+  publishedFromImportUnits PropertyImportUnit[] @relation("PropertyImportUnitPublishedProperty")
 
   @@index([companyId, status])
   @@map("properties")
@@ -357,11 +359,33 @@ model PropertyImportDraft {
   publishedProperty  Property?                @relation("PropertyImportPublishedProperty", fields: [publishedPropertyId], references: [id])
   mediaAssets        PropertyImportMedia[]
   extractionJobs     PropertyImportJob[]
+  units              PropertyImportUnit[]
 
   @@index([companyId, status])
   @@index([companyId, extractionStatus])
   @@index([createdByUserId])
   @@map("property_import_drafts")
+}
+
+model PropertyImportUnit {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  draftId             String                   @map("draft_id") @db.Uuid
+  companyId           String                   @map("company_id") @db.Uuid
+  sortOrder           Int                      @default(0) @map("sort_order")
+  label               String?                  @db.VarChar(255)
+  unitData            Json                     @default("{}") @map("unit_data")
+  publishedPropertyId String?                  @map("published_property_id") @db.Uuid
+  status              PropertyImportUnitStatus @default(draft)
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  draft             PropertyImportDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  company           Company             @relation(fields: [companyId], references: [id])
+  publishedProperty Property?           @relation("PropertyImportUnitPublishedProperty", fields: [publishedPropertyId], references: [id])
+
+  @@index([draftId, sortOrder])
+  @@index([companyId])
+  @@map("property_import_units")
 }
 
 // ─── Property Import Media ──────────────────────────────────────────
@@ -818,4 +842,11 @@ enum PropertyImportJobStatus {
   succeeded
   failed
   cancelled
+}
+
+enum PropertyImportUnitStatus {
+  draft
+  ready
+  published
+  failed
 }
