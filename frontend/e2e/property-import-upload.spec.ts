@@ -8,8 +8,8 @@ test.describe('property import upload', () => {
 
     await loginIfConfigured(page);
 
-    await page.goto('/properties/import');
-    await expect(page.getByRole('heading', { name: /upload media/i })).toBeVisible();
+    await page.goto('/dashboard/properties/import');
+    await expect(page.getByRole('heading', { name: /upload media|add a property/i })).toBeVisible();
 
     const fileSizeBytes = Math.ceil(13.3 * 1024 * 1024);
     const buffer = Buffer.alloc(fileSizeBytes, 0x20);
@@ -23,7 +23,7 @@ test.describe('property import upload', () => {
       buffer,
     });
 
-    await expect(page).toHaveURL(/\/properties\/import\/[a-f0-9-]+/i, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/dashboard\/properties\/import\/[a-f0-9-]+/i, { timeout: 30_000 });
 
     await expect(page.getByText(/\bfailed to register upload\b/i)).toHaveCount(0);
     await expect(page.getByText(/\b1 files\b/i)).toBeVisible({ timeout: 180_000 });
