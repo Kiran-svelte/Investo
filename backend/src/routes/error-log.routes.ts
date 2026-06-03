@@ -17,7 +17,7 @@ const ERROR_ACTIONS = [
 
 router.use(authenticate);
 router.use(tenantIsolation);
-router.use(requireFeature('audit_logs'));
+router.use(requireFeature('lead_automation'));
 
 /**
  * GET /api/error-logs

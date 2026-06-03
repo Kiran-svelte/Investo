@@ -21,12 +21,16 @@ try {
   Add-Result 8 'GET /health' $false $_.Exception.Message
 }
 
-# Pillar 1 — readiness (AI stack)
-try {
-  $ready = Invoke-RestMethod -Uri "$ApiBase/readiness" -TimeoutSec 30
-  Add-Result 1 'GET /readiness' ($null -ne $ready) ($ready | ConvertTo-Json -Compress -Depth 2)
-} catch {
-  Add-Result 1 'GET /readiness' $false $_.Exception.Message
+# Pillar 1 — readiness (AI stack, requires auth)
+if ($BearerToken) {
+  try {
+    $ready = Invoke-RestMethod -Uri "$ApiBase/readiness" -Headers @{ Authorization = "Bearer $BearerToken" } -TimeoutSec 30
+    Add-Result 1 'GET /readiness' ($null -ne $ready.data) ($ready | ConvertTo-Json -Compress -Depth 2)
+  } catch {
+    Add-Result 1 'GET /readiness' $false $_.Exception.Message
+  }
+} else {
+  Add-Result 1 'GET /readiness' 'SKIP' 'Set INVESTO_TEST_TOKEN'
 }
 
 # Frontend up
@@ -40,6 +44,7 @@ try {
 if ($BearerToken) {
   $headers = @{ Authorization = "Bearer $BearerToken" }
   foreach ($path in @(
+    @{ p = 2; t = 'leads?limit=1'; n = 'Leads list (lead_score)' },
     @{ p = 5; t = 'analytics/extended'; n = 'Extended analytics' },
     @{ p = 3; t = 'leads/export/json?limit=1'; n = 'JSON export route' },
     @{ p = 6; t = 'assignment-settings'; n = 'Assignment settings' },

@@ -45,7 +45,7 @@ const SYSTEM_PERMISSIONS: Partial<Record<Role, Partial<Record<Resource, Permissi
     visits: ['create', 'read', 'update', 'delete'],
     analytics: ['read'],
     ai_settings: ['create', 'read', 'update', 'delete'],
-    audit_logs: ['read'],
+    audit_logs: ['read', 'update'],
     notifications: ['read', 'update'],
   },
 };

@@ -9,6 +9,8 @@ const DEFAULT_ONBOARDING_FEATURES = [
   'conversation_center',
   'property_management',
   'analytics',
+  'audit_logs',
+  'csv_export',
 ] as const;
 
 const DEFAULT_ONBOARDING_ROLES: Array<{
