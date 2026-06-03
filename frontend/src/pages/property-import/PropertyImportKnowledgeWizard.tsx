@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MessageCircleQuestion, ChevronRight, ChevronLeft, Sparkles, X } from 'lucide-react';
 import {
   applyMarketingAnswer,
@@ -16,6 +16,10 @@ interface PropertyImportKnowledgeWizardProps {
   onClose?: () => void;
   onComplete: (next: { formValues: PropertyImportFormValues; draftData: Record<string, unknown> }) => void;
   onStepAnswer?: (next: { formValues: PropertyImportFormValues; draftData: Record<string, unknown> }) => void;
+}
+
+function questionKey(q: MarketingKnowledgeQuestion): string {
+  return q.typeKnowledgeKey ?? q.id;
 }
 
 export default function PropertyImportKnowledgeWizard({
@@ -36,16 +40,29 @@ export default function PropertyImportKnowledgeWizard({
     draftData && typeof draftData === 'object' ? { ...draftData } : {},
   );
 
+  /** Freeze queue at session start so parent gap list shrinking does not reset step. */
+  const [sessionQueue, setSessionQueue] = useState<MarketingKnowledgeQuestion[] | null>(null);
+
   useEffect(() => {
-    setWorkingForm(formValues);
-    setWorkingDraft(draftData && typeof draftData === 'object' ? { ...draftData } : {});
+    setSessionQueue(null);
     setStep(0);
     setSelected('');
     setCustom('');
-  }, [questions.length, formValues.property_type]);
+  }, [formValues.property_type]);
 
-  const queue = useMemo(() => questions, [questions]);
+  useEffect(() => {
+    if (questions.length > 0 && sessionQueue === null) {
+      setSessionQueue([...questions]);
+    }
+  }, [questions, sessionQueue]);
+
+  const queue = sessionQueue ?? questions;
   const current = queue[step];
+
+  useEffect(() => {
+    setWorkingForm(formValues);
+    setWorkingDraft(draftData && typeof draftData === 'object' ? { ...draftData } : {});
+  }, [formValues, draftData]);
 
   if ((!inline && !open) || queue.length === 0 || !current) {
     return null;
@@ -66,10 +83,8 @@ export default function PropertyImportKnowledgeWizard({
     onStepAnswer?.(applied);
 
     if (step >= queue.length - 1) {
+      setSessionQueue(null);
       onComplete(applied);
-      setStep(0);
-      setSelected('');
-      setCustom('');
       return;
     }
 
@@ -100,7 +115,7 @@ export default function PropertyImportKnowledgeWizard({
         <div className="mt-4 space-y-2">
           {current.options.map((option) => (
             <label
-              key={option}
+              key={`${questionKey(current)}-${option}`}
               className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition-colors ${
                 selected === option
                   ? 'border-violet-400 bg-violet-50 text-violet-900'
@@ -138,7 +153,11 @@ export default function PropertyImportKnowledgeWizard({
         <button
           type="button"
           disabled={step === 0}
-          onClick={() => setStep(Math.max(0, step - 1))}
+          onClick={() => {
+            setStep(Math.max(0, step - 1));
+            setSelected('');
+            setCustom('');
+          }}
           className="inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-40"
         >
           <ChevronLeft className="h-4 w-4" />

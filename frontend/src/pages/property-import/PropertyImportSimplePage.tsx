@@ -69,13 +69,24 @@ interface DraftUploadItem {
   error: string | null;
 }
 
+function sanitizeUserFacingError(message: string): string {
+  if (/embedding api failed/i.test(message) || /invalid_api_key/i.test(message) || /incorrect api key/i.test(message)) {
+    return 'OpenAI API key on the server is invalid or expired. Ask your admin to update OPENAI_API_KEY in Render, then try publishing again.';
+  }
+  if (/sk-proj-/i.test(message) || /sk-[a-z0-9]{8,}/i.test(message)) {
+    return 'Server configuration error. Contact support to fix the OpenAI API key.';
+  }
+  return message;
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {
     const payload = error.response?.data as { error?: string; message?: string } | undefined;
-    return payload?.error || payload?.message || error.message || fallback;
+    const raw = payload?.error || payload?.message || error.message || fallback;
+    return sanitizeUserFacingError(raw);
   }
   if (error instanceof Error) {
-    return error.message || fallback;
+    return sanitizeUserFacingError(error.message || fallback);
   }
   return fallback;
 }
@@ -158,9 +169,12 @@ export default function PropertyImportSimplePage() {
     if (!routeDraftId || !draft || isPropertyImportTerminalStatus(draft.status)) {
       return;
     }
+    if (publishReadiness.missingQuestions.length > 0 && draft.extractionStatus === 'extracted') {
+      return;
+    }
     const interval = window.setInterval(() => void loadDraft(routeDraftId, true), 5000);
     return () => window.clearInterval(interval);
-  }, [draft, loadDraft, routeDraftId]);
+  }, [draft, loadDraft, routeDraftId, publishReadiness.missingQuestions.length]);
 
   const applyDraftUpdate = (nextDraft: PropertyImportDraft) => {
     const normalized = normalizePropertyImportDraft(nextDraft);
@@ -183,6 +197,7 @@ export default function PropertyImportSimplePage() {
   const persistDraft = async (
     nextFormValues = formValues,
     nextDraftData: Record<string, unknown> | null | undefined = draft?.draftData,
+    options?: { syncFormFromServer?: boolean },
   ) => {
     if (!draft?.id) {
       return null;
@@ -194,7 +209,11 @@ export default function PropertyImportSimplePage() {
         review_notes: null,
         mark_publish_ready: publishReadiness.ready,
       });
-      applyDraftUpdate(saved);
+      if (options?.syncFormFromServer !== false) {
+        applyDraftUpdate(saved);
+      } else {
+        setDraft(normalizePropertyImportDraft(saved));
+      }
       return saved;
     } catch (error) {
       setPageError(getErrorMessage(error, 'Failed to save'));
@@ -523,6 +542,7 @@ export default function PropertyImportSimplePage() {
 
       {activeStepIndex === 2 && publishReadiness.missingQuestions.length > 0 && (
         <PropertyImportKnowledgeWizard
+          key={`knowledge-${draft?.id ?? 'new'}-${formValues.property_type}`}
           inline
           questions={publishReadiness.missingQuestions}
           formValues={formValues}
@@ -538,7 +558,7 @@ export default function PropertyImportSimplePage() {
           }}
           onStepAnswer={(next) => {
             handleKnowledgeUpdate(next);
-            void persistDraft(next.formValues, next.draftData);
+            void persistDraft(next.formValues, next.draftData, { syncFormFromServer: false });
           }}
         />
       )}

@@ -298,10 +298,28 @@ export function buildPropertyKnowledgeSections(input: {
   return sections;
 }
 
-async function createEmbeddings(texts: string[]): Promise<number[][]> {
-  if (!config.ai.openaiApiKey) {
-    throw new Error('OPENAI_API_KEY is required to index property knowledge embeddings');
+function formatEmbeddingApiError(status: number, errText: string): string {
+  if (status === 401 || /invalid_api_key|incorrect api key/i.test(errText)) {
+    return 'OpenAI API key is invalid or expired. Update OPENAI_API_KEY on the server (Render environment) and redeploy.';
   }
+  if (status === 429) {
+    return 'OpenAI rate limit reached. Wait a moment and try publishing again.';
+  }
+  return `Embedding API failed (${status}). Check OPENAI_API_KEY and billing on OpenAI.`;
+}
+
+function assertOpenAiKeyConfigured(): void {
+  const key = config.ai.openaiApiKey?.trim();
+  if (!key) {
+    throw new Error('OPENAI_API_KEY is not set on the server. Add it in Render environment variables.');
+  }
+  if (!key.startsWith('sk-')) {
+    throw new Error('OPENAI_API_KEY format looks invalid. Use a secret key from https://platform.openai.com/api-keys');
+  }
+}
+
+async function createEmbeddings(texts: string[]): Promise<number[][]> {
+  assertOpenAiKeyConfigured();
 
   if (texts.length === 0) {
     return [];
@@ -321,7 +339,7 @@ async function createEmbeddings(texts: string[]): Promise<number[][]> {
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Embedding API failed (${response.status}): ${errText.slice(0, 400)}`);
+    throw new Error(formatEmbeddingApiError(response.status, errText));
   }
 
   const payload = await response.json() as {
