@@ -122,6 +122,15 @@ export async function routeCompanyScopedInbound(params: {
   }
 
   if (AGENT_COPILOT_ROLES.has(companyUser.userRole)) {
+    const { tryHandleAgentVisitApprovalReply } = await import('./visitPendingApproval.service');
+    const visitApprovalHandled = await tryHandleAgentVisitApprovalReply(companyUser, params.messageText);
+    if (visitApprovalHandled) {
+      return {
+        handled: true,
+        route: { kind: 'agent_copilot', userId: companyUser.userId, companyId: companyUser.companyId },
+      };
+    }
+
     if (!config.agentAi?.enabled || !params.messageText.trim()) {
       await sendWhatsAppResponse(
         normalizedPhone,

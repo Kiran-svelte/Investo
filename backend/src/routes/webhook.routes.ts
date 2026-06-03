@@ -339,6 +339,7 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
             undefined,
             undefined,
             customerPhoneE164,
+            metadata?.display_phone_number,
           );
 
           if (!companyResolution) {
@@ -405,6 +406,7 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
             messageId,
             interactiveId: extracted.interactiveId,
             interactiveType: extracted.interactiveType,
+            businessDisplayPhone: metadata?.display_phone_number,
           });
 
           outcome.propagationStatus = processingResult.propagation.status;

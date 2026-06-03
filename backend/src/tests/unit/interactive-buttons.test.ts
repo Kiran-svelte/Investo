@@ -77,6 +77,10 @@ jest.mock('../../services/alternativeInventory.service', () => ({
   searchAlternativeTiers: jest.fn().mockResolvedValue([]),
 }));
 
+jest.mock('../../services/visitPendingApproval.service', () => ({
+  createVisitApprovalRequest: jest.fn().mockResolvedValue({ approvalId: 'approval-1' }),
+}));
+
 // Now import after mocks are set up
 import { WhatsAppService } from '../../services/whatsapp.service';
 import prisma from '../../config/prisma';
@@ -187,9 +191,8 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
   });
 
   describe('handleInteractiveAction - Visit Time Selection', () => {
-    it('handles visit time selection and schedules visit', async () => {
+    it('handles visit time selection and requests agent approval', async () => {
       (prisma.property.findFirst as jest.Mock).mockResolvedValue(mockProperty);
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ name: 'Agent One' });
 
       const result = await whatsappService.handleInteractiveAction({
         interactiveId: `visit-time-${mockPropertyId}-tomorrow-10am`,
@@ -202,10 +205,9 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
       });
 
       expect(result.handled).toBe(true);
-      expect(result.action).toBe('visit-scheduled');
+      expect(result.action).toBe('visit-pending-agent-approval');
       expect(result.newState?.stage).toBe('visit_booking');
       expect(result.newState?.proposedVisitTime).toBeInstanceOf(Date);
-      // Lead status is updated inside scheduleVisitFromWhatsApp via leadTransition.service
     });
   });
 

@@ -10,6 +10,7 @@ import logger from '../config/logger';
 import { provisionNewCompany } from '../services/companyProvisioning.service';
 import { buildPaginationMeta, parsePagination } from '../utils/pagination';
 import { sanitizeCompanyRecord, mergeSettingsPreservingSecrets } from '../utils/sanitize';
+import { assertUniqueMetaPhoneNumberId } from '../services/whatsappTenantGuard.service';
 
 const router = Router();
 
@@ -243,6 +244,18 @@ router.put(
           }
         }
 
+        const mergedSettings =
+          settings !== undefined
+            ? mergeSettingsPreservingSecrets(existingCompany?.settings, settings)
+            : undefined;
+        if (mergedSettings) {
+          const conflict = await assertUniqueMetaPhoneNumberId(id, mergedSettings);
+          if (conflict) {
+            res.status(409).json({ error: conflict });
+            return;
+          }
+        }
+
         await prisma.company.update({
           where: { id },
           data: {
@@ -251,24 +264,31 @@ router.put(
             ...(whatsapp_phone !== undefined && { whatsappPhone: normalizedWhatsAppPhone }),
             ...(plan_id !== undefined && { planId: plan_id }),
             ...(status && { status }),
-            ...(settings !== undefined && {
-              settings: mergeSettingsPreservingSecrets(existingCompany?.settings, settings) as Parameters<
-                typeof prisma.company.update
-              >[0]['data']['settings'],
+            ...(mergedSettings !== undefined && {
+              settings: mergedSettings as Parameters<typeof prisma.company.update>[0]['data']['settings'],
             }),
           },
         });
       } else if (req.user!.role === 'company_admin' && id === req.user!.company_id) {
         // Company admin can only update name and settings of own company
         const { name, settings } = req.body;
+        const mergedSettings = settings
+          ? mergeSettingsPreservingSecrets(existingCompany?.settings, settings)
+          : undefined;
+        if (mergedSettings) {
+          const conflict = await assertUniqueMetaPhoneNumberId(id, mergedSettings);
+          if (conflict) {
+            res.status(409).json({ error: conflict });
+            return;
+          }
+        }
+
         await prisma.company.update({
           where: { id },
           data: {
             ...(name && { name }),
-            ...(settings && {
-              settings: mergeSettingsPreservingSecrets(existingCompany?.settings, settings) as Parameters<
-                typeof prisma.company.update
-              >[0]['data']['settings'],
+            ...(mergedSettings && {
+              settings: mergedSettings as Parameters<typeof prisma.company.update>[0]['data']['settings'],
             }),
           },
         });
