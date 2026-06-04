@@ -286,6 +286,31 @@ async function applyCompatibilityPatches(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS agent_action_logs_resource_idx ON agent_action_logs (resource_type, resource_id)`,
   );
 
+  await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector`);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS client_memory_chunks (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      source_type VARCHAR(40) NOT NULL,
+      source_id VARCHAR(100) NULL,
+      content TEXT NOT NULL,
+      embedding vector(1536),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS client_memory_chunks_company_lead_idx ON client_memory_chunks (company_id, lead_id)`,
+  );
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS last_lead_id UUID NULL REFERENCES leads(id) ON DELETE SET NULL
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS last_visit_id UUID NULL
+  `);
+
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_session_status_idx ON pending_actions(session_id, status)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_expires_idx ON pending_actions(expires_at)`);
   await prisma.$executeRawUnsafe(`

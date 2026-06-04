@@ -6,6 +6,7 @@ interface BuildSystemPromptParams {
   userRole: UserRole;
   currentDateIST: string;
   currentTimeIST: string;
+  clientMemoryBlock?: string;
 }
 
 export function buildSystemPrompt(params: BuildSystemPromptParams): string {
@@ -32,5 +33,8 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     '- Respect tool access and company boundaries.',
     '- For destructive actions, use tools that create a pending confirmation and tell the user to reply yes or no.',
     '- Keep simple replies under 5 lines.',
-  ].join('\n');
+    params.clientMemoryBlock ? `\n${params.clientMemoryBlock}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }

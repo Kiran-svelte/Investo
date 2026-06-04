@@ -261,6 +261,15 @@ class NotificationEngine {
         `Reply to update or ask anything about this visit.`,
       ].join('\n');
       void sendWhatsAppToUser(agent.phone, visit.companyId, whatsappMsg);
+      void import('./clientMemory.service').then(({ setAgentSessionClientContext, syncLeadClientMemory }) => {
+        void setAgentSessionClientContext({
+          userId: visit.agentId,
+          phone: agent.phone,
+          leadId: visit.leadId,
+          visitId: visit.id,
+        });
+        void syncLeadClientMemory(visit.leadId);
+      });
     } else {
       // Fetch phone in case caller passed partial agent object
       const fullAgent = await prisma.user.findUnique({
@@ -278,6 +287,15 @@ class NotificationEngine {
           `Reply to update or ask anything about this visit.`,
         ].join('\n');
         void sendWhatsAppToUser(fullAgent.phone, visit.companyId, whatsappMsg);
+        void import('./clientMemory.service').then(({ setAgentSessionClientContext, syncLeadClientMemory }) => {
+          void setAgentSessionClientContext({
+            userId: visit.agentId,
+            phone: fullAgent.phone!,
+            leadId: visit.leadId,
+            visitId: visit.id,
+          });
+          void syncLeadClientMemory(visit.leadId);
+        });
       }
     }
 

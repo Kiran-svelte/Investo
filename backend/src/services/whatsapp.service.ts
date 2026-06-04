@@ -899,6 +899,10 @@ export class WhatsAppService {
       data: { lastContactAt: new Date() },
     });
 
+    void import('./clientMemory.service').then(({ syncLeadClientMemory }) =>
+      syncLeadClientMemory(lead.id),
+    );
+
     if (isWrongReportMessage(msg.messageText)) {
       await handleWrongReport({
         companyId,
@@ -1113,6 +1117,10 @@ export class WhatsAppService {
           if (visitCommit.leadStatus === 'visit_scheduled') {
             await transitionLeadToVisitScheduled(lead.id);
           }
+
+          void import('./clientMemory.service').then(({ syncLeadClientMemory }) =>
+            syncLeadClientMemory(lead.id),
+          );
 
           void logAgentAction({
             companyId,

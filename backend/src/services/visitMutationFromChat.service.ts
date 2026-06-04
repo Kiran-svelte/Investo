@@ -201,6 +201,12 @@ export async function applyVisitMutationFromChat(
   fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'visitMutationFromChat.service.ts',message:'visit rescheduled',data:{visitId:visit.id,newIso:newScheduledAt.toISOString(),oldIso:oldTime.toISOString()},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
   // #endregion
 
+  if (visit.leadId) {
+    void import('./clientMemory.service').then(({ syncLeadClientMemory }) =>
+      syncLeadClientMemory(visit.leadId),
+    );
+  }
+
   return {
     handled: true,
     mode: 'rescheduled',

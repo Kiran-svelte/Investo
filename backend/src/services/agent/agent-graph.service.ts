@@ -21,6 +21,7 @@ export interface InvokeAgentParams {
   threadId: string;
   toolContext: ToolContext;
   companyName: string;
+  clientMemoryBlock?: string;
 }
 
 function createModel(): any {
@@ -85,6 +86,7 @@ export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
     userRole: params.toolContext.userRole,
     currentDateIST: formatDateIST(now),
     currentTimeIST: formatTimeIST(now),
+    clientMemoryBlock: params.clientMemoryBlock,
   });
 
   async function agentNode(state: any) {

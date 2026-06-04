@@ -118,6 +118,31 @@ function wantsConfirmVisit(text: string): boolean {
 }
 
 async function confirmNextUpcomingVisit(context: ToolContext): Promise<string> {
+  const { getAgentSessionContext } = await import('../clientMemory.service');
+  const sessionCtx = await getAgentSessionContext(context.sessionId);
+
+  if (sessionCtx.lastVisitId) {
+    const focused = await prisma.visit.findFirst({
+      where: {
+        id: sessionCtx.lastVisitId,
+        ...buildVisitScopeFilter(context.companyId, context.userRole, context.userId),
+        status: { in: ['scheduled', 'confirmed'] },
+      },
+      include: visitInclude,
+    });
+    if (focused && focused.status === 'scheduled') {
+      const updated = await prisma.visit.update({
+        where: { id: focused.id },
+        data: { status: 'confirmed' },
+        include: visitInclude,
+      });
+      return `✅ Visit confirmed.\n\n${formatVisitLine(updated)}`;
+    }
+    if (focused?.status === 'confirmed') {
+      return `That visit is already confirmed.\n\n${formatVisitLine(focused)}`;
+    }
+  }
+
   const visit = await prisma.visit.findFirst({
     where: {
       ...buildVisitScopeFilter(context.companyId, context.userRole, context.userId),

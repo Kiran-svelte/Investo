@@ -23,6 +23,11 @@ import {
   formatKnowledgeContextForPrompt,
   searchPropertyKnowledge,
 } from './propertyKnowledge.service';
+import {
+  formatClientMemoryForPrompt,
+  searchClientMemory,
+  syncLeadClientMemory,
+} from './clientMemory.service';
 import { stripInternalCustomerMeta } from './aiTransparency.service';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
@@ -119,8 +124,36 @@ export class AIService {
         : [];
     const knowledgeContext = formatKnowledgeContextForPrompt(knowledgeChunks);
 
+    let clientMemoryContext = '';
+    if (request.companyId && request.lead?.id) {
+      try {
+        await syncLeadClientMemory(request.lead.id);
+        const clientChunks = await searchClientMemory({
+          companyId: request.companyId,
+          query: request.customerMessage,
+          leadId: request.lead.id,
+          limit: 10,
+        });
+        clientMemoryContext = formatClientMemoryForPrompt(
+          clientChunks,
+          request.lead.customerName,
+        );
+      } catch (err: unknown) {
+        logger.warn('Buyer client memory retrieval failed', {
+          leadId: request.lead.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     // LANGUAGE BRAIN: Generate response with policy-guided prompt
-    const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction, knowledgeContext);
+    const systemPrompt = this.buildGoalDirectedPrompt(
+      request,
+      newState,
+      nextAction,
+      knowledgeContext,
+      clientMemoryContext,
+    );
     const messages = this.buildMessages(request);
     const providers = this.getProviderOrder();
     let lastError: Error | null = null;
@@ -188,6 +221,7 @@ export class AIService {
     state: ConversationState,
     nextAction: NextBestAction,
     knowledgeContext = '',
+    clientMemoryContext = '',
   ): string {
     const { aiSettings, companyName, properties, lead } = request;
     const stageConfig = getStageConfig(state.stage);
@@ -256,6 +290,8 @@ ${this.disclaimerPromptLine(request)}
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
 
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ''}
+
+${clientMemoryContext ? `\n${clientMemoryContext}\n` : ''}
 
 ${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 

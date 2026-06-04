@@ -72,11 +72,32 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     return deterministic;
   }
 
+  const { buildClientMemoryContextForAgent, getAgentSessionContext, setAgentSessionClientContext } =
+    await import('../clientMemory.service');
+  const sessionCtx = await getAgentSessionContext(session?.id);
+  const memory = await buildClientMemoryContextForAgent({
+    companyId: user.companyId,
+    userId: user.userId,
+    userRole: user.userRole,
+    messageText,
+    sessionLeadId: sessionCtx.lastLeadId,
+    sessionVisitId: sessionCtx.lastVisitId,
+  });
+  if (session?.id && (memory.leadId || memory.visitId)) {
+    await setAgentSessionClientContext({
+      userId: user.userId,
+      phone: user.phone,
+      leadId: memory.leadId,
+      visitId: memory.visitId,
+    });
+  }
+
   return invokeAgent({
     messageText,
     threadId,
     toolContext,
     companyName: user.companyName,
+    clientMemoryBlock: memory.block,
   });
 }
 

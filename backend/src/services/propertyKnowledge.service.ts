@@ -458,6 +458,15 @@ function vectorLiteral(values: number[]): string {
   return `[${values.join(',')}]`;
 }
 
+/** Shared RAG embeddings for property + per-client memory. */
+export async function createTextEmbeddings(texts: string[]): Promise<number[][]> {
+  return createEmbeddings(texts);
+}
+
+export function embeddingVectorLiteral(values: number[]): string {
+  return vectorLiteral(values);
+}
+
 export async function deletePropertyKnowledge(propertyId: string): Promise<void> {
   await ensurePropertyKnowledgeSchema();
   await prisma.$executeRawUnsafe(
