@@ -20,12 +20,16 @@ const SHORT_CONFIRM = /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|done|üëç|‚
 
 /** Cancel / reschedule site-visit requests (buyer or staff WhatsApp). */
 const VISIT_CANCEL_RESCHEDULE_HINT =
-  /\b(cancel(?:led|lation)?|call\s+off|postpone)\b[\s\S]{0,80}\b(visit|site\s*visit|appointment)\b|\b(reschedule|re-?schedule|move|change)\b[\s\S]{0,80}\b(visit|site\s*visit|appointment)\b|\b(visit|site\s*visit)\b[\s\S]{0,80}\b(cancel|reschedule|re-?schedule|move|change)\b/i;
+  /\b(cancel(?:led|lation)?|call\s+off|postpone)\b[\s\S]{0,120}\b(visit|site\s*visit|appointment|booking)\b|\b(reschedule|re-?schedule|move|change|shift|push)\b[\s\S]{0,120}\b(visit|site\s*visit|appointment|booking)\b|\b(visit|site\s*visit|appointment)\b[\s\S]{0,120}\b(cancel|reschedule|re-?schedule|move|change|shift|postpone)\b/i;
+
+/** Softer phrasing: "different day", "another time", "can't make it Friday". */
+const VISIT_MUTATION_SOFT_HINT =
+  /\b(can'?t\s+make|won'?t\s+be\s+able|not\s+available)\b[\s\S]{0,60}\b(visit|appointment)\b|\b(visit|appointment)\b[\s\S]{0,40}\b(different|another)\s+(day|time|date)\b|\b(change|move|shift)\b[\s\S]{0,40}\b(time|slot|date)\b/i;
 
 export function isVisitCancelOrRescheduleMessage(message: string): boolean {
   const t = message.trim();
   if (!t) return false;
-  return VISIT_CANCEL_RESCHEDULE_HINT.test(t);
+  return VISIT_CANCEL_RESCHEDULE_HINT.test(t) || VISIT_MUTATION_SOFT_HINT.test(t);
 }
 
 /**
@@ -69,6 +73,7 @@ export function messageReferencesVisitTomorrow(message: string): boolean {
 export function isVisitSchedulingMessage(message: string): boolean {
   const t = message.trim();
   if (!t) return false;
+  if (isVisitCancelOrRescheduleMessage(t)) return false;
   if (SHORT_CONFIRM.test(t)) return true;
   return VISIT_SCHEDULING_HINT.test(t) && (DAY_PATTERN.test(t) || TIME_PATTERN.test(t));
 }

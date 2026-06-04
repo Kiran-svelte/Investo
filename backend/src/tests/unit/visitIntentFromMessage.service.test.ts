@@ -22,11 +22,10 @@ describe('visitIntentFromMessage.service', () => {
   });
 
   it('detects cancel and reschedule intent', () => {
-    expect(
-      isVisitCancelOrRescheduleMessage(
-        'Cancel my site visit which is on tomorrow and reschedule it to this saturday 1pm',
-      ),
-    ).toBe(true);
+    const msg =
+      'Cancel my site visit which is on tomorrow and reschedule it to this saturday 1pm';
+    expect(isVisitCancelOrRescheduleMessage(msg)).toBe(true);
+    expect(isVisitSchedulingMessage(msg)).toBe(false);
   });
 
   it('parses Saturday 1pm from reschedule tail, not tomorrow', () => {

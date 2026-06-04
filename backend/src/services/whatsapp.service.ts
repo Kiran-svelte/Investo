@@ -29,7 +29,11 @@ import { assignLeadWithRouting } from './leadRouting.service';
 import { syncLeadScoreFromConversation } from './leadScoring.service';
 import { logAgentAction } from './agent-action-log.service';
 import { tryCommitCustomerVisitBooking } from './customerVisitBooking.service';
-import { isVisitSchedulingMessage } from './visitIntentFromMessage.service';
+import {
+  isVisitCancelOrRescheduleMessage,
+  isVisitSchedulingMessage,
+} from './visitIntentFromMessage.service';
+import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
 
 import {
   handleWrongReport,
@@ -1091,12 +1095,16 @@ export class WhatsAppService {
             await prisma.conversation.update({
               where: { id: conversation.id },
               data: {
-                stage: visitCommit.mode === 'scheduled' ? 'confirmation' : 'visit_booking',
+                stage:
+                  visitCommit.mode === 'scheduled' || visitCommit.mode === 'rescheduled'
+                    ? 'confirmation'
+                    : 'visit_booking',
                 proposedVisitTime: visitCommit.scheduledAt,
                 commitments: {
                   ...(conversation.commitments as object),
                   visitSlotDiscussed: true,
-                  visitSlotConfirmed: visitCommit.mode === 'scheduled',
+                  visitSlotConfirmed:
+                    visitCommit.mode === 'scheduled' || visitCommit.mode === 'rescheduled',
                 },
               },
             });
@@ -1188,8 +1196,20 @@ export class WhatsAppService {
           groundedProperties,
           neverSayNoCtx.promptBlock,
         );
+        let outboundCandidate = aiResponse.text;
+        if (isVisitCancelOrRescheduleMessage(msg.messageText)) {
+          const mutation = await applyVisitMutationFromChat({
+            companyId,
+            leadId: lead.id,
+            message: msg.messageText,
+          });
+          if (mutation.handled && mutation.reply) {
+            outboundCandidate = mutation.reply;
+          }
+        }
+
         const guarded = enforceNeverSayNoResponse({
-          text: aiResponse.text,
+          text: outboundCandidate,
           hasInventoryAlternatives: neverSayNoCtx.hasInventoryAlternatives,
           fallbackCta: neverSayNoCtx.fallbackCta,
           groundedProperties,
@@ -1199,7 +1219,8 @@ export class WhatsAppService {
             conversationState.commitments.visitSlotConfirmed ||
             conversationState.stage === 'visit_booking' ||
             conversationState.stage === 'confirmation' ||
-            isVisitSchedulingMessage(msg.messageText),
+            isVisitSchedulingMessage(msg.messageText) ||
+            isVisitCancelOrRescheduleMessage(msg.messageText),
         });
         const polished = await polishOutboundMessage({
           rawText: guarded.text,
