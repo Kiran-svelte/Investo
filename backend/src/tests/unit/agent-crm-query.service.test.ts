@@ -1,5 +1,5 @@
 const mockPrisma = {
-  visit: { findMany: jest.fn() },
+  visit: { findMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
   lead: { findMany: jest.fn() },
 };
 
@@ -91,5 +91,43 @@ describe('tryDeterministicAgentCrmReply', () => {
     );
     expect(result).toContain('Visit rescheduled');
     expect(applyVisitMutationFromChat).toHaveBeenCalled();
+  });
+
+  it('confirms the next upcoming visit without asking for visit ID', async () => {
+    mockPrisma.visit.findFirst.mockResolvedValue({
+      id: 'v1',
+      status: 'scheduled',
+      scheduledAt: new Date(),
+      lead: { customerName: 'Amogh', phone: '+919999999999' },
+      property: { name: 'Lake Vista' },
+      agent: { name: 'Agent' },
+    });
+    mockPrisma.visit.update.mockResolvedValue({
+      id: 'v1',
+      status: 'confirmed',
+      scheduledAt: new Date(),
+      lead: { customerName: 'Amogh', phone: '+919999999999' },
+      property: { name: 'Lake Vista' },
+      agent: { name: 'Agent' },
+    });
+    const result = await tryDeterministicAgentCrmReply(ctx, 'Confirm the visit');
+    expect(result).toContain('Visit confirmed');
+    expect(result).toContain('Amogh');
+    expect(mockPrisma.visit.update).toHaveBeenCalled();
+  });
+
+  it('handles "Any leads today?"', async () => {
+    mockPrisma.lead.findMany.mockResolvedValue([
+      {
+        id: 'l1',
+        status: 'new',
+        customerName: 'Amogh',
+        phone: '+919888888888',
+        assignedAgent: { name: 'Agent' },
+      },
+    ]);
+    const result = await tryDeterministicAgentCrmReply(ctx, 'Any leads today ?');
+    expect(result).toContain('New leads today');
+    expect(result).toContain('Amogh');
   });
 });

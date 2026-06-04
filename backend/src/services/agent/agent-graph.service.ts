@@ -58,6 +58,22 @@ function extractText(message: BaseMessageLike): string {
   return '';
 }
 
+/** When the model stops after tool calls without a final reply, surface the last tool output. */
+function extractAgentReply(messages: BaseMessageLike[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message instanceof AIMessage) {
+      const text = extractText(message);
+      if (text.trim()) return text;
+      continue;
+    }
+    const toolName = message?.name;
+    const toolBody = typeof message?.content === 'string' ? message.content : extractText(message);
+    if (toolName && toolBody.trim()) return toolBody;
+  }
+  return '';
+}
+
 export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
   const tools = getToolsForRole(params.toolContext);
   const model = createModel() as any;
@@ -130,6 +146,9 @@ export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
     { messages: [new HumanMessage(params.messageText)] },
     { configurable: { thread_id: params.threadId } },
   );
-  const last = result.messages[result.messages.length - 1];
-  return extractText(last) || 'I processed that, but there is no text response to send.';
+  const reply = extractAgentReply(result.messages);
+  if (reply.trim()) return reply;
+
+  logger.warn('Agent AI produced empty reply', { userId: params.toolContext.userId });
+  return 'I could not format a reply. Please try again or rephrase (e.g. "leads today" or "visits tomorrow").';
 }

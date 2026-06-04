@@ -271,7 +271,8 @@ export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (!isPathAllowedForRole(path, role, () => true)) {
+  const guardedPath = path.startsWith(DASHBOARD_BASE) ? path : dashboardPath(path);
+  if (!isPathAllowedForRole(guardedPath, role, () => true)) {
     return (
       <AccessFeedbackPage
         title="This page is not available for your role"
@@ -449,9 +450,7 @@ const App: React.FC = () => {
                     </Route>
                   </Route>
                   <Route element={<RoleRoute path="/error-logs" />}>
-                    <Route element={<FeatureRoute featureKey="audit_logs" />}>
-                      <Route path="error-logs" element={<ErrorLogsPage />} />
-                    </Route>
+                    <Route path="error-logs" element={<ErrorLogsPage />} />
                   </Route>
                 </Route>
                 </Route>

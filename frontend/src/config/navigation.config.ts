@@ -100,7 +100,7 @@ export const NAV_ITEMS: NavItemSpec[] = [
   {
     key: 'conversations',
     path: dashboardPath('/conversations'),
-    roles: ['company_admin', 'sales_agent', 'viewer'],
+    roles: ['company_admin', 'sales_agent'],
     featureKey: 'conversation_center',
   },
   {
@@ -153,7 +153,6 @@ export const NAV_ITEMS: NavItemSpec[] = [
     key: 'error_logs',
     path: dashboardPath('/error-logs'),
     roles: ['company_admin'],
-    featureKey: 'audit_logs',
     labelFallback: 'Error Log',
   },
   {
@@ -216,6 +215,7 @@ export function resolveDashboardPath(pathname: string): string {
     'companies',
     'emi-calculator',
     'audit-logs',
+    'error-logs',
   ];
   for (const root of legacyRoots) {
     if (normalized === `/${root}` || normalized.startsWith(`/${root}/`)) {
