@@ -48,8 +48,12 @@ async function start() {
     socketService.initialize(httpServer);
 
     await new Promise<void>((resolve, reject) => {
-      httpServer.listen(config.port, () => {
-        logger.info(`Investo API server running on port ${config.port} [${config.env}]`);
+      const host = process.env.HOST || '0.0.0.0';
+      httpServer.listen(config.port, host, () => {
+        // #region agent log
+        fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'server.ts:listen',message:'HTTP server listening',data:{host,port:config.port,env:config.env},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        logger.info(`Investo API server running on ${host}:${config.port} [${config.env}]`);
         logger.info('WebSocket enabled for real-time updates');
         resolve();
       });
@@ -101,10 +105,23 @@ async function start() {
         }, Math.max(config.db.keepAliveIntervalMs, 60_000));
       }
   } catch (err: any) {
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'server.ts:start',message:'Server start failed',data:{error:err?.message},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
     logger.error('Failed to start server', { error: err.message });
     process.exit(1);
   }
 }
+
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught exception', { error: err.message, stack: err.stack });
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  logger.error('Unhandled rejection', { error: message });
+});
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
