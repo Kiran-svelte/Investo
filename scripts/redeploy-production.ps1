@@ -3,7 +3,8 @@
 
 param(
   [string]$ServiceId = 'srv-d79itik50q8c73fjqi7g',
-  [string]$BackendUrl = 'https://investo-backend-v2.onrender.com'
+  [string]$BackendUrl = 'https://investo-backend-v2.onrender.com',
+  [int]$MaxWaitMinutes = 15
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +22,8 @@ $deploy = Invoke-RestMethod -Method Post -Uri "https://api.render.com/v1/service
 $deployId = $deploy.id
 Write-Host "Deploy started: $deployId"
 
-for ($i = 0; $i -lt 90; $i++) {
+$maxIterations = [Math]::Max(1, [int](($MaxWaitMinutes * 60) / 20))
+for ($i = 0; $i -lt $maxIterations; $i++) {
   Start-Sleep -Seconds 20
   $status = Invoke-RestMethod -Uri "https://api.render.com/v1/services/$ServiceId/deploys/$deployId" -Headers $headers
   Write-Host "Status: $($status.status)"
