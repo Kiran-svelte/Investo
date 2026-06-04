@@ -65,9 +65,30 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
   const { getAgentSessionContext } = await import('../clientMemory.service');
   const sessionCtx = await getAgentSessionContext(session?.id);
   const { getRecentAgentSessionMessages } = await import('./agent-session-messages.service');
+  const { classifyAndRunWorkflow } = await import('../workflow/workflow-engine.service');
   const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } =
     await import('./agent-intent-orchestrator.service');
   const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
+
+  const workflowReply = await classifyAndRunWorkflow({
+    toolContext,
+    messageText,
+    recentMessages,
+    companyName: user.companyName,
+    sessionLeadId: sessionCtx.lastLeadId,
+    sessionVisitId: sessionCtx.lastVisitId,
+    staffPhone: user.phone,
+  });
+  if (workflowReply) {
+    if (session?.id) {
+      await recordAgentCopilotExchange({
+        sessionId: session.id,
+        inboundText: messageText,
+        outboundText: workflowReply,
+      });
+    }
+    return workflowReply;
+  }
 
   const intentReply = await classifyAndExecuteAgentIntent({
     toolContext,

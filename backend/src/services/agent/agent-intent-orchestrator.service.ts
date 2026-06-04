@@ -23,6 +23,8 @@ import {
 } from './agent-session-messages.service';
 import { buildAgentScopeFilter } from './tools/format-helpers';
 import { resolveLeadForIntent } from './agent-lead-resolution.service';
+import { runWorkflowForIntent } from '../workflow/workflow-engine.service';
+import { workflowIdForIntent } from '../workflow/workflow-registry';
 
 export { extractLeadIdsFromText, extractLeadNamesFromAssistantMessages, resolveLeadForIntent } from './agent-lead-resolution.service';
 
@@ -673,6 +675,20 @@ export async function classifyAndExecuteAgentIntent(
       deps?.llm,
       actionTools,
     );
+
+    if (workflowIdForIntent(extracted.intent)) {
+      const workflowReply = await runWorkflowForIntent(extracted.intent, extracted.parameters, {
+        toolContext: params.toolContext,
+        messageText: params.messageText,
+        recentMessages: params.recentMessages,
+        companyName: params.companyName,
+        sessionLeadId: params.sessionLeadId,
+        sessionVisitId: params.sessionVisitId,
+        staffPhone: params.staffPhone,
+        channel: 'staff',
+      });
+      if (workflowReply) return workflowReply;
+    }
 
     return executeAgentIntent(
       params.toolContext,

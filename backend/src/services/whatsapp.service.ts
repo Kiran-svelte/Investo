@@ -1084,6 +1084,32 @@ export class WhatsAppService {
           recentCustomerMessages,
         });
 
+        const { tryRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
+        const buyerWorkflowReply = await tryRunBuyerWorkflow({
+          companyId,
+          leadId: lead.id,
+          messageText: msg.messageText,
+          propertyId: conversation.selectedPropertyId ?? undefined,
+        });
+        if (buyerWorkflowReply?.trim()) {
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderType: 'ai',
+              content: buyerWorkflowReply,
+              status: 'sent',
+            },
+          });
+          await this.sendMessage(customerPhone, buyerWorkflowReply, whatsappConfig!);
+          return {
+            status: 'processed',
+            companyId,
+            leadId: lead.id,
+            conversationId: conversation.id,
+            propagation,
+          };
+        }
+
         if (visitCommit.committed && visitCommit.customerReply) {
           await prisma.message.create({
             data: {
