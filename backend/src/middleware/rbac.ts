@@ -53,7 +53,7 @@ const SYSTEM_PERMISSIONS: Partial<Record<Role, Partial<Record<Resource, Permissi
 // Fallback for system roles that don't have custom company_roles
 const FALLBACK_PERMISSIONS: Partial<Record<Role, Partial<Record<Resource, Permission[]>>>> = {
   sales_agent: {
-    users: ['read'],
+    users: ['read', 'update'],
     leads: ['read', 'update'],
     properties: ['read'],
     conversations: ['read'],
@@ -62,7 +62,7 @@ const FALLBACK_PERMISSIONS: Partial<Record<Role, Partial<Record<Resource, Permis
     notifications: ['read', 'update'],
   },
   operations: {
-    users: ['read'],
+    users: ['read', 'update'],
     leads: ['read'],
     properties: ['read'],
     conversations: ['read'],
@@ -71,7 +71,7 @@ const FALLBACK_PERMISSIONS: Partial<Record<Role, Partial<Record<Resource, Permis
     notifications: ['read', 'update'],
   },
   viewer: {
-    users: ['read'],
+    users: ['read', 'update'],
     leads: ['read'],
     properties: ['read'],
     visits: ['read'],

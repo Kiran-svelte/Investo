@@ -292,18 +292,27 @@ router.put(
         return;
       }
 
-      // Sales agent can only update own profile (name, phone)
-      if (req.user!.role === 'sales_agent') {
+      const selfServiceRoles = new Set(['sales_agent', 'operations', 'viewer']);
+      if (selfServiceRoles.has(req.user!.role)) {
         if (id !== req.user!.id) {
           res.status(403).json({ error: 'Can only update own profile' });
           return;
         }
         const { name, phone } = req.body;
+        const { normalizeStaffProfilePhone } = await import('../utils/userProfilePhone');
+        const normalizedPhone =
+          phone !== undefined && phone !== null && String(phone).trim()
+            ? normalizeStaffProfilePhone(String(phone))
+            : undefined;
+        if (phone !== undefined && phone !== null && String(phone).trim() && !normalizedPhone) {
+          res.status(400).json({ error: 'Enter a valid Indian mobile number (10 digits).' });
+          return;
+        }
         await prisma.user.update({
           where: { id },
           data: {
             ...(name && { name }),
-            ...(phone !== undefined && { phone }),
+            ...(normalizedPhone !== undefined && { phone: normalizedPhone }),
           },
         });
       } else {

@@ -17,6 +17,7 @@ import api, {
   refreshAuthTokens,
   setTokens,
 } from '../services/api';
+import { isProfilePhoneComplete } from '../utils/profilePhone';
 
 // ──────────────────────────────────────────────
 // Types
@@ -67,7 +68,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Derived flag
   const isAuthenticated = user !== null;
   const mustChangePassword = user?.must_change_password === true;
-  const profileComplete = user?.profile_complete === true;
+  const profileComplete =
+    user?.profile_complete === true || isProfilePhoneComplete(user?.phone);
 
   // Clear password change requirement after successful change
   const clearPasswordChangeRequirement = useCallback(() => {
@@ -92,7 +94,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const fetchMe = async (): Promise<AuthUser> => {
       const { data } = await api.get<ApiResponse<AuthUser>>('/auth/me');
-      return data.data;
+      const me = data.data;
+      if (!me.phone && me.id) {
+        try {
+          const userRes = await api.get<{ data: { phone?: string | null } }>(`/users/${me.id}`);
+          const phone = userRes.data?.data?.phone;
+          if (phone) {
+            return { ...me, phone, profile_complete: isProfilePhoneComplete(phone) };
+          }
+        } catch {
+          /* optional enrichment */
+        }
+      }
+      return {
+        ...me,
+        profile_complete: me.profile_complete ?? isProfilePhoneComplete(me.phone),
+      };
     };
 
     try {

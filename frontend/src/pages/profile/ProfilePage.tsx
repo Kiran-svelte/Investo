@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Phone, Save, ShieldAlert } from 'lucide-react';
-import api, { ApiResponse } from '../../services/api';
-import { useAuth, AuthUser } from '../../context/AuthContext';
-import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
+import { useAuth } from '../../context/AuthContext';
+import { stripIndianCountryCode } from '../../utils/indianPhone';
+import { saveStaffProfile } from '../../services/profile';
 import PageHeader from '../../components/ui/PageHeader';
 
 const ProfilePage: React.FC = () => {
@@ -26,26 +26,30 @@ const ProfilePage: React.FC = () => {
       setError('');
       setMessage('');
 
-      const phone = formatIndianPhoneForApi(phoneLocal);
-      if (!phone) {
-        setError('Enter your 10-digit Indian mobile number (required for WhatsApp agent tools).');
+      if (!user?.id) {
+        setError('Session expired. Please log in again.');
         return;
       }
 
       setSaving(true);
       try {
-        const { data } = await api.put<ApiResponse<AuthUser>>('/auth/profile', {
-          name: name.trim() || user?.name,
-          phone,
+        const updated = await saveStaffProfile({
+          userId: user.id,
+          name: name.trim() || user.name,
+          phoneLocal,
         });
         await refreshProfile();
         setMessage('Profile saved. You can use the rest of Investo and WhatsApp agent features.');
-        if (data.data?.phone) {
-          setPhoneLocal(stripIndianCountryCode(data.data.phone));
+        if (updated.phone) {
+          setPhoneLocal(stripIndianCountryCode(updated.phone));
         }
       } catch (err: unknown) {
         const ax = err as { response?: { data?: { message?: string; error?: string } } };
-        setError(ax.response?.data?.message || ax.response?.data?.error || 'Failed to save profile.');
+        setError(
+          ax.response?.data?.message
+            || ax.response?.data?.error
+            || (err instanceof Error ? err.message : 'Failed to save profile.'),
+        );
       } finally {
         setSaving(false);
       }
