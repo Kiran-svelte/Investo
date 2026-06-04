@@ -90,6 +90,11 @@ const ctx: ToolContext = {
 describe('agent-intent-orchestrator.service', () => {
   const kannadaLeadId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getToolsForRole as jest.Mock).mockReturnValue([]);
+  });
+
   it('executes update_lead_status deterministically', async () => {
     (resolveLeadForIntent as jest.Mock).mockResolvedValue({
       leadId: kannadaLeadId,
@@ -148,6 +153,79 @@ describe('agent-intent-orchestrator.service', () => {
     );
     expect(extracted.parameters.status).toBe('visited');
     expect(extracted.intent).toBe('update_lead_status');
+  });
+
+  it('executes a generic role-scoped action handler selected by toolName', async () => {
+    const listLeadsTool = {
+      name: 'listLeads',
+      description: 'List leads by status',
+      schema: {
+        safeParse: jest.fn((input) => ({ success: true, data: input })),
+      },
+      func: jest.fn().mockResolvedValue('*Leads*\n1. Ravi\nID: lead-1'),
+    };
+
+    const reply = await executeAgentIntent(
+      ctx,
+      {
+        intent: 'list_leads',
+        toolName: 'listLeads',
+        parameters: { status: 'new' },
+      },
+      [],
+      null,
+      { actionTools: [listLeadsTool] as any },
+    );
+
+    expect(listLeadsTool.schema.safeParse).toHaveBeenCalledWith({ status: 'new' });
+    expect(listLeadsTool.func).toHaveBeenCalledWith({ status: 'new' });
+    expect(reply).toContain('Ravi');
+  });
+
+  it('runs classifier, parameter extraction, and generic action execution end to end', async () => {
+    const listLeadsTool = {
+      name: 'listLeads',
+      description: 'List leads by status',
+      schema: {
+        shape: { status: true },
+        safeParse: jest.fn((input) => ({ success: true, data: input })),
+      },
+      func: jest.fn().mockResolvedValue('*Leads*\n1. Asha\nID: lead-2'),
+    };
+    (getToolsForRole as jest.Mock).mockReturnValue([listLeadsTool]);
+
+    const llm = jest
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          intent: 'list_leads',
+          toolName: 'listLeads',
+          confidence: 0.9,
+          parameters: { status: 'new' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          intent: 'list_leads',
+          toolName: 'listLeads',
+          parameters: { status: 'new' },
+          missingFields: [],
+        }),
+      );
+
+    const reply = await classifyAndExecuteAgentIntent(
+      {
+        toolContext: ctx,
+        messageText: 'show new leads',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+      },
+      { llm },
+    );
+
+    expect(llm).toHaveBeenCalledTimes(2);
+    expect(listLeadsTool.func).toHaveBeenCalledWith({ status: 'new' });
+    expect(reply).toContain('Asha');
   });
 
   it('executeAgentIntent returns clarification when lead cannot be resolved', async () => {
