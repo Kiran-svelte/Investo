@@ -4,6 +4,8 @@
 
 import config from '../config';
 import logger from '../config/logger';
+import { getCircuitBreaker } from '../utils/circuit-breaker';
+import { fetchWithTimeout } from '../utils/fetch-with-timeout';
 
 export type OpenAiFailureKind =
   | 'ok'
@@ -133,52 +135,66 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const openAiCircuit = getCircuitBreaker({
+  name: 'openai',
+  failureThreshold: 5,
+  recoveryTimeoutMs: 30_000,
+});
+
 export async function fetchOpenAi(
   url: string,
   init: RequestInit,
-  options?: { retries?: number; label?: string },
+  options?: { retries?: number; label?: string; timeoutMs?: number },
 ): Promise<Response> {
   const retries = options?.retries ?? 2;
-  let lastError: OpenAiErrorInfo | null = null;
+  const timeoutMs = options?.timeoutMs ?? 30_000;
 
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      const response = await fetch(url, init);
-      if (response.ok) {
-        return response;
-      }
+  return openAiCircuit.execute(async () => {
+    let lastError: OpenAiErrorInfo | null = null;
 
-      const bodyText = await response.text();
-      const info = parseOpenAiError(response.status, bodyText);
-      lastError = info;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        const response = await fetchWithTimeout(url, { ...init, timeoutMs });
+        if (response.ok) {
+          return response;
+        }
 
-      if (!info.retryable || attempt >= retries || isOpenAiHardDown(info.kind)) {
-        throw new Error(info.message);
-      }
+        const bodyText = await response.text();
+        const info = parseOpenAiError(response.status, bodyText);
+        lastError = info;
 
-      const backoffMs = info.kind === 'rate_limited' ? 1500 * (attempt + 1) : 800 * (attempt + 1);
-      logger.warn('OpenAI request retry', {
-        label: options?.label,
-        attempt: attempt + 1,
-        status: response.status,
-        kind: info.kind,
-        backoffMs,
-      });
-      await sleep(backoffMs);
-    } catch (err: unknown) {
-      if (err instanceof Error && lastError && isOpenAiHardDown(lastError.kind)) {
-        throw err;
+        if (!info.retryable || attempt >= retries || isOpenAiHardDown(info.kind)) {
+          throw new Error(info.message);
+        }
+
+        const backoffMs = info.kind === 'rate_limited' ? 1500 * (attempt + 1) : 800 * (attempt + 1);
+        logger.warn('OpenAI request retry', {
+          label: options?.label,
+          attempt: attempt + 1,
+          status: response.status,
+          kind: info.kind,
+          backoffMs,
+        });
+        await sleep(backoffMs);
+      } catch (err: unknown) {
+        if (err instanceof Error && lastError && isOpenAiHardDown(lastError.kind)) {
+          throw err;
+        }
+        if (attempt >= retries) {
+          const message = err instanceof Error ? err.message : String(err);
+          throw new Error(message);
+        }
+        logger.warn('OpenAI network retry', {
+          label: options?.label,
+          attempt: attempt + 1,
+          error: String(err),
+        });
+        await sleep(1000 * (attempt + 1));
       }
-      if (attempt >= retries) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(message);
-      }
-      logger.warn('OpenAI network retry', { label: options?.label, attempt: attempt + 1, error: String(err) });
-      await sleep(1000 * (attempt + 1));
     }
-  }
 
-  throw new Error(lastError?.message || 'OpenAI request failed');
+    throw new Error(lastError?.message || 'OpenAI request failed');
+  });
 }
 
 export async function getOpenAiServiceHealth(): Promise<OpenAiServiceHealth> {

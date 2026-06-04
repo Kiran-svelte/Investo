@@ -5,29 +5,7 @@ import { normalizeInboundWhatsAppPhone } from '../../utils/phoneMatch';
 import type { CompanyUserMatch } from '../inboundWhatsAppRouting.service';
 import { ToolContext } from './agent-state';
 
-/**
- * Pattern matching simple greetings from staff on WhatsApp copilot.
- * Used to bypass the LLM graph entirely and return an instant welcome.
- */
-const COPILOT_GREETING_PATTERN =
-  /^(hi|hello|hey|hii|hola|namaste|good\s*(morning|afternoon|evening)|start|help|what\s+can\s+you\s+do|commands?)[!.,?\s]*$/i;
-
-/**
- * Returns true when the staff message is a simple copilot greeting or help request.
- * These messages should never be sent to the LLM graph — they are handled deterministically.
- *
- * @param message - Trimmed message text from the staff user.
- * @returns True when message is a greeting or help request.
- */
-function normalizeCopilotInboundText(message: string): string {
-  return message.replace(/\u200b/g, '').trim();
-}
-
-function isCopilotGreeting(message: string): boolean {
-  const trimmed = normalizeCopilotInboundText(message);
-  if (!trimmed || trimmed.length > 50) return false;
-  return COPILOT_GREETING_PATTERN.test(trimmed);
-}
+import { isCopilotGreeting, normalizeCopilotInboundText } from '../../utils/copilotGreeting.util';
 
 /**
  * Builds a deterministic welcome/help message for the agent copilot.
@@ -220,6 +198,18 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     });
   }
 
+  // Pre-LLM guard: if the message is still a greeting after all deterministic checks,
+  // never invoke the LLM. Some WhatsApp clients embed invisible Unicode characters
+  // that bypass normalizeCopilotInboundText — so we re-check here with aggressive
+  // stripping before spending an LLM call.
+  const aggressivelyNormalized = normalizedText
+    .replace(/[\u200b-\u200f\u2028\u2029\ufeff]/g, '') // strip invisible Unicode
+    .replace(/[\r\n]+/g, ' ')                           // collapse newlines
+    .trim();
+  if (isCopilotGreeting(aggressivelyNormalized) || aggressivelyNormalized.length === 0) {
+    return buildCopilotWelcomeMessage(user.userName, user.companyName);
+  }
+
   let agentReply: string;
   try {
     agentReply = await invokeAgent({
@@ -253,6 +243,15 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
         `Or use the *Investo dashboard* for advanced operations.`;
     }
   }
+
+  // Post-LLM safety filter: if the LLM generated a vague refusal or "I couldn't
+  // complete" style message for a short generic input, replace with the deterministic
+  // help menu so the user always gets a useful response.
+  const isLlmRefusal = /could\s+not\s+complete|unable\s+to\s+(retrieve|process)|try\s+a\s+shorter/i.test(agentReply);
+  if (isLlmRefusal && aggressivelyNormalized.length < 30) {
+    agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+  }
+
   if (session?.id) {
     await recordAgentCopilotExchange({
       sessionId: session.id,

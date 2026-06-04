@@ -21,4 +21,14 @@ describe('withRetry', () => {
     await expect(withRetry(fn, { maxAttempts: 3, baseDelayMs: 1 })).rejects.toThrow('401');
     expect(fn).toHaveBeenCalledTimes(1);
   });
+
+  it('times out slow operations', async () => {
+    const fn = jest.fn(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve('late'), 200);
+        }),
+    );
+    await expect(withRetry(fn, { maxAttempts: 1, timeoutMs: 50 })).rejects.toThrow(/Timeout/i);
+  });
 });

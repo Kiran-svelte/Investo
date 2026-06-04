@@ -8,12 +8,43 @@ const COUNTERS = [
   'whatsapp_outbound',
   'errors_5xx',
   'rate_limited',
+  'slow_requests',
 ] as const;
 
 export type OpsMetricName = (typeof COUNTERS)[number];
 
 const localCounts: Record<string, number> = Object.fromEntries(COUNTERS.map((k) => [k, 0]));
 const startedAt = Date.now();
+
+/** Rolling window for HTTP latency percentiles (last N samples). */
+const LATENCY_WINDOW_SIZE = 500;
+const latencySamples: number[] = [];
+
+function percentile(sorted: number[], p: number): number {
+  if (!sorted.length) return 0;
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(sorted.length - 1, idx))];
+}
+
+export function recordLatency(durationMs: number): void {
+  latencySamples.push(durationMs);
+  if (latencySamples.length > LATENCY_WINDOW_SIZE) {
+    latencySamples.splice(0, latencySamples.length - LATENCY_WINDOW_SIZE);
+  }
+}
+
+export function getLatencyPercentiles(): { p50: number; p95: number; p99: number; sample_count: number } {
+  if (!latencySamples.length) {
+    return { p50: 0, p95: 0, p99: 0, sample_count: 0 };
+  }
+  const sorted = [...latencySamples].sort((a, b) => a - b);
+  return {
+    p50: percentile(sorted, 50),
+    p95: percentile(sorted, 95),
+    p99: percentile(sorted, 99),
+    sample_count: sorted.length,
+  };
+}
 
 export function incrementOpsMetric(name: OpsMetricName, delta = 1): void {
   localCounts[name] = (localCounts[name] ?? 0) + delta;
@@ -24,6 +55,7 @@ export async function getOpsMetricsSnapshot(): Promise<{
   uptime_seconds: number;
   cache_backend: string;
   counters: Record<string, number>;
+  latency_buckets: ReturnType<typeof getLatencyPercentiles>;
   timestamp: string;
 }> {
   const merged: Record<string, number> = { ...localCounts };
@@ -42,6 +74,7 @@ export async function getOpsMetricsSnapshot(): Promise<{
     uptime_seconds: Math.floor((Date.now() - startedAt) / 1000),
     cache_backend: getCacheType(),
     counters: merged,
+    latency_buckets: getLatencyPercentiles(),
     timestamp: new Date().toISOString(),
   };
 }

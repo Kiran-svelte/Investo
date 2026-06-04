@@ -1105,6 +1105,16 @@ export class WhatsAppService {
             },
           });
           await this.sendMessage(customerPhone, buyerWorkflowReply, whatsappConfig!);
+
+          // Still send contextual quick-reply buttons so conversation stays interactive.
+          // Workflow reply covers the text; buttons keep the next step visible.
+          await this.sendContextualQuickReplies(
+            customerPhone,
+            conversationState.stage,
+            { propertyId: conversationState.selectedPropertyId ?? conversation.selectedPropertyId },
+            whatsappConfig!,
+          );
+
           return {
             status: 'processed',
             companyId,
@@ -2426,12 +2436,13 @@ export class WhatsAppService {
     const pid = context.propertyId ?? '';
 
     const STAGE_REPLIES: Record<string, { body: string; buttons: Array<{ id: string; title: string }> }> = {
+      // rapport: greeting stage — guide them to share requirements or browse
       rapport: {
-        body: 'Quick options:',
+        body: 'How can I help you today?',
         buttons: [
-          { id: 'filter-2bhk', title: '2 BHK' },
-          { id: 'filter-3bhk', title: '3 BHK' },
-          { id: 'filter-villa', title: 'Villa' },
+          { id: 'filter-apartment', title: 'Apartments' },
+          { id: 'filter-villa', title: 'Villas' },
+          { id: 'call-me', title: 'Call Me' },
         ],
       },
       qualify: {
@@ -3803,22 +3814,27 @@ export class WhatsAppService {
     lead: any,
     action?: NextBestAction
   ): boolean {
-    // Don't send if already in later stages
+    // Don't send if already in shortlisting or later stages.
     if (['shortlist', 'commitment', 'visit_booking', 'confirmation', 'closed_won', 'closed_lost'].includes(state.stage)) {
       return false;
     }
 
-    // Don't send if lead already has clear property type preference
+    // Don't send if lead already has a clear property type preference.
     if (lead.propertyType && lead.propertyType !== 'any') {
       return false;
     }
 
-    // Send in qualify stage
+    // Fire on rapport stage (first turn) so new users immediately see the type picker.
+    if (state.stage === 'rapport') {
+      return true;
+    }
+
+    // Fire on qualify stage as usual.
     if (state.stage === 'qualify') {
       return true;
     }
 
-    // Send if AI is advancing to qualify stage
+    // Fire when AI is advancing into the qualify stage.
     if (action?.action === 'advance_stage' && action.targetStage === 'qualify') {
       return true;
     }

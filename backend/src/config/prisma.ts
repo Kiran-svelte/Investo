@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import config from './index';
 import logger from './logger';
+import { attachSlowQueryLogging } from './prisma-slow-query';
 
 const adapter = new PrismaPg({
   connectionString: config.db.url,
@@ -11,13 +12,14 @@ const adapter = new PrismaPg({
 
 const prisma = new PrismaClient({
   adapter,
-  log: config.env === 'development'
-    ? [
-        { level: 'warn', emit: 'event' },
-        { level: 'error', emit: 'event' },
-      ]
-    : [{ level: 'error', emit: 'event' }],
+  log: [
+    { level: 'query', emit: 'event' },
+    { level: 'warn', emit: 'event' },
+    { level: 'error', emit: 'event' },
+  ],
 });
+
+attachSlowQueryLogging(prisma);
 
 prisma.$on('warn' as never, (e: any) => {
   logger.warn('Prisma warning', { message: e.message });

@@ -11,6 +11,7 @@ import {
   userAiRateLimiter,
   sensitiveRateLimiter,
   webhookRateLimiter,
+  whatsappAiRateLimiter,
 } from './middleware/rateLimiter';
 import authRoutes from './routes/auth.routes';
 import companyRoutes from './routes/company.routes';
@@ -74,10 +75,10 @@ app.use('/api/health', healthRoutes);
 app.use('/api/readiness', readinessRoutes);
 
 // Webhook routes (signature verified; light rate limit against abuse)
-app.use('/api/webhook', webhookRateLimiter, webhookRoutes);
+app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
 
 // GreenAPI webhook route (guarded internally for production)
-app.use('/api/greenapi/webhook', webhookRateLimiter, greenApiWebhookRoutes);
+app.use('/api/greenapi/webhook', webhookRateLimiter, whatsappAiRateLimiter, greenApiWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));

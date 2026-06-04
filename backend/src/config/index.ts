@@ -464,6 +464,7 @@ const config = {
     perUserAi: parseInt(process.env.RATE_LIMIT_USER_AI || '40', 10),
     perCompanyAi: parseInt(process.env.RATE_LIMIT_COMPANY_AI || '120', 10),
     webhookPerMinute: parseInt(process.env.RATE_LIMIT_WEBHOOK || '300', 10),
+    whatsappAiPerMinute: parseInt(process.env.RATE_LIMIT_WHATSAPP_AI || '60', 10),
     sensitivePerMinute: parseInt(process.env.RATE_LIMIT_SENSITIVE || '10', 10),
   },
   langgraph: {
