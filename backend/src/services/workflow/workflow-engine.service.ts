@@ -1,5 +1,6 @@
 import config from '../../config';
 import logger from '../../config/logger';
+import { incrementOpsMetric } from '../opsMetrics.service';
 import {
   WORKFLOW_CONFIDENCE_THRESHOLD,
   WORKFLOW_LLM_TEMPERATURE,
@@ -223,6 +224,7 @@ export async function runWorkflow(
   }
 
   const reply = messages.length === 1 ? messages[0] : messages.join('\n\n');
+  incrementOpsMetric('workflow_runs');
   return { ok: true, reply, workflowId };
 }
 

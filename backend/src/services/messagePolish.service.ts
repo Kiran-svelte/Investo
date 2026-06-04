@@ -10,6 +10,8 @@ export interface PolishOutboundInput {
   channel?: PolishChannel;
   language?: string;
   maxLength?: number;
+  /** Appended once when missing from body (branding). */
+  companyName?: string;
 }
 
 export interface PolishOutboundResult {
@@ -34,6 +36,7 @@ export async function polishOutboundMessage(input: PolishOutboundInput): Promise
   }
 
   text = applyWhatsAppFormatting(text, channel);
+  text = appendBrandFooter(text, input.companyName, channel);
   text = trimToLength(text, maxLen);
 
   const useLlm = process.env.POLISH_USE_LLM === '1' && Boolean(config.ai.openaiApiKey || config.ai.kimiApiKey);
@@ -65,6 +68,15 @@ function applyWhatsAppFormatting(text: string, channel: PolishChannel): string {
   let out = text.replace(/^#{1,3}\s+/gm, '');
   out = out.replace(/\*\*([^*]+)\*\*/g, '*$1*');
   return out;
+}
+
+function appendBrandFooter(text: string, companyName: string | undefined, channel: PolishChannel): string {
+  if (channel !== 'whatsapp' || !companyName?.trim()) return text;
+  const name = companyName.trim();
+  if (text.toLowerCase().includes(name.toLowerCase())) return text;
+  const footer = `\n\n— *${name}* via Investo`;
+  if (text.length + footer.length > WHATSAPP_MAX) return text;
+  return text + footer;
 }
 
 function trimToLength(text: string, maxLen: number): string {

@@ -8,6 +8,8 @@ import { getMailServiceHealth } from '../services/mailHealth.service';
 import { getOpenAiServiceHealth } from '../services/openaiStatus.service';
 import { getPropertyKnowledgeEmbeddingHealth } from '../services/propertyKnowledge.service';
 import { AI_STACK_CAPABILITIES } from '../constants/ai-capabilities.constants';
+import { PRODUCTION_POLISH_PILLARS } from '../constants/production-polish.constants';
+import { getOpsMetricsSnapshot } from '../services/opsMetrics.service';
 
 const router = Router();
 
@@ -46,6 +48,8 @@ router.get('/', async (_req: Request, res: Response) => {
       },
       ai_capabilities: AI_STACK_CAPABILITIES,
       agent_ai_enabled: Boolean(config.agentAi?.enabled),
+      production_polish: PRODUCTION_POLISH_PILLARS,
+      ops_metrics: await getOpsMetricsSnapshot(),
     });
   } catch (err: any) {
     logger.error('Health check failed', { error: err.message });

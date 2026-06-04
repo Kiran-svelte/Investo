@@ -3,6 +3,8 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { hasRole } from '../middleware/rbac';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { getOpsMetricsSnapshot } from '../services/opsMetrics.service';
+import { PRODUCTION_POLISH_PILLARS } from '../constants/production-polish.constants';
 
 const router = Router();
 
@@ -252,6 +254,23 @@ router.get('/usage', async (req: AuthRequest, res: Response) => {
   } catch (err: any) {
     logger.error('Failed to fetch usage stats', { error: err.message });
     res.status(500).json({ error: 'Failed to fetch usage' });
+  }
+});
+
+/**
+ * GET /api/admin/ops-metrics
+ * Platform ops counters (webhooks, AI replies, errors) for monitoring dashboards.
+ */
+router.get('/ops-metrics', async (_req: AuthRequest, res: Response) => {
+  try {
+    const metrics = await getOpsMetricsSnapshot();
+    res.json({
+      data: metrics,
+      production_polish: PRODUCTION_POLISH_PILLARS,
+    });
+  } catch (err: any) {
+    logger.error('Failed to fetch ops metrics', { error: err.message });
+    res.status(500).json({ error: 'Failed to fetch ops metrics' });
   }
 });
 

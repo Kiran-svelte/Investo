@@ -8,6 +8,9 @@ import { buildNeverSayNoContext } from './neverSayNoEngine.service';
 import { criteriaFromLead } from './alternativeInventory.service';
 import { enforceNeverSayNoResponse } from './neverSayNoResponseGuard.service';
 import { polishOutboundMessage } from './messagePolish.service';
+import { incrementOpsMetric } from './opsMetrics.service';
+import { simulateHumanReplyPacing } from './whatsappPresence.service';
+import { withRetry } from '../utils/retry';
 import { buildGroundedFactsBlock } from './groundingGuard.service';
 import { propertyToCompletenessInput } from './propertyCompleteness.service';
 import { matchCatalogPropertiesForQuery } from './propertyKnowledge.service';
@@ -651,6 +654,7 @@ export class WhatsAppService {
    */
   async handleIncomingMessage(msg: IncomingMessage): Promise<IncomingMessageProcessingResult> {
     const notAttempted: InboundPropagationResult = { status: 'not_attempted' };
+    incrementOpsMetric('webhook_inbound');
 
     const inboundProvider: 'meta' | 'greenapi' = msg.provider === 'greenapi' ? 'greenapi' : 'meta';
 
@@ -1261,6 +1265,7 @@ export class WhatsAppService {
           groundedFactsBlock,
           channel: 'whatsapp',
           language: aiResponse.detectedLanguage,
+          companyName: company.name,
         });
         let outboundText = polished.text;
         if (!outboundText.trim()) {
@@ -1410,7 +1415,18 @@ export class WhatsAppService {
         }
 
         if (outboundText.trim()) {
-          await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
+          incrementOpsMetric('ai_replies');
+          await simulateHumanReplyPacing({
+            to: customerPhone,
+            whatsappConfig: whatsappConfig!,
+            outboundTextLength: outboundText.length,
+            inboundMessageId: msg.messageId,
+          });
+          await withRetry(async () => {
+            const ok = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
+            if (!ok) throw new Error('WhatsApp send failed');
+          }, { label: 'whatsapp_ai_reply', maxAttempts: 2 });
+          incrementOpsMetric('whatsapp_outbound');
         }
 
         // CHUNK 5: AI Rich Media Presentation

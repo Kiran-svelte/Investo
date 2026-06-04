@@ -65,6 +65,11 @@ try {
   } else {
     Step 'Production capability map' $false 'Deploy latest backend to expose ai_capabilities on health'
   }
+  if ($health.production_polish) {
+    Step 'Production polish pillars' $true 'All 10 pillars on /api/health'
+  } else {
+    Step 'Production polish pillars' $false 'Deploy latest backend for production_polish block'
+  }
 } catch {
   Step 'Production health' $false $_.Exception.Message
 }

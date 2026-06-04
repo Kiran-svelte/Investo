@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import config from './config';
 import logger from './config/logger';
+import { requestLogger } from './middleware/requestLogger';
 import {
   userRateLimiter,
   companyRateLimiter,
@@ -49,6 +50,9 @@ app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmet());
+
+// Structured request logging + ops counters
+app.use(requestLogger);
 
 // CORS
 app.use(
