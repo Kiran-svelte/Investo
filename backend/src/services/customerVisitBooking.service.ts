@@ -203,6 +203,27 @@ export async function tryCommitCustomerVisitBooking(
     orderBy: { scheduledAt: 'asc' },
   });
   if (existing && !isVisitCancelOrRescheduleMessage(customerMessage)) {
+    const proposedNew = parseVisitDateTimeFromMessage(customerMessage);
+    if (
+      proposedNew
+      && Math.abs(proposedNew.getTime() - existing.scheduledAt.getTime()) > 60_000
+    ) {
+      const mutation = await applyVisitMutationFromChat({
+        companyId,
+        message: customerMessage,
+        leadId: lead.id,
+      });
+      if (mutation.handled && mutation.reply) {
+        return {
+          committed: true,
+          mode: mutation.mode ?? 'rescheduled',
+          scheduledAt: mutation.scheduledAt,
+          visitId: mutation.visitId,
+          customerReply: mutation.reply,
+          leadStatus: mutation.mode === 'cancelled' ? 'contacted' : 'visit_scheduled',
+        };
+      }
+    }
     const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { name: true } });
     return {
       committed: true,

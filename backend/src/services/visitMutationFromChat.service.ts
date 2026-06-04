@@ -105,7 +105,10 @@ async function findTargetVisit(input: VisitMutationFromChatInput) {
 
 function wantsCancelOnly(message: string, hasNewTime: boolean): boolean {
   if (hasNewTime) return false;
-  return /\b(cancel|call\s+off)\b/i.test(message) && !/\breschedule|re-?schedule|move\s+to|change\s+to\b/i.test(message);
+  return (
+    /\b(cancel|call\s+off)\b/i.test(message)
+    && !/\breschedule|re-?schedule|move\s+to|change\s+to|pre\s*pone|prepone\b/i.test(message)
+  );
 }
 
 /**

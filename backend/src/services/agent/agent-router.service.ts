@@ -70,6 +70,22 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     await import('./agent-intent-orchestrator.service');
   const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
 
+  // Deterministic CRM before workflow LLM (avoids misclassifying "update status … today" as list leads)
+  const { tryDeterministicAgentCrmReply } = await import('./agent-crm-query.service');
+  const crmReply = await tryDeterministicAgentCrmReply(toolContext, messageText, {
+    sessionLeadId: sessionCtx.lastLeadId,
+  });
+  if (crmReply) {
+    if (session?.id) {
+      await recordAgentCopilotExchange({
+        sessionId: session.id,
+        inboundText: messageText,
+        outboundText: crmReply,
+      });
+    }
+    return crmReply;
+  }
+
   const workflowReply = await classifyAndRunWorkflow({
     toolContext,
     messageText,
@@ -110,22 +126,6 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     return intentReply;
   }
 
-  const { tryDeterministicAgentCrmReply } = await import('./agent-crm-query.service');
-  const deterministic = await tryDeterministicAgentCrmReply(toolContext, messageText, {
-    sessionLeadId: sessionCtx.lastLeadId,
-  });
-  // visit cancel/reschedule handled inside tryDeterministicAgentCrmReply (mutation path first)
-  if (deterministic) {
-    if (session?.id) {
-      await recordAgentCopilotExchange({
-        sessionId: session.id,
-        inboundText: messageText,
-        outboundText: deterministic,
-      });
-    }
-    return deterministic;
-  }
-
   const { buildClientMemoryContextForAgent, setAgentSessionClientContext } =
     await import('../clientMemory.service');
   const memory = await buildClientMemoryContextForAgent({
@@ -145,13 +145,30 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     });
   }
 
-  const agentReply = await invokeAgent({
-    messageText,
-    threadId,
-    toolContext,
-    companyName: user.companyName,
-    clientMemoryBlock: memory.block,
-  });
+  let agentReply: string;
+  try {
+    agentReply = await invokeAgent({
+      messageText,
+      threadId,
+      toolContext,
+      companyName: user.companyName,
+      clientMemoryBlock: memory.block,
+    });
+  } catch (agentErr: unknown) {
+    logger.error('invokeAgent failed', {
+      userId: user.userId,
+      error: agentErr instanceof Error ? agentErr.message : String(agentErr),
+    });
+    const fallback = await tryDeterministicAgentCrmReply(toolContext, messageText, {
+      sessionLeadId: sessionCtx.lastLeadId,
+    });
+    if (fallback) {
+      agentReply = fallback;
+    } else {
+      agentReply =
+        'I could not complete that in the copilot right now. Try a shorter command like "visits today" or use the Investo dashboard.';
+    }
+  }
   if (session?.id) {
     await recordAgentCopilotExchange({
       sessionId: session.id,

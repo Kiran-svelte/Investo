@@ -17,17 +17,17 @@ jest.mock('../../services/visitMutationFromChat.service', () => ({
   applyVisitMutationFromChat: jest.fn(),
 }));
 
-jest.mock('../../services/visitIntentFromMessage.service', () => ({
-  isVisitCancelOrRescheduleMessage: (text: string) =>
-    /cancel.*visit.*reschedule/i.test(text),
-}));
+jest.mock('../../services/visitIntentFromMessage.service', () => {
+  const actual = jest.requireActual('../../services/visitIntentFromMessage.service') as Record<string, unknown>;
+  return {
+    ...actual,
+    isVisitCancelOrRescheduleMessage: (text: string) =>
+      /cancel.*visit.*reschedule|prepone/i.test(text),
+  };
+});
 
 jest.mock('../../services/agent/agent-session-messages.service', () => ({
   getRecentAgentSessionMessages: jest.fn().mockResolvedValue([]),
-}));
-
-jest.mock('../../services/agent/agent-lead-resolution.service', () => ({
-  resolveLeadForIntent: jest.fn(),
 }));
 
 jest.mock('../../services/agent/lead-status-actions', () => ({
@@ -35,7 +35,6 @@ jest.mock('../../services/agent/lead-status-actions', () => ({
 }));
 
 import { applyVisitMutationFromChat } from '../../services/visitMutationFromChat.service';
-import { resolveLeadForIntent } from '../../services/agent/agent-lead-resolution.service';
 import { updateLeadStatusById } from '../../services/agent/lead-status-actions';
 import { tryDeterministicAgentCrmReply } from '../../services/agent/agent-crm-query.service';
 import type { ToolContext } from '../../services/agent/agent-state';
@@ -131,9 +130,10 @@ describe('tryDeterministicAgentCrmReply', () => {
   });
 
   it('updates lead status instead of listing new leads today', async () => {
-    (resolveLeadForIntent as jest.Mock).mockResolvedValue({
-      leadId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    mockPrisma.lead.findFirst.mockResolvedValue({
+      id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
       customerName: 'Kannada media',
+      status: 'contacted',
     });
     (updateLeadStatusById as jest.Mock).mockResolvedValue({
       handled: true,
@@ -147,6 +147,20 @@ describe('tryDeterministicAgentCrmReply', () => {
     expect(result).toContain('visited');
     expect(result).toContain('Kannada media');
     expect(mockPrisma.lead.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns next visit for "when is my site visit booked"', async () => {
+    mockPrisma.visit.findFirst.mockResolvedValue({
+      id: 'v1',
+      status: 'scheduled',
+      scheduledAt: new Date('2026-06-06T07:30:00Z'),
+      lead: { customerName: 'Amogh', phone: '+919999999999' },
+      property: { name: 'Sunset Heights' },
+      agent: { name: 'Agent' },
+    });
+    const result = await tryDeterministicAgentCrmReply(ctx, 'When is my site viste booked on ?');
+    expect(result).toContain('next site visit');
+    expect(result).toContain('Amogh');
   });
 
   it('handles "Any leads today?"', async () => {

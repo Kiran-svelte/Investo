@@ -38,6 +38,20 @@ describe('visitIntentFromMessage.service', () => {
     expect(parsed!.getHours()).toBe(13);
   });
 
+  it('detects prepone site visit as reschedule intent', () => {
+    const msg = 'Pre pone site visit to tomorrow at 1pm';
+    expect(isVisitCancelOrRescheduleMessage(msg)).toBe(true);
+    expect(isVisitSchedulingMessage(msg)).toBe(false);
+  });
+
+  it('parses tomorrow 1pm from prepone message', () => {
+    const thursday = new Date('2026-06-04T18:00:00+05:30');
+    const parsed = parseRescheduleTargetFromMessage('Pre pone site visit to tomorrow at 1pm', thursday);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.getDate()).toBe(5);
+    expect(parsed!.getHours()).toBe(13);
+  });
+
   it('parses slot from recent history when user replies yes', () => {
     const parsed = parseVisitDateTimeFromHistory(
       ['This Saturday 12 pm okay ??', 'Yes'],

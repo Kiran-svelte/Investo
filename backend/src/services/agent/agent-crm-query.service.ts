@@ -121,6 +121,30 @@ function wantsNewLeadsToday(text: string): boolean {
   );
 }
 
+function wantsVisitScheduleLookup(text: string): boolean {
+  return (
+    /\b(when|what\s+time|which\s+day|what\s+date|time\s+is)\b/i.test(text)
+    && /\b(visits?|viste|site\s*visits?|appointment)\b/i.test(text)
+    && /\b(book|booked|scheduled|fix|arranged|set)\b/i.test(text)
+  );
+}
+
+async function fetchUpcomingVisitLookup(context: ToolContext): Promise<string> {
+  const visit = await prisma.visit.findFirst({
+    where: {
+      ...buildVisitScopeFilter(context.companyId, context.userRole, context.userId),
+      status: { in: ['scheduled', 'confirmed'] },
+      scheduledAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+    },
+    orderBy: { scheduledAt: 'asc' },
+    include: visitInclude,
+  });
+  if (!visit) {
+    return 'No upcoming site visit found in your scope. Say "visits today" or book one from the dashboard.';
+  }
+  return `Your next site visit:\n\n${formatVisitLine(visit)}`;
+}
+
 function wantsConfirmVisit(text: string): boolean {
   if (/\b(update|set|mark|change|move)\b.*\b(status|lead)\b/i.test(text)) return false;
   if (/\bstatus\b.*\b(to|as)\b/i.test(text)) return false;
@@ -288,6 +312,10 @@ export async function tryDeterministicAgentCrmReply(
 
     if (wantsConfirmVisit(text)) {
       return confirmNextUpcomingVisit(context);
+    }
+
+    if (wantsVisitScheduleLookup(text)) {
+      return fetchUpcomingVisitLookup(context);
     }
 
     if (wantsNewLeadsToday(text)) {

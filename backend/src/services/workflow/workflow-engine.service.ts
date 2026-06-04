@@ -207,6 +207,9 @@ ${formatWorkflowCatalog()}
 
 Rules:
 - Use exact workflow ids. Use unknown if none fit.
+- "update lead X status to visited" => update_status (NOT new_lead or list workflows).
+- Messages with "today" about lead STATUS are update_status, not schedule_visit.
+- "when is my visit booked" => schedule_visit or get_visit_details context; prefer listing next visit.
 - Put customer feedback in note; preserve questions in message.
 - Extract leadId, leadName, visitId, status, note, scheduledAt, newScheduledAt, propertyId, agentName, customerName, phone.`;
 
@@ -242,7 +245,7 @@ Rules:
 function shouldClassifyWorkflow(messageText: string): boolean {
   const text = messageText.trim();
   if (!text || text.length > 1200) return false;
-  return /\b(lead|note|assign|agent|visit|schedule|reschedule|cancel|price|available|brochure|amenit|escalate|status|visited|hot)\b/i.test(text);
+  return true;
 }
 
 export async function classifyAndRunWorkflow(

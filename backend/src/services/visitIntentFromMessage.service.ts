@@ -18,9 +18,13 @@ const DAY_PATTERN = new RegExp(
 
 const SHORT_CONFIRM = /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|done|👍|✅)[!.\s]*$/i;
 
+/** Prepone / move earlier (common in Indian English WhatsApp). */
+const VISIT_PREPONE_HINT =
+  /\b(pre\s*pone|prepone|advance|bring\s+forward|move\s+up|earlier|postpone)\b/i;
+
 /** Cancel / reschedule site-visit requests (buyer or staff WhatsApp). */
 const VISIT_CANCEL_RESCHEDULE_HINT =
-  /\b(cancel(?:led|lation)?|call\s+off|postpone)\b[\s\S]{0,120}\b(visit|site\s*visit|appointment|booking)\b|\b(reschedule|re-?schedule|move|change|shift|push)\b[\s\S]{0,120}\b(visit|site\s*visit|appointment|booking)\b|\b(visit|site\s*visit|appointment)\b[\s\S]{0,120}\b(cancel|reschedule|re-?schedule|move|change|shift|postpone)\b/i;
+  /\b(cancel(?:led|lation)?|call\s+off)\b[\s\S]{0,120}\b(visit|site\s*visit|appointment|booking)\b|\b(reschedule|re-?schedule|move|change|shift|push)\b[\s\S]{0,120}\b(visit|site\s*visit|appointment|booking)\b|\b(visit|site\s*visit|appointment)\b[\s\S]{0,120}\b(cancel|reschedule|re-?schedule|move|change|shift|postpone)\b/i;
 
 /** Softer phrasing: "different day", "another time", "can't make it Friday". */
 const VISIT_MUTATION_SOFT_HINT =
@@ -29,6 +33,9 @@ const VISIT_MUTATION_SOFT_HINT =
 export function isVisitCancelOrRescheduleMessage(message: string): boolean {
   const t = message.trim();
   if (!t) return false;
+  const mentionsVisit =
+    /\b(visit|site\s*visit|appointment|booking)\b/i.test(t);
+  if (VISIT_PREPONE_HINT.test(t) && mentionsVisit) return true;
   return VISIT_CANCEL_RESCHEDULE_HINT.test(t) || VISIT_MUTATION_SOFT_HINT.test(t);
 }
 
@@ -43,7 +50,7 @@ export function parseRescheduleTargetFromMessage(
   if (!text) return null;
 
   const tailMatch = text.match(
-    /\b(?:reschedule(?:\s+it)?\s+to|rescheduled?\s+to|move\s+(?:it\s+)?to|change\s+(?:it\s+)?to)\b([\s\S]+)$/i,
+    /\b(?:reschedule(?:\s+it)?\s+to|rescheduled?\s+to|move\s+(?:it\s+)?to|change\s+(?:it\s+)?to|pre\s*pone(?:\s+\w+)*\s+to|prepone(?:\s+\w+)*\s+to)\b([\s\S]+)$/i,
   );
   if (tailMatch?.[1]) {
     const fromTail = parseVisitDateTimeFromMessage(tailMatch[1].trim(), reference);
