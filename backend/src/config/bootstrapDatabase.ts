@@ -38,11 +38,19 @@ async function applyCompatibilityPatches(): Promise<void> {
   await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS users_auth_provider_id_key ON users(auth_provider_id)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS users_custom_role_id_idx ON users(custom_role_id)`);
   // One active staff mobile per platform (deleted/inactive users do not block reuse).
-  await prisma.$executeRawUnsafe(`
-    CREATE UNIQUE INDEX IF NOT EXISTS users_active_phone_unique
-    ON users (phone)
-    WHERE status = 'active' AND phone IS NOT NULL
-  `);
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_active_phone_unique
+      ON users (phone)
+      WHERE status = 'active' AND phone IS NOT NULL
+    `);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn(
+      'users_active_phone_unique index not applied (resolve duplicate active phones, then restart)',
+      { error: message },
+    );
+  }
 
   // company_roles used by onboarding/user creation custom-role flow.
   await prisma.$executeRawUnsafe(`
