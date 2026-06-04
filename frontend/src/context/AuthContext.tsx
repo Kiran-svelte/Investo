@@ -93,19 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     const fetchMe = async (): Promise<AuthUser> => {
-      const { data } = await api.get<ApiResponse<AuthUser>>('/auth/me');
+      const { data } = await api.get<ApiResponse<AuthUser>>('/auth/me', { timeout: 25_000 });
       const me = data.data;
-      if (!me.phone && me.id) {
-        try {
-          const userRes = await api.get<{ data: { phone?: string | null } }>(`/users/${me.id}`);
-          const phone = userRes.data?.data?.phone;
-          if (phone) {
-            return { ...me, phone, profile_complete: isProfilePhoneComplete(phone) };
-          }
-        } catch {
-          /* optional enrichment */
-        }
-      }
       return {
         ...me,
         profile_complete: me.profile_complete ?? isProfilePhoneComplete(me.phone),

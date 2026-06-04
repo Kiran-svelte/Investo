@@ -50,16 +50,58 @@ import {
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
 
-export const LoadingScreen: React.FC<{ hint?: string }> = ({ hint }) => (
-  <WorkspaceLoader
-    message="Loading workspace…"
-    hint={
-      hint
-        ?? 'First load after idle can take up to a minute while the server starts.'
-    }
-    rotateStatus
-  />
-);
+export const LoadingScreen: React.FC<{ hint?: string }> = ({ hint }) => {
+  const [slow, setSlow] = React.useState(false);
+
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setSlow(true), 18_000);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  return (
+    <div className="relative min-h-[100dvh]">
+      <WorkspaceLoader
+        message="Loading workspace…"
+        hint={
+          hint
+            ?? 'First load after idle can take up to a minute while the server starts.'
+        }
+        rotateStatus
+      />
+      {slow ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-8 z-50 flex justify-center px-4">
+          <div className="pointer-events-auto max-w-md rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-950 shadow-lg">
+            <p className="font-medium">Still loading?</p>
+            <p className="mt-1 text-xs text-amber-800">
+              The server may be waking up. Try refresh, or continue setup.
+            </p>
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"
+                onClick={() => window.location.reload()}
+              >
+                Refresh
+              </button>
+              <a
+                href="/onboarding"
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900"
+              >
+                Open onboarding
+              </a>
+              <a
+                href="/login"
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900"
+              >
+                Back to login
+              </a>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
 
 export const ProtectedRoute: React.FC = () => {
   const { isAuthenticated, isLoading, mustChangePassword } = useAuth();
@@ -93,56 +135,95 @@ export const ProfileGuard: React.FC = () => {
   return <Outlet />;
 };
 
+const ONBOARDING_STATUS_TIMEOUT_MS = 12_000;
+
+function isProfileRoute(pathname: string): boolean {
+  const profilePath = dashboardPath('/profile');
+  return pathname === profilePath || pathname.endsWith('/profile');
+}
+
 // Guard for routes that require completed onboarding
 export const OnboardingGuard: React.FC = () => {
   const { user, isLoading } = useAuth();
   const [checkingOnboarding, setCheckingOnboarding] = React.useState(true);
   const [needsOnboarding, setNeedsOnboarding] = React.useState(false);
   const location = useLocation();
+  const onProfile = isProfileRoute(location.pathname);
+
+  // Profile must render immediately (phone required) — never block on onboarding API.
+  if (onProfile) {
+    return <Outlet />;
+  }
 
   React.useEffect(() => {
+    if (isLoading) return;
+
+    if (!user) {
+      setCheckingOnboarding(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const finish = () => {
+      if (!cancelled) setCheckingOnboarding(false);
+    };
+
     const checkOnboarding = async () => {
-      // Super admin doesn't need onboarding
-      if (user?.role === 'super_admin') {
+      if (user.role === 'super_admin') {
         setNeedsOnboarding(false);
-        setCheckingOnboarding(false);
+        finish();
         return;
       }
 
-      // Company admin or first user - check onboarding status
-      if (user?.role === 'company_admin') {
-        const companyId = typeof user.company_id === 'string' ? user.company_id : '';
+      if (user.role !== 'company_admin') {
+        setNeedsOnboarding(false);
+        finish();
+        return;
+      }
 
-        if (companyId) {
-          const cached = getOnboardingCompletionFromCache(companyId);
-          if (cached === true) {
-            setNeedsOnboarding(false);
-            setCheckingOnboarding(false);
-            return;
-          }
-        }
+      const companyId = typeof user.company_id === 'string' ? user.company_id : '';
 
-        try {
-          const { data } = await api.get('/onboarding/status');
-          const status = data.data;
-          const completedSteps = Array.isArray(status?.completedSteps) ? status.completedSteps : [];
-          const isComplete = completedSteps.includes(6);
-          setNeedsOnboarding(!isComplete);
-
-          if (companyId) {
-            setOnboardingCompletionCache(companyId, isComplete);
-          }
-        } catch {
-          // Can't verify onboarding state; fail closed for company_admin.
-          setNeedsOnboarding(true);
+      if (companyId) {
+        const cached = getOnboardingCompletionFromCache(companyId);
+        if (cached === true) {
+          setNeedsOnboarding(false);
+          finish();
+          return;
         }
       }
-      setCheckingOnboarding(false);
+
+      try {
+        const { data } = await api.get('/onboarding/status', {
+          timeout: ONBOARDING_STATUS_TIMEOUT_MS,
+        });
+        const status = data.data;
+        const completedSteps = Array.isArray(status?.completedSteps) ? status.completedSteps : [];
+        const isComplete = completedSteps.includes(6);
+        setNeedsOnboarding(!isComplete);
+        if (companyId) {
+          setOnboardingCompletionCache(companyId, isComplete);
+        }
+      } catch {
+        // Cold server or network: prefer cached completion; otherwise send to onboarding.
+        if (companyId && getOnboardingCompletionFromCache(companyId) === true) {
+          setNeedsOnboarding(false);
+        } else {
+          setNeedsOnboarding(true);
+        }
+      } finally {
+        finish();
+      }
     };
 
-    if (!isLoading && user) {
-      checkOnboarding();
-    }
+    void checkOnboarding();
+
+    const watchdog = window.setTimeout(finish, ONBOARDING_STATUS_TIMEOUT_MS + 2_000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(watchdog);
+    };
   }, [user, isLoading]);
 
   if (isLoading || checkingOnboarding) return <LoadingScreen />;

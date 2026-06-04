@@ -107,7 +107,7 @@ const getApiBaseUrl = (): string => {
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
-const WARMUP_TIMEOUT_MS = 90_000;
+const WARMUP_TIMEOUT_MS = 30_000;
 
 function isWarmupPath(url?: string): boolean {
   if (!url) return false;

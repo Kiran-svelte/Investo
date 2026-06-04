@@ -70,7 +70,7 @@ describe('route guard behavior', () => {
     featureState.isFeatureEnabled.mockReturnValue(true);
   });
 
-  it('blocks tenant leads route for super_admin', () => {
+  it('shows role feedback when super_admin opens a tenant leads route', () => {
     authState.user.role = 'super_admin';
 
     render(
@@ -85,10 +85,12 @@ describe('route guard behavior', () => {
     );
 
     expect(screen.queryByText('Leads page')).not.toBeInTheDocument();
-    expect(screen.getByText('Companies page')).toBeInTheDocument();
+    expect(screen.queryByText('Companies page')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'This page is not available for your role' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /go to my home/i })).toHaveAttribute('href', '/dashboard/companies');
   });
 
-  it('blocks onboarding route for disallowed roles', () => {
+  it('shows onboarding feedback for disallowed roles', () => {
     authState.user.role = 'sales_agent';
 
     render(
@@ -103,7 +105,9 @@ describe('route guard behavior', () => {
     );
 
     expect(screen.queryByText('Onboarding page')).not.toBeInTheDocument();
-    expect(screen.getByText('Home page')).toBeInTheDocument();
+    expect(screen.queryByText('Home page')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Onboarding is only for company admins' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /go to my home/i })).toHaveAttribute('href', '/dashboard');
   });
 
   it('allows onboarding route for company_admin', () => {
@@ -121,7 +125,7 @@ describe('route guard behavior', () => {
     expect(screen.getByText('Onboarding page')).toBeInTheDocument();
   });
 
-  it('blocks onboarding route for super_admin', () => {
+  it('shows onboarding feedback for super_admin', () => {
     authState.user.role = 'super_admin';
 
     render(
@@ -136,10 +140,12 @@ describe('route guard behavior', () => {
     );
 
     expect(screen.queryByText('Onboarding page')).not.toBeInTheDocument();
-    expect(screen.getByText('Home page')).toBeInTheDocument();
+    expect(screen.queryByText('Home page')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Onboarding is only for company admins' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /go to my home/i })).toHaveAttribute('href', '/dashboard/companies');
   });
 
-  it('blocks property import route when property management feature is disabled', () => {
+  it('shows feature feedback when property import feature is disabled', () => {
     featureState.isFeatureEnabled.mockImplementation((featureKey?: string) => featureKey === 'analytics');
 
     render(
@@ -154,7 +160,25 @@ describe('route guard behavior', () => {
     );
 
     expect(screen.queryByText('Property import page')).not.toBeInTheDocument();
-    expect(screen.getByText('Home page')).toBeInTheDocument();
+    expect(screen.queryByText('Home page')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'This feature is turned off' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /go to my home/i })).toHaveAttribute('href', '/dashboard');
+  });
+
+  it('renders profile without waiting for onboarding status', async () => {
+    apiMock.get.mockImplementation(() => new Promise(() => {}));
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard/profile']}>
+        <Routes>
+          <Route element={<OnboardingGuard />}>
+            <Route path="/dashboard/profile" element={<div>Profile page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Profile page')).toBeInTheDocument();
   });
 
   it('redirects company_admin to onboarding when onboarding is incomplete', async () => {
