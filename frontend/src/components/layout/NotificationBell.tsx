@@ -2,27 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Bell } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 import api from '../../services/api';
+import {
+  formatNotificationTime,
+  normalizeNotificationsPayload,
+  type Notification,
+} from '../../services/notifications';
 import { dashboardPath } from '../../config/navigation.config';
 import useCompanyFeatures from '../../hooks/useCompanyFeatures';
 import { useAuth } from '../../context/AuthContext';
-
-interface NotificationItem {
-  id: string;
-  title: string;
-  message: string;
-  type: string;
-  read: boolean;
-  created_at: string;
-}
 
 export default function NotificationBell() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { isFeatureEnabled } = useCompanyFeatures();
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [items, setItems] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -35,10 +30,9 @@ export default function NotificationBell() {
     setLoading(true);
     try {
       const res = await api.get('/notifications?page=1&limit=8');
-      const payload = res.data?.data ?? res.data;
-      const list = Array.isArray(payload?.notifications) ? payload.notifications : [];
-      setItems(list);
-      setUnreadCount(typeof payload?.unreadCount === 'number' ? payload.unreadCount : list.filter((n: NotificationItem) => !n.read).length);
+      const { notifications, unreadCount: count } = normalizeNotificationsPayload(res.data);
+      setItems(notifications);
+      setUnreadCount(count);
     } catch {
       setItems([]);
       setUnreadCount(0);
@@ -133,7 +127,7 @@ export default function NotificationBell() {
                       <p className="text-sm font-medium text-ink-primary">{n.title}</p>
                       <p className="mt-0.5 line-clamp-2 text-xs text-ink-muted">{n.message}</p>
                       <p className="mt-1 text-[10px] text-ink-faint">
-                        {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                        {formatNotificationTime(n.createdAt)}
                       </p>
                     </button>
                   </li>

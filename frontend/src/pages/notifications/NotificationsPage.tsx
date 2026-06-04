@@ -3,45 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { Bell, UserPlus, Calendar, CheckCircle, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
-
-interface Notification {
-  id: string;
-  type:
-    | 'lead_new'
-    | 'lead_assigned'
-    | 'lead_status_change'
-    | 'lead_reassigned'
-    | 'follow_up'
-    | 'visit_reminder'
-    | 'visit_scheduled'
-    | 'visit_confirmed'
-    | 'visit_completed'
-    | 'visit_cancelled'
-    | 'visit_rescheduled'
-    | 'agent_takeover'
-    | 'system'
-    | 'system_alert';
-  title: string;
-  message: string;
-  data: Record<string, unknown>;
-  read: boolean;
-  createdAt: string;
-}
+import {
+  formatNotificationTime,
+  normalizeNotificationsPayload,
+  type Notification,
+} from '../../services/notifications';
 
 type FilterTab = 'all' | 'unread' | 'lead' | 'visit' | 'system';
-
-function timeAgo(date: string): string {
-  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}
 
 function getIcon(type: Notification['type']) {
   switch (type) {
@@ -92,7 +60,7 @@ export default function NotificationsPage() {
     setLoading(true);
     try {
       const res = await api.get(`/notifications?page=${pageNum}&limit=${LIMIT}`);
-      const { notifications: items, total: totalCount } = res.data.data ?? res.data;
+      const { notifications: items, total: totalCount } = normalizeNotificationsPayload(res.data);
       if (append) {
         setNotifications(prev => [...prev, ...items]);
       } else {
@@ -243,7 +211,7 @@ export default function NotificationsPage() {
                   )}
                 </div>
                 <p className="text-sm text-ink-muted mt-1">{notification.message}</p>
-                <p className="text-xs text-ink-faint mt-1">{timeAgo(notification.createdAt)}</p>
+                <p className="text-xs text-ink-faint mt-1">{formatNotificationTime(notification.createdAt)}</p>
               </div>
             </div>
           ))}
