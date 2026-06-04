@@ -57,6 +57,27 @@ export function getTodayIST(): string {
   return new Date().toLocaleDateString('sv-SE', { timeZone: IST_TIMEZONE });
 }
 
+export function getTomorrowIST(): string {
+  const anchor = new Date(`${getTodayIST()}T12:00:00+05:30`);
+  anchor.setDate(anchor.getDate() + 1);
+  return anchor.toLocaleDateString('sv-SE', { timeZone: IST_TIMEZONE });
+}
+
+/** Sales agents see visits they own or visits for leads assigned to them. */
+export function buildVisitScopeFilter(
+  companyId: string,
+  userRole: string,
+  userId: string,
+): Record<string, unknown> {
+  if (userRole === 'sales_agent') {
+    return {
+      companyId,
+      OR: [{ agentId: userId }, { lead: { assignedAgentId: userId } }],
+    };
+  }
+  return { companyId };
+}
+
 export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(maxLength - 3, 0))}...`;

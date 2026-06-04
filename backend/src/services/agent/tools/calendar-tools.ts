@@ -2,7 +2,7 @@ import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import { MAX_LIST_LIMIT, SLOT_DURATION_MINUTES, SLOT_END_HOUR, SLOT_START_HOUR } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
-import { buildAgentScopeFilter, formatDateIST, getISTDayBounds } from './format-helpers';
+import { buildVisitScopeFilter, formatDateIST, getISTDayBounds } from './format-helpers';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 export function createCalendarTools(context: ToolContext): AgentTool[] {
@@ -14,7 +14,7 @@ export function createCalendarTools(context: ToolContext): AgentTool[] {
       func: async ({ startDate, endDate, agentId, limit }) => {
         const [start] = getISTDayBounds(startDate);
         const [, end] = getISTDayBounds(endDate);
-        const where: any = { ...buildAgentScopeFilter(context.companyId, context.userRole, context.userId, 'agentId'), scheduledAt: { gte: start, lte: end } };
+        const where: any = { ...buildVisitScopeFilter(context.companyId, context.userRole, context.userId), scheduledAt: { gte: start, lte: end } };
         if (agentId && context.userRole !== 'sales_agent') where.agentId = agentId;
         const visits = await prisma.visit.findMany({ where, include: { lead: true, property: true, agent: true }, orderBy: { scheduledAt: 'asc' }, take: limit ?? MAX_LIST_LIMIT });
         if (!visits.length) return 'No events found.';

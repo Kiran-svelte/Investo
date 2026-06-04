@@ -3,13 +3,21 @@ import prisma from '../../../config/prisma';
 import { DEFAULT_LIST_LIMIT, LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
-import { buildAgentScopeFilter, formatDateIST, getISTDayBounds, getStatusEmoji, getTodayIST, maskPhone } from './format-helpers';
+import {
+  buildVisitScopeFilter,
+  formatDateIST,
+  getISTDayBounds,
+  getStatusEmoji,
+  getTodayIST,
+  getTomorrowIST,
+  maskPhone,
+} from './format-helpers';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 const visitStatus = z.enum(['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show']);
 
 function visitScope(context: ToolContext): Record<string, unknown> {
-  return buildAgentScopeFilter(context.companyId, context.userRole, context.userId, 'agentId');
+  return buildVisitScopeFilter(context.companyId, context.userRole, context.userId);
 }
 
 function formatVisit(visit: any): string {
@@ -44,6 +52,23 @@ export function createVisitTools(context: ToolContext): AgentTool[] {
         });
         if (!visits.length) return 'No visits scheduled today.';
         return ['*Today\'s Visits*', ...visits.map(formatVisit)].join('\n\n');
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'listVisitsTomorrow',
+      description: 'List visits scheduled for tomorrow (IST). Sales agents see their own visits and visits on their assigned leads.',
+      schema: z.object({ limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional() }),
+      func: async ({ limit }) => {
+        const date = getTomorrowIST();
+        const [start, end] = getISTDayBounds(date);
+        const visits = await prisma.visit.findMany({
+          where: { ...visitScope(context), scheduledAt: { gte: start, lte: end } },
+          include,
+          orderBy: { scheduledAt: 'asc' },
+          take: limit ?? DEFAULT_LIST_LIMIT,
+        });
+        if (!visits.length) return `No visits scheduled for tomorrow (${date}).`;
+        return [`*Tomorrow's Visits (${date})*`, ...visits.map(formatVisit)].join('\n\n');
       },
     }),
     new DynamicStructuredTool({

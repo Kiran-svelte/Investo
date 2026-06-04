@@ -4,7 +4,16 @@ import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-too
 import { parseAgentListPagination, buildPaginationMeta } from '../../../utils/pagination';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
-import { buildAgentScopeFilter, formatCurrencyINR, formatDateIST, getStatusEmoji, maskPhone, truncate } from './format-helpers';
+import {
+  buildAgentScopeFilter,
+  formatCurrencyINR,
+  formatDateIST,
+  getISTDayBounds,
+  getStatusEmoji,
+  getTodayIST,
+  maskPhone,
+  truncate,
+} from './format-helpers';
 import { transitionLeadStatus } from '../../leadTransition.service';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
@@ -52,6 +61,35 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
           '*Leads*',
           ...leads.map((lead, i) => `${(paging.page - 1) * paging.limit + i + 1}. ${getStatusEmoji(lead.status)} *${lead.customerName ?? 'Unknown'}* ${maskPhone(lead.phone)}\n   Status: ${lead.status} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}\n   Budget: ${formatBudget(lead.budgetMin, lead.budgetMax)}\n   ID: ${lead.id}`),
           `\nPage ${meta.page}/${meta.pages} (${meta.total} total). Use page=${meta.page + 1} for more.`,
+        ].join('\n\n');
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'listLeadsAddedToday',
+      description:
+        'List leads created today (IST). Sales agents only see leads assigned to them. Use for "new leads today" questions.',
+      schema: z.object({
+        limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional(),
+      }),
+      func: async ({ limit }) => {
+        const [start, end] = getISTDayBounds(getTodayIST());
+        const where: Record<string, unknown> = {
+          ...leadScope(context),
+          createdAt: { gte: start, lte: end },
+        };
+        const leads = await prisma.lead.findMany({
+          where: where as any,
+          include: { assignedAgent: { select: { name: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: limit ?? DEFAULT_LIST_LIMIT,
+        });
+        if (!leads.length) return 'No new leads were added today in your scope.';
+        return [
+          `*New leads today (${getTodayIST()})*`,
+          ...leads.map(
+            (lead, i) =>
+              `${i + 1}. ${getStatusEmoji(lead.status)} *${lead.customerName ?? 'Unknown'}* ${maskPhone(lead.phone)}\n   Status: ${lead.status} | Source: ${lead.source ?? 'unknown'}\n   ID: ${lead.id}`,
+          ),
         ].join('\n\n');
       },
     }),
