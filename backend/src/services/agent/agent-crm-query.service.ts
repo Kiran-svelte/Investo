@@ -3,6 +3,14 @@ import logger from '../../config/logger';
 import type { ToolContext } from './agent-state';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
 import { isVisitCancelOrRescheduleMessage } from '../visitIntentFromMessage.service';
+import type { LeadPipelineStatus } from '../../constants/agent-intent.constants';
+import { LEAD_PIPELINE_STATUSES } from '../../constants/agent-intent.constants';
+import { updateLeadStatusById } from './lead-status-actions';
+import { resolveLeadForIntent, type LeadResolveParams } from './agent-lead-resolution.service';
+import {
+  getRecentAgentSessionMessages,
+  type AgentSessionMessage,
+} from './agent-session-messages.service';
 import {
   buildAgentScopeFilter,
   buildVisitScopeFilter,
@@ -104,17 +112,89 @@ function wantsVisitToday(text: string): boolean {
 }
 
 function wantsNewLeadsToday(text: string): boolean {
+  if (/\b(update|set|mark|change|move)\b.*\b(lead|status)\b/i.test(text)) return false;
+  if (/\bstatus\b.*\b(to|as)\b/i.test(text)) return false;
+  if (/\bvisited\b/i.test(text) && /\b(lead|status)\b/i.test(text)) return false;
   return (
     /\b(new\s+leads?|leads?\s+(we\s+)?got|leads?\s+added|added\s+today|any\s+leads?)\b/i.test(text)
-    || (/\bleads?\b/i.test(text) && /\btoday\b/i.test(text))
+    || (/\bleads?\b/i.test(text) && /\btoday\b/i.test(text) && !/\b(update|status|visited)\b/i.test(text))
   );
 }
 
 function wantsConfirmVisit(text: string): boolean {
+  if (/\b(update|set|mark|change|move)\b.*\b(status|lead)\b/i.test(text)) return false;
+  if (/\bstatus\b.*\b(to|as)\b/i.test(text)) return false;
+  const mentionsVisit =
+    /\b(?:site\s+)?visits?\b/i.test(text)
+    || /\bappointments?\b/i.test(text)
+    || /\bthe\s+visit\b/i.test(text);
+  return /\b(confirm|confirmed)\b/i.test(text) && mentionsVisit;
+}
+
+function wantsUpdateLeadStatus(text: string): boolean {
   return (
-    /\b(confirm|confirmed)\b/i.test(text)
-    && /\b(visit|site\s*visit|appointment|the\s+visit)\b/i.test(text)
+    /\b(update|set|mark|change|move)\b/i.test(text)
+    && /\b(lead|status|customer|client)\b/i.test(text)
+  ) || (
+    /\bstatus\b/i.test(text)
+    && /\b(to|as)\b/i.test(text)
+    && /\b(lead|visited|contacted|negotiation|closed)\b/i.test(text)
   );
+}
+
+function parseLeadStatusFromMessage(text: string): LeadPipelineStatus | undefined {
+  for (const status of LEAD_PIPELINE_STATUSES) {
+    if (new RegExp(`\\b${status.replace('_', '[\\s_]?')}\\b`, 'i').test(text)) {
+      return status;
+    }
+  }
+  if (/\bvisited\b/i.test(text)) return 'visited';
+  if (/\bcontacted\b/i.test(text)) return 'contacted';
+  if (/\bnegotiat/i.test(text)) return 'negotiation';
+  if (/\bclosed\s*won\b/i.test(text)) return 'closed_won';
+  if (/\bclosed\s*lost\b/i.test(text)) return 'closed_lost';
+  return undefined;
+}
+
+function parseLeadNameHintFromUpdateMessage(text: string): string | undefined {
+  const patterns = [
+    /\blead\s+(.+?)\s+status\b/i,
+    /\bupdate\s+lead\s+(.+?)\s+status\b/i,
+    /\b(?:for|of)\s+(.+?)\s+(?:status|to)\b/i,
+    /\bstatus\s+(?:of|for)\s+(.+?)\s+to\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const hint = match?.[1]?.trim();
+    if (hint && hint.length >= 2) return hint.replace(/\bto\s+visited\b/i, '').trim();
+  }
+  const toMatch = text.match(/\bto\s+(\w[\w\s]{1,40}?)\s*$/i);
+  if (toMatch) return undefined;
+  const nameMatch = text.match(
+    /\b(?:lead|customer|client)\s+([a-z][a-z0-9\s]{2,40}?)(?:\s+status|\s+to\b)/i,
+  );
+  return nameMatch?.[1]?.trim();
+}
+
+async function tryDeterministicUpdateLeadStatus(
+  context: ToolContext,
+  text: string,
+  recentMessages: AgentSessionMessage[] = [],
+  sessionLeadId?: string | null,
+): Promise<string | null> {
+  if (!wantsUpdateLeadStatus(text)) return null;
+  const status = parseLeadStatusFromMessage(text);
+  if (!status) return null;
+
+  const params: Partial<LeadResolveParams> = {
+    leadName: parseLeadNameHintFromUpdateMessage(text),
+  };
+  const lead = await resolveLeadForIntent(context, params, sessionLeadId, recentMessages);
+  if (!lead) {
+    return 'Which lead should I update? Share the customer name or lead ID from your list.';
+  }
+  const result = await updateLeadStatusById(context, lead.leadId, status);
+  return result.reply;
 }
 
 async function confirmNextUpcomingVisit(context: ToolContext): Promise<string> {
@@ -186,6 +266,7 @@ export async function tryDeterministicAgentVisitMutation(
 export async function tryDeterministicAgentCrmReply(
   context: ToolContext,
   messageText: string,
+  options?: { sessionLeadId?: string | null },
 ): Promise<string | null> {
   const text = messageText.trim();
   if (!text) return null;
@@ -193,6 +274,17 @@ export async function tryDeterministicAgentCrmReply(
   try {
     const visitMutation = await tryDeterministicAgentVisitMutation(context, text);
     if (visitMutation) return visitMutation;
+
+    const recentMessages = context.sessionId
+      ? await getRecentAgentSessionMessages(context.sessionId, 5)
+      : [];
+    const statusUpdate = await tryDeterministicUpdateLeadStatus(
+      context,
+      text,
+      recentMessages,
+      options?.sessionLeadId,
+    );
+    if (statusUpdate) return statusUpdate;
 
     if (wantsConfirmVisit(text)) {
       return confirmNextUpcomingVisit(context);

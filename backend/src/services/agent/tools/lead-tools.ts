@@ -14,7 +14,7 @@ import {
   maskPhone,
   truncate,
 } from './format-helpers';
-import { transitionLeadStatus } from '../../leadTransition.service';
+import { updateLeadStatusById } from '../lead-status-actions';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 const leadStatus = z.enum(['new', 'contacted', 'visit_scheduled', 'visited', 'negotiation', 'closed_won', 'closed_lost']);
@@ -181,20 +181,8 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
       description: 'Update lead pipeline status. closed_lost requires yes/no confirmation.',
       schema: z.object({ leadId: z.string().uuid(), status: leadStatus }),
       func: async ({ leadId, status }) => {
-        const lead = await prisma.lead.findFirst({ where: { id: leadId, ...leadScope(context) }, select: { id: true, customerName: true, status: true } });
-        if (!lead) return 'Lead not found or access denied.';
-        if (status === 'closed_lost') {
-          if (!context.sessionId) return 'Confirmation session unavailable.';
-          const message = `Confirm marking ${lead.customerName ?? 'this lead'} as closed lost?\nReply "yes" to confirm or "no" to cancel.`;
-          await createPendingConfirmation(context.sessionId, 'closeLeadLost', { leadId }, message);
-          return message;
-        }
-        const force = context.userRole === 'company_admin' || context.userRole === 'super_admin';
-        const ok = await transitionLeadStatus(leadId, status, { force });
-        if (!ok) {
-          return `Cannot move lead from ${lead.status} to ${status}. Use a valid pipeline step or ask an admin.`;
-        }
-        return `Lead ${lead.customerName ?? 'Unknown'} moved from ${lead.status} to ${status}.`;
+        const result = await updateLeadStatusById(context, leadId, status);
+        return result.reply;
       },
     }),
     new DynamicStructuredTool({

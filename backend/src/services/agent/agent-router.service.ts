@@ -62,19 +62,54 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     sessionId: session?.id,
   };
 
+  const { getAgentSessionContext } = await import('../clientMemory.service');
+  const sessionCtx = await getAgentSessionContext(session?.id);
+  const { getRecentAgentSessionMessages } = await import('./agent-session-messages.service');
+  const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } =
+    await import('./agent-intent-orchestrator.service');
+  const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
+
+  const intentReply = await classifyAndExecuteAgentIntent({
+    toolContext,
+    messageText,
+    recentMessages,
+    companyName: user.companyName,
+    sessionLeadId: sessionCtx.lastLeadId,
+    sessionVisitId: sessionCtx.lastVisitId,
+    staffPhone: user.phone,
+  });
+  if (intentReply) {
+    if (session?.id) {
+      await recordAgentCopilotExchange({
+        sessionId: session.id,
+        inboundText: messageText,
+        outboundText: intentReply,
+      });
+    }
+    return intentReply;
+  }
+
   const { tryDeterministicAgentCrmReply } = await import('./agent-crm-query.service');
-  const deterministic = await tryDeterministicAgentCrmReply(toolContext, messageText);
+  const deterministic = await tryDeterministicAgentCrmReply(toolContext, messageText, {
+    sessionLeadId: sessionCtx.lastLeadId,
+  });
   // visit cancel/reschedule handled inside tryDeterministicAgentCrmReply (mutation path first)
   // #region agent log
   fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-router.service.ts',message:'agent route branch',data:{userId:user.userId,role:user.userRole,usedDeterministic:Boolean(deterministic),preview:messageText.slice(0,80)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
   // #endregion
   if (deterministic) {
+    if (session?.id) {
+      await recordAgentCopilotExchange({
+        sessionId: session.id,
+        inboundText: messageText,
+        outboundText: deterministic,
+      });
+    }
     return deterministic;
   }
 
-  const { buildClientMemoryContextForAgent, getAgentSessionContext, setAgentSessionClientContext } =
+  const { buildClientMemoryContextForAgent, setAgentSessionClientContext } =
     await import('../clientMemory.service');
-  const sessionCtx = await getAgentSessionContext(session?.id);
   const memory = await buildClientMemoryContextForAgent({
     companyId: user.companyId,
     userId: user.userId,
@@ -92,13 +127,22 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     });
   }
 
-  return invokeAgent({
+  const agentReply = await invokeAgent({
     messageText,
     threadId,
     toolContext,
     companyName: user.companyName,
     clientMemoryBlock: memory.block,
   });
+  if (session?.id) {
+    const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
+    await recordAgentCopilotExchange({
+      sessionId: session.id,
+      inboundText: messageText,
+      outboundText: agentReply,
+    });
+  }
+  return agentReply;
 }
 
 /**

@@ -1,6 +1,6 @@
 const mockPrisma = {
   visit: { findMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
-  lead: { findMany: jest.fn() },
+  lead: { findMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
 };
 
 jest.mock('../../config/prisma', () => ({
@@ -22,7 +22,21 @@ jest.mock('../../services/visitIntentFromMessage.service', () => ({
     /cancel.*visit.*reschedule/i.test(text),
 }));
 
+jest.mock('../../services/agent/agent-session-messages.service', () => ({
+  getRecentAgentSessionMessages: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../../services/agent/agent-lead-resolution.service', () => ({
+  resolveLeadForIntent: jest.fn(),
+}));
+
+jest.mock('../../services/agent/lead-status-actions', () => ({
+  updateLeadStatusById: jest.fn(),
+}));
+
 import { applyVisitMutationFromChat } from '../../services/visitMutationFromChat.service';
+import { resolveLeadForIntent } from '../../services/agent/agent-lead-resolution.service';
+import { updateLeadStatusById } from '../../services/agent/lead-status-actions';
 import { tryDeterministicAgentCrmReply } from '../../services/agent/agent-crm-query.service';
 import type { ToolContext } from '../../services/agent/agent-state';
 
@@ -114,6 +128,25 @@ describe('tryDeterministicAgentCrmReply', () => {
     expect(result).toContain('Visit confirmed');
     expect(result).toContain('Amogh');
     expect(mockPrisma.visit.update).toHaveBeenCalled();
+  });
+
+  it('updates lead status instead of listing new leads today', async () => {
+    (resolveLeadForIntent as jest.Mock).mockResolvedValue({
+      leadId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      customerName: 'Kannada media',
+    });
+    (updateLeadStatusById as jest.Mock).mockResolvedValue({
+      handled: true,
+      reply: '✅ Lead *Kannada media* status updated to *visited*.',
+      leadId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    });
+    const result = await tryDeterministicAgentCrmReply(
+      { ...ctx, sessionId: 'session-1' },
+      'Update lead kannada media status to visited .actually they have visited today only',
+    );
+    expect(result).toContain('visited');
+    expect(result).toContain('Kannada media');
+    expect(mockPrisma.lead.findMany).not.toHaveBeenCalled();
   });
 
   it('handles "Any leads today?"', async () => {
