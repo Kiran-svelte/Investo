@@ -1440,6 +1440,20 @@ export class WhatsAppService {
           );
         }
 
+        // CHUNK 7: Stage-based quick-reply buttons (Meta native; GreenAPI numbered menu fallback)
+        if (
+          aiResponse.newState?.stage &&
+          aiResponse.newState.stage !== 'human_escalated' &&
+          !this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction)
+        ) {
+          await this.sendContextualQuickReplies(
+            customerPhone,
+            aiResponse.newState.stage,
+            { propertyId: aiResponse.newState.selectedPropertyId ?? conversation.selectedPropertyId },
+            whatsappConfig!,
+          );
+        }
+
         logger.info('AI response sent', {
           conversationId: conversation.id,
           language: aiResponse.detectedLanguage,
@@ -1771,11 +1785,18 @@ export class WhatsAppService {
     caption: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-      return {
-        success: false,
-        error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
-      };
+    const providerName = this.resolveOutboundProviderName(whatsappConfig);
+    if (providerName === 'greenapi') {
+      const provider = this.getOutboundProvider('greenapi');
+      if (provider.sendFileByUrl) {
+        const result = await provider.sendFileByUrl(to, imageUrl, 'image.jpg', caption ?? null, {
+          ...whatsappConfig, provider: 'greenapi',
+        } as any);
+        if (result?.success !== false) return { success: true, messageId: result?.messageId };
+      }
+      const text = caption ? `📸 ${caption}\n${imageUrl}` : `📸 ${imageUrl}`;
+      const sent = await this.sendMessage(to, text, whatsappConfig);
+      return { success: sent };
     }
 
     const { phoneNumberId, accessToken } = whatsappConfig;
@@ -1943,10 +1964,10 @@ export class WhatsAppService {
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-      return {
-        success: false,
-        error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
-      };
+      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+      const text = `📍 *${name || 'Property Location'}*\n${address ? `${address}\n` : ''}${mapsUrl}`;
+      const sent = await this.sendMessage(to, text, whatsappConfig);
+      return { success: sent };
     }
 
     const { phoneNumberId, accessToken } = whatsappConfig;
@@ -2018,10 +2039,16 @@ export class WhatsAppService {
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-      return {
-        success: false,
-        error: "Not supported: interactive sends require WHATSAPP_PROVIDER='meta'",
-      };
+      const menuLines = [
+        headerText ? `*${headerText}*` : '',
+        bodyText,
+        '',
+        ...buttons.map((btn, i) => `${i + 1}. ${btn.title}`),
+        footerText ? `\n_${footerText}_` : '',
+        '_Reply with the number of your choice_',
+      ].filter(s => s !== '');
+      const sent = await this.sendMessage(to, menuLines.join('\n'), whatsappConfig);
+      return { success: sent };
     }
 
     const { phoneNumberId, accessToken } = whatsappConfig;
@@ -2202,8 +2229,312 @@ export class WhatsAppService {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NEW RICH MESSAGE TYPES
+  // ═══════════════════════════════════════════════════════════════════════════
+
   /**
-   * Send multiple property images with captions.
+   * Send property catalog cards — image + details + CTA buttons per property.
+   * Simulates WhatsApp Catalog behavior. Sends up to 3 property cards.
+   * GreenAPI: sends as plain text cards.
+   *
+   * @param to - Recipient phone number
+   * @param products - Property products to display (max 3)
+   * @param whatsappConfig - Company WhatsApp credentials
+   * @returns Count of successfully sent cards
+   */
+  async sendCatalogMessage(
+    to: string,
+    products: Array<{
+      id: string;
+      name: string;
+      description: string;
+      price: string;
+      imageUrl?: string;
+    }>,
+    whatsappConfig: CompanyWhatsAppConfig,
+  ): Promise<{ success: boolean; sent: number }> {
+    let sent = 0;
+    for (const product of products.slice(0, 3)) {
+      if (product.imageUrl) {
+        const caption = `🏠 *${product.name}*\n${product.description.slice(0, 200)}\n💰 ${product.price}`;
+        const imgResult = await this.sendImage(to, product.imageUrl, caption, whatsappConfig);
+        if (imgResult.success) {
+          sent++;
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          continue;
+        }
+      }
+      await this.sendInteractiveButtons(
+        to,
+        `🏠 *${product.name}*\n${product.description.slice(0, 200)}\n💰 ${product.price}`,
+        [
+          { id: `book-visit-${product.id}`, title: 'Book Visit' },
+          { id: `more-info-${product.id}`, title: 'More Info' },
+          { id: `location-${product.id}`, title: 'Location' },
+        ],
+        product.name,
+        'Tap to explore',
+        whatsappConfig,
+      );
+      sent++;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return { success: sent > 0, sent };
+  }
+
+  /**
+   * Share an agent contact card via WhatsApp.
+   * Uses Meta Contacts API when on meta provider; falls back to formatted text on GreenAPI.
+   *
+   * @param to - Recipient phone number
+   * @param contact - Agent contact details
+   * @param whatsappConfig - Company WhatsApp credentials
+   * @returns Send result with optional messageId
+   */
+  async sendContactCard(
+    to: string,
+    contact: { name: string; phone: string; company?: string; role?: string },
+    whatsappConfig: CompanyWhatsAppConfig,
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const { phoneNumberId, accessToken } = whatsappConfig;
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta' || !phoneNumberId || !accessToken) {
+      const text = [
+        `👤 *${contact.name}*`,
+        contact.role ? `🏷️ ${contact.role}` : '',
+        contact.company ? `🏢 ${contact.company}` : '',
+        `📞 ${contact.phone}`,
+      ].filter(Boolean).join('\n');
+      const ok = await this.sendMessage(to, text, whatsappConfig);
+      return { success: ok };
+    }
+    try {
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: to.replace('+', ''),
+        type: 'contacts',
+        contacts: [{
+          name: {
+            formatted_name: contact.name,
+            first_name: contact.name.split(' ')[0] ?? contact.name,
+            last_name: contact.name.split(' ').slice(1).join(' ') || '',
+          },
+          phones: [{ phone: contact.phone, type: 'CELL' }],
+          ...(contact.company ? { org: { company: contact.company, title: contact.role || '' } } : {}),
+        }],
+      };
+      const response = await fetch(`${config.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        logger.error('WhatsApp sendContactCard error', { status: response.status, error: errText });
+        return { success: false, error: `API Error: ${response.status}` };
+      }
+      const result = await response.json() as { messages?: Array<{ id: string }> };
+      const messageId = result.messages?.[0]?.id;
+      logger.info('WhatsApp contact card sent', { messageId, to });
+      return { success: true, messageId };
+    } catch (err: any) {
+      logger.error('Failed to send WhatsApp contact card', { error: err.message });
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * React to a WhatsApp message with an emoji.
+   * Only supported on Meta Cloud API. Silently returns false on GreenAPI.
+   *
+   * @param to - Recipient phone number
+   * @param reactionMessageId - WhatsApp message ID to react to (wamid.xxx)
+   * @param emoji - Emoji character (e.g. "❤️", "👍")
+   * @param whatsappConfig - Company WhatsApp credentials
+   * @returns Success flag
+   */
+  async sendReaction(
+    to: string,
+    reactionMessageId: string,
+    emoji: string,
+    whatsappConfig: CompanyWhatsAppConfig,
+  ): Promise<{ success: boolean; error?: string }> {
+    const { phoneNumberId, accessToken } = whatsappConfig;
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta' || !phoneNumberId || !accessToken) {
+      return { success: false, error: 'Reactions require Meta provider' };
+    }
+    if (!reactionMessageId) return { success: false, error: 'Missing message ID to react to' };
+    try {
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: to.replace('+', ''),
+        type: 'reaction',
+        reaction: { message_id: reactionMessageId, emoji },
+      };
+      const response = await fetch(`${config.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        logger.error('WhatsApp sendReaction error', { status: response.status, error: errText });
+        return { success: false, error: `API Error: ${response.status}` };
+      }
+      logger.info('WhatsApp reaction sent', { to, emoji });
+      return { success: true };
+    } catch (err: any) {
+      logger.error('Failed to send WhatsApp reaction', { error: err.message });
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Send contextual quick-reply suggestion buttons after an AI response.
+   * Button set is chosen based on the current conversation stage.
+   * On GreenAPI the text-fallback in sendInteractiveButtons is used automatically.
+   *
+   * @param to - Recipient phone number
+   * @param stage - Current conversation stage (from ConversationStateMachine)
+   * @param context - Optional property/lead context for button IDs
+   * @param whatsappConfig - Company WhatsApp credentials
+   */
+  async sendContextualQuickReplies(
+    to: string,
+    stage: string,
+    context: { propertyId?: string | null },
+    whatsappConfig: CompanyWhatsAppConfig,
+  ): Promise<void> {
+    const pid = context.propertyId ?? '';
+
+    const STAGE_REPLIES: Record<string, { body: string; buttons: Array<{ id: string; title: string }> }> = {
+      rapport: {
+        body: 'Quick options:',
+        buttons: [
+          { id: 'filter-2bhk', title: '2 BHK' },
+          { id: 'filter-3bhk', title: '3 BHK' },
+          { id: 'filter-villa', title: 'Villa' },
+        ],
+      },
+      qualify: {
+        body: 'Filter by type:',
+        buttons: [
+          { id: 'filter-apartment', title: 'Apartment' },
+          { id: 'filter-villa', title: 'Villa' },
+          { id: 'filter-plot', title: 'Plot' },
+        ],
+      },
+      shortlist: {
+        body: 'Next step:',
+        buttons: [
+          { id: pid ? `book-visit-${pid}` : 'book-visit', title: 'Book Visit' },
+          { id: 'emi-calculator', title: 'Calculate EMI' },
+          { id: 'call-me', title: 'Call Me' },
+        ],
+      },
+      commitment: {
+        body: 'What would you like?',
+        buttons: [
+          { id: pid ? `book-visit-${pid}` : 'book-visit', title: 'Book Visit' },
+          { id: 'call-me', title: 'Call Me' },
+          { id: pid ? `location-${pid}` : 'more-info', title: 'Show Location' },
+        ],
+      },
+      visit_booking: {
+        body: 'Preferred time:',
+        buttons: [
+          { id: 'visit-slot-morning', title: 'Morning 10AM' },
+          { id: 'visit-slot-afternoon', title: 'Afternoon 3PM' },
+          { id: 'call-me', title: 'Call to Confirm' },
+        ],
+      },
+      confirmation: {
+        body: 'Anything else?',
+        buttons: [
+          { id: pid ? `more-info-${pid}` : 'more-info', title: 'Property Details' },
+          { id: 'emi-calculator', title: 'EMI Calculator' },
+          { id: 'call-me', title: 'Call Me' },
+        ],
+      },
+    };
+
+    const config = STAGE_REPLIES[stage];
+    if (!config) return;
+
+    await this.sendInteractiveButtons(to, config.body, config.buttons, null, null, whatsappConfig).catch(
+      () => undefined,
+    );
+  }
+
+  /**
+   * Send a WhatsApp Flow message for multi-step forms (e.g. lead qualification, booking).
+   * Requires a configured Flow ID from Meta Business Manager.
+   * Falls back to a plain button on GreenAPI or when no flowId is provided.
+   *
+   * @param to - Recipient phone number
+   * @param flowId - Meta Flow ID (from Business Manager → Flows)
+   * @param bodyText - Message body text shown to user
+   * @param ctaText - Call-to-action button label (max 20 chars)
+   * @param whatsappConfig - Company WhatsApp credentials
+   * @returns Send result
+   */
+  async sendFlowMessage(
+    to: string,
+    flowId: string,
+    bodyText: string,
+    ctaText: string,
+    whatsappConfig: CompanyWhatsAppConfig,
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const { phoneNumberId, accessToken } = whatsappConfig;
+    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta' || !phoneNumberId || !accessToken || !flowId) {
+      return this.sendInteractiveButtons(
+        to,
+        bodyText,
+        [{ id: 'flow-fallback', title: ctaText.slice(0, 20) }],
+        null,
+        null,
+        whatsappConfig,
+      );
+    }
+    try {
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: to.replace('+', ''),
+        type: 'interactive',
+        interactive: {
+          type: 'flow',
+          body: { text: bodyText.slice(0, 1024) },
+          action: {
+            name: 'flow',
+            parameters: { flow_id: flowId, flow_cta: ctaText.slice(0, 20), mode: 'published' },
+          },
+        },
+      };
+      const response = await fetch(`${config.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        logger.error('WhatsApp sendFlowMessage error', { status: response.status, error: errText });
+        return { success: false, error: `API Error: ${response.status}` };
+      }
+      const result = await response.json() as { messages?: Array<{ id: string }> };
+      const messageId = result.messages?.[0]?.id;
+      logger.info('WhatsApp flow message sent', { messageId, to, flowId });
+      return { success: true, messageId };
+    } catch (err: any) {
+      logger.error('Failed to send WhatsApp flow message', { error: err.message });
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Send property image gallery to a lead.
    * Limits to max 3 images to avoid overwhelming the user.
    * @param to - Recipient phone number
    * @param images - Array of image URLs (max 3 will be sent)

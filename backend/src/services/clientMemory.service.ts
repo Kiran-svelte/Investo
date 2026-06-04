@@ -30,6 +30,7 @@ let schemaReady: boolean | null = null;
 export async function ensureClientMemorySchema(): Promise<void> {
   if (schemaReady === true) return;
 
+  await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
   await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector`);
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS client_memory_chunks (

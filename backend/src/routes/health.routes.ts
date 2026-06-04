@@ -7,6 +7,7 @@ import { isSupabaseStorageConfigured } from '../services/supabaseStorage.service
 import { getMailServiceHealth } from '../services/mailHealth.service';
 import { getOpenAiServiceHealth } from '../services/openaiStatus.service';
 import { getPropertyKnowledgeEmbeddingHealth } from '../services/propertyKnowledge.service';
+import { AI_STACK_CAPABILITIES } from '../constants/ai-capabilities.constants';
 
 const router = Router();
 
@@ -43,6 +44,8 @@ router.get('/', async (_req: Request, res: Response) => {
         mail,
         property_knowledge_embeddings: propertyKnowledgeEmbeddings,
       },
+      ai_capabilities: AI_STACK_CAPABILITIES,
+      agent_ai_enabled: Boolean(config.agentAi?.enabled),
     });
   } catch (err: any) {
     logger.error('Health check failed', { error: err.message });

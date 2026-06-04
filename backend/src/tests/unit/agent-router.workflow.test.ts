@@ -58,6 +58,10 @@ jest.mock('../../services/agent/agent-session-messages.service', () => ({
   getRecentAgentSessionMessages: jest.fn(),
 }));
 
+jest.mock('../../services/agent/agent-crm-query.service', () => ({
+  tryDeterministicAgentCrmReply: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('../../services/workflow/workflow-engine.service', () => ({
   classifyAndRunWorkflow: jest.fn(),
 }));

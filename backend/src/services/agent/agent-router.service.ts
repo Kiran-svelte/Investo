@@ -10,6 +10,28 @@ async function getPrisma() {
   return module.default;
 }
 
+async function sendStaffCopilotQuickActions(phone: string, companyId: string): Promise<void> {
+  try {
+    const { whatsappService } = await import('../whatsapp.service');
+    await whatsappService.sendCompanyInteractiveButtons(
+      phone,
+      companyId,
+      'Tap a shortcut (or type your own command):',
+      [
+        { id: 'copilot-visits-today', title: 'Visits today' },
+        { id: 'copilot-new-leads', title: 'New leads today' },
+        { id: 'copilot-visits-tomorrow', title: 'Visits tomorrow' },
+      ],
+      'Investo Copilot',
+      'CRM shortcuts',
+    );
+  } catch (err: unknown) {
+    logger.debug('Staff copilot quick actions skipped', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function sendWhatsAppResponse(phone: string, companyId: string, message: string): Promise<void> {
   const prisma = await getPrisma();
   const { whatsappService } = await import('../whatsapp.service');
@@ -193,6 +215,7 @@ export async function routeIfInternalUserForCompany(
     const normalizedPhone = normalizeInboundWhatsAppPhone(senderPhone);
     const response = await handleAgentMessage(user, messageText);
     await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
+    await sendStaffCopilotQuickActions(normalizedPhone, user.companyId);
     return true;
   } catch (error: any) {
     logger.error('Agent AI routing failed', {

@@ -67,33 +67,84 @@ function formatRecentMessages(messages: AgentSessionMessage[]): string {
     .join('\n');
 }
 
+/**
+ * Calls an LLM for workflow classification.
+ * Provider priority: OpenAI → Claude (Anthropic) → Kimi (Moonshot).
+ *
+ * @throws Error when no provider is reachable.
+ */
 async function defaultWorkflowLlm(system: string, user: string): Promise<string> {
-  const keyProblem = openAiKeyProblem();
-  if (keyProblem) throw new Error(keyProblem);
+  const openAiProblem = openAiKeyProblem();
 
-  const response = await fetchOpenAi(
-    OPENAI_CHAT_URL,
-    {
+  if (!openAiProblem && config.ai.openaiApiKey) {
+    try {
+      const response = await fetchOpenAi(
+        OPENAI_CHAT_URL,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.ai.openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.agentAi.model || config.ai.openaiModel || 'gpt-4o',
+            temperature: WORKFLOW_LLM_TEMPERATURE,
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: user },
+            ],
+          }),
+        },
+        { label: 'workflow_engine' },
+      );
+      const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const text = data.choices?.[0]?.message?.content ?? '';
+      if (text) return text;
+    } catch (err: unknown) {
+      logger.warn('OpenAI workflow call failed, trying fallback', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (config.ai.claudeApiKey) {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.ai.openaiApiKey}`,
+        'x-api-key': config.ai.claudeApiKey,
+        'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: config.agentAi.model || config.ai.openaiModel || 'gpt-4o',
+        model: config.ai.claudeModel || 'claude-sonnet-4-6',
+        max_tokens: 512,
+        system,
+        messages: [{ role: 'user', content: user }],
+      }),
+    });
+    if (!response.ok) throw new Error(`Claude API error ${response.status}`);
+    const data = (await response.json()) as { content?: Array<{ text?: string }> };
+    return data.content?.[0]?.text ?? '';
+  }
+
+  if (config.ai.kimiApiKey) {
+    const response = await fetch(`${config.ai.kimiApiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.ai.kimiApiKey}` },
+      body: JSON.stringify({
+        model: config.ai.kimi25Model || 'kimi-k2-2504',
         temperature: WORKFLOW_LLM_TEMPERATURE,
         response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
+        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       }),
-    },
-    { label: 'workflow_engine' },
-  );
+    });
+    if (!response.ok) throw new Error(`Kimi API error ${response.status}`);
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    return data.choices?.[0]?.message?.content ?? '';
+  }
 
-  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  return data.choices?.[0]?.message?.content ?? '';
+  throw new Error(openAiProblem || 'No valid AI provider configured for workflow engine');
 }
 
 function normalizeWorkflowId(value: unknown): WorkflowId | 'unknown' {

@@ -57,6 +57,7 @@ jest.mock('../../services/agent/lead-status-actions', () => ({
 
 import { WORKFLOW_DEFINITIONS, allWorkflowIds } from '../../services/workflow/workflow-registry';
 import {
+  classifyAndRunWorkflow,
   classifyWorkflowMessage,
   runWorkflow,
 } from '../../services/workflow/workflow-engine.service';
@@ -170,5 +171,46 @@ describe('workflow-engine.service', () => {
     expect(llm).toHaveBeenCalledTimes(1);
     expect(classified.workflowId).toBe('schedule_visit');
     expect(classified.parameters.scheduledAt).toBe('2026-06-06T10:30:00+05:30');
+  });
+
+  it('lets the LLM classify natural status phrasing without keyword branching', async () => {
+    (resolveLeadForIntent as jest.Mock).mockResolvedValue({
+      leadId: kannadaLeadId,
+      customerName: 'Kannada Media',
+    });
+    (updateLeadStatusById as jest.Mock).mockResolvedValue({
+      handled: true,
+      reply: 'Lead Kannada Media status updated to contacted.',
+      leadId: kannadaLeadId,
+    });
+    mockPrisma.lead.findFirst.mockResolvedValue({
+      id: kannadaLeadId,
+      customerName: 'Kannada Media',
+      status: 'new',
+      assignedAgentId: 'agent-1',
+    });
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'update_status',
+        confidence: 0.91,
+        parameters: { status: 'contacted' },
+      }),
+    );
+
+    const reply = await classifyAndRunWorkflow(
+      {
+        toolContext: ctx,
+        messageText: 'change to contacted',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+        sessionLeadId: kannadaLeadId,
+        staffPhone: '+919999999999',
+      },
+      { llm },
+    );
+
+    expect(llm).toHaveBeenCalledTimes(1);
+    expect(updateLeadStatusById).toHaveBeenCalledWith(ctx, kannadaLeadId, 'contacted');
+    expect(reply).toContain('contacted');
   });
 });

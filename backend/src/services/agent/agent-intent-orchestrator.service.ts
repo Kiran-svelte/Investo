@@ -344,30 +344,119 @@ function formatRecentMessagesForLlm(messages: AgentSessionMessage[]): string {
     .join('\n');
 }
 
+/**
+ * Calls an LLM for intent classification.
+ * Provider priority: OpenAI → Claude (Anthropic) → Kimi (Moonshot).
+ * Falls through to the next provider on key error, so the system keeps
+ * working even if a single provider's billing lapses.
+ *
+ * @throws Error when no provider is reachable.
+ */
 async function defaultLlmCaller(system: string, user: string): Promise<string> {
-  const keyProblem = openAiKeyProblem();
-  if (keyProblem) throw new Error(keyProblem);
+  const openAiProblem = openAiKeyProblem();
 
-  const response = await fetchOpenAi(
-    OPENAI_CHAT_URL,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.ai.openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.agentAi.model || config.ai.openaiModel || 'gpt-4o',
-        temperature: INTENT_LLM_TEMPERATURE,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      }),
+  if (!openAiProblem && config.ai.openaiApiKey) {
+    try {
+      const response = await fetchOpenAi(
+        OPENAI_CHAT_URL,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.ai.openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.agentAi.model || config.ai.openaiModel || 'gpt-4o',
+            temperature: INTENT_LLM_TEMPERATURE,
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: user },
+            ],
+          }),
+        },
+        { label: 'agent_intent' },
+      );
+      const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const text = data.choices?.[0]?.message?.content ?? '';
+      if (text) return text;
+    } catch (err: unknown) {
+      logger.warn('OpenAI intent call failed, trying fallback', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (config.ai.claudeApiKey) {
+    return callClaudeForIntent(system, user);
+  }
+
+  if (config.ai.kimiApiKey) {
+    return callKimiForIntent(system, user);
+  }
+
+  throw new Error(openAiProblem || 'No valid AI provider configured for intent classification');
+}
+
+/**
+ * Calls Claude (Anthropic) for intent classification.
+ * Used as fallback when OpenAI is unavailable.
+ *
+ * @throws Error on API failure.
+ */
+async function callClaudeForIntent(system: string, user: string): Promise<string> {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': config.ai.claudeApiKey,
+      'anthropic-version': '2023-06-01',
     },
-    { label: 'agent_intent' },
-  );
+    body: JSON.stringify({
+      model: config.ai.claudeModel || 'claude-sonnet-4-6',
+      max_tokens: 512,
+      system,
+      messages: [{ role: 'user', content: user }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Claude API error ${response.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const data = (await response.json()) as { content?: Array<{ text?: string }> };
+  return data.content?.[0]?.text ?? '';
+}
+
+/**
+ * Calls Kimi (Moonshot) for intent classification.
+ * Used as second fallback when both OpenAI and Claude are unavailable.
+ *
+ * @throws Error on API failure.
+ */
+async function callKimiForIntent(system: string, user: string): Promise<string> {
+  const response = await fetch(`${config.ai.kimiApiBaseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.ai.kimiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.ai.kimi25Model || 'kimi-k2-2504',
+      temperature: INTENT_LLM_TEMPERATURE,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Kimi API error ${response.status}: ${errText.slice(0, 200)}`);
+  }
 
   const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
   return data.choices?.[0]?.message?.content ?? '';
