@@ -29,7 +29,7 @@
 | 2 | Auto-create | WhatsApp inbound creates lead | Existing `whatsapp.service.ts` |
 | 3 | Export | Filtered CSV/JSON | `GET /api/leads/export/csv?status=new` |
 | 4 | Cron | `AGENT_AI_CRON_ENABLED=true` on Render | Render env + morning/owner jobs |
-| 5 | Analytics | Extended metrics | `GET /api/analytics/extended` |
+| 5 | Analytics | Extended metrics | `GET /api/analytics/extended` — **PASS** production 2026-06-03 |
 | 6 | Routing | Settings persist | `PUT /api/assignment-settings` |
 | 7 | Automation | Health + worker | `/api/health` + automation service start |
 | 8 | Error log | List + resolve | `GET /api/error-logs`, `PATCH .../resolve` |

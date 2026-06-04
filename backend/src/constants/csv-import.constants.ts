@@ -42,6 +42,13 @@ export const COLUMN_ALIASES: Record<string, string> = {
   'project name': 'name',
   'name': 'name',
   'title': 'name',
+  'unit number': 'name',
+  'unit no': 'name',
+  'unit': 'name',
+  'villa number': 'name',
+  'villa no': 'name',
+  'flat no': 'name',
+  'flat number': 'name',
 
   // Builder / developer
   'builder': 'builder',

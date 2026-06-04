@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { dashboardPath } from '../../config/navigation.config';
+import { dashboardPath, getRoleCapabilities } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
+import useCompanyFeatures from '../../hooks/useCompanyFeatures';
 import api from '../../services/api';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
@@ -68,16 +69,31 @@ const STATUS_BADGE: Record<string, string> = {
 const DashboardPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const capabilities = getRoleCapabilities(user?.role);
+  const { loading: featuresLoading, isFeatureEnabled } = useCompanyFeatures();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [trends, setTrends] = useState<Trends | null>(null);
   const [recentLeads, setRecentLeads] = useState<RecentLead[]>([]);
   const [upcomingVisits, setUpcomingVisits] = useState<UpcomingVisit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [period, setPeriod] = useState<string>('week');
 
   const loadAll = useCallback(async () => {
+    if (featuresLoading) return;
+    if (!isFeatureEnabled('analytics')) {
+      setStats(null);
+      setTrends(null);
+      setRecentLeads([]);
+      setUpcomingVisits([]);
+      setLoadError('Dashboard analytics are disabled for this company. A company admin can enable Analytics in Settings.');
+      setLoading(false);
+      return;
+    }
+
     try {
+      setLoadError(null);
       const [statsRes, trendsRes, leadsRes, visitsRes] = await Promise.all([
         api.get('/analytics/dashboard'),
         api.get(`/analytics/trends?period=${period}`),
@@ -90,10 +106,15 @@ const DashboardPage: React.FC = () => {
       setUpcomingVisits(visitsRes.data.data);
     } catch (err) {
       console.error('Failed to load dashboard', err);
+      setLoadError('Could not load dashboard data. Try refreshing the page.');
+      setStats(null);
+      setTrends(null);
+      setRecentLeads([]);
+      setUpcomingVisits([]);
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [featuresLoading, isFeatureEnabled, period]);
 
   useEffect(() => {
     loadAll();
@@ -203,6 +224,12 @@ const DashboardPage: React.FC = () => {
         }
       />
 
+      {loadError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+          {loadError}
+        </div>
+      )}
+
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((card, idx) => (
@@ -256,7 +283,7 @@ const DashboardPage: React.FC = () => {
               recentLeads.map((lead) => (
                 <div
                   key={lead.id}
-                  onClick={() => navigate(`/leads/${lead.id}`)}
+                  onClick={() => navigate(dashboardPath(`/leads/${lead.id}`))}
                   className="flex items-center justify-between py-2.5 px-2 border-b border-surface-border/60 last:border-0 rounded-lg hover:bg-surface-muted cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -288,12 +315,14 @@ const DashboardPage: React.FC = () => {
             <h2 className="text-lg font-semibold text-ink-primary">
               {t('dashboard.upcoming_visits')}
             </h2>
-            <button
-              onClick={() => navigate(dashboardPath('/calendar'))}
-              className="text-sm text-brand-700 hover:text-brand-800 font-medium flex items-center gap-1"
-            >
-              View all <Eye className="h-3.5 w-3.5" />
-            </button>
+            {capabilities.canScheduleVisits && (
+              <button
+                onClick={() => navigate(dashboardPath('/calendar'))}
+                className="text-sm text-brand-700 hover:text-brand-800 font-medium flex items-center gap-1"
+              >
+                View all <Eye className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <div className="space-y-1">
             {upcomingVisits.length === 0 ? (

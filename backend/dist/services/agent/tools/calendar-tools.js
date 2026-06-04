@@ -18,7 +18,7 @@ function createCalendarTools(context) {
             func: async ({ startDate, endDate, agentId, limit }) => {
                 const [start] = (0, format_helpers_1.getISTDayBounds)(startDate);
                 const [, end] = (0, format_helpers_1.getISTDayBounds)(endDate);
-                const where = { ...(0, format_helpers_1.buildAgentScopeFilter)(context.companyId, context.userRole, context.userId, 'agentId'), scheduledAt: { gte: start, lte: end } };
+                const where = { ...(0, format_helpers_1.buildVisitScopeFilter)(context.companyId, context.userRole, context.userId), scheduledAt: { gte: start, lte: end } };
                 if (agentId && context.userRole !== 'sales_agent')
                     where.agentId = agentId;
                 const visits = await prisma_1.default.visit.findMany({ where, include: { lead: true, property: true, agent: true }, orderBy: { scheduledAt: 'asc' }, take: limit ?? agent_tools_constants_1.MAX_LIST_LIMIT });

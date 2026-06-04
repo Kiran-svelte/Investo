@@ -42,6 +42,12 @@ describe('navigation.config', () => {
     expect(isPathAllowedForRole('/dashboard/agents', 'sales_agent', allFeatures)).toBe(false);
   });
 
+  it('does not expose conversations to read-only viewers', () => {
+    const items = getVisibleNavItems('viewer', allFeatures);
+    expect(items.some((i) => i.key === 'conversations')).toBe(false);
+    expect(isPathAllowedForRole('/dashboard/conversations', 'viewer', allFeatures)).toBe(false);
+  });
+
   it('property import is company_admin only', () => {
     const spec = getNavItemForPath('/dashboard/properties/import');
     expect(spec?.roles).toEqual(['company_admin']);

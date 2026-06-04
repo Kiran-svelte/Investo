@@ -9,15 +9,28 @@ const rbac_1 = require("../middleware/rbac");
 const tenant_1 = require("../middleware/tenant");
 const audit_1 = require("../middleware/audit");
 const featureGate_1 = require("../middleware/featureGate");
+const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
 const validation_1 = require("../models/validation");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const config_1 = __importDefault(require("../config"));
 const whatsapp_service_1 = require("../services/whatsapp.service");
 const socket_service_1 = require("../services/socket.service");
+const pagination_1 = require("../utils/pagination");
+const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
+function handleDeleteError(err, res) {
+    if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+    }
+    const message = err instanceof Error ? err.message : 'Delete failed';
+    logger_1.default.error('Delete failed', { error: message });
+    res.status(500).json({ error: message });
+}
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
+router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('conversation_center'));
 function normalizeWhatsAppConfig(company) {
     const settings = company.settings || {};
@@ -129,13 +142,19 @@ router.get('/', (0, rbac_1.authorize)('conversations', 'read'), async (req, res)
                 where.lead = searchCondition;
             }
         }
-        const conversations = await prisma_1.default.conversation.findMany({
-            where,
-            include: {
-                lead: { select: { customerName: true, phone: true, assignedAgentId: true } },
-            },
-            orderBy: { updatedAt: 'desc' },
-        });
+        const { page, limit, offset } = (0, pagination_1.parsePagination)(req.query);
+        const [conversations, total] = await Promise.all([
+            prisma_1.default.conversation.findMany({
+                where,
+                include: {
+                    lead: { select: { customerName: true, phone: true, assignedAgentId: true } },
+                },
+                orderBy: { updatedAt: 'desc' },
+                skip: offset,
+                take: limit,
+            }),
+            prisma_1.default.conversation.count({ where }),
+        ]);
         // Get last message for each conversation
         const convIds = conversations.map((c) => c.id);
         const lastMessages = convIds.length > 0
@@ -146,7 +165,10 @@ router.get('/', (0, rbac_1.authorize)('conversations', 'read'), async (req, res)
             : [];
         const lastMsgMap = new Map(lastMessages.map((m) => [m.conversationId, m]));
         const enriched = conversations.map((conv) => mapConversationToSnakeCaseDTO(conv, { lastMessage: lastMsgMap.get(conv.id) || null }));
-        res.json({ data: enriched, total: enriched.length });
+        res.json({
+            data: enriched,
+            pagination: (0, pagination_1.buildPaginationMeta)(page, limit, total),
+        });
     }
     catch (err) {
         logger_1.default.error('Failed to fetch conversations', { error: err.message });
@@ -174,17 +196,29 @@ router.get('/:id', (0, rbac_1.authorize)('conversations', 'read'), async (req, r
             res.status(403).json({ error: 'Can only view assigned conversations' });
             return;
         }
-        // Get all messages
-        const messages = await prisma_1.default.message.findMany({
-            where: { conversationId: conversation.id },
-            orderBy: { createdAt: 'asc' },
+        // Paginated messages (default chronological page 1 = oldest chunk; use sort=desc for latest-first)
+        const sortDesc = req.query.sort === 'desc';
+        const { page, limit, offset } = (0, pagination_1.parsePagination)(req.query, {
+            limit: 50,
+            maxLimit: 100,
         });
+        const [messages, messageTotal] = await Promise.all([
+            prisma_1.default.message.findMany({
+                where: { conversationId: conversation.id },
+                orderBy: { createdAt: sortDesc ? 'desc' : 'asc' },
+                skip: offset,
+                take: limit,
+            }),
+            prisma_1.default.message.count({ where: { conversationId: conversation.id } }),
+        ]);
+        const orderedMessages = sortDesc ? [...messages].reverse() : messages;
         const dto = mapConversationToSnakeCaseDTO(conversation);
         res.json({
             data: {
                 ...dto,
-                messages: messages.map((msg) => mapMessageToDTO(msg)),
+                messages: orderedMessages.map((msg) => mapMessageToDTO(msg)),
             },
+            pagination: (0, pagination_1.buildPaginationMeta)(page, limit, messageTotal),
         });
     }
     catch (err) {
@@ -277,6 +311,33 @@ router.patch('/:id/close', (0, rbac_1.authorize)('conversations', 'read'), (0, a
     catch (err) {
         logger_1.default.error('Failed to close conversation', { error: err.message });
         res.status(500).json({ error: 'Failed to close conversation' });
+    }
+});
+/**
+ * DELETE /api/conversations/:id
+ * Permanently delete a conversation and all messages.
+ */
+router.delete('/:id', (0, rbac_1.authorize)('conversations', 'delete'), (0, audit_1.auditLog)('delete', 'conversations'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const conversation = await prisma_1.default.conversation.findFirst({
+            where: { id: req.params.id, companyId },
+            include: { lead: { select: { assignedAgentId: true } } },
+        });
+        if (!conversation) {
+            res.status(404).json({ error: 'Conversation not found' });
+            return;
+        }
+        if (req.user.role === 'sales_agent' &&
+            conversation.lead?.assignedAgentId !== req.user.id) {
+            res.status(403).json({ error: 'Can only delete assigned conversations' });
+            return;
+        }
+        await (0, resourceDelete_service_1.deleteConversationPermanently)(companyId, req.params.id);
+        res.json({ message: 'Conversation deleted permanently' });
+    }
+    catch (err) {
+        handleDeleteError(err, res);
     }
 });
 /**

@@ -40,10 +40,12 @@ const AuditLogsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadLogs = async () => {
     setLoading(true);
     try {
+      setLoadError(null);
       const params = new URLSearchParams();
       params.append('page', String(page));
       params.append('limit', '20');
@@ -57,6 +59,7 @@ const AuditLogsPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load audit logs', err);
       setLogs([]);
+      setLoadError('Could not load audit logs.');
     } finally {
       setLoading(false);
     }
@@ -112,6 +115,12 @@ const AuditLogsPage: React.FC = () => {
         </p>
       </div>
 
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {loadError}
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-col md:flex-row gap-4">
         <form onSubmit={handleSearch} className="relative flex-1 max-w-md">
@@ -163,7 +172,7 @@ const AuditLogsPage: React.FC = () => {
         {logs.length === 0 ? (
           <div className="p-12 text-center text-ink-muted">
             <ClipboardList className="h-12 w-12 mx-auto text-ink-faint mb-4" />
-            <p>No audit logs found</p>
+            <p>{loadError ? 'Audit logs are unavailable right now.' : 'No audit logs found'}</p>
           </div>
         ) : (
           <>

@@ -41,7 +41,10 @@ jest.mock('../../services/agent/confirmation.service', () => ({
 
 jest.mock('../../services/whatsapp.service', () => ({
   whatsappService: {
+    resolveCompanyWhatsAppConfig: jest.fn().mockResolvedValue({ phoneNumberId: 'pnid', accessToken: 'token' }),
     sendCompanyTextMessage: jest.fn().mockResolvedValue(true),
+    sendPropertyBrochure: jest.fn().mockResolvedValue({ success: true, messageId: 'brochure-1' }),
+    sendMessage: jest.fn().mockResolvedValue(true),
   },
 }));
 

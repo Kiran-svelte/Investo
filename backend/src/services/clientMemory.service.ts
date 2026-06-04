@@ -314,7 +314,7 @@ export async function rebuildLeadClientMemory(leadId: string): Promise<{ chunkCo
   return { chunkCount: count };
 }
 
-export async function syncLeadClientMemory(leadId: string): Promise<void> {
+async function syncLeadClientMemoryUnsafe(leadId: string): Promise<void> {
   const countRows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
     `SELECT COUNT(*)::bigint AS count FROM client_memory_chunks WHERE lead_id = $1::uuid`,
     leadId,
@@ -374,6 +374,21 @@ export async function syncLeadClientMemory(leadId: string): Promise<void> {
       sourceType: 'whatsapp_message',
       sourceId: latestMsg.id,
       content: `${formatDateIST(latestMsg.createdAt)} ${latestMsg.senderType}: ${latestMsg.content}`,
+    });
+  }
+}
+
+export async function syncLeadClientMemory(leadId: string): Promise<void> {
+  try {
+    if (typeof (prisma as any).$queryRawUnsafe !== 'function') {
+      logger.warn('Client memory sync skipped because raw query API is unavailable', { leadId });
+      return;
+    }
+    await syncLeadClientMemoryUnsafe(leadId);
+  } catch (err: unknown) {
+    logger.warn('Client memory sync skipped after failure', {
+      leadId,
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 }

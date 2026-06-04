@@ -11,6 +11,7 @@ const tenant_1 = require("../middleware/tenant");
 const audit_1 = require("../middleware/audit");
 const validate_1 = require("../middleware/validate");
 const featureGate_1 = require("../middleware/featureGate");
+const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const logger_1 = __importDefault(require("../config/logger"));
 const conversionSettings_service_1 = require("../services/conversionSettings.service");
 const uuid_1 = require("uuid");
@@ -36,8 +37,15 @@ const conversionSettingsSchema = zod_1.z.object({
 });
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
+router.use((req, res, next) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
+    next();
+});
 router.use((0, featureGate_1.requireFeature)('ai_bot'));
 router.get('/', (0, rbac_1.authorize)('ai_settings', 'read'), async (req, res) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
     try {
         const data = await (0, conversionSettings_service_1.getConversionSettings)((0, tenant_1.getCompanyId)(req));
         res.json({ data });

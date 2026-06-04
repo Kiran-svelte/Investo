@@ -50,6 +50,7 @@ const AnalyticsPage: React.FC = () => {
   const [extended, setExtended] = useState<ExtendedAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     loadAll();
@@ -58,18 +59,30 @@ const AnalyticsPage: React.FC = () => {
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [leadsRes, agentsRes, dashRes, extRes] = await Promise.all([
+      setLoadError(null);
+      const [leadsRes, agentsRes, dashRes, extRes] = await Promise.allSettled([
         api.get(`/analytics/leads?days=${days}`),
         api.get('/analytics/agents'),
         api.get('/analytics/dashboard'),
         api.get(`/analytics/extended?days=${days}`),
       ]);
-      setLeadData(leadsRes.data.data);
-      setAgentData(agentsRes.data.data || []);
-      setDashStats(dashRes.data.data);
-      setExtended(extRes.data.data);
-    } catch (err) {
-      console.error('Failed to load analytics', err);
+
+      const failed: string[] = [];
+      if (leadsRes.status === 'fulfilled') setLeadData(leadsRes.value.data.data);
+      else { setLeadData(null); failed.push('lead analytics'); }
+
+      if (agentsRes.status === 'fulfilled') setAgentData(agentsRes.value.data.data || []);
+      else { setAgentData([]); failed.push('agent performance'); }
+
+      if (dashRes.status === 'fulfilled') setDashStats(dashRes.value.data.data);
+      else { setDashStats(null); failed.push('dashboard KPIs'); }
+
+      if (extRes.status === 'fulfilled') setExtended(extRes.value.data.data);
+      else { setExtended(null); failed.push('extended metrics'); }
+
+      if (failed.length > 0) {
+        setLoadError(`Could not load ${failed.join(', ')}.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -97,6 +110,12 @@ const AnalyticsPage: React.FC = () => {
           </select>
         }
       />
+
+      {loadError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+          {loadError}
+        </div>
+      )}
 
       {/* KPI Cards */}
       {dashStats && (

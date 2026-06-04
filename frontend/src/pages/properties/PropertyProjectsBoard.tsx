@@ -23,6 +23,7 @@ import {
 import type { PropertyImportDraftSummary } from '../../services/propertyImport';
 import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
 import { stashBulkImportFile } from '../../utils/bulk-import-pending-file';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 
 function isSpreadsheetFile(file: File): boolean {
   return (
@@ -83,6 +84,7 @@ export default function PropertyProjectsBoard({
   deletingId,
 }: PropertyProjectsBoardProps) {
   const navigate = useNavigate();
+  const { confirm, Dialog } = useConfirmDialog();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [dragPropertyId, setDragPropertyId] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export default function PropertyProjectsBoard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadTargetProject, setUploadTargetProject] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<Record<string, string>>({});
+  const [boardError, setBoardError] = useState<string | null>(null);
 
   const byProject = useCallback(
     (projectId: string | null) =>
@@ -114,12 +117,13 @@ export default function PropertyProjectsBoard({
     if (!name) return;
     setCreating(true);
     try {
+      setBoardError(null);
       await createPropertyProject({ name });
       setNewName('');
       onRefresh();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      alert(ax.response?.data?.error || 'Failed to create project');
+      setBoardError(ax.response?.data?.error || 'Failed to create project');
     } finally {
       setCreating(false);
     }
@@ -130,11 +134,12 @@ export default function PropertyProjectsBoard({
     const projectId = targetKey === UNASSIGNED_KEY ? null : targetKey;
     setAssigning(true);
     try {
+      setBoardError(null);
       await assignPropertyToProject(dragPropertyId, projectId);
       onRefresh();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      alert(ax.response?.data?.error || 'Failed to move property');
+      setBoardError(ax.response?.data?.error || 'Failed to move property');
     } finally {
       setAssigning(false);
       setDragPropertyId(null);
@@ -188,7 +193,7 @@ export default function PropertyProjectsBoard({
         });
         navigate(dashboardPath(`/properties/import?${q.toString()}`));
       } catch {
-        alert('Could not open the import wizard. Use Import here and upload the same file.');
+        setBoardError('Could not open the import wizard. Use Import here and upload the same file.');
       } finally {
         setUploadingFile(null);
         setUploadTargetProject(null);
@@ -198,6 +203,7 @@ export default function PropertyProjectsBoard({
 
     setUploadingFile(projectId);
     try {
+      setBoardError(null);
       await uploadProjectFile(projectId, file);
       setExpandedProject(projectId);
       setUploadNotice((prev) => ({
@@ -208,7 +214,7 @@ export default function PropertyProjectsBoard({
       onRefresh();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      alert(ax.response?.data?.error || 'Failed to upload file');
+      setBoardError(ax.response?.data?.error || 'Failed to upload file');
     } finally {
       setUploadingFile(null);
       setUploadTargetProject(null);
@@ -333,6 +339,12 @@ export default function PropertyProjectsBoard({
         </div>
       )}
 
+      {boardError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {boardError}
+        </div>
+      )}
+
       {assigning && (
         <p className="text-sm text-brand-700 flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" /> Moving property…
@@ -385,10 +397,21 @@ export default function PropertyProjectsBoard({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!confirm(`Delete project "${project.name}"? Properties will move to Unassigned.`))
-                      return;
-                    void deletePropertyProject(project.id).then(onRefresh);
+                  onClick={async () => {
+                    const confirmed = await confirm(
+                      'Delete project?',
+                      `Delete "${project.name}"? Properties will move to Unassigned.`,
+                      { confirmLabel: 'Delete' },
+                    );
+                    if (!confirmed) return;
+                    try {
+                      setBoardError(null);
+                      await deletePropertyProject(project.id);
+                      onRefresh();
+                    } catch (err: unknown) {
+                      const ax = err as { response?: { data?: { error?: string } } };
+                      setBoardError(ax.response?.data?.error || 'Failed to delete project');
+                    }
                   }}
                   className="rounded p-1.5 text-red-600 hover:bg-red-50"
                   title="Delete project"
@@ -462,7 +485,12 @@ export default function PropertyProjectsBoard({
                             className="p-1 text-red-600 hover:bg-red-50 rounded"
                             title="Delete file"
                             onClick={async () => {
-                              if (!window.confirm(`Delete file "${f.file_name}"?`)) return;
+                              const confirmed = await confirm(
+                                'Delete file?',
+                                `Delete "${f.file_name}" from this project?`,
+                                { confirmLabel: 'Delete' },
+                              );
+                              if (!confirmed) return;
                               try {
                                 await deletePropertyProjectFile(project.id, f.id);
                                 setProjectFiles((prev) => ({
@@ -473,7 +501,7 @@ export default function PropertyProjectsBoard({
                                 }));
                               } catch (err: unknown) {
                                 const ax = err as { response?: { data?: { error?: string } } };
-                                alert(ax.response?.data?.error || 'Failed to delete file');
+                                setBoardError(ax.response?.data?.error || 'Failed to delete file');
                               }
                             }}
                           >
@@ -489,6 +517,7 @@ export default function PropertyProjectsBoard({
           </div>
         );
       })}
+      {Dialog}
     </div>
   );
 }

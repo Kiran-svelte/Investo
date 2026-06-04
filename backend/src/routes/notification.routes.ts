@@ -35,11 +35,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     const unreadOnly = String(req.query.unread ?? '').toLowerCase() === 'true';
     const type = typeof req.query.type === 'string' ? req.query.type : undefined;
+    const types = typeof req.query.types === 'string'
+      ? req.query.types.split(',').map((entry) => entry.trim()).filter(Boolean)
+      : [];
 
     const where = {
       companyId,
       ...(unreadOnly ? { read: false } : {}),
-      ...(type ? { type: type as any } : {}),
+      ...(types.length > 0 ? { type: { in: types as any[] } } : type ? { type: type as any } : {}),
       OR: [{ userId }, { userId: null }],
     };
 

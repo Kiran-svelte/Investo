@@ -13,6 +13,7 @@ const company_routes_1 = __importDefault(require("./routes/company.routes"));
 const user_routes_1 = __importDefault(require("./routes/user.routes"));
 const lead_routes_1 = __importDefault(require("./routes/lead.routes"));
 const property_routes_1 = __importDefault(require("./routes/property.routes"));
+const property_project_routes_1 = __importDefault(require("./routes/property-project.routes"));
 const visit_routes_1 = __importDefault(require("./routes/visit.routes"));
 const conversation_routes_1 = __importDefault(require("./routes/conversation.routes"));
 const ai_settings_routes_1 = __importDefault(require("./routes/ai-settings.routes"));
@@ -28,8 +29,11 @@ const role_routes_1 = __importDefault(require("./routes/role.routes"));
 const feature_routes_1 = __importDefault(require("./routes/feature.routes"));
 const onboarding_routes_1 = __importDefault(require("./routes/onboarding.routes"));
 const audit_routes_1 = __importDefault(require("./routes/audit.routes"));
+const error_log_routes_1 = __importDefault(require("./routes/error-log.routes"));
+const assignment_settings_routes_1 = __importDefault(require("./routes/assignment-settings.routes"));
 const property_import_routes_1 = __importDefault(require("./routes/property-import.routes"));
 const property_import_upload_routes_1 = __importDefault(require("./routes/property-import-upload.routes"));
+const property_import_bulk_routes_1 = __importDefault(require("./routes/property-import-bulk.routes"));
 const finance_routes_1 = __importDefault(require("./routes/finance.routes"));
 const config_1 = require("./config");
 const greenapi_webhook_routes_1 = __importDefault(require("./routes/greenapi-webhook.routes"));
@@ -53,11 +57,10 @@ app.use((0, cors_1.default)({
 // Health check (no auth required)
 app.use('/api/health', health_routes_1.default);
 app.use('/api/readiness', readiness_routes_1.default);
-// Webhook routes (no rate limiting - verified by signature)
-// IMPORTANT: This must run before global JSON parsing so we can verify signatures against raw request bytes.
-app.use('/api/webhook', webhook_routes_1.default);
+// Webhook routes (signature verified; light rate limit against abuse)
+app.use('/api/webhook', rateLimiter_1.webhookRateLimiter, webhook_routes_1.default);
 // GreenAPI webhook route (guarded internally for production)
-app.use('/api/greenapi/webhook', greenapi_webhook_routes_1.default);
+app.use('/api/greenapi/webhook', rateLimiter_1.webhookRateLimiter, greenapi_webhook_routes_1.default);
 // Body parsing (for all non-webhook routes)
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
@@ -69,10 +72,13 @@ app.use('/api/auth', rateLimiter_1.sensitiveRateLimiter, auth_routes_1.default);
 app.use('/api/companies', rateLimiter_1.companyRateLimiter, company_routes_1.default);
 app.use('/api/users', rateLimiter_1.companyRateLimiter, user_routes_1.default);
 app.use('/api/leads', rateLimiter_1.companyRateLimiter, lead_routes_1.default);
+app.use('/api/property-projects', rateLimiter_1.companyRateLimiter, property_project_routes_1.default);
 app.use('/api/properties', rateLimiter_1.companyRateLimiter, property_routes_1.default);
 // Public upload endpoint (no auth headers) must be mounted before the authenticated router.
 app.use('/api/property-imports/uploads', property_import_upload_routes_1.default);
-app.use('/api/property-imports', rateLimiter_1.companyRateLimiter, property_import_routes_1.default);
+// Bulk CSV/XLSX import must be mounted before the main router (prevents /:id wildcard capturing /bulk).
+app.use('/api/property-imports/bulk', rateLimiter_1.companyRateLimiter, property_import_bulk_routes_1.default);
+app.use('/api/property-imports', rateLimiter_1.companyRateLimiter, rateLimiter_1.userAiRateLimiter, rateLimiter_1.companyAiRateLimiter, property_import_routes_1.default);
 app.use('/api/visits', rateLimiter_1.companyRateLimiter, visit_routes_1.default);
 app.use('/api/conversations', rateLimiter_1.companyRateLimiter, conversation_routes_1.default);
 app.use('/api/ai-settings', rateLimiter_1.companyRateLimiter, ai_settings_routes_1.default);
@@ -85,6 +91,8 @@ app.use('/api/roles', rateLimiter_1.companyRateLimiter, role_routes_1.default);
 app.use('/api/features', rateLimiter_1.companyRateLimiter, feature_routes_1.default);
 app.use('/api/onboarding', rateLimiter_1.companyRateLimiter, onboarding_routes_1.default);
 app.use('/api/audit', rateLimiter_1.companyRateLimiter, audit_routes_1.default);
+app.use('/api/error-logs', rateLimiter_1.companyRateLimiter, error_log_routes_1.default);
+app.use('/api/assignment-settings', rateLimiter_1.companyRateLimiter, assignment_settings_routes_1.default);
 app.use('/api', finance_routes_1.default);
 // 404 handler
 app.use((_req, res) => {

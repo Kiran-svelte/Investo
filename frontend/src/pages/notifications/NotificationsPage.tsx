@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Bell, UserPlus, Calendar, CheckCircle, AlertCircle, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { dashboardPath } from '../../config/navigation.config';
 import api from '../../services/api';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   deleteAllNotificationsForCurrentUser,
   deleteNotificationById,
@@ -48,9 +51,44 @@ const FILTER_TABS: { key: FilterTab; labelKey: string }[] = [
   { key: 'system', labelKey: 'notifications.filter.system' },
 ];
 
+const TAB_TYPES: Partial<Record<FilterTab, Notification['type'][]>> = {
+  lead: ['lead_new', 'lead_assigned', 'lead_status_change', 'lead_reassigned', 'follow_up'],
+  visit: [
+    'visit_reminder',
+    'visit_scheduled',
+    'visit_confirmed',
+    'visit_completed',
+    'visit_cancelled',
+    'visit_rescheduled',
+  ],
+  system: ['system', 'system_alert', 'agent_takeover'],
+};
+
+function pickString(data: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return null;
+}
+
+function getNotificationTarget(notification: Notification): string | null {
+  const data = notification.data || {};
+  const conversationId = pickString(data, 'conversationId', 'conversation_id');
+  const leadId = pickString(data, 'leadId', 'lead_id');
+  const visitId = pickString(data, 'visitId', 'visit_id');
+
+  if (conversationId) return dashboardPath(`/conversations?id=${conversationId}`);
+  if (leadId) return dashboardPath(`/leads/${leadId}`);
+  if (visitId) return dashboardPath('/calendar');
+  return null;
+}
+
 export default function NotificationsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   useAuth();
+  const { confirm, Dialog } = useConfirmDialog();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -58,11 +96,24 @@ export default function NotificationsPage() {
   const [markingAll, setMarkingAll] = useState(false);
   const [clearingAll, setClearingAll] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const fetchNotifications = useCallback(async (pageNum: number, append = false) => {
     setLoading(true);
+    setPageError(null);
     try {
-      const res = await api.get(`/notifications?page=${pageNum}&limit=${LIMIT}`);
+      const params = new URLSearchParams({
+        page: String(pageNum),
+        limit: String(LIMIT),
+      });
+      if (activeTab === 'unread') {
+        params.set('unread', 'true');
+      }
+      const types = TAB_TYPES[activeTab];
+      if (types?.length) {
+        params.set('types', types.join(','));
+      }
+      const res = await api.get(`/notifications?${params.toString()}`);
       const { notifications: items, total: totalCount } = normalizeNotificationsPayload(res.data);
       if (append) {
         setNotifications(prev => [...prev, ...items]);
@@ -71,15 +122,20 @@ export default function NotificationsPage() {
       }
       setTotal(totalCount);
     } catch {
-      // silently handle
+      setPageError('Could not load notifications. Check your connection and try again.');
+      if (!append) {
+        setNotifications([]);
+        setTotal(0);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
+    setPage(1);
     fetchNotifications(1);
-  }, [fetchNotifications]);
+  }, [activeTab, fetchNotifications]);
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -88,37 +144,41 @@ export default function NotificationsPage() {
         prev.map(n => (n.id === id ? { ...n, read: true } : n))
       );
     } catch {
-      // silently handle
+      setPageError('Could not mark that notification as read.');
     }
   };
 
   const handleDeleteNotification = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm('Delete this notification permanently?')) return;
+    const confirmed = await confirm(
+      'Delete notification?',
+      'This notification will be permanently removed from your workspace.',
+      { confirmLabel: 'Delete' },
+    );
+    if (!confirmed) return;
     try {
       await deleteNotificationById(id);
       setNotifications((prev) => prev.filter((n) => n.id !== id));
       setTotal((t) => Math.max(0, t - 1));
     } catch {
-      // silently handle
+      setPageError('Could not delete the notification.');
     }
   };
 
   const handleClearAll = async () => {
-    if (
-      !window.confirm(
-        'Delete all notifications permanently? This cannot be undone.',
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirm(
+      'Clear all notifications?',
+      'Every notification visible to you will be permanently deleted. This cannot be undone.',
+      { confirmLabel: 'Clear all' },
+    );
+    if (!confirmed) return;
     setClearingAll(true);
     try {
       await deleteAllNotificationsForCurrentUser();
       setNotifications([]);
       setTotal(0);
     } catch {
-      // silently handle
+      setPageError('Could not clear notifications.');
     } finally {
       setClearingAll(false);
     }
@@ -130,7 +190,7 @@ export default function NotificationsPage() {
       await api.put('/notifications/read-all');
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     } catch {
-      // silently handle
+      setPageError('Could not mark notifications as read.');
     } finally {
       setMarkingAll(false);
     }
@@ -141,34 +201,6 @@ export default function NotificationsPage() {
     setPage(nextPage);
     fetchNotifications(nextPage, true);
   };
-
-  const filteredNotifications = notifications.filter(n => {
-    switch (activeTab) {
-      case 'unread':
-        return !n.read;
-      case 'lead':
-        return (
-          n.type === 'lead_new' ||
-          n.type === 'lead_assigned' ||
-          n.type === 'lead_status_change' ||
-          n.type === 'lead_reassigned' ||
-          n.type === 'follow_up'
-        );
-      case 'visit':
-        return (
-          n.type === 'visit_reminder' ||
-          n.type === 'visit_scheduled' ||
-          n.type === 'visit_confirmed' ||
-          n.type === 'visit_completed' ||
-          n.type === 'visit_cancelled' ||
-          n.type === 'visit_rescheduled'
-        );
-      case 'system':
-        return n.type === 'system' || n.type === 'system_alert' || n.type === 'agent_takeover';
-      default:
-        return true;
-    }
-  });
 
   const hasMore = notifications.length < total;
   const hasUnread = notifications.some(n => !n.read);
@@ -211,6 +243,12 @@ export default function NotificationsPage() {
         </div>
       </div>
 
+      {pageError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {pageError}
+        </div>
+      )}
+
       {/* Filter Tabs */}
       <div className="flex gap-2 mb-6 border-b border-surface-border">
         {FILTER_TABS.map(tab => (
@@ -233,17 +271,25 @@ export default function NotificationsPage() {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-brand-600" />
         </div>
-      ) : filteredNotifications.length === 0 ? (
+      ) : notifications.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-ink-faint">
           <Bell className="h-12 w-12 mb-4" />
           <p className="text-lg font-medium">{t('notifications.empty', 'No notifications')}</p>
+          {activeTab !== 'all' && (
+            <p className="mt-1 text-sm text-ink-muted">No items match this tab.</p>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredNotifications.map(notification => (
+          {notifications.map(notification => {
+            const target = getNotificationTarget(notification);
+            return (
             <div
               key={notification.id}
-              onClick={() => !notification.read && handleMarkAsRead(notification.id)}
+              onClick={() => {
+                void handleMarkAsRead(notification.id);
+                if (target) navigate(target);
+              }}
               className={`flex items-start gap-4 p-4 rounded-lg cursor-pointer transition-colors ${
                 notification.read
                   ? 'bg-surface-elevated hover:bg-surface-muted'
@@ -263,7 +309,10 @@ export default function NotificationsPage() {
                   )}
                 </div>
                 <p className="text-sm text-ink-muted mt-1">{notification.message}</p>
-                <p className="text-xs text-ink-faint mt-1">{formatNotificationTime(notification.createdAt)}</p>
+                <p className="text-xs text-ink-faint mt-1">
+                  {formatNotificationTime(notification.createdAt)}
+                  {target && <span className="ml-2 text-brand-700">Open related record</span>}
+                </p>
               </div>
               <button
                 type="button"
@@ -274,7 +323,8 @@ export default function NotificationsPage() {
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -295,6 +345,7 @@ export default function NotificationsPage() {
           </button>
         </div>
       )}
+      {Dialog}
     </div>
   );
 }

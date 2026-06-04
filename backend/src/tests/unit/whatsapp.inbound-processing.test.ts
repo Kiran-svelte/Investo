@@ -3,6 +3,7 @@
 const mockPrisma = {
   company: {
     findMany: jest.fn(),
+    findUnique: jest.fn(),
   },
   lead: {
     findFirst: jest.fn(),
@@ -187,6 +188,7 @@ describe('WhatsAppService inbound operational behavior', () => {
     jest.spyOn(service, 'sendMessage').mockResolvedValue(true);
 
     mockPrisma.company.findMany.mockResolvedValue([company]);
+    mockPrisma.company.findUnique.mockResolvedValue(company);
     mockPrisma.lead.findFirst.mockResolvedValue(lead);
     mockPrisma.conversation.findFirst.mockResolvedValue(conversation);
     mockPrisma.message.create.mockResolvedValue({ id: 'message-1' });

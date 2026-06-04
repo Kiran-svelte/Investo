@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
+exports.updateStaffProfileSchema = exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.propertyImportReplaceUnitsSchema = exports.propertyImportSpreadsheetImportSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
 exports.normalizeIndianPhoneNumber = normalizeIndianPhoneNumber;
 exports.isIndianE164Phone = isIndianE164Phone;
 exports.whatsappPhoneLookupVariants = whatsappPhoneLookupVariants;
@@ -87,7 +87,16 @@ exports.CONVERSATION_TRANSITIONS = {
 };
 // Property types
 exports.PROPERTY_TYPES = ['villa', 'apartment', 'plot', 'commercial'];
-exports.PROPERTY_ASSET_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'video/mp4'];
+exports.PROPERTY_ASSET_MIME_TYPES = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/pdf',
+    'video/mp4',
+    'text/csv',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+];
 exports.PROPERTY_IMPORT_DRAFT_STATUSES = ['draft', 'extracting', 'review_ready', 'publish_ready', 'published', 'failed', 'cancelled'];
 exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = {
     draft: ['extracting', 'cancelled'],
@@ -137,8 +146,11 @@ exports.createLeadSchema = zod_1.z.object({
 });
 exports.updateLeadStatusSchema = zod_1.z.object({
     status: zod_1.z.enum(exports.LEAD_STATUSES),
+    /** Company admin may jump to any status (manual correction). */
+    force: zod_1.z.boolean().optional(),
 });
 exports.createPropertySchema = zod_1.z.object({
+    project_id: zod_1.z.string().uuid().optional().nullable(),
     name: zod_1.z.string().min(1).max(255),
     builder: zod_1.z.string().max(255).optional().nullable(),
     location_city: zod_1.z.string().max(100).optional().nullable(),
@@ -170,6 +182,7 @@ exports.createPropertyAssetUploadSchema = zod_1.z.object({
 exports.createPropertyImportDraftSchema = zod_1.z.object({
     draft_data: zod_1.z.record(zod_1.z.any()).optional(),
     max_retries: zod_1.z.number().int().min(1).max(10).optional(),
+    project_id: zod_1.z.string().uuid().optional().nullable(),
 });
 exports.calculateEmiSchema = zod_1.z.object({
     principal: zod_1.z.number().positive(),
@@ -199,6 +212,20 @@ exports.retryPropertyImportDraftSchema = zod_1.z.object({
 });
 exports.cancelPropertyImportDraftSchema = zod_1.z.object({
     reason: zod_1.z.string().max(1000).optional().nullable(),
+    purge: zod_1.z.boolean().optional(),
+});
+exports.propertyImportSpreadsheetImportSchema = zod_1.z.object({
+    project_name: zod_1.z.string().min(1).max(255),
+    property_type: zod_1.z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']),
+    column_mapping: zod_1.z.record(zod_1.z.string()),
+    raw_rows: zod_1.z.array(zod_1.z.record(zod_1.z.string())).min(1).max(500),
+});
+exports.propertyImportReplaceUnitsSchema = zod_1.z.object({
+    units: zod_1.z.array(zod_1.z.object({
+        label: zod_1.z.string().max(255).optional().nullable(),
+        unit_data: zod_1.z.record(zod_1.z.any()),
+        sort_order: zod_1.z.number().int().min(0).optional(),
+    })).min(1),
 });
 exports.createVisitSchema = zod_1.z.object({
     lead_id: zod_1.z.string().uuid(),
@@ -258,6 +285,17 @@ exports.sendConversationMessageSchema = zod_1.z.discriminatedUnion('mode', [
             .max(3, 'at most 3 buttons are allowed'),
     }),
 ]);
+exports.updateStaffProfileSchema = zod_1.z.object({
+    name: zod_1.z.string().trim().min(1, 'Name is required').max(120).optional(),
+    phone: zod_1.z
+        .string()
+        .trim()
+        .min(1, 'Phone number is required')
+        .transform(normalizeIndianPhoneNumber)
+        .refine((v) => typeof v === 'string' && isIndianE164Phone(v), {
+        message: 'Enter a valid Indian mobile number (10 digits)',
+    }),
+});
 // Helper to validate state transitions
 function isValidTransition(transitions, from, to) {
     const allowed = transitions[from];

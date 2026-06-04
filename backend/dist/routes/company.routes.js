@@ -11,6 +11,11 @@ const validate_1 = require("../middleware/validate");
 const validation_1 = require("../models/validation");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const companyProvisioning_service_1 = require("../services/companyProvisioning.service");
+const pagination_1 = require("../utils/pagination");
+const sanitize_1 = require("../utils/sanitize");
+const whatsappTenantGuard_service_1 = require("../services/whatsappTenantGuard.service");
+const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
 // All company routes require authentication
 router.use(auth_1.authenticate);
@@ -22,10 +27,26 @@ router.use(auth_1.authenticate);
 router.get('/', async (req, res) => {
     try {
         if (req.user.role === 'super_admin') {
-            const companies = await prisma_1.default.company.findMany({
-                include: { plan: true },
-                orderBy: { createdAt: 'desc' },
-            });
+            const { page, limit, offset } = (0, pagination_1.parsePagination)(req.query);
+            const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+            const where = search
+                ? {
+                    OR: [
+                        { name: { contains: search, mode: 'insensitive' } },
+                        { slug: { contains: search, mode: 'insensitive' } },
+                    ],
+                }
+                : {};
+            const [companies, total] = await Promise.all([
+                prisma_1.default.company.findMany({
+                    where,
+                    include: { plan: true },
+                    orderBy: { createdAt: 'desc' },
+                    skip: offset,
+                    take: limit,
+                }),
+                prisma_1.default.company.count({ where }),
+            ]);
             // Get agent counts per company
             const agentCounts = await prisma_1.default.user.groupBy({
                 by: ['companyId'],
@@ -33,14 +54,17 @@ router.get('/', async (req, res) => {
                 _count: { id: true },
             });
             const countsMap = new Map(agentCounts.map((c) => [c.companyId, c._count.id]));
-            const enriched = companies.map(({ plan, ...c }) => ({
+            const enriched = companies.map(({ plan, ...c }) => (0, sanitize_1.sanitizeCompanyRecord)({
                 ...c,
                 plan_name: plan?.name ?? null,
                 max_agents: plan?.maxAgents ?? null,
                 price_monthly: plan?.priceMonthly ?? null,
                 agent_count: countsMap.get(c.id) || 0,
             }));
-            res.json({ data: enriched, total: enriched.length });
+            res.json({
+                data: enriched,
+                pagination: (0, pagination_1.buildPaginationMeta)(page, limit, total),
+            });
         }
         else {
             const company = await prisma_1.default.company.findFirst({
@@ -52,12 +76,12 @@ router.get('/', async (req, res) => {
                 return;
             }
             const { plan, ...companyData } = company;
-            const data = {
+            const data = (0, sanitize_1.sanitizeCompanyRecord)({
                 ...companyData,
                 plan_name: plan?.name ?? null,
                 max_agents: plan?.maxAgents ?? null,
                 price_monthly: plan?.priceMonthly ?? null,
-            };
+            });
             res.json({ data });
         }
     }
@@ -122,16 +146,36 @@ router.post('/', (0, rbac_1.hasRole)('super_admin'), (0, validate_1.validate)(va
                 return;
             }
         }
+        let resolvedPlanId = plan_id || null;
+        if (!resolvedPlanId) {
+            const defaultPlan = await prisma_1.default.subscriptionPlan.findFirst({
+                orderBy: { priceMonthly: 'asc' },
+            });
+            resolvedPlanId = defaultPlan?.id ?? null;
+        }
         const company = await prisma_1.default.company.create({
             data: {
                 name,
                 slug,
                 whatsappPhone: whatsapp_phone || null,
-                planId: plan_id || null,
+                planId: resolvedPlanId,
                 status: 'active',
             },
         });
-        res.status(201).json({ data: company, id: company.id });
+        let provisionWarning;
+        try {
+            await (0, companyProvisioning_service_1.provisionNewCompany)(company.id, company.name);
+        }
+        catch (provisionErr) {
+            const message = provisionErr instanceof Error ? provisionErr.message : String(provisionErr);
+            logger_1.default.warn('Company created but provisioning failed', { companyId: company.id, error: message });
+            provisionWarning = 'Company created; default settings will finish on next save or onboarding.';
+        }
+        res.status(201).json({
+            data: company,
+            id: company.id,
+            ...(provisionWarning ? { warning: provisionWarning } : {}),
+        });
     }
     catch (err) {
         logger_1.default.error('Failed to create company', { error: err.message });
@@ -146,6 +190,10 @@ router.post('/', (0, rbac_1.hasRole)('super_admin'), (0, validate_1.validate)(va
 router.put('/:id', (0, audit_1.auditLog)('update', 'companies'), async (req, res) => {
     try {
         const { id } = req.params;
+        const existingCompany = await prisma_1.default.company.findFirst({
+            where: { id },
+            select: { settings: true },
+        });
         if (req.user.role === 'super_admin') {
             // Super admin can update everything including settings
             const { name, slug, whatsapp_phone, plan_id, status, settings } = req.body;
@@ -179,6 +227,16 @@ router.put('/:id', (0, audit_1.auditLog)('update', 'companies'), async (req, res
                     return;
                 }
             }
+            const mergedSettings = settings !== undefined
+                ? (0, sanitize_1.mergeSettingsPreservingSecrets)(existingCompany?.settings, settings)
+                : undefined;
+            if (mergedSettings) {
+                const conflict = await (0, whatsappTenantGuard_service_1.assertUniqueMetaPhoneNumberId)(id, mergedSettings);
+                if (conflict) {
+                    res.status(409).json({ error: conflict });
+                    return;
+                }
+            }
             await prisma_1.default.company.update({
                 where: { id },
                 data: {
@@ -187,18 +245,32 @@ router.put('/:id', (0, audit_1.auditLog)('update', 'companies'), async (req, res
                     ...(whatsapp_phone !== undefined && { whatsappPhone: normalizedWhatsAppPhone }),
                     ...(plan_id !== undefined && { planId: plan_id }),
                     ...(status && { status }),
-                    ...(settings !== undefined && { settings }),
+                    ...(mergedSettings !== undefined && {
+                        settings: mergedSettings,
+                    }),
                 },
             });
         }
         else if (req.user.role === 'company_admin' && id === req.user.company_id) {
             // Company admin can only update name and settings of own company
             const { name, settings } = req.body;
+            const mergedSettings = settings
+                ? (0, sanitize_1.mergeSettingsPreservingSecrets)(existingCompany?.settings, settings)
+                : undefined;
+            if (mergedSettings) {
+                const conflict = await (0, whatsappTenantGuard_service_1.assertUniqueMetaPhoneNumberId)(id, mergedSettings);
+                if (conflict) {
+                    res.status(409).json({ error: conflict });
+                    return;
+                }
+            }
             await prisma_1.default.company.update({
                 where: { id },
                 data: {
                     ...(name && { name }),
-                    ...(settings && { settings }),
+                    ...(mergedSettings && {
+                        settings: mergedSettings,
+                    }),
                 },
             });
         }
@@ -207,7 +279,7 @@ router.put('/:id', (0, audit_1.auditLog)('update', 'companies'), async (req, res
             return;
         }
         const updated = await prisma_1.default.company.findFirst({ where: { id } });
-        res.json({ data: updated });
+        res.json({ data: updated ? (0, sanitize_1.sanitizeCompanyRecord)(updated) : updated });
     }
     catch (err) {
         logger_1.default.error('Failed to update company', { error: err.message });
@@ -216,7 +288,7 @@ router.put('/:id', (0, audit_1.auditLog)('update', 'companies'), async (req, res
 });
 /**
  * PATCH /api/companies/:id/deactivate
- * Super admin only. Companies cannot be deleted, only deactivated.
+ * Super admin only. Soft-deactivate a tenant.
  */
 router.patch('/:id/deactivate', (0, rbac_1.hasRole)('super_admin'), (0, audit_1.auditLog)('deactivate', 'companies'), async (req, res) => {
     try {
@@ -248,6 +320,26 @@ router.patch('/:id/activate', (0, rbac_1.hasRole)('super_admin'), (0, audit_1.au
     catch (err) {
         logger_1.default.error('Failed to activate company', { error: err.message });
         res.status(500).json({ error: 'Failed to activate company' });
+    }
+});
+/**
+ * DELETE /api/companies/:id
+ * Super admin only. Permanently deletes company and all tenant data.
+ */
+router.delete('/:id', (0, rbac_1.hasRole)('super_admin'), (0, rbac_1.authorize)('companies', 'delete'), (0, audit_1.auditLog)('delete', 'companies'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        await (0, resourceDelete_service_1.deleteCompanyPermanently)(id);
+        res.json({ message: 'Company deleted permanently' });
+    }
+    catch (err) {
+        if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
+            res.status(err.statusCode).json({ error: err.message });
+            return;
+        }
+        const message = err instanceof Error ? err.message : 'Delete failed';
+        logger_1.default.error('Failed to delete company', { error: message });
+        res.status(500).json({ error: 'Failed to delete company' });
     }
 });
 exports.default = router;

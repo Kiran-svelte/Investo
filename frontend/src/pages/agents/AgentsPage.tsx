@@ -5,6 +5,7 @@ import api from '../../services/api';
 import { Users, TrendingUp, Award, Phone, Mail, Loader2, Plus, X, Trash2 } from 'lucide-react';
 import { deleteUser } from '../../services/resourceDelete';
 import Pagination from '../../components/common/Pagination';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 
 interface AgentStats {
   agent_id: string;
@@ -35,6 +36,7 @@ interface Company {
 const AgentsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { confirm, Dialog } = useConfirmDialog();
   const [agentStats, setAgentStats] = useState<AgentStats[]>([]);
   const [agentUsers, setAgentUsers] = useState<AgentUser[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -42,6 +44,7 @@ const AgentsPage: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [pageError, setPageError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -62,31 +65,39 @@ const AgentsPage: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
+      setPageError(null);
       const params = new URLSearchParams();
       params.append('page', String(page));
       params.append('limit', '25');
-      const requests: Promise<any>[] = [
-        api.get('/analytics/agents'),
-        api.get(`/users?${params.toString()}`),
-      ];
-      
-      // Super admin needs company list
-      if (user?.role === 'super_admin') {
-        requests.push(api.get('/companies'));
+
+      try {
+        const analyticsRes = await api.get('/analytics/agents');
+        setAgentStats(analyticsRes.data.data || []);
+      } catch {
+        setAgentStats([]);
+        setPageError('Team loaded, but performance metrics are unavailable.');
       }
-      
-      const results = await Promise.all(requests);
-      setAgentStats(results[0].data.data || []);
-      const allUsers = results[1].data.data || [];
+
+      const usersRes = await api.get(`/users?${params.toString()}`);
+      const allUsers = usersRes.data.data || [];
       setAgentUsers(allUsers.filter((u: AgentUser) => ['sales_agent', 'operations'].includes(u.role)));
-      setTotalPages(results[1].data.pagination?.pages || 1);
-      setTotalUsers(results[1].data.pagination?.total || 0);
-      
-      if (user?.role === 'super_admin' && results[2]) {
-        setCompanies(results[2].data.data || []);
+      setTotalPages(usersRes.data.pagination?.pages || 1);
+      setTotalUsers(usersRes.data.pagination?.total || 0);
+
+      if (user?.role === 'super_admin') {
+        try {
+          const companiesRes = await api.get('/companies');
+          setCompanies(companiesRes.data.data || []);
+        } catch {
+          setCompanies([]);
+          setPageError('Team loaded, but company choices are unavailable.');
+        }
       }
     } catch (err) {
       console.error('Failed to load agents', err);
+      setPageError('Could not load team members.');
+      setAgentUsers([]);
+      setAgentStats([]);
     } finally {
       setLoading(false);
     }
@@ -151,6 +162,12 @@ const AgentsPage: React.FC = () => {
         )}
       </div>
 
+      {pageError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+          {pageError}
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="investo-card-pad">
@@ -175,7 +192,9 @@ const AgentsPage: React.FC = () => {
 
       {/* Agent Cards */}
       {agentUsers.length === 0 ? (
-        <div className="text-center py-12 text-ink-muted">No agents found. Add sales agents from Settings.</div>
+        <div className="text-center py-12 text-ink-muted">
+          No team members found. Use Add Team Member to create sales or operations users.
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {agentUsers.map((agent) => {
@@ -191,19 +210,18 @@ const AgentsPage: React.FC = () => {
                     type="button"
                     title="Delete user permanently"
                     onClick={async () => {
-                      if (
-                        !window.confirm(
-                          `Permanently delete ${agent.name}? Their visits as agent will be removed; leads will be unassigned.`,
-                        )
-                      ) {
-                        return;
-                      }
+                      const confirmed = await confirm(
+                        'Delete team member?',
+                        `Permanently delete ${agent.name}? Their visits as agent will be removed and leads will be unassigned.`,
+                        { confirmLabel: 'Delete' },
+                      );
+                      if (!confirmed) return;
                       try {
                         await deleteUser(agent.id);
                         setAgentUsers((prev) => prev.filter((u) => u.id !== agent.id));
                       } catch (err: unknown) {
                         const ax = err as { response?: { data?: { error?: string } } };
-                        alert(ax.response?.data?.error || 'Failed to delete user');
+                        setPageError(ax.response?.data?.error || 'Failed to delete user');
                       }
                     }}
                     className="absolute top-3 right-3 p-1.5 text-ink-faint hover:text-red-600 hover:bg-red-50 rounded-lg"
@@ -309,7 +327,7 @@ const AgentsPage: React.FC = () => {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                  placeholder="John Doe"
+                  placeholder="Asha Mehta"
                 />
               </div>
 
@@ -321,7 +339,7 @@ const AgentsPage: React.FC = () => {
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                  placeholder="john@company.com"
+                  placeholder="asha@company.com"
                 />
               </div>
 
@@ -397,6 +415,7 @@ const AgentsPage: React.FC = () => {
           </div>
         </div>
       )}
+      {Dialog}
     </div>
   );
 };

@@ -11,6 +11,8 @@ const prisma_1 = __importDefault(require("../../../config/prisma"));
 const agent_tools_constants_1 = require("../../../constants/agent-tools.constants");
 const confirmation_service_1 = require("../confirmation.service");
 const format_helpers_1 = require("./format-helpers");
+const staffPhoneUniqueness_1 = require("../../../utils/staffPhoneUniqueness");
+const userProfilePhone_1 = require("../../../utils/userProfilePhone");
 const langchain_runtime_1 = require("./langchain-runtime");
 function adminOnly(context) {
     return (0, format_helpers_1.isAdminRole)(context.userRole) ? null : 'Only admins can use this tool.';
@@ -59,8 +61,22 @@ function createUserTools(context) {
                 const data = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
                 if (!Object.keys(data).length)
                     return 'No fields provided.';
-                await prisma_1.default.user.update({ where: { id: agentId }, data });
-                return `Updated ${user.name}: ${Object.keys(data).join(', ')}`;
+                try {
+                    if (typeof data.phone === 'string') {
+                        const normalized = (0, userProfilePhone_1.normalizeStaffProfilePhone)(data.phone);
+                        if (!normalized)
+                            return 'Invalid phone number.';
+                        await (0, staffPhoneUniqueness_1.assertStaffPhoneAvailable)(normalized, agentId);
+                        data.phone = normalized;
+                    }
+                    await prisma_1.default.user.update({ where: { id: agentId }, data });
+                    return `Updated ${user.name}: ${Object.keys(data).join(', ')}`;
+                }
+                catch (err) {
+                    if ((0, staffPhoneUniqueness_1.isStaffPhoneInUseError)(err))
+                        return err.message;
+                    throw err;
+                }
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({

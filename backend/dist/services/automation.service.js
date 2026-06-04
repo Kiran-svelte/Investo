@@ -43,6 +43,7 @@ const logger_1 = __importDefault(require("../config/logger"));
 const config_1 = __importDefault(require("../config"));
 const whatsapp_service_1 = require("./whatsapp.service");
 const automationQueue_service_1 = require("./automationQueue.service");
+const agent_action_log_service_1 = require("./agent-action-log.service");
 function getCompanyWhatsAppConfig(company) {
     const settings = company?.settings || {};
     const whatsapp = settings.whatsapp || {};
@@ -271,6 +272,15 @@ class AutomationService {
                 });
             }
             logger_1.default.info('Visit reminder sent', { visitId: visit.id, timing });
+            void (0, agent_action_log_service_1.logAgentAction)({
+                companyId: visit.companyId,
+                triggeredBy: 'automation',
+                action: `visit_reminder_${timing}`,
+                resourceType: 'visit',
+                resourceId: visit.id,
+                status: 'success',
+                result: `Reminder sent (${timing})`,
+            });
         }
         catch (err) {
             logger_1.default.error('Failed to send visit reminder', { visitId: visit.id, error: err.message });
@@ -304,6 +314,15 @@ class AutomationService {
         ${JSON.stringify({ visit_id: visit.id })}::jsonb
       )
     `;
+        void (0, agent_action_log_service_1.logAgentAction)({
+            companyId: visit.companyId,
+            triggeredBy: 'automation',
+            action: 'visit_agent_notification_15m',
+            resourceType: 'visit',
+            resourceId: visit.id,
+            status: 'success',
+            result: 'Agent notification created',
+        });
     }
     /**
      * Process follow-up automation rules:
@@ -478,6 +497,16 @@ class AutomationService {
                 },
             });
             logger_1.default.info('Follow-up message sent', { leadId: lead.id, reason, isReEngagement });
+            void (0, agent_action_log_service_1.logAgentAction)({
+                companyId: lead.companyId,
+                triggeredBy: 'automation',
+                action: 'lead_follow_up',
+                resourceType: 'lead',
+                resourceId: lead.id,
+                status: 'success',
+                result: reason,
+                inputs: { reason, isReEngagement },
+            });
         }
         catch (err) {
             logger_1.default.error('Failed to send follow-up', { leadId: lead.id, error: err.message });
@@ -646,6 +675,15 @@ class AutomationService {
             where: { id: lead.id },
             data: { lastContactAt: new Date() },
         });
+        void (0, agent_action_log_service_1.logAgentAction)({
+            companyId: lead.companyId,
+            triggeredBy: 'automation',
+            action: 'lead_negotiation_reminder_7d',
+            resourceType: 'lead',
+            resourceId: lead.id,
+            status: 'success',
+            result: 'Negotiation reminder notification created',
+        });
     }
     async executeConversationTimeout(conversationId) {
         const conv = await prisma_1.default.conversation.findUnique({
@@ -660,6 +698,15 @@ class AutomationService {
         await prisma_1.default.conversation.update({
             where: { id: conv.id },
             data: { status: 'closed' },
+        });
+        void (0, agent_action_log_service_1.logAgentAction)({
+            companyId: conv.companyId,
+            triggeredBy: 'automation',
+            action: 'conversation_timeout_24h',
+            resourceType: 'conversation',
+            resourceId: conv.id,
+            status: 'success',
+            result: 'Conversation closed after 24h inactivity',
         });
     }
 }

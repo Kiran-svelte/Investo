@@ -13,13 +13,26 @@ const validate_1 = require("../middleware/validate");
 const featureGate_1 = require("../middleware/featureGate");
 const rateLimiter_1 = require("../middleware/rateLimiter");
 const subscriptionEnforcement_1 = require("../middleware/subscriptionEnforcement");
+const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
 const validation_1 = require("../models/validation");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const notification_engine_1 = require("../services/notification.engine");
 const socket_service_1 = require("../services/socket.service");
 const leadAssignment_service_1 = require("../services/leadAssignment.service");
+const leadRouting_service_1 = require("../services/leadRouting.service");
+const leadMetadata_service_1 = require("../services/leadMetadata.service");
+const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
+function handleDeleteError(err, res) {
+    if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+    }
+    const message = err instanceof Error ? err.message : 'Delete failed';
+    logger_1.default.error('Delete failed', { error: message });
+    res.status(500).json({ error: message });
+}
 function toIsoString(value) {
     return value ? value.toISOString() : null;
 }
@@ -51,6 +64,7 @@ function stringifyDetails(details) {
     }
 }
 function mapLeadToSnakeCaseDTO(lead) {
+    const meta = (0, leadMetadata_service_1.metadataToDto)(lead.metadata);
     return {
         id: lead.id,
         customer_name: lead.customerName,
@@ -66,11 +80,38 @@ function mapLeadToSnakeCaseDTO(lead) {
         agent_name: lead.assignedAgent?.name || null,
         notes: lead.notes,
         language: lead.language || 'en',
+        lead_score: meta.lead_score ?? null,
+        tags: meta.tags ?? [],
+        source_detail: meta.source_detail ?? null,
+        intent: meta.intent ?? null,
+        lost_reason: meta.lost_reason ?? null,
         created_at: toIsoString(lead.createdAt),
         updated_at: toIsoString(lead.updatedAt),
         last_contact_at: toIsoString(lead.lastContactAt),
         conversation_id: lead.conversations?.[0]?.id || null,
     };
+}
+function buildLeadExportWhere(companyId, query, userRole, userId) {
+    const where = { companyId };
+    if (userRole === 'sales_agent')
+        where.assignedAgentId = userId;
+    if (query.status)
+        where.status = query.status;
+    if (query.assigned_agent_id)
+        where.assignedAgentId = query.assigned_agent_id;
+    if (query.property_type)
+        where.propertyType = query.property_type;
+    if (query.source)
+        where.source = query.source;
+    if (query.search) {
+        const search = String(query.search);
+        where.OR = [
+            { customerName: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+        ];
+    }
+    return where;
 }
 function mapLeadTimelineToSnakeCaseDTO(entry) {
     return {
@@ -84,6 +125,7 @@ function mapLeadTimelineToSnakeCaseDTO(entry) {
 }
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
+router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('lead_automation'));
 /**
  * GET /api/leads
@@ -207,8 +249,22 @@ router.post('/', (0, rbac_1.authorize)('leads', 'create'), subscriptionEnforceme
         // After Zod validation, req.body uses snake_case field names
         let agentId = req.body.assigned_agent_id;
         if (!agentId) {
-            agentId = await (0, leadAssignment_service_1.assignLeadRoundRobin)(companyId);
+            agentId = await (0, leadRouting_service_1.assignLeadWithRouting)(companyId, {
+                locationPreference: req.body.location_preference || null,
+                metadata: req.body.source_detail
+                    ? { source_detail: req.body.source_detail }
+                    : {},
+            });
         }
+        const initialMeta = {};
+        if (req.body.lead_score)
+            initialMeta.lead_score = req.body.lead_score;
+        if (Array.isArray(req.body.tags))
+            initialMeta.tags = req.body.tags;
+        if (req.body.source_detail)
+            initialMeta.source_detail = req.body.source_detail;
+        if (req.body.intent)
+            initialMeta.intent = req.body.intent;
         const lead = await prisma_1.default.lead.create({
             data: {
                 companyId,
@@ -224,9 +280,13 @@ router.post('/', (0, rbac_1.authorize)('leads', 'create'), subscriptionEnforceme
                 status: 'new',
                 notes: req.body.notes || null,
                 language: req.body.language || 'en',
+                metadata: Object.keys(initialMeta).length ? initialMeta : {},
             },
         });
         if (lead.assignedAgentId) {
+            if (!req.body.assigned_agent_id) {
+                void (0, leadAssignment_service_1.notifyAgentOfNewLead)(lead.assignedAgentId, lead.id, companyId);
+            }
             await notification_engine_1.notificationEngine.onLeadAssigned(lead, lead.assignedAgentId);
         }
         // Emit WebSocket event for real-time update
@@ -258,8 +318,20 @@ router.put('/:id', (0, rbac_1.authorize)('leads', 'update'), (0, audit_1.auditLo
             res.status(403).json({ error: 'Can only update assigned leads' });
             return;
         }
-        const { customer_name, email, budget_min, budget_max, location_preference, property_type, assigned_agent_id, notes, language } = req.body;
+        const { customer_name, email, budget_min, budget_max, location_preference, property_type, assigned_agent_id, notes, language, tags, lead_score, source_detail, lost_reason, } = req.body;
         const oldAgentId = lead.assignedAgentId;
+        const metaPatch = {};
+        if (tags !== undefined)
+            metaPatch.tags = Array.isArray(tags) ? tags : [];
+        if (lead_score !== undefined)
+            metaPatch.lead_score = lead_score;
+        if (source_detail !== undefined)
+            metaPatch.source_detail = source_detail;
+        if (lost_reason !== undefined)
+            metaPatch.lost_reason = lost_reason;
+        const metadata = Object.keys(metaPatch).length > 0
+            ? (0, leadMetadata_service_1.mergeLeadMetadata)(lead.metadata, metaPatch)
+            : undefined;
         const updated = await prisma_1.default.lead.update({
             where: { id },
             data: {
@@ -272,6 +344,7 @@ router.put('/:id', (0, rbac_1.authorize)('leads', 'update'), (0, audit_1.auditLo
                 ...(assigned_agent_id !== undefined && { assignedAgentId: assigned_agent_id }),
                 ...(notes !== undefined && { notes }),
                 ...(language !== undefined && { language }),
+                ...(metadata !== undefined && { metadata: metadata }),
                 lastContactAt: new Date(),
             },
         });
@@ -302,13 +375,15 @@ router.put('/:id', (0, rbac_1.authorize)('leads', 'update'), (0, audit_1.auditLo
 /**
  * PATCH /api/leads/:id/status
  * Transition lead status. Enforces state machine.
- * Leads CANNOT be deleted - only closed.
+ * Transition lead status. Enforces state machine.
  */
 router.patch('/:id/status', (0, rbac_1.authorize)('leads', 'update'), (0, validate_1.validate)(validation_1.updateLeadStatusSchema), (0, audit_1.auditLog)('status_change', 'leads'), async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
         const { id } = req.params;
-        const { status: newStatus } = req.body;
+        const { status: newStatus, force: forceBody } = req.body;
+        const force = Boolean(forceBody)
+            && (req.user.role === 'company_admin' || req.user.role === 'super_admin');
         const lead = await prisma_1.default.lead.findFirst({ where: { id, companyId } });
         if (!lead) {
             res.status(404).json({ error: 'Lead not found' });
@@ -329,7 +404,7 @@ router.patch('/:id/status', (0, rbac_1.authorize)('leads', 'update'), (0, valida
             }
             // Allow this transition
         }
-        else if (!(0, validation_1.isValidTransition)(validation_1.LEAD_TRANSITIONS, currentStatus, targetStatus)) {
+        else if (!force && !(0, validation_1.isValidTransition)(validation_1.LEAD_TRANSITIONS, currentStatus, targetStatus)) {
             res.status(400).json({
                 error: `Invalid status transition: ${currentStatus} -> ${targetStatus}`,
                 allowed: validation_1.LEAD_TRANSITIONS[currentStatus],
@@ -349,6 +424,32 @@ router.patch('/:id/status', (0, rbac_1.authorize)('leads', 'update'), (0, valida
     catch (err) {
         logger_1.default.error('Failed to update lead status', { error: err.message });
         res.status(500).json({ error: 'Failed to update lead status' });
+    }
+});
+/**
+ * DELETE /api/leads/:id
+ * Permanently delete a lead and related conversations, messages, and visits.
+ */
+router.delete('/:id', (0, rbac_1.authorize)('leads', 'delete'), (0, audit_1.auditLog)('delete', 'leads'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const { id } = req.params;
+        const lead = await prisma_1.default.lead.findFirst({ where: { id, companyId } });
+        if (!lead) {
+            res.status(404).json({ error: 'Lead not found' });
+            return;
+        }
+        if (req.user.role === 'sales_agent' &&
+            lead.assignedAgentId !== req.user.id) {
+            res.status(403).json({ error: 'Can only delete assigned leads' });
+            return;
+        }
+        await (0, resourceDelete_service_1.deleteLeadPermanently)(companyId, id);
+        socket_service_1.socketService.emitToCompany(companyId, socket_service_1.SOCKET_EVENTS.LEAD_UPDATED, { deleted: id });
+        res.json({ message: 'Lead deleted permanently' });
+    }
+    catch (err) {
+        handleDeleteError(err, res);
     }
 });
 /**
@@ -511,10 +612,31 @@ router.get('/import/template', (0, rbac_1.authorize)('leads', 'create'), async (
     res.setHeader('Content-Disposition', 'attachment; filename=lead_import_template.csv');
     res.send(template);
 });
+function serializeLeadExportRow(l) {
+    const meta = (0, leadMetadata_service_1.metadataToDto)(l.metadata);
+    return [
+        l.customerName || '',
+        l.phone,
+        l.email || '',
+        String(l.budgetMin ?? ''),
+        String(l.budgetMax ?? ''),
+        l.locationPreference || '',
+        l.propertyType || '',
+        l.status,
+        l.assignedAgent?.name || '',
+        l.source || '',
+        meta.lead_score || '',
+        (meta.tags || []).join(';'),
+        meta.source_detail || '',
+        l.createdAt.toISOString(),
+    ];
+}
+const EXPORT_HEADERS = [
+    'Name', 'Phone', 'Email', 'Budget Min', 'Budget Max', 'Location', 'Type',
+    'Status', 'Agent', 'Source', 'Lead Score', 'Tags', 'Source Detail', 'Created',
+];
 /**
- * GET /api/leads/export/csv
- * Export leads as CSV. Company admin only.
- * Rate limited: 10 exports per hour per user
+ * GET /api/leads/export/csv — supports same filters as list (?status=&search=&source=)
  */
 router.get('/export/csv', (0, rbac_1.authorize)('leads', 'read'), rateLimiter_1.exportRateLimiter, (0, audit_1.auditLog)('export', 'leads'), async (req, res) => {
     try {
@@ -523,26 +645,44 @@ router.get('/export/csv', (0, rbac_1.authorize)('leads', 'read'), rateLimiter_1.
             res.status(403).json({ error: 'Only admins can export data' });
             return;
         }
+        const where = buildLeadExportWhere(companyId, req.query, req.user.role, req.user.id);
         const leads = await prisma_1.default.lead.findMany({
-            where: { companyId },
+            where: where,
             include: { assignedAgent: { select: { name: true } } },
             orderBy: { createdAt: 'desc' },
         });
-        // Build CSV
-        const headers = ['Name', 'Phone', 'Email', 'Budget Min', 'Budget Max', 'Location', 'Type', 'Status', 'Agent', 'Source', 'Created'];
-        const rows = leads.map((l) => [
-            l.customerName || '', l.phone, l.email || '',
-            l.budgetMin || '', l.budgetMax || '', l.locationPreference || '',
-            l.propertyType || '', l.status, l.assignedAgent?.name || '', l.source || '',
-            l.createdAt,
-        ].join(','));
-        const csv = [headers.join(','), ...rows].join('\n');
+        const rows = leads.map((l) => serializeLeadExportRow(l).join(','));
+        const csv = [EXPORT_HEADERS.join(','), ...rows].join('\n');
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', 'attachment; filename=leads_export.csv');
         res.send(csv);
     }
     catch (err) {
         logger_1.default.error('Failed to export leads', { error: err.message });
+        res.status(500).json({ error: 'Failed to export leads' });
+    }
+});
+/**
+ * GET /api/leads/export/json — filtered JSON export
+ */
+router.get('/export/json', (0, rbac_1.authorize)('leads', 'read'), rateLimiter_1.exportRateLimiter, (0, audit_1.auditLog)('export', 'leads'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        if (req.user.role !== 'company_admin' && req.user.role !== 'super_admin') {
+            res.status(403).json({ error: 'Only admins can export data' });
+            return;
+        }
+        const where = buildLeadExportWhere(companyId, req.query, req.user.role, req.user.id);
+        const leads = await prisma_1.default.lead.findMany({
+            where: where,
+            include: { assignedAgent: { select: { name: true } } },
+            orderBy: { createdAt: 'desc' },
+        });
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', 'attachment; filename=leads_export.json');
+        res.json({ exported_at: new Date().toISOString(), count: leads.length, data: leads.map(mapLeadToSnakeCaseDTO) });
+    }
+    catch (err) {
         res.status(500).json({ error: 'Failed to export leads' });
     }
 });

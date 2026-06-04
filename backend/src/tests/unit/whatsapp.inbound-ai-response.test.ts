@@ -1,8 +1,8 @@
 /// <reference types="jest" />
 
 const mockPrisma = {
-  company: { findMany: jest.fn() },
-  lead: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), groupBy: jest.fn() },
+  company: { findMany: jest.fn(), findUnique: jest.fn() },
+  lead: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), groupBy: jest.fn() },
   conversation: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
   message: { create: jest.fn(), findMany: jest.fn() },
   notification: { create: jest.fn() },
@@ -82,6 +82,24 @@ jest.mock('../../services/neverSayNoEngine.service', () => ({
   }),
 }));
 
+jest.mock('../../services/customerVisitBooking.service', () => ({
+  __esModule: true,
+  tryCommitCustomerVisitBooking: jest.fn().mockResolvedValue({ committed: false }),
+}));
+
+jest.mock('../../services/messagePolish.service', () => ({
+  __esModule: true,
+  polishOutboundMessage: jest.fn(async ({ rawText }: { rawText: string }) => ({
+    text: rawText,
+    mode: 'unchanged',
+  })),
+}));
+
+jest.mock('../../services/brochureDelivery.service', () => ({
+  __esModule: true,
+  deliverBrochuresForAiTurn: jest.fn().mockResolvedValue({ cleanedText: 'Hi Rajesh! Here are a few options...' }),
+}));
+
 jest.mock('../../services/inboundWhatsAppRouting.service', () => ({
   __esModule: true,
   routeCompanyScopedInbound: jest.fn().mockResolvedValue({
@@ -124,6 +142,20 @@ describe('WhatsAppService AI response processing', () => {
         },
       },
     ]);
+    mockPrisma.company.findUnique.mockResolvedValue({
+      id: 'company-1',
+      name: 'Investo Platform',
+      settings: {
+        whatsapp: {
+          provider: 'greenapi',
+          greenapi: {
+            idInstance: '7107584520',
+            apiTokenInstance: 'token',
+            webhookUrlToken: 'token',
+          },
+        },
+      },
+    });
 
     mockPrisma.lead.findFirst.mockResolvedValue({
       id: 'lead-1',
@@ -133,6 +165,11 @@ describe('WhatsAppService AI response processing', () => {
       status: 'contacted',
       language: 'en',
       assignedAgentId: null,
+    });
+    mockPrisma.lead.findUnique.mockResolvedValue({
+      id: 'lead-1',
+      companyId: 'company-1',
+      metadata: {},
     });
 
     mockPrisma.conversation.findFirst.mockResolvedValue({

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, MapPin,
   Phone, CheckCircle, XCircle, AlertCircle, X, Loader2, Trash2,
@@ -46,14 +48,18 @@ const VISIT_TRANSITIONS: Record<string, string[]> = {
 const CalendarPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const capabilities = getRoleCapabilities(user?.role);
+  const { confirm, Dialog } = useConfirmDialog();
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<'day' | 'week' | 'month'>('week');
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [visitDeleting, setVisitDeleting] = useState(false);
+  const [visitActionError, setVisitActionError] = useState<string | null>(null);
 
   const getDateRange = useCallback(() => {
     const from = new Date(currentDate); const to = new Date(currentDate);
@@ -66,10 +72,15 @@ const CalendarPage: React.FC = () => {
   const loadVisits = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const { from, to } = getDateRange();
       const res = await api.get(`/visits?from=${from.toISOString()}&to=${to.toISOString()}`);
       setVisits(res.data.data);
-    } catch (err) { console.error('Failed to load visits', err); }
+    } catch (err) {
+      console.error('Failed to load visits', err);
+      setLoadError('Could not load visits for this date range.');
+      setVisits([]);
+    }
     finally { setLoading(false); }
   }, [getDateRange]);
 
@@ -109,11 +120,11 @@ const CalendarPage: React.FC = () => {
       await loadVisits();
       setSelectedVisit(null);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update status');
+      setVisitActionError(err.response?.data?.error || 'Failed to update status');
     } finally { setStatusUpdating(false); }
   };
 
-  const canSchedule = user?.role === 'company_admin' || user?.role === 'super_admin' || user?.role === 'sales_agent';
+  const canSchedule = capabilities.canScheduleVisits;
 
   return (
     <div className="investo-page space-y-4">
@@ -125,6 +136,12 @@ const CalendarPage: React.FC = () => {
           </button>
         )}
       </div>
+
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {loadError}
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex flex-col gap-4 investo-card p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
@@ -240,7 +257,11 @@ const CalendarPage: React.FC = () => {
 
       {/* Mobile list */}
       <div className="space-y-3 md:hidden">
-        {visits.map(visit => {
+        {visits.length === 0 && !loading ? (
+          <div className="investo-card p-6 text-center text-sm text-ink-muted">
+            No visits scheduled in this range.
+          </div>
+        ) : visits.map(visit => {
           const StatusIcon = STATUS_ICONS[visit.status] || Clock;
           const time = new Date(visit.scheduled_at);
           return (<div key={visit.id} onClick={() => setSelectedVisit(visit)}
@@ -280,6 +301,11 @@ const CalendarPage: React.FC = () => {
                 <div><span className="text-ink-muted">Status</span><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[selectedVisit.status]}`}>{selectedVisit.status}</span></div>
               </div>
               {selectedVisit.notes && <div><span className="text-sm text-ink-muted">Notes</span><p className="text-sm bg-surface-muted p-2 rounded mt-1">{selectedVisit.notes}</p></div>}
+              {visitActionError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                  {visitActionError}
+                </div>
+              )}
               {(VISIT_TRANSITIONS[selectedVisit.status] || []).length > 0 && (
                 <div className="pt-2 border-t">
                   <p className="text-sm font-medium text-ink-secondary mb-2">Update Status:</p>
@@ -298,21 +324,21 @@ const CalendarPage: React.FC = () => {
                   type="button"
                   disabled={visitDeleting}
                   onClick={async () => {
-                    if (
-                      !window.confirm(
-                        'Permanently delete this visit? This cannot be undone.',
-                      )
-                    ) {
-                      return;
-                    }
+                    const confirmed = await confirm(
+                      'Delete visit?',
+                      'This visit will be permanently removed. This cannot be undone.',
+                      { confirmLabel: 'Delete' },
+                    );
+                    if (!confirmed) return;
                     setVisitDeleting(true);
+                    setVisitActionError(null);
                     try {
                       await deleteVisit(selectedVisit.id);
                       setVisits((prev) => prev.filter((v) => v.id !== selectedVisit.id));
                       setSelectedVisit(null);
                     } catch (err: unknown) {
                       const ax = err as { response?: { data?: { error?: string } } };
-                      alert(ax.response?.data?.error || 'Failed to delete visit');
+                      setVisitActionError(ax.response?.data?.error || 'Failed to delete visit');
                     } finally {
                       setVisitDeleting(false);
                     }
@@ -333,6 +359,7 @@ const CalendarPage: React.FC = () => {
       )}
 
       {showScheduleModal && <ScheduleVisitModal onClose={() => setShowScheduleModal(false)} onCreated={() => { setShowScheduleModal(false); loadVisits(); }} />}
+      {Dialog}
     </div>
   );
 };
@@ -348,28 +375,46 @@ const ScheduleVisitModal: React.FC<{ onClose: () => void; onCreated: () => void 
   const [form, setForm] = useState({ lead_id: '', property_id: '', agent_id: '', scheduled_at: '', duration_minutes: '60', notes: '' });
 
   useEffect(() => {
+    const failed: string[] = [];
+    const safeGet = async (label: string, url: string) => {
+      try {
+        return await api.get(url);
+      } catch {
+        failed.push(label);
+        return { data: { data: [] } };
+      }
+    };
+
     Promise.all([
-      api.get('/leads?limit=100&status=new').catch(() => ({ data: { data: [] } })),
-      api.get('/leads?limit=100&status=contacted').catch(() => ({ data: { data: [] } })),
-      api.get('/properties?limit=100').catch(() => ({ data: { data: [] } })),
-      api.get('/users?role=sales_agent').catch(() => ({ data: { data: [] } })),
+      safeGet('new leads', '/leads?limit=100&status=new'),
+      safeGet('contacted leads', '/leads?limit=100&status=contacted'),
+      safeGet('properties', '/properties?limit=100'),
+      safeGet('agents', '/users?role=sales_agent'),
     ]).then(([newLeads, contactedLeads, props, ags]) => {
       setLeads([...(newLeads.data.data || []), ...(contactedLeads.data.data || [])]);
       setProperties(props.data.data || []);
       setAgents(ags.data.data || []);
+      if (failed.length > 0) {
+        setError(`Could not load ${failed.join(', ')}. Scheduling may be incomplete.`);
+      }
     });
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.lead_id || !form.agent_id || !form.scheduled_at) { setError('Lead, agent, and date/time are required'); return; }
+    const scheduledAt = new Date(form.scheduled_at);
+    if (Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() < Date.now() - 60_000) {
+      setError('Choose a future date and time for the visit.');
+      return;
+    }
     setSaving(true); setError('');
     try {
       await api.post('/visits', {
         lead_id: form.lead_id,
         property_id: form.property_id || null,
         agent_id: form.agent_id,
-        scheduled_at: new Date(form.scheduled_at).toISOString(),
+        scheduled_at: scheduledAt.toISOString(),
         duration_minutes: parseInt(form.duration_minutes) || 60,
         notes: form.notes || null,
       });

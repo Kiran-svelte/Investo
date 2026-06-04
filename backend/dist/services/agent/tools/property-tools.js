@@ -9,6 +9,8 @@ const prisma_1 = __importDefault(require("../../../config/prisma"));
 const agent_tools_constants_1 = require("../../../constants/agent-tools.constants");
 const format_helpers_1 = require("./format-helpers");
 const langchain_runtime_1 = require("./langchain-runtime");
+const propertyCompleteness_service_1 = require("../../propertyCompleteness.service");
+const propertyKnowledge_service_1 = require("../../propertyKnowledge.service");
 const propertyType = zod_1.z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']);
 const propertyStatus = zod_1.z.enum(['available', 'sold', 'upcoming']);
 function price(min, max) {
@@ -86,6 +88,47 @@ function createPropertyTools(context) {
                     return 'No fields provided.';
                 await prisma_1.default.property.update({ where: { id: propertyId }, data });
                 return `Property updated: ${Object.keys(data).join(', ')}`;
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'checkPropertyCompleteness',
+            description: 'Check if a property has all required fields for customer-facing AI (publishable).',
+            schema: zod_1.z.object({ propertyId: zod_1.z.string().uuid() }),
+            func: async ({ propertyId }) => {
+                const property = await prisma_1.default.property.findFirst({
+                    where: { id: propertyId, companyId: context.companyId },
+                });
+                if (!property)
+                    return 'Property not found.';
+                return (0, propertyCompleteness_service_1.formatCompletenessForAgentTool)((0, propertyCompleteness_service_1.assessPropertyCompleteness)(property));
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'searchCatalogByCustomerMessage',
+            description: 'Match published properties by customer message (type + location). Use before claiming a project exists. Returns brochure URLs when available.',
+            schema: zod_1.z.object({
+                message: zod_1.z.string().min(1),
+                limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_LIST_LIMIT).optional(),
+            }),
+            func: async ({ message, limit }) => {
+                const matches = await (0, propertyKnowledge_service_1.matchCatalogPropertiesForQuery)({
+                    companyId: context.companyId,
+                    query: message,
+                    limit: limit ?? 5,
+                });
+                if (!matches.length) {
+                    return 'No matching published properties in catalog for that message. Do not invent project names.';
+                }
+                return [
+                    '*Catalog matches (grounded)*',
+                    ...matches.map((p) => [
+                        `*${p.name}* (${p.propertyType || 'type unknown'})`,
+                        `Location: ${[p.locationArea, p.locationCity].filter(Boolean).join(', ') || 'not set'}`,
+                        `ID: ${p.id}`,
+                        p.brochureUrl ? 'Brochure PDF: on file' : 'Brochure: not on file',
+                        `Match score: ${p.score}`,
+                    ].join('\n')),
+                ].join('\n\n');
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({

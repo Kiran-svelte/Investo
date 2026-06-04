@@ -5,13 +5,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middleware/auth");
+const rbac_1 = require("../middleware/rbac");
 const tenant_1 = require("../middleware/tenant");
+const audit_1 = require("../middleware/audit");
 const featureGate_1 = require("../middleware/featureGate");
+const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
+router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('notifications'));
 /**
  * GET /api/notifications
@@ -26,10 +31,13 @@ router.get('/', async (req, res) => {
         const skip = (page - 1) * limit;
         const unreadOnly = String(req.query.unread ?? '').toLowerCase() === 'true';
         const type = typeof req.query.type === 'string' ? req.query.type : undefined;
+        const types = typeof req.query.types === 'string'
+            ? req.query.types.split(',').map((entry) => entry.trim()).filter(Boolean)
+            : [];
         const where = {
             companyId,
             ...(unreadOnly ? { read: false } : {}),
-            ...(type ? { type: type } : {}),
+            ...(types.length > 0 ? { type: { in: types } } : type ? { type: type } : {}),
             OR: [{ userId }, { userId: null }],
         };
         const [notifications, total, unreadCount] = await Promise.all([
@@ -108,4 +116,41 @@ const markAllReadHandler = async (req, res) => {
 };
 router.patch('/read-all', markAllReadHandler);
 router.put('/read-all', markAllReadHandler);
+function handleDeleteError(err, res) {
+    if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+    }
+    const message = err instanceof Error ? err.message : 'Delete failed';
+    logger_1.default.error('Delete failed', { error: message });
+    res.status(500).json({ error: message });
+}
+/**
+ * DELETE /api/notifications/all
+ * Permanently delete all notifications visible to the current user.
+ */
+router.delete('/all', (0, rbac_1.authorize)('notifications', 'delete'), (0, audit_1.auditLog)('delete', 'notifications'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const count = await (0, resourceDelete_service_1.deleteAllNotificationsForUser)(companyId, req.user.id);
+        res.json({ message: 'Notifications deleted', deleted: count });
+    }
+    catch (err) {
+        handleDeleteError(err, res);
+    }
+});
+/**
+ * DELETE /api/notifications/:id
+ * Permanently delete one notification.
+ */
+router.delete('/:id', (0, rbac_1.authorize)('notifications', 'delete'), (0, audit_1.auditLog)('delete', 'notifications'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        await (0, resourceDelete_service_1.deleteNotificationPermanently)(companyId, req.user.id, req.params.id);
+        res.json({ message: 'Notification deleted' });
+    }
+    catch (err) {
+        handleDeleteError(err, res);
+    }
+});
 exports.default = router;

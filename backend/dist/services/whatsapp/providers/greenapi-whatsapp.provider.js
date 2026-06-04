@@ -27,6 +27,34 @@ class GreenApiWhatsAppProvider {
         const result = (await response.json());
         return { success: true, messageId: result.idMessage };
     }
+    async sendFileByUrl(to, fileUrl, fileName, caption, companyConfig) {
+        const { idInstance, apiTokenInstance } = companyConfig;
+        if (!idInstance || !apiTokenInstance) {
+            return { success: false, error: 'Missing idInstance or apiTokenInstance' };
+        }
+        if (!fileUrl.startsWith('https://')) {
+            return { success: false, error: 'fileUrl must be HTTPS' };
+        }
+        const body = {
+            chatId: normalizePhoneToChatId(to),
+            urlFile: fileUrl,
+            fileName: fileName || 'document.pdf',
+        };
+        if (caption?.trim()) {
+            body.caption = caption.trim().substring(0, 1024);
+        }
+        const response = await fetch(this.buildUrl('sendFileByUrl', { idInstance, apiTokenInstance }), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            return { success: false, error: `API Error: ${response.status} - ${errorText}` };
+        }
+        const result = (await response.json());
+        return { success: true, messageId: result.idMessage };
+    }
     async testConnection(companyConfig) {
         const { idInstance, apiTokenInstance } = companyConfig;
         if (!idInstance || !apiTokenInstance) {

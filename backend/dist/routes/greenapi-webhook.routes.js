@@ -294,13 +294,11 @@ async function processGreenApiWebhook(body, webhookTokenHint, companyIdHint) {
             continue;
         }
         try {
-            const { agentRouterService } = await Promise.resolve().then(() => __importStar(require('../services/agent/agent-router.service')));
-            const agentRouted = await agentRouterService.routeIfInternalUser(msg.customerPhone, msg.messageText);
-            if (agentRouted) {
-                outcome.propagationStatus = 'success';
-                outcome.status = 'processed';
-                outcome.reason = 'handled_by_agent_ai';
-                summary.processed += 1;
+            const companyResolution = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(phoneNumberId, 'greenapi', companyIdHint, webhookTokenHint, msg.customerPhone);
+            if (!companyResolution) {
+                outcome.status = 'skipped';
+                outcome.reason = 'company_not_found';
+                summary.skipped += 1;
                 summary.outcomes.push(outcome);
                 continue;
             }

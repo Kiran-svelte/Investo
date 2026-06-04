@@ -115,9 +115,6 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     sessionLeadId: sessionCtx.lastLeadId,
   });
   // visit cancel/reschedule handled inside tryDeterministicAgentCrmReply (mutation path first)
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-router.service.ts',message:'agent route branch',data:{userId:user.userId,role:user.userRole,usedDeterministic:Boolean(deterministic),preview:messageText.slice(0,80)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-  // #endregion
   if (deterministic) {
     if (session?.id) {
       await recordAgentCopilotExchange({
@@ -156,7 +153,6 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     clientMemoryBlock: memory.block,
   });
   if (session?.id) {
-    const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
     await recordAgentCopilotExchange({
       sessionId: session.id,
       inboundText: messageText,

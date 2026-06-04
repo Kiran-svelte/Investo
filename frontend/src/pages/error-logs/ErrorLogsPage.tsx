@@ -22,10 +22,12 @@ const ErrorLogsPage: React.FC = () => {
   const [days, setDays] = useState(7);
   const [resolvedFilter, setResolvedFilter] = useState<'all' | 'open' | 'resolved'>('open');
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
+      setLoadError(null);
       const params = new URLSearchParams({ days: String(days) });
       if (resolvedFilter === 'open') params.append('resolved', 'false');
       if (resolvedFilter === 'resolved') params.append('resolved', 'true');
@@ -33,6 +35,7 @@ const ErrorLogsPage: React.FC = () => {
       setLogs(res.data.data || []);
     } catch {
       setLogs([]);
+      setLoadError('Could not load error logs.');
     } finally {
       setLoading(false);
     }
@@ -47,19 +50,26 @@ const ErrorLogsPage: React.FC = () => {
     try {
       await api.patch(`/error-logs/${id}/resolve`);
       await load();
+    } catch {
+      setLoadError('Could not mark this error as resolved.');
     } finally {
       setResolvingId(null);
     }
   };
 
   const handleDownload = async () => {
-    const res = await api.get(`/error-logs/export?days=${days}`, { responseType: 'blob' });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `error_logs_${days}d.json`);
-    link.click();
-    link.remove();
+    try {
+      const res = await api.get(`/error-logs/export?days=${days}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `error_logs_${days}d.json`);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setLoadError('Could not download error logs.');
+    }
   };
 
   return (
@@ -92,9 +102,17 @@ const ErrorLogsPage: React.FC = () => {
           }
         />
 
+        {loadError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+            {loadError}
+          </div>
+        )}
+
         <div className="investo-card overflow-hidden">
           {logs.length === 0 ? (
-            <p className="p-8 text-center text-sm text-ink-muted">No errors in this period.</p>
+            <p className="p-8 text-center text-sm text-ink-muted">
+              {loadError ? 'Error logs are unavailable right now.' : 'No errors in this period.'}
+            </p>
           ) : (
             <ul className="divide-y divide-border-subtle">
               {logs.map((log) => (

@@ -11,6 +11,8 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const validation_1 = require("../models/validation");
 const auth_service_1 = require("../services/auth.service");
+const email_service_1 = require("../services/email.service");
+const config_1 = __importDefault(require("../config"));
 const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const prismaErrors_1 = require("../utils/prismaErrors");
 const router = (0, express_1.Router)();
@@ -466,8 +468,11 @@ router.post('/features', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), asyn
             });
             return;
         }
+        const validKeys = new Set(DEFAULT_FEATURES);
         const results = [];
         for (const feature of featureEntries) {
+            if (!validKeys.has(feature.key))
+                continue;
             const result = await prisma_1.default.companyFeature.upsert({
                 where: { companyId_featureKey: { companyId, featureKey: feature.key } },
                 create: { companyId, featureKey: feature.key, enabled: feature.enabled },
@@ -634,6 +639,15 @@ router.post('/invite', (0, rbac_1.hasRole)(...ONBOARDING_MUTATION_ROLES), async 
                     name: m.name,
                     role: selectedRole,
                     status: 'created',
+                });
+                const loginUrl = `${config_1.default.frontend.baseUrl.replace(/\/$/, '')}/login`;
+                void email_service_1.emailService.sendWelcomeInviteEmail({
+                    toEmail: normalizedEmail,
+                    toName: String(m.name),
+                    loginUrl,
+                    temporaryPassword: String(m.password),
+                }).catch((mailErr) => {
+                    logger_1.default.warn('Onboarding invite email failed', { email: normalizedEmail, error: mailErr.message });
                 });
             }
             catch (inviteErr) {

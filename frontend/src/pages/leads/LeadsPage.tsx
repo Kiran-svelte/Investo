@@ -68,6 +68,7 @@ const LeadsPage: React.FC = () => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const canForceAnyStatus = user?.role === 'company_admin' || user?.role === 'super_admin';
   const canEditLeadStatus = (capabilities.canCreateLeads || capabilities.canAssignLeads) && !capabilities.isReadOnly;
@@ -75,6 +76,7 @@ const LeadsPage: React.FC = () => {
   const loadLeads = useCallback(async () => {
     try {
       setLoading(true);
+      setPageError(null);
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (statusFilter) params.append('status', statusFilter);
@@ -86,6 +88,8 @@ const LeadsPage: React.FC = () => {
       setTotal(res.data.pagination?.total || 0);
     } catch (err) {
       console.error('Failed to load leads', err);
+      setPageError('Could not load leads.');
+      setLeads([]);
     } finally {
       setLoading(false);
     }
@@ -122,6 +126,7 @@ const LeadsPage: React.FC = () => {
       await loadLeads();
     } catch (err) {
       console.error('Status update failed', err);
+      setPageError('Could not update lead status.');
     } finally {
       setStatusUpdatingId(null);
     }
@@ -131,7 +136,7 @@ const LeadsPage: React.FC = () => {
     if (capabilities.canAssignLeads) {
       api.get('/users?role=sales_agent').then(res => {
         setAgents(res.data.data || []);
-      }).catch(() => {});
+      }).catch(() => setPageError('Could not load agents for assignment.'));
     }
   }, [capabilities.canAssignLeads]);
 
@@ -152,8 +157,10 @@ const LeadsPage: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Export failed', err);
+      setPageError('Could not export leads as CSV.');
     }
   };
 
@@ -167,8 +174,10 @@ const LeadsPage: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('JSON export failed', err);
+      setPageError('Could not export leads as JSON.');
     }
   };
 
@@ -231,6 +240,12 @@ const LeadsPage: React.FC = () => {
         </div>
         }
       />
+
+      {pageError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {pageError}
+        </div>
+      )}
 
       {/* AI hybrid + pipeline */}
       <div className="rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 via-surface-elevated to-surface-muted p-3 shadow-sm sm:p-4">
@@ -493,6 +508,16 @@ const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ agents, onClose, onCr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.phone.trim()) { setError('Phone number is required'); return; }
+    const minBudget = form.budget_min ? Number(form.budget_min) : null;
+    const maxBudget = form.budget_max ? Number(form.budget_max) : null;
+    if ((minBudget !== null && Number.isNaN(minBudget)) || (maxBudget !== null && Number.isNaN(maxBudget))) {
+      setError('Budget must be a valid number');
+      return;
+    }
+    if (minBudget !== null && maxBudget !== null && minBudget > maxBudget) {
+      setError('Budget Min cannot be greater than Budget Max');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -501,8 +526,8 @@ const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ agents, onClose, onCr
         customer_name: form.customer_name || null,
         phone: form.phone.trim(),
         email: form.email || null,
-        budget_min: form.budget_min ? Number(form.budget_min) : null,
-        budget_max: form.budget_max ? Number(form.budget_max) : null,
+        budget_min: minBudget,
+        budget_max: maxBudget,
         location_preference: form.location_preference || null,
         property_type: form.property_type || null,
         source: form.source,

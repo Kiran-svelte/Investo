@@ -37,48 +37,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.agentRouterService = void 0;
+exports.routeIfInternalUserForCompany = routeIfInternalUserForCompany;
 exports.routeIfInternalUser = routeIfInternalUser;
 const config_1 = __importDefault(require("../../config"));
 const logger_1 = __importDefault(require("../../config/logger"));
 const maskPhoneNumberForLogs_1 = require("../../utils/maskPhoneNumberForLogs");
-const ELIGIBLE_ROLES = new Set(['super_admin', 'company_admin', 'sales_agent', 'operations']);
+const phoneMatch_1 = require("../../utils/phoneMatch");
 async function getPrisma() {
     const module = await Promise.resolve().then(() => __importStar(require('../../config/prisma')));
     return module.default;
-}
-function digits(phone) {
-    return phone.replace(/\D/g, '');
-}
-async function findInternalUserByPhone(senderPhone) {
-    const prisma = await getPrisma();
-    const rawDigits = digits(senderPhone);
-    const last10 = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
-    const candidates = Array.from(new Set([senderPhone, rawDigits, `+${rawDigits}`, last10, `+91${last10}`, `91${last10}`].filter(Boolean)));
-    const user = await prisma.user.findFirst({
-        where: {
-            status: 'active',
-            role: { in: Array.from(ELIGIBLE_ROLES) },
-            OR: candidates.map((candidate) => ({ phone: { contains: candidate } })),
-        },
-        select: {
-            id: true,
-            companyId: true,
-            role: true,
-            name: true,
-            phone: true,
-            company: { select: { name: true, status: true } },
-        },
-    });
-    if (!user || user.company.status !== 'active')
-        return null;
-    return {
-        userId: user.id,
-        companyId: user.companyId,
-        companyName: user.company.name,
-        userRole: user.role,
-        userName: user.name,
-        phone: user.phone ?? senderPhone,
-    };
 }
 async function sendWhatsAppResponse(phone, companyId, message) {
     const prisma = await getPrisma();
@@ -127,22 +94,112 @@ async function handleAgentMessage(user, messageText) {
         userName: user.userName,
         sessionId: session?.id,
     };
-    return invokeAgent({
+    const { getAgentSessionContext } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
+    const sessionCtx = await getAgentSessionContext(session?.id);
+    const { getRecentAgentSessionMessages } = await Promise.resolve().then(() => __importStar(require('./agent-session-messages.service')));
+    const { classifyAndRunWorkflow } = await Promise.resolve().then(() => __importStar(require('../workflow/workflow-engine.service')));
+    const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
+    const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
+    const workflowReply = await classifyAndRunWorkflow({
+        toolContext,
+        messageText,
+        recentMessages,
+        companyName: user.companyName,
+        sessionLeadId: sessionCtx.lastLeadId,
+        sessionVisitId: sessionCtx.lastVisitId,
+        staffPhone: user.phone,
+    });
+    if (workflowReply) {
+        if (session?.id) {
+            await recordAgentCopilotExchange({
+                sessionId: session.id,
+                inboundText: messageText,
+                outboundText: workflowReply,
+            });
+        }
+        return workflowReply;
+    }
+    const intentReply = await classifyAndExecuteAgentIntent({
+        toolContext,
+        messageText,
+        recentMessages,
+        companyName: user.companyName,
+        sessionLeadId: sessionCtx.lastLeadId,
+        sessionVisitId: sessionCtx.lastVisitId,
+        staffPhone: user.phone,
+    });
+    if (intentReply) {
+        if (session?.id) {
+            await recordAgentCopilotExchange({
+                sessionId: session.id,
+                inboundText: messageText,
+                outboundText: intentReply,
+            });
+        }
+        return intentReply;
+    }
+    const { tryDeterministicAgentCrmReply } = await Promise.resolve().then(() => __importStar(require('./agent-crm-query.service')));
+    const deterministic = await tryDeterministicAgentCrmReply(toolContext, messageText, {
+        sessionLeadId: sessionCtx.lastLeadId,
+    });
+    // visit cancel/reschedule handled inside tryDeterministicAgentCrmReply (mutation path first)
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a72821' }, body: JSON.stringify({ sessionId: 'a72821', location: 'agent-router.service.ts', message: 'agent route branch', data: { userId: user.userId, role: user.userRole, usedDeterministic: Boolean(deterministic), preview: messageText.slice(0, 80) }, timestamp: Date.now(), hypothesisId: 'H2' }) }).catch(() => { });
+    // #endregion
+    if (deterministic) {
+        if (session?.id) {
+            await recordAgentCopilotExchange({
+                sessionId: session.id,
+                inboundText: messageText,
+                outboundText: deterministic,
+            });
+        }
+        return deterministic;
+    }
+    const { buildClientMemoryContextForAgent, setAgentSessionClientContext } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
+    const memory = await buildClientMemoryContextForAgent({
+        companyId: user.companyId,
+        userId: user.userId,
+        userRole: user.userRole,
+        messageText,
+        sessionLeadId: sessionCtx.lastLeadId,
+        sessionVisitId: sessionCtx.lastVisitId,
+    });
+    if (session?.id && (memory.leadId || memory.visitId)) {
+        await setAgentSessionClientContext({
+            userId: user.userId,
+            phone: user.phone,
+            leadId: memory.leadId,
+            visitId: memory.visitId,
+        });
+    }
+    const agentReply = await invokeAgent({
         messageText,
         threadId,
         toolContext,
         companyName: user.companyName,
+        clientMemoryBlock: memory.block,
     });
+    if (session?.id) {
+        const { recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
+        await recordAgentCopilotExchange({
+            sessionId: session.id,
+            inboundText: messageText,
+            outboundText: agentReply,
+        });
+    }
+    return agentReply;
 }
-async function routeIfInternalUser(senderPhone, messageText, _webhookCompanyId) {
+/**
+ * Agent copilot for a known company user (caller must verify company membership).
+ */
+async function routeIfInternalUserForCompany(senderPhone, messageText, user) {
     if (!config_1.default.agentAi?.enabled || !messageText.trim())
         return false;
-    const user = await findInternalUserByPhone(senderPhone);
-    if (!user)
-        return false;
     try {
+        const normalizedPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone);
         const response = await handleAgentMessage(user, messageText);
-        await sendWhatsAppResponse(senderPhone, user.companyId, response);
+        await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
         return true;
     }
     catch (error) {
@@ -151,8 +208,28 @@ async function routeIfInternalUser(senderPhone, messageText, _webhookCompanyId) 
             userId: user.userId,
             error: error?.message,
         });
-        await sendWhatsAppResponse(senderPhone, user.companyId, 'I hit an issue processing that request. Please try again.');
+        await sendWhatsAppResponse((0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone), user.companyId, 'I hit an issue processing that request. Please try again.');
         return true;
     }
 }
-exports.agentRouterService = { routeIfInternalUser };
+/**
+ * @deprecated Use inboundWhatsAppRouting.routeCompanyScopedInbound with companyId.
+ * Kept for backward compatibility in tests; requires companyId when possible.
+ */
+async function routeIfInternalUser(senderPhone, messageText, companyId) {
+    if (!companyId) {
+        logger_1.default.warn('routeIfInternalUser called without companyId; skipping global agent match');
+        return false;
+    }
+    const { findCompanyUserByPhone, routeCompanyScopedInbound } = await Promise.resolve().then(() => __importStar(require('../inboundWhatsAppRouting.service')));
+    const user = await findCompanyUserByPhone(senderPhone, companyId);
+    if (!user)
+        return false;
+    const result = await routeCompanyScopedInbound({
+        senderPhone,
+        messageText,
+        companyId,
+    });
+    return result.handled;
+}
+exports.agentRouterService = { routeIfInternalUser, routeIfInternalUserForCompany };

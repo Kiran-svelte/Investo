@@ -13,10 +13,12 @@ const audit_1 = require("../middleware/audit");
 const validation_1 = require("../models/validation");
 const logger_1 = __importDefault(require("../config/logger"));
 const propertyImport_service_1 = require("../services/propertyImport.service");
+const requirePropertyPublisher_1 = require("../middleware/requirePropertyPublisher");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
 router.use((0, featureGate_1.requireFeature)('property_management'));
+router.use(requirePropertyPublisher_1.requirePropertyPublisher);
 function isStatusCodedError(err) {
     return Boolean(err)
         && typeof err === 'object'
@@ -61,6 +63,34 @@ function handleRouteError(err, res, fallbackMessage) {
     res.status(500).json({ error: fallbackMessage });
 }
 /**
+ * GET /api/property-imports/knowledge-gate
+ * Whether company admin must complete in-progress import AI knowledge before using the app.
+ */
+router.get('/knowledge-gate', (0, rbac_1.authorize)('properties', 'read'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const gate = await propertyImport_service_1.propertyImportService.getKnowledgeGate(companyId);
+        res.json({ data: gate });
+    }
+    catch (err) {
+        handleRouteError(err, res, 'Failed to check property knowledge gate');
+    }
+});
+/**
+ * GET /api/property-imports/drafts
+ * List in-progress import drafts (not yet published).
+ */
+router.get('/drafts', (0, rbac_1.authorize)('properties', 'read'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const drafts = await propertyImport_service_1.propertyImportService.listInProgressDrafts(companyId);
+        res.json({ data: drafts });
+    }
+    catch (err) {
+        handleRouteError(err, res, 'Failed to list property import drafts');
+    }
+});
+/**
  * POST /api/property-imports/drafts
  * Create a new import draft for the authenticated tenant.
  */
@@ -71,6 +101,7 @@ router.post('/drafts', (0, rbac_1.authorize)('properties', 'create'), (0, valida
         const draft = await propertyImport_service_1.propertyImportService.createDraft(companyId, userId, {
             draftData: req.body.draft_data,
             maxRetries: req.body.max_retries,
+            projectId: req.body.project_id ?? null,
         });
         res.status(201).json({ data: draft, id: draft.id });
     }
@@ -127,6 +158,21 @@ router.post('/drafts/:id/uploads/confirm', (0, rbac_1.authorize)('properties', '
     }
 });
 /**
+ * POST /api/property-imports/drafts/:id/defer-knowledge
+ * Allow company admin to use the app without finishing in-progress AI Q&A.
+ */
+router.post('/drafts/:id/defer-knowledge', (0, rbac_1.authorize)('properties', 'update'), (0, audit_1.auditLog)('defer_knowledge', 'property_imports'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const userId = req.user.id;
+        const draft = await propertyImport_service_1.propertyImportService.deferKnowledgeGate(companyId, req.params.id, userId);
+        res.json({ data: draft });
+    }
+    catch (err) {
+        handleRouteError(err, res, 'Failed to defer property knowledge setup');
+    }
+});
+/**
  * PUT /api/property-imports/drafts/:id
  * Manual override or save draft data.
  */
@@ -143,6 +189,45 @@ router.put('/drafts/:id', (0, rbac_1.authorize)('properties', 'update'), (0, val
     }
     catch (err) {
         handleRouteError(err, res, 'Failed to save draft changes');
+    }
+});
+/**
+ * POST /api/property-imports/drafts/:id/spreadsheet/import
+ * Parse CSV/Excel and create import units on the draft.
+ */
+router.post('/drafts/:id/spreadsheet/import', (0, rbac_1.authorize)('properties', 'update'), (0, validate_1.validate)(validation_1.propertyImportSpreadsheetImportSchema), (0, audit_1.auditLog)('spreadsheet_import', 'property_imports'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const result = await propertyImport_service_1.propertyImportService.importSpreadsheet(companyId, req.params.id, {
+            fileBuffer: Buffer.alloc(0),
+            mimeType: 'text/csv',
+            columnMapping: req.body.column_mapping,
+            rawRows: req.body.raw_rows,
+            propertyType: req.body.property_type,
+            projectName: req.body.project_name,
+        });
+        res.status(201).json({ data: result });
+    }
+    catch (err) {
+        handleRouteError(err, res, 'Failed to import spreadsheet');
+    }
+});
+/**
+ * PUT /api/property-imports/drafts/:id/units
+ * Replace draft units after column-mapping review.
+ */
+router.put('/drafts/:id/units', (0, rbac_1.authorize)('properties', 'update'), (0, validate_1.validate)(validation_1.propertyImportReplaceUnitsSchema), (0, audit_1.auditLog)('replace_units', 'property_imports'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const draft = await propertyImport_service_1.propertyImportService.replaceSpreadsheetUnits(companyId, req.params.id, req.body.units.map((unit, index) => ({
+            label: unit.label ?? null,
+            unitData: unit.unit_data,
+            sortOrder: unit.sort_order ?? index,
+        })));
+        res.json({ data: draft });
+    }
+    catch (err) {
+        handleRouteError(err, res, 'Failed to update import units');
     }
 });
 /**
@@ -185,6 +270,7 @@ router.post('/drafts/:id/cancel', (0, rbac_1.authorize)('properties', 'update'),
         const companyId = (0, tenant_1.getCompanyId)(req);
         const result = await propertyImport_service_1.propertyImportService.cancelDraft(companyId, req.params.id, {
             reason: req.body.reason,
+            purge: req.body.purge === true,
         });
         res.json({ data: result });
     }

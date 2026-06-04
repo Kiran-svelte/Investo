@@ -47,6 +47,7 @@ const validation_1 = require("../models/validation");
 const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const aiKnowledgeStorage_service_1 = require("../services/aiKnowledgeStorage.service");
 const router = (0, express_1.Router)();
 async function markWhatsAppVerified(companyId) {
     const company = await prisma_1.default.company.findUnique({
@@ -81,7 +82,6 @@ router.get('/', (0, rbac_1.authorize)('ai_settings', 'read'), async (req, res) =
         const companyId = (0, tenant_1.getCompanyId)(req);
         let settings = await prisma_1.default.aiSetting.findUnique({ where: { companyId } });
         if (!settings) {
-            // Create default settings
             settings = await prisma_1.default.aiSetting.create({
                 data: {
                     companyId,
@@ -91,6 +91,10 @@ router.get('/', (0, rbac_1.authorize)('ai_settings', 'read'), async (req, res) =
                     defaultLanguage: 'en',
                 },
             });
+        }
+        const supabaseFaqs = await (0, aiKnowledgeStorage_service_1.loadFaqKnowledgeFromSupabase)(companyId);
+        if (supabaseFaqs !== null) {
+            settings = { ...settings, faqKnowledge: supabaseFaqs };
         }
         res.json({ data: settings });
     }
@@ -138,6 +142,11 @@ router.put('/', (0, rbac_1.authorize)('ai_settings', 'update'), (0, validate_1.v
                 ...updateFields,
             },
         });
+        if (data.faq_knowledge !== undefined) {
+            void (0, aiKnowledgeStorage_service_1.syncFaqKnowledgeToSupabase)(companyId, data.faq_knowledge).catch((syncErr) => {
+                logger_1.default.warn('FAQ knowledge Supabase sync failed', { companyId, error: syncErr.message });
+            });
+        }
         res.json({ data: settings });
     }
     catch (err) {

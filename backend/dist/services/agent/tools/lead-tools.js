@@ -40,8 +40,10 @@ exports.createLeadTools = createLeadTools;
 const zod_1 = require("zod");
 const prisma_1 = __importDefault(require("../../../config/prisma"));
 const agent_tools_constants_1 = require("../../../constants/agent-tools.constants");
+const pagination_1 = require("../../../utils/pagination");
 const confirmation_service_1 = require("../confirmation.service");
 const format_helpers_1 = require("./format-helpers");
+const lead_status_actions_1 = require("../lead-status-actions");
 const langchain_runtime_1 = require("./langchain-runtime");
 const leadStatus = zod_1.z.enum(['new', 'contacted', 'visit_scheduled', 'visited', 'negotiation', 'closed_won', 'closed_lost']);
 function formatBudget(min, max) {
@@ -61,20 +63,61 @@ function createLeadTools(context) {
         new langchain_runtime_1.DynamicStructuredTool({
             name: 'listLeads',
             description: 'List leads by status or search term. Sales agents see only assigned leads.',
-            schema: zod_1.z.object({ status: leadStatus.optional(), search: zod_1.z.string().optional(), limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_LIST_LIMIT).optional() }),
-            func: async ({ status, search, limit }) => {
+            schema: zod_1.z.object({
+                status: leadStatus.optional(),
+                search: zod_1.z.string().optional(),
+                page: zod_1.z.number().int().min(1).optional(),
+                limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_LIST_LIMIT).optional(),
+            }),
+            func: async ({ status, search, page, limit }) => {
                 const where = { ...leadScope(context), ...(status ? { status } : {}) };
                 if (search)
                     where.OR = [{ customerName: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }];
+                const paging = (0, pagination_1.parseAgentListPagination)({ page, limit }, agent_tools_constants_1.DEFAULT_LIST_LIMIT, agent_tools_constants_1.MAX_LIST_LIMIT);
+                const [leads, total] = await Promise.all([
+                    prisma_1.default.lead.findMany({
+                        where,
+                        include: { assignedAgent: { select: { name: true } } },
+                        orderBy: { updatedAt: 'desc' },
+                        skip: paging.offset,
+                        take: paging.limit,
+                    }),
+                    prisma_1.default.lead.count({ where }),
+                ]);
+                if (!leads.length)
+                    return 'No leads found.';
+                const meta = (0, pagination_1.buildPaginationMeta)(paging.page, paging.limit, total);
+                return [
+                    '*Leads*',
+                    ...leads.map((lead, i) => `${(paging.page - 1) * paging.limit + i + 1}. ${(0, format_helpers_1.getStatusEmoji)(lead.status)} *${lead.customerName ?? 'Unknown'}* ${(0, format_helpers_1.maskPhone)(lead.phone)}\n   Status: ${lead.status} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}\n   Budget: ${formatBudget(lead.budgetMin, lead.budgetMax)}\n   ID: ${lead.id}`),
+                    `\nPage ${meta.page}/${meta.pages} (${meta.total} total). Use page=${meta.page + 1} for more.`,
+                ].join('\n\n');
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'listLeadsAddedToday',
+            description: 'List leads created today (IST). Sales agents only see leads assigned to them. Use for "new leads today" questions.',
+            schema: zod_1.z.object({
+                limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_LIST_LIMIT).optional(),
+            }),
+            func: async ({ limit }) => {
+                const [start, end] = (0, format_helpers_1.getISTDayBounds)((0, format_helpers_1.getTodayIST)());
+                const where = {
+                    ...leadScope(context),
+                    createdAt: { gte: start, lte: end },
+                };
                 const leads = await prisma_1.default.lead.findMany({
-                    where,
+                    where: where,
                     include: { assignedAgent: { select: { name: true } } },
-                    orderBy: { updatedAt: 'desc' },
+                    orderBy: { createdAt: 'desc' },
                     take: limit ?? agent_tools_constants_1.DEFAULT_LIST_LIMIT,
                 });
                 if (!leads.length)
-                    return 'No leads found.';
-                return ['*Leads*', ...leads.map((lead, i) => `${i + 1}. ${(0, format_helpers_1.getStatusEmoji)(lead.status)} *${lead.customerName ?? 'Unknown'}* ${(0, format_helpers_1.maskPhone)(lead.phone)}\n   Status: ${lead.status} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}\n   Budget: ${formatBudget(lead.budgetMin, lead.budgetMax)}\n   ID: ${lead.id}`)].join('\n\n');
+                    return 'No new leads were added today in your scope.';
+                return [
+                    `*New leads today (${(0, format_helpers_1.getTodayIST)()})*`,
+                    ...leads.map((lead, i) => `${i + 1}. ${(0, format_helpers_1.getStatusEmoji)(lead.status)} *${lead.customerName ?? 'Unknown'}* ${(0, format_helpers_1.maskPhone)(lead.phone)}\n   Status: ${lead.status} | Source: ${lead.source ?? 'unknown'}\n   ID: ${lead.id}`),
+                ].join('\n\n');
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({
@@ -168,18 +211,8 @@ function createLeadTools(context) {
             description: 'Update lead pipeline status. closed_lost requires yes/no confirmation.',
             schema: zod_1.z.object({ leadId: zod_1.z.string().uuid(), status: leadStatus }),
             func: async ({ leadId, status }) => {
-                const lead = await prisma_1.default.lead.findFirst({ where: { id: leadId, ...leadScope(context) }, select: { id: true, customerName: true, status: true } });
-                if (!lead)
-                    return 'Lead not found or access denied.';
-                if (status === 'closed_lost') {
-                    if (!context.sessionId)
-                        return 'Confirmation session unavailable.';
-                    const message = `Confirm marking ${lead.customerName ?? 'this lead'} as closed lost?\nReply "yes" to confirm or "no" to cancel.`;
-                    await (0, confirmation_service_1.createPendingConfirmation)(context.sessionId, 'closeLeadLost', { leadId }, message);
-                    return message;
-                }
-                await prisma_1.default.lead.update({ where: { id: leadId }, data: { status } });
-                return `Lead ${lead.customerName ?? 'Unknown'} moved from ${lead.status} to ${status}.`;
+                const result = await (0, lead_status_actions_1.updateLeadStatusById)(context, leadId, status);
+                return result.reply;
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({
@@ -235,6 +268,88 @@ function createLeadTools(context) {
                 const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../../whatsapp.service')));
                 await whatsappService.sendCompanyTextMessage(lead.phone, messageText, context.companyId);
                 return `Re-engagement sent to ${lead.customerName ?? (0, format_helpers_1.maskPhone)(lead.phone)}.`;
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'addLeadNote',
+            description: 'Append a timestamped note to a lead without overwriting existing notes.',
+            schema: zod_1.z.object({
+                leadId: zod_1.z.string().uuid(),
+                note: zod_1.z.string().min(1).max(2000),
+            }),
+            func: async ({ leadId, note }) => {
+                const lead = await prisma_1.default.lead.findFirst({
+                    where: { id: leadId, ...leadScope(context) },
+                    select: { id: true, customerName: true, notes: true },
+                });
+                if (!lead)
+                    return 'Lead not found or access denied.';
+                const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+                const newNote = `[${now}] ${note}`;
+                const combined = lead.notes ? `${lead.notes}\n${newNote}` : newNote;
+                await prisma_1.default.lead.update({ where: { id: leadId }, data: { notes: combined } });
+                return `Note added to ${lead.customerName ?? 'lead'}.`;
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'flagLeadPriority',
+            description: 'Set a lead priority flag (hot, warm, cold) in the lead metadata for AI routing.',
+            schema: zod_1.z.object({
+                leadId: zod_1.z.string().uuid(),
+                priority: zod_1.z.enum(['hot', 'warm', 'cold']),
+            }),
+            func: async ({ leadId, priority }) => {
+                const lead = await prisma_1.default.lead.findFirst({
+                    where: { id: leadId, ...leadScope(context) },
+                    select: { id: true, customerName: true, metadata: true },
+                });
+                if (!lead)
+                    return 'Lead not found or access denied.';
+                const existingMeta = typeof lead.metadata === 'object' && lead.metadata !== null && !Array.isArray(lead.metadata)
+                    ? lead.metadata
+                    : {};
+                await prisma_1.default.lead.update({
+                    where: { id: leadId },
+                    data: { metadata: { ...existingMeta, lead_score: priority } },
+                });
+                return `${lead.customerName ?? 'Lead'} marked as ${priority}.`;
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'transferLeadPortfolio',
+            description: 'Transfer all active leads from one agent to another. ' +
+                'Use when an agent leaves the company. Requires yes/no confirmation. Admin only.',
+            schema: zod_1.z.object({
+                fromAgentId: zod_1.z.string().uuid().describe('Agent whose leads to transfer'),
+                toAgentId: zod_1.z.string().uuid().describe('Agent who will receive the leads'),
+            }),
+            func: async ({ fromAgentId, toAgentId }) => {
+                if (context.userRole !== 'company_admin' && context.userRole !== 'super_admin') {
+                    return 'Only admins can transfer lead portfolios.';
+                }
+                const [fromAgent, toAgent] = await Promise.all([
+                    prisma_1.default.user.findFirst({ where: { id: fromAgentId, companyId: context.companyId }, select: { id: true, name: true } }),
+                    prisma_1.default.user.findFirst({ where: { id: toAgentId, companyId: context.companyId, status: 'active' }, select: { id: true, name: true } }),
+                ]);
+                if (!fromAgent)
+                    return 'Source agent not found.';
+                if (!toAgent)
+                    return 'Target agent not found or inactive.';
+                const count = await prisma_1.default.lead.count({
+                    where: {
+                        companyId: context.companyId,
+                        assignedAgentId: fromAgentId,
+                        status: { notIn: ['closed_won', 'closed_lost'] },
+                    },
+                });
+                if (count === 0)
+                    return `${fromAgent.name} has no active leads to transfer.`;
+                if (!context.sessionId)
+                    return 'Confirmation session unavailable.';
+                const message = `Confirm transfer of ${count} active lead(s) from ${fromAgent.name} to ${toAgent.name}?\n` +
+                    `Reply "yes" to confirm or "no" to cancel.`;
+                await (0, confirmation_service_1.createPendingConfirmation)(context.sessionId, 'reassignLead', { fromAgentId, toAgentId, bulkTransfer: true }, message);
+                return message;
             },
         }),
     ];

@@ -16,6 +16,7 @@ import { listPropertyProjects, type PropertyProject } from '../../services/prope
 import Pagination from '../../components/common/Pagination';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   Search, Plus, MapPin, Bed, IndianRupee, Building2,
   Image as ImageIcon, X, Loader2, Edit3, Trash2, Upload
@@ -79,8 +80,10 @@ const PropertiesPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const capabilities = getRoleCapabilities(user?.role);
+  const { confirm, Dialog } = useConfirmDialog();
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -94,7 +97,7 @@ const PropertiesPage: React.FC = () => {
   const [cancellingDraftId, setCancellingDraftId] = useState<string | null>(null);
   const [projects, setProjects] = useState<PropertyProject[]>([]);
   const [unassignedCount, setUnassignedCount] = useState(0);
-  const [useProjectBoard, setUseProjectBoard] = useState(true);
+  const [useProjectBoard, setUseProjectBoard] = useState(capabilities.canManageProperties);
 
   const loadImportDrafts = useCallback(async () => {
     if (!capabilities.canUploadProperties) {
@@ -111,6 +114,7 @@ const PropertiesPage: React.FC = () => {
   const loadProperties = useCallback(async () => {
     try {
       setLoading(true);
+      setPageError(null);
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (typeFilter) params.append('property_type', typeFilter);
@@ -124,6 +128,7 @@ const PropertiesPage: React.FC = () => {
       setTotal(body.pagination?.total || 0);
     } catch (err) {
       console.error('Failed to load properties', err);
+      setPageError('Could not load properties. Refresh the page or check that Property Management is enabled.');
     } finally {
       setLoading(false);
     }
@@ -141,6 +146,11 @@ const PropertiesPage: React.FC = () => {
   }, []);
 
   useEffect(() => { setPage(1); }, [search, typeFilter]);
+  useEffect(() => {
+    if (!capabilities.canManageProperties) {
+      setUseProjectBoard(false);
+    }
+  }, [capabilities.canManageProperties]);
 
   useEffect(() => { loadProperties(); }, [loadProperties]);
   useEffect(() => { void loadImportDrafts(); }, [loadImportDrafts]);
@@ -153,13 +163,12 @@ const PropertiesPage: React.FC = () => {
   }, [loadProperties, loadImportDrafts, loadProjects]);
 
   const handleCancelImportDraft = async (draftId: string, draftName: string) => {
-    if (
-      !confirm(
-        `Remove import draft "${draftName}" permanently? All uploaded files and parsed units will be deleted.`,
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirm(
+      'Remove import draft?',
+      `Remove "${draftName}" permanently? Uploaded files and parsed units will be deleted.`,
+      { confirmLabel: 'Remove' },
+    );
+    if (!confirmed) return;
     setCancellingDraftId(draftId);
     try {
       await cancelPropertyImportDraft(draftId, {
@@ -169,21 +178,26 @@ const PropertiesPage: React.FC = () => {
       await loadImportDrafts();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      alert(ax.response?.data?.error || 'Failed to cancel draft.');
+      setPageError(ax.response?.data?.error || 'Failed to cancel draft.');
     } finally {
       setCancellingDraftId(null);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this property? This action cannot be undone.')) return;
+    const confirmed = await confirm(
+      'Delete property?',
+      'This property will be permanently removed. This action cannot be undone.',
+      { confirmLabel: 'Delete' },
+    );
+    if (!confirmed) return;
     setDeleting(id);
     try {
       await api.delete(`/properties/${id}`);
       await loadProperties(); // Refresh the list after deletion
     } catch (err: any) {
       console.error('Delete failed', err);
-      alert(err.response?.data?.error || 'Failed to delete property.');
+      setPageError(err.response?.data?.error || 'Failed to delete property.');
     } finally {
       setDeleting(null);
     }
@@ -229,6 +243,11 @@ const PropertiesPage: React.FC = () => {
         <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
           Platform admin: manage tenants under <strong>Companies</strong>. Property uploads are done by each agency&apos;s <strong>Company Admin</strong>.
         </p>
+      )}
+      {pageError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {pageError}
+        </div>
       )}
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -384,6 +403,7 @@ const PropertiesPage: React.FC = () => {
       />
       )}
 
+      {capabilities.canManageProperties && (
       <div className="flex justify-end">
         <button
           type="button"
@@ -393,9 +413,11 @@ const PropertiesPage: React.FC = () => {
           {useProjectBoard ? 'Switch to flat list view' : 'Switch to project board view'}
         </button>
       </div>
+      )}
 
       {showModal && <PropertyModal property={editingProperty} onClose={() => { setShowModal(false); setEditingProperty(null); }} onSaved={() => { setShowModal(false); setEditingProperty(null); loadProperties(); }} />}
       {detailProperty && <PropertyDetailModal property={detailProperty} onClose={() => setDetailProperty(null)} />}
+      {Dialog}
     </div>
     </PageLoader>
   );
@@ -645,7 +667,7 @@ const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }>
         <div className="p-4 space-y-4">
           {images.length > 0 && (
             <div className="flex gap-2 overflow-x-auto">
-              {images.map((img, i) => <img key={i} src={img} alt="" className="h-40 rounded-lg object-cover flex-shrink-0" />)}
+              {images.map((img, i) => <img key={i} src={img} alt={`${property.name} image ${i + 1}`} className="h-40 rounded-lg object-cover flex-shrink-0" />)}
             </div>
           )}
           <div className="grid grid-cols-2 gap-4 text-sm">

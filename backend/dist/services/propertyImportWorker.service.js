@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -10,6 +43,7 @@ const storage_service_1 = require("./storage.service");
 const propertyImportExtractor_service_1 = require("./propertyImportExtractor.service");
 const propertyImportQueue_service_1 = require("./propertyImportQueue.service");
 const propertyImport_metadata_1 = require("./propertyImport.metadata");
+const propertyImportUnit_service_1 = require("./propertyImportUnit.service");
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 function calculateDeterministicBackoffSeconds(nextAttempt) {
     return Math.min(300, Math.pow(2, nextAttempt) * 10);
@@ -175,7 +209,7 @@ class PropertyImportWorkerService {
                 })
                 : null;
             const extractedDraftData = extractionOutput
-                ? this.mergeExtractionIntoDraftData(jobRecord.draft.draftData, extractionOutput, jobRecord.media.fileName)
+                ? await this.mergeExtractionIntoDraftData(jobRecord.companyId, jobRecord.draftId, jobRecord.draft.draftData, extractionOutput, jobRecord.media.fileName)
                 : jobRecord.draft.draftData;
             const verification = await this.deps.storage.verifyUploadedObject(jobRecord.media.storageKey, {
                 mimeType: jobRecord.media.mimeType,
@@ -229,6 +263,23 @@ class PropertyImportWorkerService {
                 });
             });
             await this.reconcileDraftStatus(jobRecord.draft.id);
+            try {
+                const { assessDraftCompleteness, notifyUploaderOfMissingFields } = await Promise.resolve().then(() => __importStar(require('./propertyCompleteness.service')));
+                const prismaClient = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
+                const freshDraft = await prismaClient.propertyImportDraft.findUnique({
+                    where: { id: jobRecord.draft.id },
+                });
+                if (freshDraft) {
+                    const assessment = assessDraftCompleteness(freshDraft.draftData || {});
+                    await notifyUploaderOfMissingFields(freshDraft.companyId, freshDraft.createdByUserId, freshDraft.id, assessment);
+                }
+            }
+            catch (notifyErr) {
+                logger_1.default.warn('Failed to notify uploader of missing property fields', {
+                    draftId: jobRecord.draftId,
+                    error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+                });
+            }
             logger_1.default.info('Property import extraction job succeeded', {
                 jobId: jobRecord.id,
                 draftId: jobRecord.draftId,
@@ -441,7 +492,7 @@ class PropertyImportWorkerService {
             },
         });
     }
-    mergeExtractionIntoDraftData(draftData, extractionOutput, fileName) {
+    async mergeExtractionIntoDraftData(companyId, draftId, draftData, extractionOutput, fileName) {
         const merged = { ...(draftData || {}) };
         const structuredData = extractionOutput.structuredData && typeof extractionOutput.structuredData === 'object'
             ? extractionOutput.structuredData
@@ -492,6 +543,14 @@ class PropertyImportWorkerService {
             reviewed_at: null,
             approved_at: null,
         };
+        const unitInputs = (0, propertyImportUnit_service_1.normalizeExtractedUnits)(extractionOutput.units, structuredData);
+        if (unitInputs.length > 0) {
+            await (0, propertyImportUnit_service_1.syncPropertyImportUnits)(companyId, draftId, unitInputs);
+            merged.batch_progress = (0, propertyImportUnit_service_1.buildBatchProgress)(unitInputs.length, 'extracted');
+        }
+        else {
+            merged.batch_progress = (0, propertyImportUnit_service_1.buildBatchProgress)(0, 'extracted');
+        }
         return merged;
     }
 }

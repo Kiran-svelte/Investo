@@ -8,12 +8,14 @@ const auth_1 = require("../middleware/auth");
 const rbac_1 = require("../middleware/rbac");
 const tenant_1 = require("../middleware/tenant");
 const featureGate_1 = require("../middleware/featureGate");
+const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const redis_1 = require("../config/redis");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
+router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('analytics'));
 /**
  * GET /api/analytics/dashboard
@@ -311,6 +313,113 @@ router.get('/trends', (0, rbac_1.authorize)('analytics', 'read'), async (req, re
     catch (err) {
         logger_1.default.error('Failed to fetch trends', { error: err.message });
         res.status(500).json({ error: 'Failed to fetch trends' });
+    }
+});
+/**
+ * GET /api/analytics/extended
+ * Response time, escalation rate, peak hours, lost reasons, source ROI proxy.
+ */
+router.get('/extended', (0, rbac_1.authorize)('analytics', 'read'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const days = parseInt(req.query.days) || 30;
+        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const [escalated, totalConvos, messages] = await Promise.all([
+            prisma_1.default.conversation.count({
+                where: { companyId, escalatedAt: { not: null, gte: since } },
+            }),
+            prisma_1.default.conversation.count({ where: { companyId, createdAt: { gte: since } } }),
+            prisma_1.default.message.findMany({
+                where: {
+                    conversation: { companyId },
+                    createdAt: { gte: since },
+                    senderType: { in: ['customer', 'ai'] },
+                },
+                select: { senderType: true, createdAt: true, conversationId: true },
+                orderBy: { createdAt: 'asc' },
+                take: 5000,
+            }),
+        ]);
+        const responseSamples = [];
+        const byConvo = new Map();
+        for (const m of messages) {
+            const state = byConvo.get(m.conversationId) || {};
+            if (m.senderType === 'customer') {
+                state.lastCustomer = m.createdAt;
+            }
+            else if (m.senderType === 'ai' && state.lastCustomer) {
+                responseSamples.push(m.createdAt.getTime() - state.lastCustomer.getTime());
+                state.lastCustomer = undefined;
+            }
+            byConvo.set(m.conversationId, state);
+        }
+        const avgResponseMs = responseSamples.length > 0
+            ? Math.round(responseSamples.reduce((a, b) => a + b, 0) / responseSamples.length)
+            : null;
+        const customerMessages = await prisma_1.default.message.findMany({
+            where: {
+                senderType: 'customer',
+                createdAt: { gte: since },
+                conversation: { companyId },
+            },
+            select: { createdAt: true },
+            take: 8000,
+        });
+        const hourCounts = new Map();
+        for (const m of customerMessages) {
+            const hour = new Date(m.createdAt).getUTCHours();
+            hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1);
+        }
+        const peakHoursRaw = [...hourCounts.entries()]
+            .map(([hour, count]) => ({ hour, count }))
+            .sort((a, b) => b.count - a.count);
+        const lostReasons = {};
+        try {
+            const lostLeads = await prisma_1.default.lead.findMany({
+                where: { companyId, status: 'closed_lost', updatedAt: { gte: since } },
+                select: { metadata: true },
+                take: 200,
+            });
+            for (const l of lostLeads) {
+                const meta = l.metadata || {};
+                const reason = meta.lost_reason || 'unspecified';
+                lostReasons[reason] = (lostReasons[reason] || 0) + 1;
+            }
+        }
+        catch {
+            // metadata column may be migrating on older DBs
+        }
+        const sourcesRaw = await prisma_1.default.lead.groupBy({
+            by: ['source'],
+            where: { companyId, createdAt: { gte: since } },
+            _count: { id: true },
+        });
+        const wonBySource = await prisma_1.default.lead.groupBy({
+            by: ['source'],
+            where: { companyId, status: 'closed_won', updatedAt: { gte: since } },
+            _count: { id: true },
+        });
+        const wonMap = new Map(wonBySource.map((s) => [s.source, s._count.id]));
+        const source_roi = sourcesRaw.map((s) => ({
+            source: s.source,
+            leads: s._count.id,
+            won: wonMap.get(s.source) || 0,
+            conversion_pct: s._count.id > 0 ? Math.round(((wonMap.get(s.source) || 0) / s._count.id) * 100) : 0,
+        }));
+        res.json({
+            data: {
+                avg_response_ms: avgResponseMs,
+                escalation_rate_pct: totalConvos > 0 ? Math.round((escalated / totalConvos) * 100) : 0,
+                escalated_count: escalated,
+                peak_hours: peakHoursRaw,
+                lost_reasons: lostReasons,
+                source_roi,
+            },
+        });
+    }
+    catch (err) {
+        logger_1.default.error('Failed to fetch extended analytics', { error: err.message });
+        res.status(500).json({ error: 'Failed to fetch extended analytics' });
     }
 });
 exports.default = router;

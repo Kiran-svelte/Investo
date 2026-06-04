@@ -6,6 +6,8 @@ exports.maskPhone = maskPhone;
 exports.getStatusEmoji = getStatusEmoji;
 exports.getISTDayBounds = getISTDayBounds;
 exports.getTodayIST = getTodayIST;
+exports.getTomorrowIST = getTomorrowIST;
+exports.buildVisitScopeFilter = buildVisitScopeFilter;
 exports.truncate = truncate;
 exports.isAdminRole = isAdminRole;
 exports.buildAgentScopeFilter = buildAgentScopeFilter;
@@ -53,6 +55,21 @@ function getISTDayBounds(dateString) {
 }
 function getTodayIST() {
     return new Date().toLocaleDateString('sv-SE', { timeZone: agent_tools_constants_1.IST_TIMEZONE });
+}
+function getTomorrowIST() {
+    const anchor = new Date(`${getTodayIST()}T12:00:00+05:30`);
+    anchor.setDate(anchor.getDate() + 1);
+    return anchor.toLocaleDateString('sv-SE', { timeZone: agent_tools_constants_1.IST_TIMEZONE });
+}
+/** Sales agents see visits they own or visits for leads assigned to them. */
+function buildVisitScopeFilter(companyId, userRole, userId) {
+    if (userRole === 'sales_agent') {
+        return {
+            companyId,
+            OR: [{ agentId: userId }, { lead: { assignedAgentId: userId } }],
+        };
+    }
+    return { companyId };
 }
 function truncate(text, maxLength) {
     if (text.length <= maxLength)

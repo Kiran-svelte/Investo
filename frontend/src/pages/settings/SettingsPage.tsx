@@ -11,6 +11,7 @@ import {
   X, Loader2, Lock, Users, Sparkles,
 } from 'lucide-react';
 import LeadRoutingSettings from '../../components/settings/LeadRoutingSettings';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 
 // ── Types ──────────────────────────────────────
 
@@ -208,7 +209,9 @@ const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const capabilities = getRoleCapabilities(user?.role);
+  const { confirm, Dialog } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState<Tab>('company');
+  const [pageError, setPageError] = useState<string | null>(null);
 
   // Company profile state
   const [company, setCompany] = useState<CompanyProfile>({
@@ -260,10 +263,12 @@ const SettingsPage: React.FC = () => {
   const loadRoles = useCallback(async () => {
     setRolesLoading(true);
     try {
+      setPageError(null);
       const res = await api.get('/roles');
       setRoles(res.data.data);
     } catch (err) {
       console.error('Failed to load roles', err);
+      setPageError('Could not load roles.');
     } finally {
       setRolesLoading(false);
     }
@@ -272,10 +277,12 @@ const SettingsPage: React.FC = () => {
   const loadFeatures = useCallback(async () => {
     setFeaturesLoading(true);
     try {
+      setPageError(null);
       const res = await api.get('/features');
       setFeatures(res.data.data);
     } catch (err) {
       console.error('Failed to load features', err);
+      setPageError('Could not load feature toggles.');
     } finally {
       setFeaturesLoading(false);
     }
@@ -284,10 +291,12 @@ const SettingsPage: React.FC = () => {
   const loadConversion = useCallback(async () => {
     setConversionLoading(true);
     try {
+      setPageError(null);
       const res = await api.get('/conversion-settings');
       setConversion(res.data.data);
     } catch (err) {
       console.error('Failed to load conversion settings', err);
+      setPageError('Could not load conversion settings.');
     } finally {
       setConversionLoading(false);
     }
@@ -363,12 +372,17 @@ const SettingsPage: React.FC = () => {
   // ── Role handlers ──
 
   const deleteRole = async (id: string) => {
-    if (!window.confirm('Delete this role?')) return;
+    const confirmed = await confirm(
+      'Delete role?',
+      'Users assigned to this custom role may lose access until another role is assigned.',
+      { confirmLabel: 'Delete' },
+    );
+    if (!confirmed) return;
     try {
       await api.delete(`/roles/${id}`);
       loadRoles();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to delete role');
+      setPageError(err.response?.data?.message || 'Failed to delete role');
     }
   };
 
@@ -382,6 +396,7 @@ const SettingsPage: React.FC = () => {
       dispatchCompanyFeaturesReload();
     } catch (err) {
       console.error('Failed to toggle feature', err);
+      setPageError('Could not update that feature toggle.');
     } finally {
       setTogglingKey(null);
     }
@@ -447,6 +462,12 @@ const SettingsPage: React.FC = () => {
         <Settings className="h-7 w-7 text-ink-secondary" />
         <h1 className="text-2xl font-bold text-ink-primary">{t('nav.settings')}</h1>
       </div>
+
+      {pageError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {pageError}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-1 bg-surface-subtle rounded-lg p-1">
@@ -781,6 +802,7 @@ const SettingsPage: React.FC = () => {
           )}
         </div>
       )}
+      {Dialog}
     </div>
   );
 };

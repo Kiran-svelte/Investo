@@ -6,22 +6,33 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.propertyImportExtractorService = exports.PropertyImportExtractorService = void 0;
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
+const openaiStatus_service_1 = require("./openaiStatus.service");
 const storage_service_1 = require("./storage.service");
 const pdfParse = require('pdf-parse');
 const PROPERTY_TYPES = ['villa', 'apartment', 'plot', 'commercial'];
 const PROPERTY_STATUSES = ['available', 'sold', 'upcoming'];
+const VISION_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 class PropertyImportExtractorService {
     constructor(deps = {}) {
         this.deps = deps;
     }
     async extractMedia(input) {
+        if (this.isVisionMimeType(input.media.mimeType)) {
+            const heuristicResult = this.buildHeuristicResult(input, '');
+            const visionResult = await this.tryOpenAIVisionExtraction(input, heuristicResult);
+            return visionResult || heuristicResult;
+        }
+        // Text path: extract PDF text, then send to GPT for structured parse.
         const sourceText = await this.loadSourceText(input);
         const heuristicResult = this.buildHeuristicResult(input, sourceText);
         if (!sourceText) {
             return heuristicResult;
         }
-        const modelResult = await this.tryOpenAIExtraction(input, sourceText, heuristicResult);
+        const modelResult = await this.tryOpenAITextExtraction(input, sourceText, heuristicResult);
         return modelResult || heuristicResult;
+    }
+    isVisionMimeType(mimeType) {
+        return VISION_MIME_TYPES.has(mimeType.toLowerCase());
     }
     async loadSourceText(input) {
         if (input.media.mimeType !== 'application/pdf' && !input.media.fileName.toLowerCase().endsWith('.pdf')) {
@@ -53,12 +64,128 @@ class PropertyImportExtractorService {
             return '';
         }
     }
-    async tryOpenAIExtraction(input, sourceText, heuristicResult) {
+    /**
+     * Downloads an image asset and returns its base64-encoded data URL for GPT-4V.
+     * Returns null when the image cannot be fetched.
+     */
+    async loadImageAsBase64DataUrl(input) {
+        try {
+            let imageBuffer;
+            if (this.deps.storage) {
+                imageBuffer = await this.deps.storage.getObjectBuffer(input.media.storageKey);
+            }
+            else {
+                const fetchImpl = this.deps.fetch || fetch;
+                const response = await fetchImpl(input.media.publicUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to download image: ${response.status}`);
+                }
+                imageBuffer = Buffer.from(await response.arrayBuffer());
+            }
+            const base64 = imageBuffer.toString('base64');
+            return `data:${input.media.mimeType};base64,${base64}`;
+        }
+        catch (error) {
+            logger_1.default.warn('Property import image download for Vision failed', {
+                draftId: input.draftId,
+                mediaId: input.mediaId,
+                error: error?.message || String(error),
+            });
+            return null;
+        }
+    }
+    /**
+     * Sends an image brochure to GPT-4V Vision for structured property data extraction.
+     * Only fires when OPENAI_API_KEY is configured and the asset is a brochure image.
+     */
+    async tryOpenAIVisionExtraction(input, heuristicResult) {
         if (!config_1.default.ai.openaiApiKey) {
+            return null;
+        }
+        const imageDataUrl = await this.loadImageAsBase64DataUrl(input);
+        if (!imageDataUrl) {
             return null;
         }
         try {
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${config_1.default.ai.openaiApiKey}`,
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o',
+                    response_format: { type: 'json_object' },
+                    temperature: 0.2,
+                    max_tokens: 1600,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: [
+                                'You extract structured real-estate property data from a brochure or price list image.',
+                                'Return valid JSON only matching the schema: { structuredData: { name, builder, location_city, location_area, location_pincode, price_min, price_max, bedrooms, property_type, amenities, description, rera_number, status }, confidenceHints: [{ field, confidence, note }], reviewRequired: true, metadata: {} }.',
+                                'price_min and price_max must be integer rupees (e.g. 25000000 for ₹2.5Cr).',
+                                'property_type must be one of: villa, apartment, plot, commercial.',
+                                'status must be one of: available, sold, upcoming.',
+                                'reviewRequired must always be true.',
+                                'Use null for any field not found in the image.',
+                            ].join(' '),
+                        },
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: `File name: ${input.media.fileName}\nThis is a real estate brochure or price list. Extract all property details visible in the image.`,
+                                },
+                                {
+                                    type: 'image_url',
+                                    image_url: { url: imageDataUrl, detail: 'high' },
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            });
+            if (!response.ok) {
+                throw new Error(`OpenAI Vision extraction failed: ${response.status}`);
+            }
+            const payload = await response.json();
+            const content = payload.choices?.[0]?.message?.content || '';
+            const parsed = this.parseExtractionPayload(content);
+            if (!parsed) {
+                return null;
+            }
+            return this.mergeExtractionResults(heuristicResult, parsed, input, `[image:${input.media.fileName}]`);
+        }
+        catch (error) {
+            logger_1.default.warn('OpenAI Vision property import extraction failed', {
+                draftId: input.draftId,
+                mediaId: input.mediaId,
+                error: error?.message || String(error),
+            });
+            return null;
+        }
+    }
+    extractionSystemPrompt() {
+        return [
+            'You extract structured real-estate brochure data for a property import workflow.',
+            'Return valid JSON only.',
+            'Human approval is always required before publish, so reviewRequired must always be true.',
+            'Use the brochure text or image to fill as many property fields as possible.',
+            'Prefer explicit values from the source over guesses.',
+            'If a field is unknown, use null.',
+            'When the document lists multiple villas/units (Villa A, B, C or row tables), include a units array.',
+            'Each units[] entry should have name or label plus unit-specific price, bedrooms, area when present.',
+            'structuredData holds project-level defaults shared across units.',
+        ].join(' ');
+    }
+    async tryOpenAITextExtraction(input, sourceText, heuristicResult) {
+        if (!config_1.default.ai.openaiApiKey) {
+            return null;
+        }
+        try {
+            const response = await (0, openaiStatus_service_1.fetchOpenAi)(openaiStatus_service_1.OPENAI_CHAT_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -72,14 +199,7 @@ class PropertyImportExtractorService {
                     messages: [
                         {
                             role: 'system',
-                            content: [
-                                'You extract structured real-estate brochure data for a property import workflow.',
-                                'Return valid JSON only.',
-                                'Human approval is always required before publish, so reviewRequired must always be true.',
-                                'Use the brochure text to fill as many property fields as possible.',
-                                'Prefer explicit values from the brochure over guesses.',
-                                'If a field is unknown, use null.',
-                            ].join(' '),
+                            content: this.extractionSystemPrompt(),
                         },
                         {
                             role: 'user',
@@ -96,10 +216,7 @@ class PropertyImportExtractorService {
                         },
                     ],
                 }),
-            });
-            if (!response.ok) {
-                throw new Error(`OpenAI extraction failed: ${response.status}`);
-            }
+            }, { retries: 2, label: 'property_import_extract' });
             const payload = await response.json();
             const content = payload.choices?.[0]?.message?.content || '';
             const parsed = this.parseExtractionPayload(content);
@@ -129,7 +246,15 @@ class PropertyImportExtractorService {
             return null;
         }
     }
-    mergeExtractionResults(heuristicResult, parsed, input, sourceText) {
+    normalizeUnits(value) {
+        if (!Array.isArray(value)) {
+            return [];
+        }
+        return value
+            .map((item) => (typeof item === 'object' && item !== null && !Array.isArray(item) ? item : null))
+            .filter((item) => Boolean(item));
+    }
+    mergeExtractionResults(heuristicResult, parsed, input, sourceTextOrLabel) {
         const structuredData = this.normalizeStructuredData({
             ...heuristicResult.structuredData,
             ...(parsed.structuredData && typeof parsed.structuredData === 'object' && !Array.isArray(parsed.structuredData)
@@ -137,17 +262,20 @@ class PropertyImportExtractorService {
                 : {}),
         }, input.media.fileName);
         const confidenceHints = this.normalizeConfidenceHints(Array.isArray(parsed.confidenceHints) ? parsed.confidenceHints : heuristicResult.confidenceHints, structuredData);
+        const units = this.normalizeUnits(parsed.units);
         return {
             structuredData,
+            units: units.length > 0 ? units : undefined,
             confidenceHints,
             reviewRequired: true,
             metadata: {
                 ...heuristicResult.metadata,
                 ...(parsed.metadata && typeof parsed.metadata === 'object' && !Array.isArray(parsed.metadata) ? parsed.metadata : {}),
-                sourceType: 'openai',
+                sourceType: input.media.mimeType.startsWith('image/') ? 'openai_vision' : 'openai',
                 fileName: input.media.fileName,
                 mimeType: input.media.mimeType,
-                textLength: sourceText.length,
+                textLength: sourceTextOrLabel.length,
+                ...(units.length > 0 ? { unitsCount: units.length } : {}),
             },
         };
     }

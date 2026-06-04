@@ -3,6 +3,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ConversationsPage from './ConversationsPage';
 
@@ -47,6 +48,14 @@ vi.mock('../../services/api', () => ({
 afterEach(() => {
   cleanup();
 });
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={['/dashboard/conversations']}>
+      <ConversationsPage />
+    </MemoryRouter>,
+  );
+}
 
 describe('ConversationsPage composer', () => {
   beforeEach(() => {
@@ -115,7 +124,7 @@ describe('ConversationsPage composer', () => {
   it('renders mode-specific inputs and sends mode payloads', async () => {
     const user = userEvent.setup();
 
-    render(<ConversationsPage />);
+    renderPage();
 
     await screen.findByText('Asha');
     await user.click(screen.getByText('Asha'));
@@ -171,7 +180,7 @@ describe('ConversationsPage composer', () => {
       resolvePost = resolve;
     }));
 
-    render(<ConversationsPage />);
+    renderPage();
 
     await screen.findByText('Asha');
     await user.click(screen.getByText('Asha'));
@@ -214,7 +223,7 @@ describe('ConversationsPage composer', () => {
       },
     });
 
-    render(<ConversationsPage />);
+    renderPage();
 
     await screen.findByText('Asha');
     await user.click(screen.getByText('Asha'));

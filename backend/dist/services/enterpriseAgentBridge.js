@@ -14,6 +14,7 @@ async function runEnterpriseAgent(req) {
     }
     try {
         const aiResp = await ai_service_1.aiService.generateResponse({
+            companyId: req.companyId,
             customerMessage: req.message,
             conversationHistory: [],
             lead: { customerName: '', phone: req.phone },

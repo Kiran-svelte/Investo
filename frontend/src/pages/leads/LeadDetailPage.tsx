@@ -12,6 +12,7 @@ import {
 import { deleteLead } from '../../services/resourceDelete';
 import LeadStatusBadge from '../../components/leads/LeadStatusBadge';
 import LeadStatusSelect from '../../components/leads/LeadStatusSelect';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 
 interface LeadDetail {
   id: string;
@@ -99,6 +100,7 @@ const LeadDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { t: _t } = useTranslation();
   const { user } = useAuth();
+  const { confirm, Dialog } = useConfirmDialog();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -156,14 +158,24 @@ const LeadDetailPage: React.FC = () => {
   };
 
   const saveEdit = async () => {
+    const minBudget = editForm.budget_min ? Number(editForm.budget_min) : null;
+    const maxBudget = editForm.budget_max ? Number(editForm.budget_max) : null;
+    if ((minBudget !== null && Number.isNaN(minBudget)) || (maxBudget !== null && Number.isNaN(maxBudget))) {
+      setError('Budget must be a valid number');
+      return;
+    }
+    if (minBudget !== null && maxBudget !== null && minBudget > maxBudget) {
+      setError('Budget Min cannot be greater than Budget Max');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
       await api.put(`/leads/${id}`, {
         customer_name: editForm.customer_name || null,
         email: editForm.email || null,
-        budget_min: editForm.budget_min ? Number(editForm.budget_min) : null,
-        budget_max: editForm.budget_max ? Number(editForm.budget_max) : null,
+        budget_min: minBudget,
+        budget_max: maxBudget,
         location_preference: editForm.location_preference || null,
         property_type: editForm.property_type || null,
         assigned_agent_id: editForm.assigned_agent_id || null,
@@ -240,13 +252,12 @@ const LeadDetailPage: React.FC = () => {
     (user?.role === 'sales_agent' && lead.assigned_agent_id === user?.id);
 
   const handleDeleteLead = async () => {
-    if (
-      !window.confirm(
-        'Permanently delete this lead? Conversations, messages, and visits for this lead will also be removed.',
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirm(
+      'Delete lead?',
+      'This lead, its conversations, messages, and visits will be permanently removed.',
+      { confirmLabel: 'Delete' },
+    );
+    if (!confirmed) return;
     setDeleting(true);
     setError('');
     try {
@@ -261,6 +272,7 @@ const LeadDetailPage: React.FC = () => {
   };
 
   return (
+    <>
     <div className="investo-page space-y-6 max-w-5xl">
       {/* Back + Header */}
       <div>
@@ -452,6 +464,8 @@ const LeadDetailPage: React.FC = () => {
         </div>
       </div>
     </div>
+    {Dialog}
+    </>
   );
 };
 

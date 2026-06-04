@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleCapabilities } from '../../config/navigation.config';
 import { SOCKET_EVENTS, useSocketEvent } from '../../context/SocketContext';
 import api from '../../services/api';
 import Pagination from '../../components/common/Pagination';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   Search, MessageSquare, User, Bot, UserCheck,
   ArrowRight, Trash2, Loader2,
@@ -41,6 +43,8 @@ type ComposerMode = 'text' | 'document' | 'quick_reply';
 const ConversationsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const capabilities = getRoleCapabilities(user?.role);
+  const { confirm, Dialog } = useConfirmDialog();
   const [searchParams] = useSearchParams();
   const openConversationId = searchParams.get('id');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -175,18 +179,17 @@ const ConversationsPage: React.FC = () => {
       await api.patch(`/conversations/${convId}/takeover`);
       loadConversations();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to take over');
+      setLoadError(err.response?.data?.error || 'Failed to take over conversation.');
     }
   };
 
   const removeConversation = async (convId: string) => {
-    if (
-      !window.confirm(
-        'Permanently delete this conversation? All messages will be removed from the database.',
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirm(
+      'Delete conversation?',
+      'This conversation and all of its messages will be permanently removed from the database.',
+      { confirmLabel: 'Delete' },
+    );
+    if (!confirmed) return;
     setDeleteLoading(true);
     try {
       await deleteConversation(convId);
@@ -197,7 +200,7 @@ const ConversationsPage: React.FC = () => {
       }
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      alert(ax.response?.data?.error || 'Failed to delete conversation');
+      setLoadError(ax.response?.data?.error || 'Failed to delete conversation');
     } finally {
       setDeleteLoading(false);
     }
@@ -208,7 +211,7 @@ const ConversationsPage: React.FC = () => {
       await api.patch(`/conversations/${convId}/release`);
       loadConversations();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to release');
+      setLoadError(err.response?.data?.error || 'Failed to release conversation.');
     }
   };
 
@@ -481,7 +484,7 @@ const ConversationsPage: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {selectedConv.status === 'ai_active' ? (
+                {capabilities.canTakeoverConversation && selectedConv.status === 'ai_active' ? (
                   <button
                     onClick={() => takeOver(selectedConv.id)}
                     className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 flex items-center gap-1"
@@ -489,7 +492,7 @@ const ConversationsPage: React.FC = () => {
                     <UserCheck className="h-4 w-4" />
                     {t('conversations.takeover')}
                   </button>
-                ) : selectedConv.status === 'agent_active' ? (
+                ) : capabilities.canTakeoverConversation && selectedConv.status === 'agent_active' ? (
                   <button
                     onClick={() => release(selectedConv.id)}
                     className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center gap-1"
@@ -498,19 +501,21 @@ const ConversationsPage: React.FC = () => {
                     {t('conversations.release')}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => removeConversation(selectedConv.id)}
-                  disabled={deleteLoading}
-                  className="px-3 py-1.5 border border-red-200 text-red-700 text-sm rounded-lg hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
-                >
-                  {deleteLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                  Delete
-                </button>
+                {capabilities.canTakeoverConversation && (
+                  <button
+                    type="button"
+                    onClick={() => removeConversation(selectedConv.id)}
+                    disabled={deleteLoading}
+                    className="px-3 py-1.5 border border-red-200 text-red-700 text-sm rounded-lg hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
+                  >
+                    {deleteLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
 
@@ -572,6 +577,7 @@ const ConversationsPage: React.FC = () => {
             )}
 
             {/* Composer */}
+            {capabilities.canTakeoverConversation ? (
             <div className="bg-surface-elevated border-t border-surface-border p-4">
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
@@ -723,6 +729,11 @@ const ConversationsPage: React.FC = () => {
                 </div>
               </div>
             </div>
+            ) : (
+              <div className="border-t border-surface-border bg-surface-elevated p-4 text-sm text-ink-muted">
+                You can read this conversation, but your role cannot send messages or change takeover state.
+              </div>
+            )}
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-ink-muted">
@@ -733,6 +744,7 @@ const ConversationsPage: React.FC = () => {
           </div>
         )}
       </div>
+      {Dialog}
     </div>
   );
 };

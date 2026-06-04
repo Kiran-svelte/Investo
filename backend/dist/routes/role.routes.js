@@ -9,9 +9,15 @@ const rbac_1 = require("../middleware/rbac");
 const tenant_1 = require("../middleware/tenant");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
+router.use((req, res, next) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
+    next();
+});
 // Available permission resources and actions
 const VALID_RESOURCES = [
     'users', 'leads', 'properties', 'conversations', 'visits',

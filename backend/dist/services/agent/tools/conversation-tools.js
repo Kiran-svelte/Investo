@@ -40,6 +40,7 @@ exports.createConversationTools = createConversationTools;
 const zod_1 = require("zod");
 const prisma_1 = __importDefault(require("../../../config/prisma"));
 const agent_tools_constants_1 = require("../../../constants/agent-tools.constants");
+const pagination_1 = require("../../../utils/pagination");
 const format_helpers_1 = require("./format-helpers");
 const langchain_runtime_1 = require("./langchain-runtime");
 function scope(context) {
@@ -50,27 +51,65 @@ function createConversationTools(context) {
         new langchain_runtime_1.DynamicStructuredTool({
             name: 'listConversations',
             description: 'List conversations by status or search. Sales agents see conversations for assigned leads.',
-            schema: zod_1.z.object({ status: zod_1.z.enum(['ai_active', 'agent_active', 'closed']).optional(), search: zod_1.z.string().optional(), limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_LIST_LIMIT).optional() }),
-            func: async ({ status, search, limit }) => {
+            schema: zod_1.z.object({
+                status: zod_1.z.enum(['ai_active', 'agent_active', 'closed']).optional(),
+                search: zod_1.z.string().optional(),
+                page: zod_1.z.number().int().min(1).optional(),
+                limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_LIST_LIMIT).optional(),
+            }),
+            func: async ({ status, search, page, limit }) => {
                 const where = { ...scope(context), ...(status ? { status } : {}) };
                 if (search)
                     where.OR = [{ whatsappPhone: { contains: search } }, { lead: { customerName: { contains: search, mode: 'insensitive' } } }];
-                const rows = await prisma_1.default.conversation.findMany({ where, include: { lead: { include: { assignedAgent: { select: { name: true } } } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: 'desc' }, take: limit ?? agent_tools_constants_1.DEFAULT_LIST_LIMIT });
+                const paging = (0, pagination_1.parseAgentListPagination)({ page, limit }, agent_tools_constants_1.DEFAULT_LIST_LIMIT, agent_tools_constants_1.MAX_LIST_LIMIT);
+                const [rows, total] = await Promise.all([
+                    prisma_1.default.conversation.findMany({
+                        where,
+                        include: { lead: { include: { assignedAgent: { select: { name: true } } } }, _count: { select: { messages: true } } },
+                        orderBy: { updatedAt: 'desc' },
+                        skip: paging.offset,
+                        take: paging.limit,
+                    }),
+                    prisma_1.default.conversation.count({ where }),
+                ]);
                 if (!rows.length)
                     return 'No conversations found.';
-                return ['*Conversations*', ...rows.map((c, i) => `${i + 1}. *${c.lead?.customerName ?? 'Unknown'}* ${(0, format_helpers_1.maskPhone)(c.whatsappPhone)}\n   Status: ${c.status} | AI: ${c.aiEnabled ? 'on' : 'off'} | Messages: ${c._count.messages}\n   ID: ${c.id}`)].join('\n\n');
+                const meta = (0, pagination_1.buildPaginationMeta)(paging.page, paging.limit, total);
+                return [
+                    '*Conversations*',
+                    ...rows.map((c, i) => `${(paging.page - 1) * paging.limit + i + 1}. *${c.lead?.customerName ?? 'Unknown'}* ${(0, format_helpers_1.maskPhone)(c.whatsappPhone)}\n   Status: ${c.status} | AI: ${c.aiEnabled ? 'on' : 'off'} | Messages: ${c._count.messages}\n   ID: ${c.id}`),
+                    `\nPage ${meta.page}/${meta.pages} (${meta.total} total). Use page=${meta.page + 1} for more.`,
+                ].join('\n\n');
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({
             name: 'getConversationMessages',
             description: 'Read recent messages from a conversation.',
-            schema: zod_1.z.object({ conversationId: zod_1.z.string().uuid(), limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_MESSAGE_LIMIT).optional() }),
-            func: async ({ conversationId, limit }) => {
+            schema: zod_1.z.object({
+                conversationId: zod_1.z.string().uuid(),
+                page: zod_1.z.number().int().min(1).optional(),
+                limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_MESSAGE_LIMIT).optional(),
+            }),
+            func: async ({ conversationId, page, limit }) => {
                 const conversation = await prisma_1.default.conversation.findFirst({ where: { id: conversationId, ...scope(context) }, include: { lead: true } });
                 if (!conversation)
                     return 'Conversation not found or access denied.';
-                const messages = await prisma_1.default.message.findMany({ where: { conversationId }, orderBy: { createdAt: 'desc' }, take: limit ?? agent_tools_constants_1.DEFAULT_MESSAGE_LIMIT });
-                return [`*Messages: ${conversation.lead?.customerName ?? 'Unknown'}*`, ...messages.reverse().map((m) => `${(0, format_helpers_1.formatDateIST)(m.createdAt)} ${m.senderType}: ${(0, format_helpers_1.truncate)(m.content, 180)}`)].join('\n');
+                const paging = (0, pagination_1.parseAgentListPagination)({ page, limit }, agent_tools_constants_1.DEFAULT_MESSAGE_LIMIT, agent_tools_constants_1.MAX_MESSAGE_LIMIT);
+                const [messages, total] = await Promise.all([
+                    prisma_1.default.message.findMany({
+                        where: { conversationId },
+                        orderBy: { createdAt: 'desc' },
+                        skip: paging.offset,
+                        take: paging.limit,
+                    }),
+                    prisma_1.default.message.count({ where: { conversationId } }),
+                ]);
+                const meta = (0, pagination_1.buildPaginationMeta)(paging.page, paging.limit, total);
+                return [
+                    `*Messages: ${conversation.lead?.customerName ?? 'Unknown'}*`,
+                    ...messages.reverse().map((m) => `${(0, format_helpers_1.formatDateIST)(m.createdAt)} ${m.senderType}: ${(0, format_helpers_1.truncate)(m.content, 180)}`),
+                    `\nPage ${meta.page}/${meta.pages} (${meta.total} messages). Use page=${meta.page + 1} for older messages.`,
+                ].join('\n');
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({

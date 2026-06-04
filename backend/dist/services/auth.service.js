@@ -11,6 +11,7 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
 const identityProvisioning_service_1 = require("./identityProvisioning.service");
+const staffPhoneUniqueness_1 = require("../utils/staffPhoneUniqueness");
 const BCRYPT_ROUNDS = 12;
 const normalizeAuthEmail = (email) => email.trim().toLowerCase();
 exports.normalizeAuthEmail = normalizeAuthEmail;
@@ -44,13 +45,16 @@ class AuthService {
             });
         }
         const id = (0, uuid_1.v4)();
+        const normalizedPhone = data.phone
+            ? await (0, staffPhoneUniqueness_1.assertStaffPhoneAvailable)(data.phone)
+            : null;
         await prisma_1.default.user.create({
             data: {
                 id,
                 companyId: data.company_id,
                 name: data.name,
                 email: normalizedEmail,
-                phone: data.phone || null,
+                phone: normalizedPhone,
                 passwordHash,
                 role: data.role,
                 customRoleId: data.custom_role_id || null,
@@ -157,6 +161,38 @@ class AuthService {
             data: { revoked: true },
         });
         logger_1.default.info('User logged out', { userId });
+    }
+    /**
+     * Logout current session only (single refresh token). Other devices/tabs stay signed in.
+     */
+    async logoutSession(refreshToken) {
+        let decoded;
+        try {
+            decoded = jsonwebtoken_1.default.verify(refreshToken, config_1.default.jwt.refreshSecret);
+        }
+        catch {
+            return;
+        }
+        if (!decoded?.userId)
+            return;
+        const storedTokens = await prisma_1.default.refreshToken.findMany({
+            where: {
+                userId: decoded.userId,
+                revoked: false,
+                expiresAt: { gt: new Date() },
+            },
+        });
+        for (const candidate of storedTokens) {
+            const matches = await bcrypt_1.default.compare(refreshToken, candidate.tokenHash);
+            if (matches) {
+                await prisma_1.default.refreshToken.update({
+                    where: { id: candidate.id },
+                    data: { revoked: true },
+                });
+                logger_1.default.info('Session logged out', { userId: decoded.userId });
+                return;
+            }
+        }
     }
     async generateTokens(user) {
         const accessToken = jsonwebtoken_1.default.sign({

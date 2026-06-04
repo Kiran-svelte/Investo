@@ -1,0 +1,7 @@
+project_name,property_type,unit_number,bhk,sqft,price,facing,floor,possession_date,status,maintenance,description
+Sunset Heights,apartment,1201,2,1050,8500000,East,12,Ready,Available,5000,"High floor city view"
+Sunset Heights,apartment,1202,2,1050,8300000,West,12,Ready,Available,5000,"Budget option"
+Sunset Heights,apartment,1101,3,1450,12000000,East,11,Ready,Booked,6000,"Already booked"
+Sunset Heights,apartment,1102,3,1450,11800000,North,11,Ready,Available,6000,"Ready to move in"
+Lake Vista,apartment,801,3,1650,13500000,South,8,Dec 2026,Available,6500,"Lake facing"
+Lake Vista,apartment,802,2,1100,9200000,North,8,Ready,Available,5500,"Corner unit"

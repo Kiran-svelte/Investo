@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -13,8 +46,13 @@ const featureGate_1 = require("../middleware/featureGate");
 const subscriptionEnforcement_1 = require("../middleware/subscriptionEnforcement");
 const validation_1 = require("../models/validation");
 const auth_service_1 = require("../services/auth.service");
+const email_service_1 = require("../services/email.service");
+const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const pagination_1 = require("../utils/pagination");
+const resourceDelete_service_1 = require("../services/resourceDelete.service");
+const staffPhoneUniqueness_1 = require("../utils/staffPhoneUniqueness");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
@@ -54,14 +92,20 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
         if (role) {
             where.role = role;
         }
-        const users = await prisma_1.default.user.findMany({
-            where,
-            select: {
-                id: true, companyId: true, name: true, email: true, phone: true,
-                role: true, status: true, lastLogin: true, createdAt: true,
-            },
-            orderBy: { createdAt: 'desc' },
-        });
+        const { page, limit, offset } = (0, pagination_1.parsePagination)(req.query);
+        const [users, total] = await Promise.all([
+            prisma_1.default.user.findMany({
+                where,
+                select: {
+                    id: true, companyId: true, name: true, email: true, phone: true,
+                    role: true, status: true, lastLogin: true, createdAt: true,
+                },
+                orderBy: { createdAt: 'desc' },
+                skip: offset,
+                take: limit,
+            }),
+            prisma_1.default.user.count({ where }),
+        ]);
         // Enrich with lead counts for agents
         if (users.length > 0) {
             const userIds = users.map((u) => u.id);
@@ -88,10 +132,16 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
                 active_leads: leadMap.get(u.id) || 0,
                 sales_count: salesMap.get(u.id) || 0,
             }));
-            res.json({ data: enriched, total: enriched.length });
+            res.json({
+                data: enriched,
+                pagination: (0, pagination_1.buildPaginationMeta)(page, limit, total),
+            });
             return;
         }
-        res.json({ data: users, total: users.length });
+        res.json({
+            data: users,
+            pagination: (0, pagination_1.buildPaginationMeta)(page, limit, total),
+        });
     }
     catch (err) {
         logger_1.default.error('Failed to fetch users', { error: err.message });
@@ -141,11 +191,13 @@ router.get('/:id', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
 router.post('/', (0, rbac_1.authorize)('users', 'create'), subscriptionEnforcement_1.requireActivePaidSubscription, (0, validate_1.validate)(validation_1.createUserSchema), (0, audit_1.auditLog)('create', 'users'), async (req, res) => {
     try {
         const { name, email, password, phone, role, target_company_id, must_change_password } = req.body;
+        const queryTargetCompanyId = typeof req.query.target_company_id === 'string' ? req.query.target_company_id : undefined;
+        const resolvedTargetCompanyId = target_company_id || queryTargetCompanyId;
         // Determine which company to create user in
-        // Super admin can specify target_company_id, others use their own company
+        // Super admin can specify target_company_id (body or query), others use their own company
         let companyId;
-        if (req.user.role === 'super_admin' && target_company_id) {
-            companyId = target_company_id;
+        if (req.user.role === 'super_admin' && resolvedTargetCompanyId) {
+            companyId = resolvedTargetCompanyId;
         }
         else {
             companyId = (0, tenant_1.getCompanyId)(req);
@@ -182,9 +234,29 @@ router.post('/', (0, rbac_1.authorize)('users', 'create'), subscriptionEnforceme
             company_id: companyId,
             must_change_password,
         });
+        if (role === 'company_admin') {
+            const company = await prisma_1.default.company.findUnique({
+                where: { id: companyId },
+                select: { name: true },
+            });
+            const loginUrl = `${config_1.default.frontend.baseUrl.replace(/\/$/, '')}/login`;
+            void email_service_1.emailService.sendWelcomeInviteEmail({
+                toEmail: email,
+                toName: name,
+                loginUrl,
+                temporaryPassword: password,
+                companyName: company?.name,
+            }).catch((mailErr) => {
+                logger_1.default.warn('Welcome invite email failed', { error: mailErr.message, email });
+            });
+        }
         res.status(201).json({ data: result, id: result.id });
     }
     catch (err) {
+        if ((0, staffPhoneUniqueness_1.isStaffPhoneInUseError)(err)) {
+            res.status(409).json({ error: err.message });
+            return;
+        }
         if (err.message === 'Email already registered') {
             res.status(409).json({ error: err.message });
             return;
@@ -216,34 +288,61 @@ router.put('/:id', (0, rbac_1.authorize)('users', 'update'), (0, audit_1.auditLo
             res.status(403).json({ error: 'Cannot modify users in other companies' });
             return;
         }
-        // Sales agent can only update own profile (name, phone)
-        if (req.user.role === 'sales_agent') {
+        const selfServiceRoles = new Set(['sales_agent', 'operations', 'viewer']);
+        if (selfServiceRoles.has(req.user.role)) {
             if (id !== req.user.id) {
                 res.status(403).json({ error: 'Can only update own profile' });
                 return;
             }
             const { name, phone } = req.body;
+            const { normalizeStaffProfilePhone } = await Promise.resolve().then(() => __importStar(require('../utils/userProfilePhone')));
+            const normalizedPhone = phone !== undefined && phone !== null && String(phone).trim()
+                ? normalizeStaffProfilePhone(String(phone))
+                : undefined;
+            if (phone !== undefined && phone !== null && String(phone).trim() && !normalizedPhone) {
+                res.status(400).json({ error: 'Enter a valid Indian mobile number (10 digits).' });
+                return;
+            }
+            if (normalizedPhone) {
+                await (0, staffPhoneUniqueness_1.assertStaffPhoneAvailable)(normalizedPhone, id);
+            }
             await prisma_1.default.user.update({
                 where: { id },
                 data: {
                     ...(name && { name }),
-                    ...(phone !== undefined && { phone }),
+                    ...(normalizedPhone !== undefined && { phone: normalizedPhone }),
                 },
             });
         }
         else {
             // Company admin or super admin
             const { name, phone, role, status } = req.body;
+            const { normalizeStaffProfilePhone } = await Promise.resolve().then(() => __importStar(require('../utils/userProfilePhone')));
             // Cannot change to super_admin unless you are super_admin
             if (role === 'super_admin' && req.user.role !== 'super_admin') {
                 res.status(403).json({ error: 'Cannot assign super admin role' });
                 return;
             }
+            let phoneToSave;
+            if (phone !== undefined) {
+                if (phone === null || String(phone).trim() === '') {
+                    phoneToSave = null;
+                }
+                else {
+                    const normalized = normalizeStaffProfilePhone(String(phone));
+                    if (!normalized) {
+                        res.status(400).json({ error: 'Enter a valid Indian mobile number (10 digits).' });
+                        return;
+                    }
+                    await (0, staffPhoneUniqueness_1.assertStaffPhoneAvailable)(normalized, id);
+                    phoneToSave = normalized;
+                }
+            }
             await prisma_1.default.user.update({
                 where: { id },
                 data: {
                     ...(name && { name }),
-                    ...(phone !== undefined && { phone }),
+                    ...(phoneToSave !== undefined && { phone: phoneToSave }),
                     ...(role && { role }),
                     ...(status && { status }),
                 },
@@ -256,6 +355,10 @@ router.put('/:id', (0, rbac_1.authorize)('users', 'update'), (0, audit_1.auditLo
         res.json({ data: updated });
     }
     catch (err) {
+        if ((0, staffPhoneUniqueness_1.isStaffPhoneInUseError)(err)) {
+            res.status(409).json({ error: err.message });
+            return;
+        }
         logger_1.default.error('Failed to update user', { error: err.message });
         res.status(500).json({ error: 'Failed to update user' });
     }
@@ -291,6 +394,36 @@ router.patch('/:id/deactivate', (0, rbac_1.authorize)('users', 'delete'), (0, au
     catch (err) {
         logger_1.default.error('Failed to deactivate user', { error: err.message });
         res.status(500).json({ error: 'Failed to deactivate user' });
+    }
+});
+/**
+ * DELETE /api/users/:id
+ * Permanently delete a user (company admin / super admin). Prefer deactivate when unsure.
+ */
+router.delete('/:id', (0, rbac_1.authorize)('users', 'delete'), (0, audit_1.auditLog)('delete', 'users'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const targetUser = await prisma_1.default.user.findFirst({ where: { id } });
+        if (!targetUser) {
+            res.status(404).json({ error: 'User not found' });
+            return;
+        }
+        if (req.user.role !== 'super_admin' && targetUser.companyId !== companyId) {
+            res.status(403).json({ error: 'Cannot delete users in other companies' });
+            return;
+        }
+        await (0, resourceDelete_service_1.deleteUserPermanently)(targetUser.companyId, id, req.user.id);
+        res.json({ message: 'User deleted permanently' });
+    }
+    catch (err) {
+        if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
+            res.status(err.statusCode).json({ error: err.message });
+            return;
+        }
+        const message = err instanceof Error ? err.message : 'Delete failed';
+        logger_1.default.error('Failed to delete user', { error: message });
+        res.status(500).json({ error: 'Failed to delete user' });
     }
 });
 exports.default = router;

@@ -300,17 +300,17 @@ async function processWebhook(body) {
                     interactiveType: extracted.interactiveType,
                 });
                 try {
-                    const { agentRouterService } = await Promise.resolve().then(() => __importStar(require('../services/agent/agent-router.service')));
-                    const agentRouted = await agentRouterService.routeIfInternalUser('+' + customerPhone, messageText);
-                    if (agentRouted) {
-                        outcome.propagationStatus = 'success';
-                        outcome.status = 'processed';
-                        outcome.reason = 'handled_by_agent_ai';
-                        summary.processed += 1;
+                    const customerPhoneE164 = '+' + customerPhone;
+                    const companyResolution = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(phoneNumberId, 'meta', undefined, undefined, customerPhoneE164, metadata?.display_phone_number);
+                    if (!companyResolution) {
+                        outcome.status = 'skipped';
+                        outcome.reason = 'company_not_found';
+                        summary.skipped += 1;
                         summary.outcomes.push(outcome);
-                        logger_1.default.info('Message handled by Agent AI; skipping customer flow', { messageId });
+                        logger_1.default.error('Inbound Meta message skipped: company not resolved', { phoneNumberId, messageId });
                         continue;
                     }
+                    // Staff vs prospect routing runs inside handleIncomingMessage (single global entry point).
                     // If LangGraph integration is enabled, send normalized payload.
                     if (config_1.default.langgraph?.enabled) {
                         try {
@@ -363,6 +363,7 @@ async function processWebhook(body) {
                         messageId,
                         interactiveId: extracted.interactiveId,
                         interactiveType: extracted.interactiveType,
+                        businessDisplayPhone: metadata?.display_phone_number,
                     });
                     outcome.propagationStatus = processingResult.propagation.status;
                     if (processingResult.status === 'processed') {
@@ -572,9 +573,8 @@ router.post('/test', express_1.default.json({ limit: '1mb' }), async (req, res) 
 });
 /**
  * POST /api/webhook/debug
- * Debug endpoint to test the full webhook flow synchronously.
- * Returns detailed step-by-step info about what happens.
- * TEMPORARY - remove after debugging.
+ * Synchronous webhook flow debugger — development only.
+ * Returns step-by-step processing details. Disabled in production.
  */
 router.post('/debug', express_1.default.json({ limit: '1mb' }), async (req, res) => {
     if (config_1.default.env === 'production') {

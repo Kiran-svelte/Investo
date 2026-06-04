@@ -16,9 +16,21 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const notification_engine_1 = require("../services/notification.engine");
 const visitBooking_service_1 = require("../services/visitBooking.service");
+const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
 const leadTransition_service_1 = require("../services/leadTransition.service");
 const automation_service_1 = require("../services/automation.service");
+const pagination_1 = require("../utils/pagination");
+const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
+function handleDeleteError(err, res) {
+    if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+    }
+    const message = err instanceof Error ? err.message : 'Delete failed';
+    logger_1.default.error('Delete failed', { error: message });
+    res.status(500).json({ error: message });
+}
 function mapVisitToSnakeCaseDTO(visit) {
     return {
         id: visit.id,
@@ -42,6 +54,7 @@ function mapVisitToSnakeCaseDTO(visit) {
 }
 router.use(auth_1.authenticate);
 router.use(tenant_1.tenantIsolation);
+router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('visit_scheduling'));
 /**
  * GET /api/visits
@@ -65,17 +78,29 @@ router.get('/', (0, rbac_1.authorize)('visits', 'read'), async (req, res) => {
             where.status = status;
         if (agent_id)
             where.agentId = agent_id;
-        const visits = await prisma_1.default.visit.findMany({
-            where,
-            include: {
-                lead: { select: { customerName: true, phone: true } },
-                property: { select: { name: true, locationArea: true } },
-                agent: { select: { name: true } },
-            },
-            orderBy: { scheduledAt: 'asc' },
+        const { page, limit, offset } = (0, pagination_1.parsePagination)(req.query, {
+            limit: 50,
+            maxLimit: 200,
         });
+        const [visits, total] = await Promise.all([
+            prisma_1.default.visit.findMany({
+                where,
+                include: {
+                    lead: { select: { customerName: true, phone: true } },
+                    property: { select: { name: true, locationArea: true } },
+                    agent: { select: { name: true } },
+                },
+                orderBy: { scheduledAt: 'asc' },
+                skip: offset,
+                take: limit,
+            }),
+            prisma_1.default.visit.count({ where }),
+        ]);
         const data = visits.map((visit) => mapVisitToSnakeCaseDTO(visit));
-        res.json({ data, total: data.length });
+        res.json({
+            data,
+            pagination: (0, pagination_1.buildPaginationMeta)(page, limit, total),
+        });
     }
     catch (err) {
         logger_1.default.error('Failed to fetch visits', { error: err.message });
@@ -328,6 +353,31 @@ router.put('/:id', (0, rbac_1.authorize)('visits', 'update'), (0, audit_1.auditL
     catch (err) {
         logger_1.default.error('Failed to reschedule visit', { error: err.message });
         res.status(500).json({ error: 'Failed to reschedule visit' });
+    }
+});
+/**
+ * DELETE /api/visits/:id
+ * Permanently remove a visit record.
+ */
+router.delete('/:id', (0, rbac_1.authorize)('visits', 'delete'), (0, audit_1.auditLog)('delete', 'visits'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const visit = await prisma_1.default.visit.findFirst({
+            where: { id: req.params.id, companyId },
+        });
+        if (!visit) {
+            res.status(404).json({ error: 'Visit not found' });
+            return;
+        }
+        if (req.user.role === 'sales_agent' && visit.agentId !== req.user.id) {
+            res.status(403).json({ error: 'Can only delete your own visits' });
+            return;
+        }
+        await (0, resourceDelete_service_1.deleteVisitPermanently)(companyId, req.params.id);
+        res.json({ message: 'Visit deleted permanently' });
+    }
+    catch (err) {
+        handleDeleteError(err, res);
     }
 });
 exports.default = router;

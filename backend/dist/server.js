@@ -49,8 +49,12 @@ async function start() {
         const httpServer = (0, http_1.createServer)(app_1.default);
         socket_service_1.socketService.initialize(httpServer);
         await new Promise((resolve, reject) => {
-            httpServer.listen(config_1.default.port, () => {
-                logger_1.default.info(`Investo API server running on port ${config_1.default.port} [${config_1.default.env}]`);
+            const host = process.env.HOST || '0.0.0.0';
+            httpServer.listen(config_1.default.port, host, () => {
+                // #region agent log
+                fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a72821' }, body: JSON.stringify({ sessionId: 'a72821', location: 'server.ts:listen', message: 'HTTP server listening', data: { host, port: config_1.default.port, env: config_1.default.env }, timestamp: Date.now(), hypothesisId: 'H2' }) }).catch(() => { });
+                // #endregion
+                logger_1.default.info(`Investo API server running on ${host}:${config_1.default.port} [${config_1.default.env}]`);
                 logger_1.default.info('WebSocket enabled for real-time updates');
                 resolve();
             });
@@ -101,10 +105,21 @@ async function start() {
         }
     }
     catch (err) {
+        // #region agent log
+        fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a72821' }, body: JSON.stringify({ sessionId: 'a72821', location: 'server.ts:start', message: 'Server start failed', data: { error: err?.message }, timestamp: Date.now(), hypothesisId: 'H1' }) }).catch(() => { });
+        // #endregion
         logger_1.default.error('Failed to start server', { error: err.message });
         process.exit(1);
     }
 }
+process.on('uncaughtException', (err) => {
+    logger_1.default.error('Uncaught exception', { error: err.message, stack: err.stack });
+    process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    logger_1.default.error('Unhandled rejection', { error: message });
+});
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     logger_1.default.info('SIGTERM received, shutting down...');

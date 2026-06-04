@@ -39,6 +39,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importStar(require("express"));
 const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
+const storage_service_1 = require("../services/storage.service");
+const storageTargets_1 = require("../services/storageTargets");
 class PropertyImportUploadError extends Error {
     constructor(message, statusCode) {
         super(message);
@@ -67,6 +69,20 @@ function toDatabaseBytes(buffer) {
     return out;
 }
 const router = (0, express_1.Router)();
+router.use((req, res, next) => {
+    const origin = req.header('origin');
+    if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    if (req.method === 'OPTIONS') {
+        res.status(204).end();
+        return;
+    }
+    next();
+});
 function isMissingBlobTableError(err) {
     return (err?.code === 'P2021'
         && typeof err?.message === 'string'
@@ -103,22 +119,50 @@ async function persistUpload(uploadToken, contentType, bytes) {
         if (media.status !== 'upload_requested') {
             throw new PropertyImportUploadError('Upload has already been completed', 409);
         }
-        if (!media.storageKey.startsWith('db/property-import-media/')) {
+        const isDbKey = media.storageKey.startsWith('db/property-import-media/');
+        const isSupabaseKey = Boolean((0, storageTargets_1.parseSupabaseStorageKey)(media.storageKey));
+        const isAwsKey = Boolean((0, storageTargets_1.parseAwsStorageKey)(media.storageKey));
+        if (!isDbKey && !isSupabaseKey && !isAwsKey) {
             throw new PropertyImportUploadError('Direct upload is not available for this token', 409);
         }
         const expectedContentType = normalizeContentType(media.mimeType);
         if (expectedContentType !== contentType) {
             throw new PropertyImportUploadError('Content-Type does not match registered mime type', 400);
         }
-        await tx.propertyImportMediaBlob.create({
-            data: {
-                mediaId: media.id,
-                companyId: media.companyId,
-                mimeType: media.mimeType,
-                fileSize: bytes.length,
-                bytes: toDatabaseBytes(bytes),
-            },
-        });
+        if (isDbKey) {
+            await tx.propertyImportMediaBlob.create({
+                data: {
+                    mediaId: media.id,
+                    companyId: media.companyId,
+                    mimeType: media.mimeType,
+                    fileSize: bytes.length,
+                    bytes: toDatabaseBytes(bytes),
+                },
+            });
+        }
+        else if (isAwsKey) {
+            const uploaded = await storage_service_1.storageService.putObjectBytes(media.storageKey, bytes, media.mimeType);
+            await tx.propertyImportMedia.update({
+                where: { id: media.id },
+                data: {
+                    publicUrl: uploaded.publicUrl,
+                },
+            });
+        }
+        else {
+            const supabaseKey = (0, storageTargets_1.parseSupabaseStorageKey)(media.storageKey);
+            if (!supabaseKey) {
+                throw new PropertyImportUploadError('Invalid Supabase storage key', 500);
+            }
+            const { uploadToSupabaseBucket } = await Promise.resolve().then(() => __importStar(require('../services/supabaseStorage.service')));
+            const uploaded = await uploadToSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath, bytes, media.mimeType);
+            await tx.propertyImportMedia.update({
+                where: { id: media.id },
+                data: {
+                    publicUrl: uploaded.publicUrl,
+                },
+            });
+        }
         await tx.propertyImportMedia.update({
             where: { id: media.id },
             data: {

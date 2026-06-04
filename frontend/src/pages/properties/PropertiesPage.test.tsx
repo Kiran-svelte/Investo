@@ -101,7 +101,7 @@ describe('PropertiesPage rich media form flow', () => {
     await waitFor(() => {
       expect(screen.queryByText('common.loading')).not.toBeInTheDocument();
     });
-    expect(screen.getByText('common.no_data')).toBeInTheDocument();
+    expect(screen.getByText('Drop properties here or import into this project')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'properties.new_property' }));
 
@@ -139,7 +139,8 @@ describe('PropertiesPage rich media form flow', () => {
     );
 
     expect(await screen.findByText('Aurora Homes')).toBeInTheDocument();
-    expect(screen.getByText('Brochure | Price list | 1 floor plan')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Switch to flat list view' }));
+    expect(await screen.findByText('Brochure | Price list | 1 floor plan')).toBeInTheDocument();
     expect(screen.getByText('Coords: 0, 0')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Edit property' }));
@@ -166,7 +167,7 @@ describe('PropertiesPage rich media form flow', () => {
     await waitFor(() => {
       expect(screen.queryByText('common.loading')).not.toBeInTheDocument();
     });
-    expect(screen.getByText('common.no_data')).toBeInTheDocument();
+    expect(screen.getByText('Drop properties here or import into this project')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'properties.new_property' }));
 
     await user.type(screen.getByLabelText('Name *'), 'Failure Case Homes');

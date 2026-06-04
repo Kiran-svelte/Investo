@@ -5,7 +5,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getTenantReadiness = getTenantReadiness;
 const prisma_1 = __importDefault(require("../config/prisma"));
-const config_1 = __importDefault(require("../config"));
 function getWhatsAppSettings(settings) {
     if (!settings || typeof settings !== 'object') {
         return {};
@@ -31,8 +30,9 @@ function isWhatsAppVerified(settings) {
     const whatsapp = getWhatsAppSettings(settings);
     return Boolean(whatsapp.verifiedAt || whatsapp.lastVerifiedAt);
 }
+const mailHealth_service_1 = require("./mailHealth.service");
 function isMailConfigured() {
-    return Boolean(config_1.default.mail.smtp.host && config_1.default.mail.from);
+    return (0, mailHealth_service_1.isMailConfigured)();
 }
 async function getTenantReadiness(companyId) {
     const [company, onboarding, propertyCount, userCount, aiSettings] = await Promise.all([

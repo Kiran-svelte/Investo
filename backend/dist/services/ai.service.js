@@ -6,7 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.aiService = exports.AIService = void 0;
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
+const legalDisclaimer_constants_1 = require("../constants/legalDisclaimer.constants");
 const conversationStateMachine_1 = require("./conversationStateMachine");
+const customerMessageFastPath_service_1 = require("./customerMessageFastPath.service");
+const realEstateAssistantPrompt_constants_1 = require("../constants/realEstateAssistantPrompt.constants");
+const openaiStatus_service_1 = require("./openaiStatus.service");
+const propertyKnowledge_service_1 = require("./propertyKnowledge.service");
+const clientMemory_service_1 = require("./clientMemory.service");
+const aiTransparency_service_1 = require("./aiTransparency.service");
 const SUPPORTED_LANGUAGES = {
     en: 'English',
     hi: 'Hindi',
@@ -40,8 +47,45 @@ class AIService {
             action: nextAction.action,
             promptModifiers: nextAction.promptModifiers,
         });
+        const fastPath = (0, customerMessageFastPath_service_1.buildFastPathCustomerReply)({
+            customerMessage: request.customerMessage,
+            companyName: request.companyName,
+            customerName: request.lead?.customerName,
+            aiSettings: request.aiSettings,
+        });
+        if (fastPath) {
+            return {
+                text: fastPath.text,
+                detectedLanguage: fastPath.detectedLanguage,
+                newState,
+                nextAction,
+            };
+        }
+        const knowledgeChunks = request.companyId && !(0, customerMessageFastPath_service_1.shouldSkipKnowledgeSearchForMessage)(request.customerMessage)
+            ? await (0, propertyKnowledge_service_1.searchPropertyKnowledge)(request.companyId, request.customerMessage, 8)
+            : [];
+        const knowledgeContext = (0, propertyKnowledge_service_1.formatKnowledgeContextForPrompt)(knowledgeChunks);
+        let clientMemoryContext = '';
+        if (request.companyId && request.lead?.id) {
+            try {
+                await (0, clientMemory_service_1.syncLeadClientMemory)(request.lead.id);
+                const clientChunks = await (0, clientMemory_service_1.searchClientMemory)({
+                    companyId: request.companyId,
+                    query: request.customerMessage,
+                    leadId: request.lead.id,
+                    limit: 10,
+                });
+                clientMemoryContext = (0, clientMemory_service_1.formatClientMemoryForPrompt)(clientChunks, request.lead.customerName);
+            }
+            catch (err) {
+                logger_1.default.warn('Buyer client memory retrieval failed', {
+                    leadId: request.lead.id,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
         // LANGUAGE BRAIN: Generate response with policy-guided prompt
-        const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction);
+        const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction, knowledgeContext, clientMemoryContext);
         const messages = this.buildMessages(request);
         const providers = this.getProviderOrder();
         let lastError = null;
@@ -88,7 +132,15 @@ class AIService {
      * Build a goal-directed prompt using Policy Brain decisions.
      * This is the LANGUAGE BRAIN - it crafts the actual message.
      */
-    buildGoalDirectedPrompt(request, state, nextAction) {
+    disclaimerPromptLine(request) {
+        const count = request.customerMessageCount ?? 1;
+        if (!(0, legalDisclaimer_constants_1.shouldAppendDisclaimer)({ customerMessageCount: count })) {
+            return '';
+        }
+        const disclaimer = (0, legalDisclaimer_constants_1.resolveCustomerDisclaimer)(request.aiSettings);
+        return `\n## DISCLAIMER (include once naturally at end)\n${disclaimer}`;
+    }
+    buildGoalDirectedPrompt(request, state, nextAction, knowledgeContext = '', clientMemoryContext = '') {
         const { aiSettings, companyName, properties, lead } = request;
         const stageConfig = (0, conversationStateMachine_1.getStageConfig)(state.stage);
         const tone = aiSettings.responseTone || 'friendly';
@@ -98,7 +150,7 @@ class AIService {
             .slice(0, 10)
             .map((p) => {
             const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}${p.brochureUrl ? ` | Brochure: ${p.brochureUrl}` : ''}`;
+            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
         })
             .join('\n');
         // Build commitment status
@@ -127,13 +179,22 @@ ${nextAction.promptModifiers.map(m => `- ${m}`).join('\n')}
 ## STAGE FOCUS
 ${stageConfig.promptFocus}
 
+${(0, realEstateAssistantPrompt_constants_1.buildRealEstateAssistantPolicyPrompt)()}
+
 ## ABSOLUTE RULES
-1. RESPOND IN THE CUSTOMER'S LANGUAGE (detect automatically)
+1. RESPOND IN THE CUSTOMER'S LANGUAGE when they write in that language; otherwise use ${SUPPORTED_LANGUAGES[(0, customerMessageFastPath_service_1.resolveAdminLanguageCode)(aiSettings)] || 'English'} (company default: ${aiSettings.defaultLanguage || 'en'})
 2. NEVER discuss non-real-estate topics. Bridge back immediately.
-3. NEVER make promises about exact prices without property data below.
-4. ONE clear call-to-action per message.
-5. Keep responses under 200 words.
-6. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : 'Move toward booking'}
+3. LEGAL SAFETY: NEVER state prices, BHK, area, amenities, RERA, possession, discounts, ROI, loan amounts, or comparisons unless they appear verbatim in AVAILABLE PROPERTIES, GROUNDED PROJECT KNOWLEDGE, or the NEVER-SAY-NO block below.
+4. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet (deterministic calculator output).
+5. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
+6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
+6b. When a listing shows Brochure PDF on file, offer to share it; the system sends the PDF attachment after your message. Never paste URLs or markdown links for brochures.
+6c. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
+7. ONE clear call-to-action per message.
+8. Keep responses under 200 words.
+8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
+9. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
+${this.disclaimerPromptLine(request)}
 
 ## TONE: ${tone.toUpperCase()}
 - Persuasion Level: ${aiSettings.persuasionLevel || 7}/10
@@ -142,6 +203,10 @@ ${stageConfig.promptFocus}
 
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
+
+${knowledgeContext ? `\n${knowledgeContext}\n` : ''}
+
+${clientMemoryContext ? `\n${clientMemoryContext}\n` : ''}
 
 ${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 
@@ -159,6 +224,8 @@ REFRAME: "${nextAction.objectionPlaybook.reframe}"
 BRIDGE TO VALUE: "${nextAction.objectionPlaybook.bridgeToValue}"
 ` : ''}
 
+${nextAction.action === 'escalate' ? this.operatorContactPromptBlock(aiSettings) : ''}
+
 ## RESPONSE FORMAT
 Respond with the WhatsApp message to send. Use *bold* for emphasis.
 End your response with:
@@ -166,10 +233,35 @@ End your response with:
 {"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
 (Only include fields you're confident about)`;
     }
+    operatorContactPromptBlock(aiSettings) {
+        const raw = aiSettings?.operatorContact;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+        }
+        const contact = raw;
+        const name = typeof contact.name === 'string' ? contact.name.trim() : '';
+        const phone = typeof contact.phone === 'string' ? contact.phone.trim() : '';
+        if (!name && !phone) {
+            return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+        }
+        return `\n## SPECIALIST HANDOFF\nShare that *${name || 'our specialist'}*${phone ? ` (${phone})` : ''} will take over for pricing and booking details.`;
+    }
     getProviderOrder() {
-        const primaryProvider = (config_1.default.ai.provider || 'kimi').toLowerCase();
-        const providers = ['kimi', 'openai', 'claude'];
-        return [primaryProvider, ...providers.filter((provider) => provider !== primaryProvider)];
+        const primaryProvider = (config_1.default.ai.provider || 'openai').toLowerCase();
+        const configured = [];
+        if (config_1.default.ai.openaiApiKey?.trim()) {
+            configured.push('openai');
+        }
+        if (config_1.default.ai.kimiApiKey?.trim()) {
+            configured.push('kimi');
+        }
+        if (config_1.default.ai.claudeApiKey?.trim()) {
+            configured.push('claude');
+        }
+        if (configured.length === 0) {
+            return ['openai', 'kimi', 'claude'];
+        }
+        return [primaryProvider, ...configured.filter((provider) => provider !== primaryProvider)];
     }
     hasProviderCredentials(provider) {
         switch (provider) {
@@ -212,17 +304,24 @@ End your response with:
             .slice(0, 10)
             .map((p) => {
             const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}${p.brochureUrl ? ` | Brochure: ${p.brochureUrl}` : ''}`;
+            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
         })
             .join('\n');
         return `You are an AI real estate assistant for ${companyName}.
+
+${(0, realEstateAssistantPrompt_constants_1.buildRealEstateAssistantPolicyPrompt)()}
 
 ## ABSOLUTE RULES (NEVER VIOLATE)
 1. You are ONLY about real estate. NEVER discuss politics, religion, sports, entertainment, other products, or any non-real-estate topic. If asked, politely redirect: "I specialize in helping you find your dream property! Let me help you with that."
 2. ALWAYS detect the customer's language and respond in the SAME language. You support: ${Object.values(SUPPORTED_LANGUAGES).join(', ')}. If they write in mixed languages (Hinglish, etc.), respond in the dominant language.
 3. NEVER make promises about exact prices or availability without referencing the property database below.
 4. NEVER share information about other companies or other customers.
-5. Your SOLE purpose is to: understand needs → match properties → convince them to book a site visit.
+5. LEGAL SAFETY: only state property facts that appear in AVAILABLE PROPERTIES or the NEVER-SAY-NO block. Do not invent builder, RERA, approvals, possession date, availability, amenities, discount %, ROI, loan amounts, or price.
+6. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet.
+7. If a required property fact is missing, say it is not in our current records and offer to connect an agent or share the brochure/source.
+8. Your SOLE purpose is to: understand needs → match properties → convince them to book a site visit.
+9. If the customer asks to CANCEL or RESCHEDULE a site visit, do NOT repeat an old "visit scheduled" confirmation. Acknowledge the change and ask for their new preferred day and time if unclear. The system updates the calendar separately — never invent a confirmation for a date they did not request.
+${this.disclaimerPromptLine(request)}
 
 ## YOUR PERSONALITY
 - Tone: ${tone}
@@ -288,6 +387,11 @@ Only include fields you are confident about. Use null for unknown fields.`;
                 messages.push({ role: 'assistant', content: msg.content });
             }
         }
+        const latest = request.customerMessage.trim();
+        const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+        if (latest && lastUser?.content?.trim() !== latest) {
+            messages.push({ role: 'user', content: latest });
+        }
         return messages;
     }
     /**
@@ -352,11 +456,11 @@ Only include fields you are confident about. Use null for unknown fields.`;
             { role: 'system', content: systemPrompt },
             ...messages,
         ];
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        const response = await (0, openaiStatus_service_1.fetchOpenAi)(openaiStatus_service_1.OPENAI_CHAT_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config_1.default.ai.openaiApiKey}`,
+                Authorization: `Bearer ${config_1.default.ai.openaiApiKey}`,
             },
             body: JSON.stringify({
                 model: config_1.default.ai.openaiModel,
@@ -364,11 +468,7 @@ Only include fields you are confident about. Use null for unknown fields.`;
                 max_tokens: 1024,
                 temperature: 0.7,
             }),
-        });
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`OpenAI API error: ${response.status} ${error}`);
-        }
+        }, { retries: 2, label: 'whatsapp_ai_chat' });
         const data = await response.json();
         const text = data.choices?.[0]?.message?.content || '';
         return this.parseAIResponse(text);
@@ -442,7 +542,7 @@ Only include fields you are confident about. Use null for unknown fields.`;
                 logger_1.default.warn('Failed to parse AI extraction block');
             }
         }
-        return { text, detectedLanguage, extractedInfo };
+        return { text: (0, aiTransparency_service_1.stripInternalCustomerMeta)(text), detectedLanguage, extractedInfo };
     }
 }
 exports.AIService = AIService;

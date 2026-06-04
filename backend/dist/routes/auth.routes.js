@@ -41,6 +41,8 @@ const auth_service_1 = require("../services/auth.service");
 const auth_1 = require("../middleware/auth");
 const validate_1 = require("../middleware/validate");
 const validation_1 = require("../models/validation");
+const userProfilePhone_1 = require("../utils/userProfilePhone");
+const staffPhoneUniqueness_1 = require("../utils/staffPhoneUniqueness");
 const logger_1 = __importDefault(require("../config/logger"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const config_1 = __importDefault(require("../config"));
@@ -144,7 +146,15 @@ router.post('/login', (0, validate_1.validate)(validation_1.loginSchema), async 
         const tokens = await auth_service_1.authService.login(normalizedEmail, password);
         const user = await prisma_1.default.user.findFirst({
             where: { email: normalizedEmail, status: 'active' },
-            select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
+            select: {
+                id: true,
+                companyId: true,
+                email: true,
+                role: true,
+                name: true,
+                phone: true,
+                mustChangePassword: true,
+            },
         });
         if (!user) {
             res.status(401).json({ message: 'Invalid credentials' });
@@ -160,6 +170,8 @@ router.post('/login', (0, validate_1.validate)(validation_1.loginSchema), async 
                     email: user.email,
                     role: user.role,
                     name: user.name,
+                    phone: user.phone,
+                    profile_complete: (0, userProfilePhone_1.isStaffProfilePhoneComplete)(user.phone),
                     must_change_password: user.mustChangePassword,
                 },
                 tokens: {
@@ -210,7 +222,13 @@ router.post('/refresh', async (req, res) => {
  */
 router.post('/logout', auth_1.authenticate, async (req, res) => {
     try {
-        await auth_service_1.authService.logout(req.user.id);
+        const refreshToken = req.body.refresh_token || req.body.refreshToken;
+        if (typeof refreshToken === 'string' && refreshToken.trim()) {
+            await auth_service_1.authService.logoutSession(refreshToken.trim());
+        }
+        else {
+            await auth_service_1.authService.logout(req.user.id);
+        }
         res.json({ success: true, message: 'Logged out successfully' });
     }
     catch (err) {
@@ -222,22 +240,89 @@ router.post('/logout', auth_1.authenticate, async (req, res) => {
  * GET /api/auth/me
  * Get current user profile.
  */
+function serializeAuthUser(user) {
+    return {
+        id: user.id,
+        company_id: user.companyId,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        phone: user.phone,
+        profile_complete: (0, userProfilePhone_1.isStaffProfilePhoneComplete)(user.phone),
+        must_change_password: user.mustChangePassword,
+    };
+}
 router.get('/me', auth_1.authenticate, async (req, res) => {
     const user = await prisma_1.default.user.findUnique({
         where: { id: req.user.id },
-        select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
-    });
-    res.json({
-        success: true,
-        data: {
-            id: user.id,
-            company_id: user.companyId,
-            email: user.email,
-            role: user.role,
-            name: user.name,
-            must_change_password: user.mustChangePassword,
+        select: {
+            id: true,
+            companyId: true,
+            email: true,
+            role: true,
+            name: true,
+            phone: true,
+            mustChangePassword: true,
         },
     });
+    if (!user) {
+        res.status(404).json({ message: 'User not found' });
+        return;
+    }
+    res.json({
+        success: true,
+        data: serializeAuthUser(user),
+    });
+});
+/**
+ * PUT /api/auth/profile
+ * All roles: save name + required WhatsApp phone (enables agent copilot routing).
+ */
+router.put('/profile', auth_1.authenticate, (0, validate_1.validate)(validation_1.updateStaffProfileSchema), async (req, res) => {
+    try {
+        const { name, phone } = req.body;
+        let normalized;
+        try {
+            normalized = await (0, staffPhoneUniqueness_1.assertStaffPhoneAvailable)(phone, req.user.id);
+        }
+        catch (err) {
+            if ((0, staffPhoneUniqueness_1.isStaffPhoneInUseError)(err)) {
+                res.status(409).json({ message: err.message });
+                return;
+            }
+            throw err;
+        }
+        if (!normalized) {
+            res.status(400).json({ message: 'Enter a valid Indian mobile number (10 digits)' });
+            return;
+        }
+        const updated = await prisma_1.default.user.update({
+            where: { id: req.user.id },
+            data: {
+                phone: normalized,
+                ...(name ? { name } : {}),
+            },
+            select: {
+                id: true,
+                companyId: true,
+                email: true,
+                role: true,
+                name: true,
+                phone: true,
+                mustChangePassword: true,
+            },
+        });
+        res.json({
+            success: true,
+            message: 'Profile updated',
+            data: serializeAuthUser(updated),
+        });
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger_1.default.error('Profile update failed', { error: message });
+        res.status(500).json({ message: 'Failed to update profile' });
+    }
 });
 /**
  * POST /api/auth/change-password
@@ -331,11 +416,17 @@ router.post('/forgot-password', async (req, res) => {
         const resetUrl = `${config_1.default.frontend.baseUrl}/reset-password?token=${token}&email=${encodeURIComponent(user.email)}`;
         logger_1.default.info('Password reset token generated', { userId: user.id });
         try {
-            await email_service_1.emailService.sendPasswordResetEmail({
+            const mailResult = await email_service_1.emailService.sendPasswordResetEmail({
                 toEmail: user.email,
                 toName: user.name,
                 resetUrl,
             });
+            if (!mailResult.sent) {
+                logger_1.default.error('Password reset email not sent', {
+                    userId: user.id,
+                    reason: mailResult.reason,
+                });
+            }
         }
         catch (sendErr) {
             logger_1.default.error('Password reset email send failed', {

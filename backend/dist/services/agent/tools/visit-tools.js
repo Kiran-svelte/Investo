@@ -12,7 +12,7 @@ const format_helpers_1 = require("./format-helpers");
 const langchain_runtime_1 = require("./langchain-runtime");
 const visitStatus = zod_1.z.enum(['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show']);
 function visitScope(context) {
-    return (0, format_helpers_1.buildAgentScopeFilter)(context.companyId, context.userRole, context.userId, 'agentId');
+    return (0, format_helpers_1.buildVisitScopeFilter)(context.companyId, context.userRole, context.userId);
 }
 function formatVisit(visit) {
     return [
@@ -45,6 +45,24 @@ function createVisitTools(context) {
                 if (!visits.length)
                     return 'No visits scheduled today.';
                 return ['*Today\'s Visits*', ...visits.map(formatVisit)].join('\n\n');
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'listVisitsTomorrow',
+            description: 'List visits scheduled for tomorrow (IST). Sales agents see their own visits and visits on their assigned leads.',
+            schema: zod_1.z.object({ limit: zod_1.z.number().int().min(1).max(agent_tools_constants_1.MAX_LIST_LIMIT).optional() }),
+            func: async ({ limit }) => {
+                const date = (0, format_helpers_1.getTomorrowIST)();
+                const [start, end] = (0, format_helpers_1.getISTDayBounds)(date);
+                const visits = await prisma_1.default.visit.findMany({
+                    where: { ...visitScope(context), scheduledAt: { gte: start, lte: end } },
+                    include,
+                    orderBy: { scheduledAt: 'asc' },
+                    take: limit ?? agent_tools_constants_1.DEFAULT_LIST_LIMIT,
+                });
+                if (!visits.length)
+                    return `No visits scheduled for tomorrow (${date}).`;
+                return [`*Tomorrow's Visits (${date})*`, ...visits.map(formatVisit)].join('\n\n');
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({
@@ -136,6 +154,74 @@ function createVisitTools(context) {
                     return `Cannot reschedule a ${visit.status} visit.`;
                 const updated = await prisma_1.default.visit.update({ where: { id: visitId }, data: { scheduledAt: new Date(newScheduledAt), reminderSent: false }, include });
                 return `Visit rescheduled.\n\n${formatVisit(updated)}`;
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'bulkReassignVisits',
+            description: 'Reassign all visits from one agent to another for a given date (defaults to today). ' +
+                'Requires yes/no confirmation showing visit count.',
+            schema: zod_1.z.object({
+                toAgentId: zod_1.z.string().uuid().describe('Agent to receive the visits'),
+                fromAgentId: zod_1.z.string().uuid().optional().describe('Agent whose visits to move (defaults to caller)'),
+                date: zod_1.z.string().optional().describe('Date in YYYY-MM-DD format (defaults to today)'),
+            }),
+            func: async ({ toAgentId, fromAgentId, date }) => {
+                const sourceAgentId = fromAgentId ?? context.userId;
+                const targetDate = date ?? (0, format_helpers_1.getTodayIST)();
+                const [start, end] = (0, format_helpers_1.getISTDayBounds)(targetDate);
+                const toAgent = await prisma_1.default.user.findFirst({
+                    where: { id: toAgentId, companyId: context.companyId, status: 'active' },
+                    select: { id: true, name: true },
+                });
+                if (!toAgent)
+                    return 'Target agent not found or inactive.';
+                const visits = await prisma_1.default.visit.findMany({
+                    where: {
+                        companyId: context.companyId,
+                        agentId: sourceAgentId,
+                        scheduledAt: { gte: start, lte: end },
+                        status: { in: ['scheduled', 'confirmed'] },
+                    },
+                    include,
+                });
+                if (!visits.length)
+                    return `No scheduled visits found for ${targetDate}.`;
+                if (!context.sessionId)
+                    return 'Confirmation session unavailable.';
+                const message = `Confirm reassignment of ${visits.length} visit(s) on ${targetDate} to ${toAgent.name}?\n` +
+                    `Reply "yes" to confirm or "no" to cancel.`;
+                await (0, confirmation_service_1.createPendingConfirmation)(context.sessionId, 'bulkUpdateVisits', { visitIds: visits.map((v) => v.id), toAgentId, targetDate }, message);
+                return message;
+            },
+        }),
+        new langchain_runtime_1.DynamicStructuredTool({
+            name: 'snoozeAllVisits',
+            description: 'Postpone all of the caller\'s scheduled/confirmed visits by N days. ' +
+                'Useful when the agent is sick or unavailable. Requires yes/no confirmation.',
+            schema: zod_1.z.object({
+                postponeByDays: zod_1.z.number().int().min(1).max(30).default(7).describe('Number of days to postpone'),
+                date: zod_1.z.string().optional().describe('Date to snooze visits for in YYYY-MM-DD (defaults to today)'),
+            }),
+            func: async ({ postponeByDays, date }) => {
+                const targetDate = date ?? (0, format_helpers_1.getTodayIST)();
+                const [start, end] = (0, format_helpers_1.getISTDayBounds)(targetDate);
+                const visits = await prisma_1.default.visit.findMany({
+                    where: {
+                        companyId: context.companyId,
+                        agentId: context.userId,
+                        scheduledAt: { gte: start, lte: end },
+                        status: { in: ['scheduled', 'confirmed'] },
+                    },
+                    include,
+                });
+                if (!visits.length)
+                    return `No scheduled visits found for ${targetDate}.`;
+                if (!context.sessionId)
+                    return 'Confirmation session unavailable.';
+                const message = `Confirm postponing ${visits.length} visit(s) on ${targetDate} by ${postponeByDays} day(s)?\n` +
+                    `Reply "yes" to confirm or "no" to cancel.`;
+                await (0, confirmation_service_1.createPendingConfirmation)(context.sessionId, 'bulkUpdateVisits', { visitIds: visits.map((v) => v.id), postponeByDays, targetDate }, message);
+                return message;
             },
         }),
     ];

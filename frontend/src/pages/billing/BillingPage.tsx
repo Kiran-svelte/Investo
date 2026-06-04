@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   CreditCard, Download, Check, Clock, AlertCircle, Zap
 } from 'lucide-react';
@@ -40,15 +41,18 @@ interface CompanySubscription {
 const BillingPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { confirm, Dialog } = useConfirmDialog();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [currentSubscription, setCurrentSubscription] = useState<CompanySubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatingPlanId, setUpdatingPlanId] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
       try {
+        setPageError(null);
         const [plansRes, companyRes] = await Promise.all([
           api.get('/subscriptions/plans'),
           api.get('/companies'),
@@ -65,6 +69,7 @@ const BillingPage: React.FC = () => {
         }
       } catch (err) {
         console.error('Failed to load billing data', err);
+        setPageError('Could not load billing details.');
       } finally {
         setLoading(false);
       }
@@ -111,14 +116,22 @@ const BillingPage: React.FC = () => {
     setCurrentSubscription(companyRes.data.data || null);
   };
 
-  const handleSelectPlan = async (planId: string) => {
+  const handleSelectPlan = async (plan: SubscriptionPlan) => {
+    const confirmed = await confirm(
+      'Change subscription plan?',
+      `Switch from ${currentSubscription?.plan_name || 'the current plan'} to ${plan.name} at ${formatCurrency(plan.priceMonthly)} per month?`,
+      { variant: 'warning', confirmLabel: 'Change plan' },
+    );
+    if (!confirmed) return;
+
     try {
-      setUpdatingPlanId(planId);
-      await api.post('/subscriptions/select-plan', { plan_id: planId });
+      setUpdatingPlanId(plan.id);
+      setPageError(null);
+      await api.post('/subscriptions/select-plan', { plan_id: plan.id });
       await refreshSubscription();
     } catch (err) {
       console.error('Failed to update subscription plan', err);
-      alert(t('billing.update_failed') || 'Failed to update plan');
+      setPageError(t('billing.update_failed') || 'Failed to update plan');
     } finally {
       setUpdatingPlanId(null);
     }
@@ -141,7 +154,7 @@ const BillingPage: React.FC = () => {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to download invoice', err);
-      alert(t('billing.download_failed') || 'Failed to download invoice');
+      setPageError(t('billing.download_failed') || 'Failed to download invoice');
     }
   };
 
@@ -164,6 +177,12 @@ const BillingPage: React.FC = () => {
           {t('billing.subtitle')}
         </p>
       </div>
+
+      {pageError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {pageError}
+        </div>
+      )}
 
       {/* Current Plan Card */}
       {currentSubscription && (
@@ -191,7 +210,7 @@ const BillingPage: React.FC = () => {
                   onClick={() => {
                     const betterPlan = plans.find((p) => p.priceMonthly > (currentSubscription?.price_monthly || 0));
                     if (betterPlan) {
-                      void handleSelectPlan(betterPlan.id);
+                      void handleSelectPlan(betterPlan);
                     }
                   }}
                   disabled={updatingPlanId !== null}
@@ -258,7 +277,7 @@ const BillingPage: React.FC = () => {
 
               {currentSubscription?.plan_name !== plan.name && (
                 <button
-                  onClick={() => void handleSelectPlan(plan.id)}
+                  onClick={() => void handleSelectPlan(plan)}
                   disabled={updatingPlanId !== null}
                   className="w-full py-2 px-4 border border-brand-600 text-brand-700 rounded-lg font-medium hover:bg-brand-50 transition-colors disabled:opacity-60"
                 >
@@ -329,6 +348,7 @@ const BillingPage: React.FC = () => {
           )}
         </div>
       </div>
+      {Dialog}
     </div>
   );
 };

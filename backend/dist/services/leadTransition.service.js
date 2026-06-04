@@ -32,7 +32,10 @@ async function transitionLeadStatus(leadId, targetStatus, extra) {
     if (current === targetStatus) {
         return true;
     }
-    if (!(0, validation_1.isValidTransition)(validation_1.LEAD_TRANSITIONS, current, targetStatus)) {
+    const allowReopen = current === 'closed_lost' && targetStatus === 'contacted';
+    if (!extra?.force
+        && !allowReopen
+        && !(0, validation_1.isValidTransition)(validation_1.LEAD_TRANSITIONS, current, targetStatus)) {
         logger_1.default.warn('Invalid lead status transition skipped', {
             leadId,
             from: current,
