@@ -1,10 +1,12 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/notifications/ToastContainer';
-import WorkspaceLoader from './components/loading/WorkspaceLoader';
+import InvestoLoading from './components/loading/InvestoLoading';
+import { CompanyFeaturesProvider } from './context/CompanyFeaturesContext';
 import LoginPage from './pages/auth/LoginPage';
 import ChangePasswordPage from './pages/auth/ChangePasswordPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
@@ -32,7 +34,7 @@ import BillingPage from './pages/billing/BillingPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
 import ErrorLogsPage from './pages/error-logs/ErrorLogsPage';
 import ProfilePage from './pages/profile/ProfilePage';
-import useCompanyFeatures from './hooks/useCompanyFeatures';
+import { useCompanyFeatures } from './context/CompanyFeaturesContext';
 import './i18n/i18n';
 import api from './services/api';
 import {
@@ -50,7 +52,16 @@ import {
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
 
-export const LoadingScreen: React.FC<{ hint?: string }> = ({ hint }) => {
+export type LoadingScreenVariant = 'workspace' | 'session' | 'route';
+
+export const LoadingScreen: React.FC<{
+  hint?: string;
+  variant?: LoadingScreenVariant;
+  category?: 'default' | 'features' | 'onboarding' | 'auth';
+  message?: string;
+  embedded?: boolean;
+}> = ({ hint, variant = 'workspace', category = 'default', message, embedded }) => {
+  const { t } = useTranslation();
   const [slow, setSlow] = React.useState(false);
 
   React.useEffect(() => {
@@ -59,21 +70,22 @@ export const LoadingScreen: React.FC<{ hint?: string }> = ({ hint }) => {
   }, []);
 
   return (
-    <div className="relative min-h-[100dvh]">
-      <WorkspaceLoader
-        message="Loading workspace…"
-        hint={
-          hint
-            ?? 'First load after idle can take up to a minute while the server starts.'
-        }
-        rotateStatus
+    <div className="relative min-h-0 flex-1">
+      <InvestoLoading
+        variant={variant}
+        category={category}
+        message={message}
+        hint={hint}
+        embedded={embedded ?? variant === 'route'}
       />
-      {slow ? (
+      {slow && variant === 'workspace' ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-8 z-50 flex justify-center px-4">
           <div className="pointer-events-auto max-w-md rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-950 shadow-lg">
-            <p className="font-medium">Still loading?</p>
+            <p className="font-medium">{t('loading.still_loading_title', { defaultValue: 'Still loading?' })}</p>
             <p className="mt-1 text-xs text-amber-800">
-              The server may be waking up. Try refresh, or continue setup.
+              {t('loading.still_loading_hint', {
+                defaultValue: 'The server may be waking up. Try refresh, or continue setup.',
+              })}
             </p>
             <div className="mt-3 flex flex-wrap justify-center gap-2">
               <button
@@ -81,19 +93,19 @@ export const LoadingScreen: React.FC<{ hint?: string }> = ({ hint }) => {
                 className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"
                 onClick={() => window.location.reload()}
               >
-                Refresh
+                {t('loading.refresh', { defaultValue: 'Refresh' })}
               </button>
               <a
                 href="/onboarding"
                 className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900"
               >
-                Open onboarding
+                {t('loading.open_onboarding', { defaultValue: 'Open onboarding' })}
               </a>
               <a
                 href="/login"
                 className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900"
               >
-                Back to login
+                {t('loading.back_to_login', { defaultValue: 'Back to login' })}
               </a>
             </div>
           </div>
@@ -107,7 +119,7 @@ export const ProtectedRoute: React.FC = () => {
   const { isAuthenticated, isLoading, mustChangePassword } = useAuth();
   const location = useLocation();
   
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <LoadingScreen variant="session" category="auth" />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   
   // If user must change password and not already on that page, redirect
@@ -123,7 +135,7 @@ export const ProfileGuard: React.FC = () => {
   const { profileComplete, isLoading } = useAuth();
   const location = useLocation();
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <LoadingScreen variant="session" category="auth" />;
 
   const profilePath = dashboardPath('/profile');
   const onProfile = location.pathname === profilePath || location.pathname.endsWith('/profile');
@@ -226,7 +238,10 @@ export const OnboardingGuard: React.FC = () => {
     };
   }, [user, isLoading]);
 
-  if (isLoading || checkingOnboarding) return <LoadingScreen />;
+  if (isLoading) return <LoadingScreen variant="session" category="auth" />;
+  if (checkingOnboarding) {
+    return <LoadingScreen variant="route" category="onboarding" embedded />;
+  }
   
   // If on onboarding page already, don't redirect
   if (location.pathname === '/onboarding') return <Outlet />;
@@ -250,15 +265,10 @@ const PublicRoute: React.FC = () => {
 /** Redirects authenticated users away from routes their role cannot access. */
 export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
   const { user } = useAuth();
-  const { loading } = useCompanyFeatures();
   const role = user?.role;
 
   if (!role) {
     return <Navigate to="/login" replace />;
-  }
-
-  if (loading && role !== 'super_admin') {
-    return <LoadingScreen hint="Loading your company features…" />;
   }
 
   if (!isPathAllowedForRole(path, role, () => true)) {
@@ -290,7 +300,7 @@ export const LegacyDashboardRedirect: React.FC = () => {
 
 const RoleAwareNotFound: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <LoadingScreen variant="session" category="auth" />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return (
     <AccessFeedbackPage
@@ -306,7 +316,7 @@ export const OnboardingAccessRoute: React.FC = () => {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
-    return <LoadingScreen />;
+    return <LoadingScreen variant="session" category="auth" />;
   }
 
   if (!ONBOARDING_ALLOWED_ROLES.has(user?.role || '')) {
@@ -330,11 +340,7 @@ export const FeatureRoute: React.FC<{ featureKey: string }> = ({ featureKey }) =
     return <Outlet />;
   }
 
-  if (loading) {
-    return <LoadingScreen />;
-  }
-
-  if (!isFeatureEnabled(featureKey)) {
+  if (!isFeatureEnabled(featureKey) && !loading) {
     return (
       <AccessFeedbackPage
         eyebrow="Feature disabled"
@@ -352,6 +358,7 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <CompanyFeaturesProvider>
         <NotificationProvider>
         <SocketProvider>
           <ToastContainer />
@@ -471,6 +478,7 @@ const App: React.FC = () => {
           </Routes>
         </SocketProvider>
         </NotificationProvider>
+        </CompanyFeaturesProvider>
       </AuthProvider>
     </BrowserRouter>
   );

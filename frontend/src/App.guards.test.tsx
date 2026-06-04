@@ -44,8 +44,9 @@ vi.mock('./context/AuthContext', () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('./hooks/useCompanyFeatures', () => ({
-  default: () => featureState,
+vi.mock('./context/CompanyFeaturesContext', () => ({
+  useCompanyFeatures: () => featureState,
+  CompanyFeaturesProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('./services/api', () => ({

@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Building2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleHomePath } from '../../config/navigation.config';
+import LanguageSelector from '../../components/common/LanguageSelector';
+import InvestoButton from '../../components/ui/InvestoButton';
 import api from '../../services/api';
 
 export default function ChangePasswordPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, clearPasswordChangeRequirement } = useAuth();
-  
+
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -20,12 +23,12 @@ export default function ChangePasswordPage() {
     setError(null);
 
     if (newPassword.length < 8) {
-      setError(t('auth.password_min_length') || 'Password must be at least 8 characters');
+      setError(t('auth.password_min_length'));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError(t('auth.passwords_dont_match') || 'Passwords do not match');
+      setError(t('auth.passwords_dont_match'));
       return;
     }
 
@@ -34,89 +37,97 @@ export default function ChangePasswordPage() {
       await api.post('/auth/change-password', { new_password: newPassword });
       clearPasswordChangeRequirement();
       navigate(getRoleHomePath(user?.role));
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to change password');
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { message?: string } } };
+      setError(ax.response?.data?.message || t('auth.change_password_error', { defaultValue: 'Failed to change password' }));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h1 className="text-center text-3xl font-bold text-primary-600">INVESTO</h1>
-          <h2 className="mt-6 text-center text-2xl font-bold text-ink-primary">
-            {t('auth.change_password_title') || 'Change Your Password'}
-          </h2>
-          <p className="mt-2 text-center text-sm text-ink-secondary">
-            {t('auth.change_password_subtitle') || 'You must change your password before continuing'}
-          </p>
+    <div className="flex min-h-[100dvh] bg-surface-muted">
+      <div className="flex w-full flex-col">
+        <div className="flex justify-end p-4">
+          <LanguageSelector />
         </div>
-
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="new-password" className="block text-sm font-medium text-ink-secondary">
-                {t('auth.new_password') || 'New Password'}
-              </label>
-              <input
-                id="new-password"
-                type="password"
-                required
-                minLength={8}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 investo-input"
-                placeholder="••••••••"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="confirm-password" className="block text-sm font-medium text-ink-secondary">
-                {t('auth.confirm_password') || 'Confirm New Password'}
-              </label>
-              <input
-                id="confirm-password"
-                type="password"
-                required
-                minLength={8}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 investo-input"
-                placeholder="••••••••"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <span className="flex items-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                {t('common.saving') || 'Saving...'}
+        <div className="flex flex-1 items-center justify-center px-4 pb-12">
+          <div className="w-full max-w-md">
+            <div className="mb-8 flex flex-col items-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
+                <Building2 className="h-7 w-7" aria-hidden />
               </span>
-            ) : (
-              t('auth.change_password_button') || 'Change Password & Continue'
-            )}
-          </button>
+              <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">
+                {t('auth.change_password_title')}
+              </h1>
+              <p className="mt-2 text-center text-sm text-ink-muted">{t('auth.change_password_subtitle')}</p>
+            </div>
 
-          <p className="text-center text-xs text-ink-muted mt-4">
-            {t('auth.password_requirements') || 'Password must be at least 8 characters long'}
-          </p>
-        </form>
+            <form onSubmit={(e) => void handleSubmit(e)} className="investo-card-pad space-y-5" noValidate>
+              {error && (
+                <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="new-password" className="block text-sm font-medium text-ink-secondary">
+                  {t('auth.new_password')}
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  disabled={loading}
+                  className="investo-input mt-1.5"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-ink-secondary">
+                  {t('auth.confirm_password')}
+                </label>
+                <input
+                  id="confirm-password"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  disabled={loading}
+                  className="investo-input mt-1.5"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <InvestoButton
+                type="submit"
+                fullWidth
+                loading={loading}
+                loadingLabel={t('auth.change_password_button')}
+                className="py-3"
+              >
+                {t('auth.change_password_button')}
+              </InvestoButton>
+
+              <p className="text-center text-xs text-ink-muted">
+                {t('auth.password_requirements')}
+              </p>
+
+              <p className="text-center text-sm">
+                <Link to="/login" className="font-medium text-brand-700 hover:text-brand-800">
+                  {t('auth.back_to_login')}
+                </Link>
+              </p>
+            </form>
+          </div>
+        </div>
       </div>
     </div>
   );

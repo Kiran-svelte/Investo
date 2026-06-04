@@ -1,0 +1,43 @@
+@import './WorkspaceLoader.css';
+
+.investo-loading--session {
+  @apply flex items-center justify-center bg-surface-muted px-4;
+}
+
+.investo-loading__session-card {
+  @apply flex max-w-sm flex-col items-center gap-3 rounded-2xl border border-surface-border bg-surface-elevated px-8 py-10 text-center shadow-sm;
+}
+
+.investo-loading--route {
+  @apply flex w-full justify-center p-4 md:p-6;
+}
+
+.investo-loading--route.investo-loading--embedded {
+  @apply min-h-[12rem] items-center;
+}
+
+.investo-loading__route-card {
+  @apply flex w-full max-w-lg items-center gap-3 rounded-xl border border-surface-border bg-surface-elevated px-4 py-3 shadow-sm;
+}
+
+.investo-loading__route-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700;
+}
+
+.investo-loading--inline {
+  @apply inline-flex items-center gap-2 text-sm text-ink-secondary;
+}
+
+.investo-loading--logout {
+  @apply fixed left-1/2 top-4 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-full border border-surface-border bg-surface-elevated px-4 py-2 text-sm font-medium text-ink-primary shadow-lg;
+}
+
+@media (max-width: 640px) {
+  .investo-loading__route-card {
+    @apply flex-col text-center;
+  }
+
+  .workspace-loader__card {
+    @apply mx-3 w-[calc(100%-1.5rem)] max-w-none;
+  }
+}

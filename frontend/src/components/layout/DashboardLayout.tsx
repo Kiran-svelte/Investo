@@ -16,6 +16,7 @@ import LanguageSelector from '../common/LanguageSelector';
 import KnowledgeGateBanner from './KnowledgeGateBanner';
 import NotificationBell from './NotificationBell';
 import PageTransition from './PageTransition';
+import InvestoLoading from '../loading/InvestoLoading';
 import {
   LayoutDashboard,
   Users,
@@ -251,6 +252,7 @@ const Header: React.FC = () => {
   const navigate = useNavigate();
   const { setMobileOpen } = useShell();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -265,6 +267,8 @@ const Header: React.FC = () => {
   }, [userMenuOpen]);
 
   return (
+    <>
+    {signingOut ? <InvestoLoading variant="logout" /> : null}
     <header className="investo-topbar sticky top-0 z-30">
       <button
         type="button"
@@ -351,6 +355,7 @@ const Header: React.FC = () => {
                 role="menuitem"
                 onClick={() => {
                   setUserMenuOpen(false);
+                  setSigningOut(true);
                   logout();
                   navigate('/', { replace: true });
                 }}
@@ -364,6 +369,7 @@ const Header: React.FC = () => {
         </div>
       </div>
     </header>
+    </>
   );
 };
 

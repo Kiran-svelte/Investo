@@ -63,7 +63,30 @@
     "reset_password_button": "Reset Password",
     "password_reset_success": "Password Reset Successfully!",
     "password_reset_success_desc": "Your password has been changed. Redirecting to login...",
-    "go_to_login": "Go to Login"
+    "go_to_login": "Go to Login",
+    "change_password_error": "Failed to change password. Please try again."
+  },
+  "loading": {
+    "workspace_title": "Investo",
+    "workspace_message": "Loading workspace…",
+    "workspace_hint_cold": "First load after idle can take up to a minute while the server starts.",
+    "session_message": "Restoring your session…",
+    "route_default": "Preparing this page…",
+    "route_features": "Loading your company features…",
+    "route_onboarding": "Checking setup progress…",
+    "page_default": "Loading page content…",
+    "button_saving": "Saving…",
+    "button_loading": "Please wait…",
+    "logout": "Signing out…",
+    "still_loading_title": "Still loading?",
+    "still_loading_hint": "The server may be waking up. Try refresh, or continue setup.",
+    "refresh": "Refresh",
+    "open_onboarding": "Open onboarding",
+    "back_to_login": "Back to login",
+    "status_starting": "Starting your workspace…",
+    "status_connecting": "Connecting to Investo…",
+    "status_dashboard": "Loading your dashboard…",
+    "status_almost": "Almost ready…"
   },
   "dashboard": {
     "title": "Dashboard",
