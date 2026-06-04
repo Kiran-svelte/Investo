@@ -23,6 +23,7 @@ import {
   formatKnowledgeContextForPrompt,
   searchPropertyKnowledge,
 } from './propertyKnowledge.service';
+import { stripInternalCustomerMeta } from './aiTransparency.service';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
 
@@ -615,7 +616,7 @@ Only include fields you are confident about. Use null for unknown fields.`;
       }
     }
 
-    return { text, detectedLanguage, extractedInfo };
+    return { text: stripInternalCustomerMeta(text), detectedLanguage, extractedInfo };
   }
 }
 

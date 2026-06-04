@@ -151,15 +151,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Login ────────────────────────────────────
 
   const login = useCallback(async (email: string, password: string) => {
-    const { data } = await api.post<
-      ApiResponse<{ user: AuthUser; tokens: AuthTokens }>
-    >('/auth/login', { email, password });
+    const maxAttempts = 4;
+    let lastError: unknown;
 
-    const { user: loggedInUser, tokens } = data.data;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const { data } = await api.post<
+          ApiResponse<{ user: AuthUser; tokens: AuthTokens }>
+        >('/auth/login', { email, password });
 
-    setTokens(tokens.access_token, tokens.refresh_token);
-    setUser(loggedInUser);
-    return loggedInUser;
+        const { user: loggedInUser, tokens } = data.data;
+        setTokens(tokens.access_token, tokens.refresh_token);
+        setUser(loggedInUser);
+        return loggedInUser;
+      } catch (err) {
+        lastError = err;
+        if (!isTransientAuthError(err) || attempt === maxAttempts) {
+          throw err;
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+      }
+    }
+
+    throw lastError;
   }, []);
 
   // ── Logout ───────────────────────────────────

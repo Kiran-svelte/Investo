@@ -1,5 +1,6 @@
 import config from '../config';
 import logger from '../config/logger';
+import { stripInternalCustomerMeta } from './aiTransparency.service';
 
 export type PolishChannel = 'whatsapp' | 'email' | 'sms';
 
@@ -27,7 +28,7 @@ export async function polishOutboundMessage(input: PolishOutboundInput): Promise
   const channel = input.channel || 'whatsapp';
   const maxLen = input.maxLength ?? (channel === 'whatsapp' ? DEFAULT_CUSTOMER_MAX : WHATSAPP_MAX);
 
-  let text = normalizeWhitespace(input.rawText);
+  let text = stripInternalCustomerMeta(normalizeWhitespace(input.rawText));
   if (!text) {
     return { text: '', mode: 'passthrough' };
   }

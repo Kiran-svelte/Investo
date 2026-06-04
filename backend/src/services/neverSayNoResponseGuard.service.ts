@@ -20,6 +20,23 @@ export interface NeverSayNoGuardInput {
   fallbackCta: string;
   groundedProperties?: PropertyLike[];
   conversionPromptBlock?: string;
+  /** Skip redundant visit-booking CTA when a slot is already discussed or confirmed. */
+  skipFallbackCta?: boolean;
+}
+
+const VISIT_ALREADY_ADDRESSED = [
+  /\bvisit\s+(scheduled|confirmed|booked|noted|set)\b/i,
+  /\b(site\s+)?visit\b.*\b(saturday|sunday|monday|tuesday|wednesday|thursday|friday|tomorrow|today)\b/i,
+  /\bagent will (call|give you a call|contact)\b/i,
+  /\bsee you (then|there|soon)\b/i,
+  /\bpreferred (visit )?time\b/i,
+  /\bnoted your preference\b/i,
+  /\bconfirm everything\b/i,
+  /✅\s*\*?Visit scheduled/i,
+];
+
+function visitAlreadyAddressed(text: string): boolean {
+  return VISIT_ALREADY_ADDRESSED.some((p) => p.test(text));
 }
 
 function applyGrounding(text: string, input: NeverSayNoGuardInput): { text: string; guardApplied: boolean } {
@@ -45,7 +62,9 @@ export function enforceNeverSayNoResponse(input: NeverSayNoGuardInput): {
     const hasDeadEnd = DEAD_END_PATTERNS.some((p) => p.test(trimmed));
     const lacksQuestion = !trimmed.includes('?');
 
-    if (!hasDeadEnd && !lacksQuestion) {
+    const skipCta = input.skipFallbackCta || visitAlreadyAddressed(trimmed);
+
+    if (!hasDeadEnd && (!lacksQuestion || skipCta)) {
       resultText = trimmed;
     } else if (hasDeadEnd || (lacksQuestion && !input.hasInventoryAlternatives)) {
       const bridge = input.hasInventoryAlternatives
@@ -53,7 +72,7 @@ export function enforceNeverSayNoResponse(input: NeverSayNoGuardInput): {
         : 'I can still help with waitlist, EMI options, partner inventory, or a free legal check on any property you find.';
       resultText = `${bridge}\n\n${input.fallbackCta}`;
       guardApplied = true;
-    } else if (lacksQuestion) {
+    } else if (lacksQuestion && !skipCta) {
       resultText = `${trimmed}\n\n${input.fallbackCta}`;
       guardApplied = true;
     } else {

@@ -10,6 +10,14 @@ jest.mock('../../config', () => ({
 }));
 
 describe('messagePolish.service', () => {
+  test('deterministic polish strips internal meta footers', async () => {
+    const raw =
+      'Hello!\n\n—\nConfidence: High\nSources: Palmvilla\nReply WRONG if any info is incorrect.';
+    const result = await polishOutboundMessage({ rawText: raw, channel: 'whatsapp' });
+    expect(result.text).toBe('Hello!');
+    expect(result.text).not.toContain('Confidence');
+  });
+
   test('deterministic polish normalizes markdown and trims length', async () => {
     const long = 'Hello '.repeat(400);
     const result = await polishOutboundMessage({

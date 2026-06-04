@@ -29,6 +29,7 @@ import { assignLeadWithRouting } from './leadRouting.service';
 import { syncLeadScoreFromConversation } from './leadScoring.service';
 import { logAgentAction } from './agent-action-log.service';
 import { tryCommitCustomerVisitBooking } from './customerVisitBooking.service';
+import { isVisitSchedulingMessage } from './visitIntentFromMessage.service';
 
 import {
   handleWrongReport,
@@ -1193,6 +1194,12 @@ export class WhatsAppService {
           fallbackCta: neverSayNoCtx.fallbackCta,
           groundedProperties,
           conversionPromptBlock: neverSayNoCtx.promptBlock,
+          skipFallbackCta:
+            conversationState.commitments.visitSlotDiscussed ||
+            conversationState.commitments.visitSlotConfirmed ||
+            conversationState.stage === 'visit_booking' ||
+            conversationState.stage === 'confirmation' ||
+            isVisitSchedulingMessage(msg.messageText),
         });
         const polished = await polishOutboundMessage({
           rawText: guarded.text,
@@ -1201,6 +1208,9 @@ export class WhatsAppService {
           language: aiResponse.detectedLanguage,
         });
         let outboundText = polished.text;
+        // #region agent log
+        fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'whatsapp.service.ts:outbound',message:'WhatsApp outbound polish',data:{hadMetaBefore: /Confidence:|Reply WRONG/i.test(guarded.text),hadMetaAfter: /Confidence:|Reply WRONG/i.test(outboundText),guardApplied: guarded.guardApplied,textLen: outboundText.length},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
         if (!outboundText.trim()) {
           outboundText =
             `Thanks for messaging *${company.name}*! I'm your property assistant.\n\n` +
