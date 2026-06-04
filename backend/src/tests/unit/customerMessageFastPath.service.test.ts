@@ -1,5 +1,6 @@
 import {
   buildFastPathCustomerReply,
+  isConversationAcknowledgmentMessage,
   isIdentityQuestionMessage,
   isSimpleGreetingMessage,
   shouldSkipKnowledgeSearchForMessage,
@@ -22,6 +23,26 @@ describe('customerMessageFastPath.service', () => {
     expect(shouldSkipKnowledgeSearchForMessage('hi')).toBe(true);
     expect(shouldSkipKnowledgeSearchForMessage('who are you')).toBe(true);
     expect(shouldSkipKnowledgeSearchForMessage('2bhk villa near whitefield under 2cr')).toBe(false);
+  });
+
+  it('detects short acknowledgments without treating as greeting', () => {
+    expect(isConversationAcknowledgmentMessage('Good')).toBe(true);
+    expect(isSimpleGreetingMessage('Good')).toBe(false);
+  });
+
+  it('builds contextual ack after property discussion', () => {
+    const reply = buildFastPathCustomerReply({
+      customerMessage: 'Good',
+      companyName: 'Palm',
+      aiSettings: { defaultLanguage: 'en' },
+      propertyNames: ['Sunset Heights'],
+      conversationHistory: [
+        { senderType: 'customer', content: 'Tell me about Sunset Heights' },
+        { senderType: 'ai', content: 'Sunset Heights has 2BHK from 83 lakh.' },
+      ],
+    });
+    expect(reply?.text).toContain('Sunset Heights');
+    expect(reply?.text).not.toMatch(/Welcome to Palm/i);
   });
 
   it('builds identity reply in admin default language', () => {

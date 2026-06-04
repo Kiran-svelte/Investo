@@ -11,6 +11,10 @@ const GREETING_PATTERN =
 const IDENTITY_PATTERN =
   /\b(who\s+are\s+you|what\s+are\s+you|who\s+is\s+this|what\s+is\s+this|which\s+company|about\s+you|tell\s+me\s+about\s+(you|yourself)|aap\s+kaun|tum\s+kaun|aap\s+kya\s+ho)\b/i;
 
+/** Short positive replies after property Q&A — must not reset to welcome greeting. */
+const ACK_PATTERN =
+  /^(good|great|nice|thanks|thank\s*you|thx|ok|okay|cool|perfect|sounds\s+good|got\s+it|lovely|awesome|accha|theek|👍|✅|👌)[!.,?\s]*$/iu;
+
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English',
   hi: 'Hindi',
@@ -38,6 +42,17 @@ export function isSimpleGreetingMessage(message: string): boolean {
   return GREETING_PATTERN.test(trimmed);
 }
 
+export function isConversationAcknowledgmentMessage(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed || trimmed.length > 40) {
+    return false;
+  }
+  if (isSimpleGreetingMessage(trimmed) || isIdentityQuestionMessage(trimmed)) {
+    return false;
+  }
+  return ACK_PATTERN.test(trimmed);
+}
+
 export function isIdentityQuestionMessage(message: string): boolean {
   const trimmed = message.trim();
   if (!trimmed || trimmed.length > 120) {
@@ -54,8 +69,41 @@ export function shouldSkipKnowledgeSearchForMessage(message: string): boolean {
   return (
     isSimpleGreetingMessage(trimmed)
     || isIdentityQuestionMessage(trimmed)
+    || isConversationAcknowledgmentMessage(trimmed)
     || isVisitSchedulingMessage(trimmed)
   );
+}
+
+function findLastDiscussedPropertyName(
+  history: Array<{ senderType?: string; content?: string }>,
+  propertyNames: string[],
+): string | null {
+  const names = propertyNames.map((n) => n.trim()).filter(Boolean);
+  if (!names.length) return null;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const content = String(history[i]?.content ?? '');
+    if (!content) continue;
+    for (const name of names) {
+      if (content.toLowerCase().includes(name.toLowerCase())) {
+        return name;
+      }
+    }
+  }
+  return null;
+}
+
+function buildAckByLanguage(lang: string, propertyName: string | null, company: string): string {
+  const prop = propertyName ? `*${propertyName}*` : 'that';
+  switch (lang) {
+    case 'hi':
+      return propertyName
+        ? `बहुत अच्छा! ${prop} के बारे में और जानकारी चाहिए, या साइट विजिट बुक करें?`
+        : `बहुत अच्छा! आगे कैसे मदद करूँ — और properties देखें या साइट विजिट बुक करें?`;
+    default:
+      return propertyName
+        ? `Glad that helps! For ${prop}, would you like more details or to book a *free site visit*?`
+        : `Glad that helps! Would you like to see more options from *${company}* or book a *free site visit*?`;
+  }
 }
 
 export function buildFastPathCustomerReply(input: {
@@ -63,6 +111,8 @@ export function buildFastPathCustomerReply(input: {
   companyName: string;
   customerName?: string | null;
   aiSettings?: { defaultLanguage?: string | null; greetingTemplate?: string | null } | null;
+  conversationHistory?: Array<{ senderType?: string; content?: string }>;
+  propertyNames?: string[];
 }): { text: string; detectedLanguage: string } | null {
   const trimmed = input.customerMessage.trim();
   if (!trimmed) {
@@ -94,6 +144,15 @@ export function buildFastPathCustomerReply(input: {
   if (isIdentityQuestionMessage(trimmed)) {
     return {
       text: buildIdentityByLanguage(lang, name, company),
+      detectedLanguage: lang,
+    };
+  }
+
+  if (isConversationAcknowledgmentMessage(trimmed)) {
+    const history = input.conversationHistory ?? [];
+    const discussed = findLastDiscussedPropertyName(history, input.propertyNames ?? []);
+    return {
+      text: buildAckByLanguage(lang, discussed, company),
       detectedLanguage: lang,
     };
   }

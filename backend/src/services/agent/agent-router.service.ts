@@ -5,6 +5,52 @@ import { normalizeInboundWhatsAppPhone } from '../../utils/phoneMatch';
 import type { CompanyUserMatch } from '../inboundWhatsAppRouting.service';
 import { ToolContext } from './agent-state';
 
+/**
+ * Pattern matching simple greetings from staff on WhatsApp copilot.
+ * Used to bypass the LLM graph entirely and return an instant welcome.
+ */
+const COPILOT_GREETING_PATTERN =
+  /^(hi|hello|hey|hii|hola|namaste|good\s*(morning|afternoon|evening)|start|help|what\s+can\s+you\s+do|commands?)[!.,?\s]*$/i;
+
+/**
+ * Returns true when the staff message is a simple copilot greeting or help request.
+ * These messages should never be sent to the LLM graph — they are handled deterministically.
+ *
+ * @param message - Trimmed message text from the staff user.
+ * @returns True when message is a greeting or help request.
+ */
+function normalizeCopilotInboundText(message: string): string {
+  return message.replace(/\u200b/g, '').trim();
+}
+
+function isCopilotGreeting(message: string): boolean {
+  const trimmed = normalizeCopilotInboundText(message);
+  if (!trimmed || trimmed.length > 50) return false;
+  return COPILOT_GREETING_PATTERN.test(trimmed);
+}
+
+/**
+ * Builds a deterministic welcome/help message for the agent copilot.
+ * Shown whenever a staff user sends a greeting or "help" command.
+ *
+ * @param userName - Display name of the staff user.
+ * @param companyName - Name of the company.
+ * @returns Formatted WhatsApp-ready welcome string.
+ */
+function buildCopilotWelcomeMessage(userName: string, companyName: string): string {
+  const name = userName.trim() || 'there';
+  return (
+    `👋 *Hi ${name}!* Welcome to *Investo Copilot* for *${companyName}*.\n\n` +
+    `I can help you with:\n` +
+    `• 📅 *Visits* — "visits today", "visits tomorrow", "visits on 6th June"\n` +
+    `• 👥 *Leads* — "new leads today", "get lead Rahul", "update lead status"\n` +
+    `• 🏠 *Properties* — "list properties", "property details"\n` +
+    `• 📊 *Analytics* — "dashboard stats", "my performance"\n` +
+    `• ✅ *Actions* — "confirm visit", "mark lead visited", "send brochure"\n\n` +
+    `Just type your command or tap a shortcut below.`
+  );
+}
+
 async function getPrisma() {
   const module = await import('../../config/prisma');
   return module.default;
@@ -56,6 +102,13 @@ async function sendWhatsAppResponse(phone: string, companyId: string, message: s
 }
 
 async function handleAgentMessage(user: CompanyUserMatch, messageText: string): Promise<string> {
+  const normalizedText = normalizeCopilotInboundText(messageText);
+
+  // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
+  if (isCopilotGreeting(normalizedText)) {
+    return buildCopilotWelcomeMessage(user.userName, user.companyName);
+  }
+
   const prisma = await getPrisma();
   const { getOrCreateThreadId } = await import('./agent-memory.service');
   const { checkAndResolvePendingConfirmation, executePendingAction } = await import('./confirmation.service');
@@ -94,7 +147,7 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
 
   // Deterministic CRM before workflow LLM (avoids misclassifying "update status … today" as list leads)
   const { tryDeterministicAgentCrmReply } = await import('./agent-crm-query.service');
-  const crmReply = await tryDeterministicAgentCrmReply(toolContext, messageText, {
+  const crmReply = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
     sessionLeadId: sessionCtx.lastLeadId,
   });
   if (crmReply) {
@@ -110,7 +163,7 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
 
   const workflowReply = await classifyAndRunWorkflow({
     toolContext,
-    messageText,
+    messageText: normalizedText,
     recentMessages,
     companyName: user.companyName,
     sessionLeadId: sessionCtx.lastLeadId,
@@ -130,7 +183,7 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
 
   const intentReply = await classifyAndExecuteAgentIntent({
     toolContext,
-    messageText,
+    messageText: normalizedText,
     recentMessages,
     companyName: user.companyName,
     sessionLeadId: sessionCtx.lastLeadId,
@@ -170,7 +223,7 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
   let agentReply: string;
   try {
     agentReply = await invokeAgent({
-      messageText,
+      messageText: normalizedText,
       threadId,
       toolContext,
       companyName: user.companyName,
@@ -181,14 +234,23 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
       userId: user.userId,
       error: agentErr instanceof Error ? agentErr.message : String(agentErr),
     });
-    const fallback = await tryDeterministicAgentCrmReply(toolContext, messageText, {
+    const fallback = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
       sessionLeadId: sessionCtx.lastLeadId,
     });
     if (fallback) {
       agentReply = fallback;
+    } else if (isCopilotGreeting(normalizedText)) {
+      agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
     } else {
       agentReply =
-        'I could not complete that in the copilot right now. Try a shorter command like "visits today" or use the Investo dashboard.';
+        `⚠️ I had trouble processing that request. Here are commands that always work:\n\n` +
+        `📅 *Visit queries*\n` +
+        `• "visits today" • "visits tomorrow" • "visits on 6th June"\n\n` +
+        `👥 *Lead queries*\n` +
+        `• "new leads today" • "get lead [name]"\n\n` +
+        `✅ *Quick actions*\n` +
+        `• "confirm visit" • "mark lead [name] visited"\n\n` +
+        `Or use the *Investo dashboard* for advanced operations.`;
     }
   }
   if (session?.id) {

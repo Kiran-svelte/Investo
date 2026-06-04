@@ -30,9 +30,19 @@ const VISIT_CANCEL_RESCHEDULE_HINT =
 const VISIT_MUTATION_SOFT_HINT =
   /\b(can'?t\s+make|won'?t\s+be\s+able|not\s+available)\b[\s\S]{0,60}\b(visit|appointment)\b|\b(visit|appointment)\b[\s\S]{0,40}\b(different|another)\s+(day|time|date)\b|\b(change|move|shift)\b[\s\S]{0,40}\b(time|slot|date)\b/i;
 
+/** List/query phrasing — must never run cancel/reschedule mutation. */
+export function isVisitListQueryMessage(message: string): boolean {
+  const t = message.trim();
+  if (!t) return false;
+  return /\b(visits?\s+on|visits?\s+for|site\s+visits?\s+on|list\s+visits?|show\s+visits?|get\s+visits?|which\s+visits?)\b/i.test(
+    t,
+  );
+}
+
 export function isVisitCancelOrRescheduleMessage(message: string): boolean {
   const t = message.trim();
   if (!t) return false;
+  if (isVisitListQueryMessage(t)) return false;
   const mentionsVisit =
     /\b(visit|site\s*visit|appointment|booking)\b/i.test(t);
   if (VISIT_PREPONE_HINT.test(t) && mentionsVisit) return true;

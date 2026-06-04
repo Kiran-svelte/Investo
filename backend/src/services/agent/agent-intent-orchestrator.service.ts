@@ -25,6 +25,8 @@ import { buildAgentScopeFilter } from './tools/format-helpers';
 import { resolveLeadForIntent } from './agent-lead-resolution.service';
 import { runWorkflowForIntent } from '../workflow/workflow-engine.service';
 import { workflowIdForIntent } from '../workflow/workflow-registry';
+import { isVisitListQueryMessage } from '../visitIntentFromMessage.service';
+import { tryResolveVisitListReply } from './agent-crm-query.service';
 
 export { extractLeadIdsFromText, extractLeadNamesFromAssistantMessages, resolveLeadForIntent } from './agent-lead-resolution.service';
 
@@ -643,6 +645,11 @@ export async function executeAgentIntent(
     }
 
     if (intent === 'cancel_visit' || intent === 'reschedule_visit') {
+      if (isVisitListQueryMessage(options?.messageText ?? '')) {
+        const listReply = await tryResolveVisitListReply(context, options?.messageText ?? '');
+        if (listReply) return listReply;
+        return null;
+      }
       const { applyVisitMutationFromChat } = await import('../visitMutationFromChat.service');
       const { buildVisitScopeFilter } = await import('./tools/format-helpers');
       const mutation = await applyVisitMutationFromChat({
@@ -714,6 +721,15 @@ export async function executeAgentIntent(
 function shouldRunIntentOrchestrator(messageText: string): boolean {
   const text = messageText.trim();
   if (!text) return false;
+  if (isVisitListQueryMessage(text)) return false;
+
+  // Guard: messages already handled deterministically must never reach the LLM.
+  // The deterministic CRM layer runs first in handleAgentMessage; this is defence-in-depth.
+  const { wantsVisitOnSpecificDate } = require('./agent-crm-query.service');
+  if (typeof wantsVisitOnSpecificDate === 'function' && wantsVisitOnSpecificDate(text)) {
+    return false;
+  }
+
   if (
     /\b(update|set|mark|change|move|status|note|assign|brochure|schedule|reschedule|cancel|confirm|list|show|get|find|search|create|add|send|takeover|release|read|calculate|transfer|deactivate|complete|snooze|postpone)\b/i.test(
       text,
@@ -735,6 +751,13 @@ export async function classifyAndExecuteAgentIntent(
   params: ClassifyAndExecuteParams,
   deps?: { llm?: LlmCaller },
 ): Promise<string | null> {
+  const { tryResolveVisitListReply } = await import('./agent-crm-query.service');
+  const { isVisitListQueryMessage } = await import('../visitIntentFromMessage.service');
+  if (isVisitListQueryMessage(params.messageText)) {
+    const listReply = await tryResolveVisitListReply(params.toolContext, params.messageText);
+    if (listReply) return listReply;
+  }
+
   if (!config.agentAi?.enabled || !shouldRunIntentOrchestrator(params.messageText)) {
     return null;
   }
@@ -753,6 +776,15 @@ export async function classifyAndExecuteAgentIntent(
       return null;
     }
     if (DETERMINISTIC_DELEGATE_INTENTS.has(classified.intent)) {
+      return null;
+    }
+
+    if (
+      (classified.intent === 'cancel_visit' || classified.intent === 'reschedule_visit')
+      && isVisitListQueryMessage(params.messageText)
+    ) {
+      const listReply = await tryResolveVisitListReply(params.toolContext, params.messageText);
+      if (listReply) return listReply;
       return null;
     }
 

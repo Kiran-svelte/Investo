@@ -4,6 +4,7 @@ import { formatDateIST, getISTDayBounds, getTomorrowIST } from './agent/tools/fo
 import { notificationEngine } from './notification.engine';
 import {
   isVisitCancelOrRescheduleMessage,
+  isVisitListQueryMessage,
   messageReferencesVisitTomorrow,
   parseRescheduleTargetFromMessage,
 } from './visitIntentFromMessage.service';
@@ -118,7 +119,7 @@ export async function applyVisitMutationFromChat(
   input: VisitMutationFromChatInput,
 ): Promise<VisitMutationFromChatResult> {
   const message = input.message.trim();
-  if (!message || !isVisitCancelOrRescheduleMessage(message)) {
+  if (!message || isVisitListQueryMessage(message) || !isVisitCancelOrRescheduleMessage(message)) {
     return { handled: false };
   }
 
@@ -126,15 +127,8 @@ export async function applyVisitMutationFromChat(
   const newScheduledAt = parseRescheduleTargetFromMessage(message, reference);
   const cancelOnly = wantsCancelOnly(message, Boolean(newScheduledAt));
 
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'visitMutationFromChat.service.ts',message:'visit mutation attempt',data:{leadId:input.leadId,hasNewTime:Boolean(newScheduledAt),cancelOnly,tomorrowHint:messageReferencesVisitTomorrow(message),preview:message.slice(0,100)},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
-
   const visit = await findTargetVisit(input);
   if (!visit) {
-    // #region agent log
-    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'visitMutationFromChat.service.ts',message:'no visit matched',data:{leadId:input.leadId},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
     return {
       handled: true,
       reply:
@@ -199,10 +193,6 @@ export async function applyVisitMutationFromChat(
       error: err instanceof Error ? err.message : String(err),
     });
   }
-
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'visitMutationFromChat.service.ts',message:'visit rescheduled',data:{visitId:visit.id,newIso:newScheduledAt.toISOString(),oldIso:oldTime.toISOString()},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
 
   if (visit.leadId) {
     void import('./clientMemory.service').then(({ syncLeadClientMemory }) =>

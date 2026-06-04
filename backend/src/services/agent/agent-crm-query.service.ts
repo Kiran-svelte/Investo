@@ -2,7 +2,7 @@ import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import type { ToolContext } from './agent-state';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
-import { isVisitCancelOrRescheduleMessage } from '../visitIntentFromMessage.service';
+import { isVisitCancelOrRescheduleMessage, isVisitListQueryMessage } from '../visitIntentFromMessage.service';
 import type { LeadPipelineStatus } from '../../constants/agent-intent.constants';
 import { LEAD_PIPELINE_STATUSES } from '../../constants/agent-intent.constants';
 import { updateLeadStatusById } from './lead-status-actions';
@@ -21,6 +21,97 @@ import {
   getTomorrowIST,
   maskPhone,
 } from './tools/format-helpers';
+
+/**
+ * Month name to zero-indexed month number (IST calendar lookups).
+ * Used by parseSpecificDateFromMessage.
+ */
+const MONTH_NAME_TO_INDEX: Readonly<Record<string, number>> = {
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+
+/**
+ * Extracts a specific calendar date from a freeform message in IST.
+ * Handles patterns:
+ *   - "6th June", "June 6", "6 june", "6/6", "6-6", "06/06/2026"
+ * Returns a YYYY-MM-DD string (IST local date) or null if no date found.
+ *
+ * @param message - Raw WhatsApp message text.
+ * @returns IST date string in 'YYYY-MM-DD' format, or null.
+ */
+export function parseSpecificDateFromMessage(message: string): string | null {
+  const text = message.trim();
+  if (!text) return null;
+
+  const istYear = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' }).slice(0, 4);
+  const currentYear = Number(istYear);
+
+  // Pattern 1: "6th June 2026", "June 6th", "6 june", "June 6"
+  const namedMonthPattern =
+    /(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?/i;
+  const namedMonthAltPattern =
+    /(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?/i;
+
+  const namedMatch = text.match(namedMonthPattern) ?? text.match(namedMonthAltPattern);
+  if (namedMatch) {
+    const dayStr = namedMatch[1]?.replace(/[^0-9]/g, '') ?? namedMatch[2]?.replace(/[^0-9]/g, '');
+    const monthStr = namedMatch[2]?.toLowerCase() ?? namedMatch[1]?.toLowerCase();
+    const yearStr = namedMatch[3];
+    const day = Number(dayStr);
+    const monthIndex = MONTH_NAME_TO_INDEX[monthStr ?? ''];
+    if (
+      !Number.isNaN(day) && day >= 1 && day <= 31 &&
+      monthIndex !== undefined
+    ) {
+      const year = yearStr ? Number(yearStr) : currentYear;
+      const mm = String(monthIndex + 1).padStart(2, '0');
+      const dd = String(day).padStart(2, '0');
+      return `${year}-${mm}-${dd}`;
+    }
+  }
+
+  // Pattern 2: numeric dates "06/06", "6/6", "06-06", "06/06/2026"
+  const numericPattern = /(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{4}))?/;
+  const numericMatch = text.match(numericPattern);
+  if (numericMatch) {
+    const day = Number(numericMatch[1]);
+    const month = Number(numericMatch[2]);
+    const year = numericMatch[3] ? Number(numericMatch[3]) : currentYear;
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      const mm = String(month).padStart(2, '0');
+      const dd = String(day).padStart(2, '0');
+      return `${year}-${mm}-${dd}`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Returns true when a staff message is a visit LIST request for a specific date
+ * (e.g. "visits on 6th June", "site visits 15 July").
+ * Explicitly guards against cancel/reschedule intent.
+ *
+ * @param text - Trimmed message text.
+ * @returns True when this is a date-specific visit lookup.
+ */
+export function wantsVisitOnSpecificDate(text: string): boolean {
+  if (isVisitCancelOrRescheduleMessage(text)) return false;
+  if (!/\b(visit|visits|site\s*visit|appointment|schedule|scheduled)\b/i.test(text)) return false;
+  const date = parseSpecificDateFromMessage(text);
+  return date !== null;
+}
 
 const visitInclude = {
   lead: { select: { customerName: true, phone: true } },
@@ -60,13 +151,11 @@ async function fetchVisitsForDate(
     orderBy: { scheduledAt: 'asc' },
     take: 25,
   });
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-crm-query.service.ts:fetchVisitsForDate',message:'visit query result',data:{label,date,count:visits.length,userId:context.userId},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-  // #endregion
   if (!visits.length) {
     return `No visits scheduled for ${label.toLowerCase()} (${date}).`;
   }
-  return [`*${label}'s visits (${date})*`, ...visits.map(formatVisitLine)].join('\n\n');
+  const heading = label === 'Today' || label === 'Tomorrow' ? `*${label}'s visits (${date})*` : `*Visits on ${label} (${date})*`;
+  return [heading, ...visits.map(formatVisitLine)].join('\n\n');
 }
 
 async function fetchLeadsAddedToday(context: ToolContext): Promise<string> {
@@ -80,9 +169,6 @@ async function fetchLeadsAddedToday(context: ToolContext): Promise<string> {
     orderBy: { createdAt: 'desc' },
     take: 25,
   });
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-crm-query.service.ts:fetchLeadsAddedToday',message:'leads today query result',data:{date:getTodayIST(),count:leads.length,userId:context.userId,role:context.userRole},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
-  // #endregion
   if (!leads.length) {
     return `No new leads were added today (${getTodayIST()}) in your scope.`;
   }
@@ -281,10 +367,42 @@ export async function tryDeterministicAgentVisitMutation(
     visitScope: buildVisitScopeFilter(context.companyId, context.userRole, context.userId),
   });
   if (!mutation.handled || !mutation.reply) return null;
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-crm-query.service.ts',message:'deterministic visit mutation',data:{userId:context.userId,mode:mutation.mode,visitId:mutation.visitId},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-  // #endregion
   return mutation.reply;
+}
+
+/**
+ * Visit list lookups (today / tomorrow / specific date / schedule lookup).
+ * Runs before mutations and LLM so "visits on 6th June" never reschedules.
+ */
+export async function tryResolveVisitListReply(
+  context: ToolContext,
+  messageText: string,
+): Promise<string | null> {
+  const text = messageText.trim();
+  if (!text) return null;
+
+  if (wantsVisitScheduleLookup(text)) {
+    return fetchUpcomingVisitLookup(context);
+  }
+  if (wantsVisitTomorrow(text)) {
+    return fetchVisitsForDate(context, getTomorrowIST(), 'Tomorrow');
+  }
+  if (wantsVisitToday(text)) {
+    return fetchVisitsForDate(context, getTodayIST(), 'Today');
+  }
+  if (wantsVisitOnSpecificDate(text) || isVisitListQueryMessage(text)) {
+    const specificDate = parseSpecificDateFromMessage(text);
+    if (specificDate) {
+      const label = new Date(`${specificDate}T12:00:00+05:30`).toLocaleDateString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      });
+      return fetchVisitsForDate(context, specificDate, label);
+    }
+  }
+  return null;
 }
 
 export async function tryDeterministicAgentCrmReply(
@@ -296,8 +414,10 @@ export async function tryDeterministicAgentCrmReply(
   if (!text) return null;
 
   try {
-    const visitMutation = await tryDeterministicAgentVisitMutation(context, text);
-    if (visitMutation) return visitMutation;
+    const visitList = await tryResolveVisitListReply(context, text);
+    if (visitList) {
+      return visitList;
+    }
 
     const recentMessages = context.sessionId
       ? await getRecentAgentSessionMessages(context.sessionId, 5)
@@ -314,24 +434,13 @@ export async function tryDeterministicAgentCrmReply(
       return confirmNextUpcomingVisit(context);
     }
 
-    if (wantsVisitScheduleLookup(text)) {
-      return fetchUpcomingVisitLookup(context);
-    }
-
     if (wantsNewLeadsToday(text)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-crm-query.service.ts',message:'deterministic new leads today',data:{userId:context.userId,role:context.userRole},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       return fetchLeadsAddedToday(context);
     }
-    if (wantsVisitTomorrow(text)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-crm-query.service.ts',message:'deterministic visits tomorrow',data:{userId:context.userId},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
-      return fetchVisitsForDate(context, getTomorrowIST(), 'Tomorrow');
-    }
-    if (wantsVisitToday(text)) {
-      return fetchVisitsForDate(context, getTodayIST(), 'Today');
+
+    const visitMutation = await tryDeterministicAgentVisitMutation(context, text);
+    if (visitMutation) {
+      return visitMutation;
     }
     return null;
   } catch (err: unknown) {

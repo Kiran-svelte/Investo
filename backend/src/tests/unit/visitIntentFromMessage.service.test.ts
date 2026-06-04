@@ -1,5 +1,6 @@
 import {
   isVisitCancelOrRescheduleMessage,
+  isVisitListQueryMessage,
   isVisitSchedulingMessage,
   parseRescheduleTargetFromMessage,
   parseVisitDateTimeFromMessage,
@@ -19,6 +20,11 @@ describe('visitIntentFromMessage.service', () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.getDay()).toBe(6);
     expect(parsed!.getHours()).toBe(12);
+  });
+
+  it('treats "visits on 6th june" as list query, not mutation', () => {
+    expect(isVisitListQueryMessage('Visits on 6th june')).toBe(true);
+    expect(isVisitCancelOrRescheduleMessage('Visits on 6th june')).toBe(false);
   });
 
   it('detects cancel and reschedule intent', () => {

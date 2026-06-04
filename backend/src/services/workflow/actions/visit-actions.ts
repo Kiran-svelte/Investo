@@ -9,6 +9,10 @@ export async function resolveVisit(ctx: ActionContext) {
   const visitId = ctx.state.visitId ?? ctx.params.visitId ?? ctx.run.sessionVisitId;
   if (!visitId) {
     if (ctx.run.channel === 'staff' && ctx.run.messageText) {
+      const { isVisitListQueryMessage } = await import('../../visitIntentFromMessage.service');
+      if (isVisitListQueryMessage(ctx.run.messageText)) {
+        return fail('Which visit? Share visit ID or describe the booking.');
+      }
       const mutation = await applyVisitMutationFromChat({
         companyId: ctx.run.toolContext.companyId,
         message: ctx.run.messageText,

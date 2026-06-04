@@ -14,6 +14,7 @@ import {
 } from './conversationStateMachine';
 import {
   buildFastPathCustomerReply,
+  isConversationAcknowledgmentMessage,
   resolveAdminLanguageCode,
   shouldSkipKnowledgeSearchForMessage,
 } from './customerMessageFastPath.service';
@@ -108,6 +109,8 @@ export class AIService {
       companyName: request.companyName,
       customerName: request.lead?.customerName,
       aiSettings: request.aiSettings,
+      conversationHistory: request.conversationHistory,
+      propertyNames: request.properties?.map((p: { name?: string }) => p.name).filter(Boolean),
     });
     if (fastPath) {
       return {
@@ -603,6 +606,21 @@ Only include fields you are confident about. Use null for unknown fields.`;
     const company = request.companyName;
 
     let text: string;
+
+    if (isConversationAcknowledgmentMessage(request.customerMessage)) {
+      const propertyNames = request.properties?.map((p: { name?: string }) => p.name).filter(Boolean) as string[];
+      const ack = buildFastPathCustomerReply({
+        customerMessage: request.customerMessage,
+        companyName: request.companyName,
+        customerName: request.lead?.customerName,
+        aiSettings: request.aiSettings,
+        conversationHistory: request.conversationHistory,
+        propertyNames,
+      });
+      if (ack) {
+        return { text: ack.text, detectedLanguage: ack.detectedLanguage, extractedInfo: undefined };
+      }
+    }
 
     const isGreeting = /\b(hello|hey|namaste)\b/.test(msg) || /^hi\b/.test(msg) || msg === 'hi';
     if (isGreeting && !msg.includes('budget') && !msg.includes('visit') && !msg.includes('schedule') && !msg.includes('price')) {

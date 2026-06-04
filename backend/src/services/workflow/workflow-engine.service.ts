@@ -310,6 +310,25 @@ export async function classifyAndRunWorkflow(
   }
 
   try {
+    const { tryResolveVisitListReply, wantsVisitOnSpecificDate } = await import('../agent/agent-crm-query.service');
+    const { isVisitListQueryMessage, isVisitCancelOrRescheduleMessage } = await import('../visitIntentFromMessage.service');
+    const isVisitDateListQuery =
+      isVisitListQueryMessage(run.messageText)
+      || (
+        wantsVisitOnSpecificDate(run.messageText)
+        && !isVisitCancelOrRescheduleMessage(run.messageText)
+      );
+
+    if (isVisitDateListQuery) {
+      const listReply = await tryResolveVisitListReply(run.toolContext, run.messageText);
+      if (listReply) {
+        // #region agent log
+        fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'workflow-engine.service.ts:classifyAndRunWorkflow',message:'blocked workflow for visit list',data:{textPreview:run.messageText.slice(0,80)},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        return listReply;
+      }
+    }
+
     const classified = await classifyWorkflowMessage(
       {
         messageText: run.messageText,
@@ -324,6 +343,17 @@ export async function classifyAndRunWorkflow(
     if (classified.workflowId === 'unknown' || classified.confidence < WORKFLOW_CONFIDENCE_THRESHOLD) {
       return null;
     }
+
+    const mutationWorkflows = new Set(['reschedule_visit', 'schedule_visit', 'cancel_visit']);
+    if (mutationWorkflows.has(classified.workflowId) && isVisitDateListQuery) {
+      const listReply = await tryResolveVisitListReply(run.toolContext, run.messageText);
+      if (listReply) return listReply;
+      return null;
+    }
+
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'workflow-engine.service.ts:classifyAndRunWorkflow',message:'workflow classified',data:{workflowId:classified.workflowId,confidence:classified.confidence,textPreview:run.messageText.slice(0,80)},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
 
     const result = await runWorkflow(classified.workflowId, run, classified.parameters);
     return result.reply;
