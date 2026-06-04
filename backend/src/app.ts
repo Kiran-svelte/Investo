@@ -16,6 +16,7 @@ import companyRoutes from './routes/company.routes';
 import userRoutes from './routes/user.routes';
 import leadRoutes from './routes/lead.routes';
 import propertyRoutes from './routes/property.routes';
+import propertyProjectRoutes from './routes/property-project.routes';
 import visitRoutes from './routes/visit.routes';
 import conversationRoutes from './routes/conversation.routes';
 import aiSettingsRoutes from './routes/ai-settings.routes';
@@ -88,6 +89,7 @@ app.use('/api/auth', sensitiveRateLimiter, authRoutes);
 app.use('/api/companies', companyRateLimiter, companyRoutes);
 app.use('/api/users', companyRateLimiter, userRoutes);
 app.use('/api/leads', companyRateLimiter, leadRoutes);
+app.use('/api/property-projects', companyRateLimiter, propertyProjectRoutes);
 app.use('/api/properties', companyRateLimiter, propertyRoutes);
 // Public upload endpoint (no auth headers) must be mounted before the authenticated router.
 app.use('/api/property-imports/uploads', propertyImportUploadRoutes);

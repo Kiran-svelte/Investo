@@ -35,6 +35,7 @@ import { isPropertyImportReviewPending } from './propertyImport.metadata';
 interface CreateDraftInput {
   draftData?: Record<string, unknown>;
   maxRetries?: number;
+  projectId?: string | null;
 }
 
 interface RegisterUploadInput {
@@ -56,6 +57,8 @@ interface RetryDraftInput {
 
 interface CancelDraftInput {
   reason?: string | null;
+  /** When true, permanently removes draft + media/units/jobs from DB. */
+  purge?: boolean;
 }
 
 class PropertyImportError extends Error {
@@ -170,9 +173,18 @@ function mapDraftToPropertyData(
 
 export class PropertyImportService {
   async createDraft(companyId: string, userId: string, input: CreateDraftInput) {
+    if (input.projectId) {
+      const project = await prisma.propertyProject.findFirst({
+        where: { id: input.projectId, companyId },
+      });
+      if (!project) {
+        throw new PropertyImportError('Project not found', 404);
+      }
+    }
     return prisma.propertyImportDraft.create({
       data: {
         companyId,
+        projectId: input.projectId ?? null,
         createdByUserId: userId,
         maxRetries: input.maxRetries ?? 3,
         draftData: normalizeDraftData(input.draftData || {}),
@@ -201,6 +213,7 @@ export class PropertyImportService {
         id: true,
         status: true,
         extractionStatus: true,
+        projectId: true,
         updatedAt: true,
         createdAt: true,
         draftData: true,
@@ -220,6 +233,7 @@ export class PropertyImportService {
         id: row.id,
         status: row.status,
         extractionStatus: row.extractionStatus,
+        project_id: row.projectId,
         name,
         property_type: propertyType,
         knowledge_deferred: knowledgeDeferred,
@@ -880,7 +894,7 @@ export class PropertyImportService {
 
         const updated = await tx.property.update({
           where: { id: propertyId },
-          data: propertyData,
+          data: { ...propertyData, projectId: draft.projectId },
         });
 
         const updatedDraft = await tx.propertyImportDraft.update({
@@ -901,6 +915,7 @@ export class PropertyImportService {
       const created = await tx.property.create({
         data: {
           companyId,
+          projectId: draft.projectId,
           ...(propertyData as any),
         },
       });
@@ -988,6 +1003,7 @@ export class PropertyImportService {
     draft: {
       id: string;
       status: string;
+      projectId: string | null;
       publishedPropertyId: string | null;
       publishedAt: Date | null;
     },
@@ -1043,6 +1059,7 @@ export class PropertyImportService {
         const created = await tx.property.create({
           data: {
             companyId,
+            projectId: draft.projectId,
             ...(propertyData as any),
           },
         });
@@ -1276,7 +1293,7 @@ export class PropertyImportService {
   async cancelDraft(companyId: string, draftId: string, input: CancelDraftInput) {
     const draft = await prisma.propertyImportDraft.findFirst({
       where: { id: draftId, companyId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, publishedPropertyId: true },
     });
 
     if (!draft) {
@@ -1285,6 +1302,12 @@ export class PropertyImportService {
 
     if (draft.status === 'published') {
       throw new PropertyImportError('Published drafts cannot be cancelled', 409);
+    }
+
+    if (input.purge) {
+      const { purgePropertyImportDraft } = await import('./resourceDelete.service');
+      await purgePropertyImportDraft(companyId, draftId);
+      return null;
     }
 
     if (draft.status === 'cancelled') {

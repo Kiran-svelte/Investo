@@ -136,6 +136,7 @@ router.post(
       const draft = await propertyImportService.createDraft(companyId, userId, {
         draftData: req.body.draft_data,
         maxRetries: req.body.max_retries,
+        projectId: req.body.project_id ?? null,
       });
 
       res.status(201).json({ data: draft, id: draft.id });
@@ -374,6 +375,7 @@ router.post(
       const companyId = getCompanyId(req);
       const result = await propertyImportService.cancelDraft(companyId, req.params.id, {
         reason: req.body.reason,
+        purge: req.body.purge === true,
       });
       res.json({ data: result });
     } catch (err) {

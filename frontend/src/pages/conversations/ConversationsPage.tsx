@@ -6,8 +6,9 @@ import api from '../../services/api';
 import Pagination from '../../components/common/Pagination';
 import {
   Search, MessageSquare, User, Bot, UserCheck,
-  ArrowRight
+  ArrowRight, Trash2, Loader2,
 } from 'lucide-react';
+import { deleteConversation } from '../../services/resourceDelete';
 
 interface Conversation {
   id: string;
@@ -56,6 +57,7 @@ const ConversationsPage: React.FC = () => {
   ]);
   const [sendLoading, setSendLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [convPage, setConvPage] = useState(1);
   const [convTotalPages, setConvTotalPages] = useState(1);
   const [convTotal, setConvTotal] = useState(0);
@@ -140,6 +142,30 @@ const ConversationsPage: React.FC = () => {
       loadConversations();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to take over');
+    }
+  };
+
+  const removeConversation = async (convId: string) => {
+    if (
+      !window.confirm(
+        'Permanently delete this conversation? All messages will be removed from the database.',
+      )
+    ) {
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      await deleteConversation(convId);
+      setConversations((prev) => prev.filter((c) => c.id !== convId));
+      if (selectedConv?.id === convId) {
+        setSelectedConv(null);
+        setMessages([]);
+      }
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } } };
+      alert(ax.response?.data?.error || 'Failed to delete conversation');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -432,6 +458,19 @@ const ConversationsPage: React.FC = () => {
                     {t('conversations.release')}
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => removeConversation(selectedConv.id)}
+                  disabled={deleteLoading}
+                  className="px-3 py-1.5 border border-red-200 text-red-700 text-sm rounded-lg hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
+                >
+                  {deleteLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  Delete
+                </button>
               </div>
             </div>
 

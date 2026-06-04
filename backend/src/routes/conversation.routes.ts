@@ -12,8 +12,22 @@ import config from '../config';
 import { whatsappService } from '../services/whatsapp.service';
 import { socketService, SOCKET_EVENTS } from '../services/socket.service';
 import { buildPaginationMeta, parsePagination } from '../utils/pagination';
+import {
+  deleteConversationPermanently,
+  ResourceDeleteError,
+} from '../services/resourceDelete.service';
 
 const router = Router();
+
+function handleDeleteError(err: unknown, res: Response): void {
+  if (err instanceof ResourceDeleteError) {
+    res.status(err.statusCode).json({ error: err.message });
+    return;
+  }
+  const message = err instanceof Error ? err.message : 'Delete failed';
+  logger.error('Delete failed', { error: message });
+  res.status(500).json({ error: message });
+}
 
 router.use(authenticate);
 router.use(tenantIsolation);
@@ -363,6 +377,43 @@ router.patch(
       res.status(500).json({ error: 'Failed to close conversation' });
     }
   }
+);
+
+/**
+ * DELETE /api/conversations/:id
+ * Permanently delete a conversation and all messages.
+ */
+router.delete(
+  '/:id',
+  authorize('conversations', 'delete'),
+  auditLog('delete', 'conversations'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const conversation = await prisma.conversation.findFirst({
+        where: { id: req.params.id, companyId },
+        include: { lead: { select: { assignedAgentId: true } } },
+      });
+
+      if (!conversation) {
+        res.status(404).json({ error: 'Conversation not found' });
+        return;
+      }
+
+      if (
+        req.user!.role === 'sales_agent' &&
+        conversation.lead?.assignedAgentId !== req.user!.id
+      ) {
+        res.status(403).json({ error: 'Can only delete assigned conversations' });
+        return;
+      }
+
+      await deleteConversationPermanently(companyId, req.params.id);
+      res.json({ message: 'Conversation deleted permanently' });
+    } catch (err: unknown) {
+      handleDeleteError(err, res);
+    }
+  },
 );
 
 /**

@@ -6,6 +6,8 @@ import { BCRYPT_SALT_ROUNDS, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../..
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
 import { isAdminRole, maskPhone } from './format-helpers';
+import { assertStaffPhoneAvailable, isStaffPhoneInUseError } from '../../../utils/staffPhoneUniqueness';
+import { normalizeStaffProfilePhone } from '../../../utils/userProfilePhone';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
 function adminOnly(context: ToolContext): string | null {
@@ -47,8 +49,19 @@ export function createUserTools(context: ToolContext): AgentTool[] {
         if (!user) return 'User not found.';
         const data = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
         if (!Object.keys(data).length) return 'No fields provided.';
-        await prisma.user.update({ where: { id: agentId }, data });
-        return `Updated ${user.name}: ${Object.keys(data).join(', ')}`;
+        try {
+          if (typeof data.phone === 'string') {
+            const normalized = normalizeStaffProfilePhone(data.phone);
+            if (!normalized) return 'Invalid phone number.';
+            await assertStaffPhoneAvailable(normalized, agentId);
+            data.phone = normalized;
+          }
+          await prisma.user.update({ where: { id: agentId }, data });
+          return `Updated ${user.name}: ${Object.keys(data).join(', ')}`;
+        } catch (err: unknown) {
+          if (isStaffPhoneInUseError(err)) return err.message;
+          throw err;
+        }
       },
     }),
     new DynamicStructuredTool({

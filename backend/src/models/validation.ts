@@ -186,6 +186,7 @@ export const updateLeadStatusSchema = z.object({
 });
 
 export const createPropertySchema = z.object({
+  project_id: z.string().uuid().optional().nullable(),
   name: z.string().min(1).max(255),
   builder: z.string().max(255).optional().nullable(),
   location_city: z.string().max(100).optional().nullable(),
@@ -219,6 +220,7 @@ export const createPropertyAssetUploadSchema = z.object({
 export const createPropertyImportDraftSchema = z.object({
   draft_data: z.record(z.any()).optional(),
   max_retries: z.number().int().min(1).max(10).optional(),
+  project_id: z.string().uuid().optional().nullable(),
 });
 
 export const calculateEmiSchema = z.object({
@@ -255,6 +257,7 @@ export const retryPropertyImportDraftSchema = z.object({
 
 export const cancelPropertyImportDraftSchema = z.object({
   reason: z.string().max(1000).optional().nullable(),
+  purge: z.boolean().optional(),
 });
 
 export const propertyImportSpreadsheetImportSchema = z.object({

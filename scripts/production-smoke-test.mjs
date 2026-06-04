@@ -105,6 +105,7 @@ async function main() {
     { label: 'GET /assignment-settings', path: '/assignment-settings' },
     { label: 'GET /conversion-settings', path: '/conversion-settings' },
     { label: 'GET /property-imports/drafts', path: '/property-imports/drafts' },
+    { label: 'GET /property-projects', path: '/property-projects' },
     { label: 'GET /error-logs', path: '/error-logs?page=1&limit=5' },
     { label: 'GET /subscriptions/plans', path: '/subscriptions/plans' },
     { label: 'POST /calculate-emi', path: '/calculate-emi', method: 'POST', body: { principal: 5000000, down_payment: 500000, interest_rate: 8.5, tenure_months: 240 } },

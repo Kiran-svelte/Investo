@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, UserPlus, Calendar, CheckCircle, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Bell, UserPlus, Calendar, CheckCircle, AlertCircle, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
+  deleteAllNotificationsForCurrentUser,
+  deleteNotificationById,
   formatNotificationTime,
   normalizeNotificationsPayload,
   type Notification,
@@ -54,6 +56,7 @@ export default function NotificationsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
 
   const fetchNotifications = useCallback(async (pageNum: number, append = false) => {
@@ -86,6 +89,38 @@ export default function NotificationsPage() {
       );
     } catch {
       // silently handle
+    }
+  };
+
+  const handleDeleteNotification = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this notification permanently?')) return;
+    try {
+      await deleteNotificationById(id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
+    } catch {
+      // silently handle
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (
+      !window.confirm(
+        'Delete all notifications permanently? This cannot be undone.',
+      )
+    ) {
+      return;
+    }
+    setClearingAll(true);
+    try {
+      await deleteAllNotificationsForCurrentUser();
+      setNotifications([]);
+      setTotal(0);
+    } catch {
+      // silently handle
+    } finally {
+      setClearingAll(false);
     }
   };
 
@@ -143,20 +178,37 @@ export default function NotificationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">{t('notifications.title', 'Notifications')}</h1>
-        {hasUnread && (
-          <button
-            onClick={handleMarkAllRead}
-            disabled={markingAll}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-700 border border-brand-600 rounded-lg hover:bg-brand-50 disabled:opacity-50"
-          >
-            {markingAll ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle className="h-4 w-4" />
-            )}
-            {t('notifications.markAllRead', 'Mark All Read')}
-          </button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {notifications.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleClearAll()}
+              disabled={clearingAll}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 disabled:opacity-50"
+            >
+              {clearingAll ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {t('notifications.clearAll', 'Clear all')}
+            </button>
+          )}
+          {hasUnread && (
+            <button
+              onClick={handleMarkAllRead}
+              disabled={markingAll}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-700 border border-brand-600 rounded-lg hover:bg-brand-50 disabled:opacity-50"
+            >
+              {markingAll ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4" />
+              )}
+              {t('notifications.markAllRead', 'Mark All Read')}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -213,6 +265,14 @@ export default function NotificationsPage() {
                 <p className="text-sm text-ink-muted mt-1">{notification.message}</p>
                 <p className="text-xs text-ink-faint mt-1">{formatNotificationTime(notification.createdAt)}</p>
               </div>
+              <button
+                type="button"
+                onClick={(e) => void handleDeleteNotification(notification.id, e)}
+                className="flex-shrink-0 p-2 text-ink-faint hover:text-red-600 hover:bg-red-50 rounded-lg"
+                aria-label="Delete notification"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
           ))}
         </div>

@@ -22,8 +22,22 @@ import {
   type LeadMetadata,
 } from '../services/leadMetadata.service';
 import { syncLeadScoreFromConversation } from '../services/leadScoring.service';
+import {
+  deleteLeadPermanently,
+  ResourceDeleteError,
+} from '../services/resourceDelete.service';
 
 const router = Router();
+
+function handleDeleteError(err: unknown, res: Response): void {
+  if (err instanceof ResourceDeleteError) {
+    res.status(err.statusCode).json({ error: err.message });
+    return;
+  }
+  const message = err instanceof Error ? err.message : 'Delete failed';
+  logger.error('Delete failed', { error: message });
+  res.status(500).json({ error: message });
+}
 
 type LeadWithAgent = {
   id: string;
@@ -437,7 +451,7 @@ router.put(
 /**
  * PATCH /api/leads/:id/status
  * Transition lead status. Enforces state machine.
- * Leads CANNOT be deleted - only closed.
+ * Transition lead status. Enforces state machine.
  */
 router.patch(
   '/:id/status',
@@ -498,6 +512,42 @@ router.patch(
       res.status(500).json({ error: 'Failed to update lead status' });
     }
   }
+);
+
+/**
+ * DELETE /api/leads/:id
+ * Permanently delete a lead and related conversations, messages, and visits.
+ */
+router.delete(
+  '/:id',
+  authorize('leads', 'delete'),
+  auditLog('delete', 'leads'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { id } = req.params;
+
+      const lead = await prisma.lead.findFirst({ where: { id, companyId } });
+      if (!lead) {
+        res.status(404).json({ error: 'Lead not found' });
+        return;
+      }
+
+      if (
+        req.user!.role === 'sales_agent' &&
+        lead.assignedAgentId !== req.user!.id
+      ) {
+        res.status(403).json({ error: 'Can only delete assigned leads' });
+        return;
+      }
+
+      await deleteLeadPermanently(companyId, id);
+      socketService.emitToCompany(companyId, SOCKET_EVENTS.LEAD_UPDATED, { deleted: id });
+      res.json({ message: 'Lead deleted permanently' });
+    } catch (err: unknown) {
+      handleDeleteError(err, res);
+    }
+  },
 );
 
 /**

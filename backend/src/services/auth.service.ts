@@ -5,6 +5,7 @@ import prisma from '../config/prisma';
 import config from '../config';
 import logger from '../config/logger';
 import { provisionNeonIdentity } from './identityProvisioning.service';
+import { assertStaffPhoneAvailable } from '../utils/staffPhoneUniqueness';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -58,6 +59,9 @@ export class AuthService {
     }
 
     const id = uuidv4();
+    const normalizedPhone = data.phone
+      ? await assertStaffPhoneAvailable(data.phone)
+      : null;
 
     await prisma.user.create({
       data: {
@@ -65,7 +69,7 @@ export class AuthService {
         companyId: data.company_id,
         name: data.name,
         email: normalizedEmail,
-        phone: data.phone || null,
+        phone: normalizedPhone,
         passwordHash,
         role: data.role as any,
         customRoleId: data.custom_role_id || null,

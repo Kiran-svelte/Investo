@@ -649,9 +649,8 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
 
 /**
  * POST /api/webhook/debug
- * Debug endpoint to test the full webhook flow synchronously.
- * Returns detailed step-by-step info about what happens.
- * TEMPORARY - remove after debugging.
+ * Synchronous webhook flow debugger — development only.
+ * Returns step-by-step processing details. Disabled in production.
  */
 router.post('/debug', express.json({ limit: '1mb' }), async (req: Request, res: Response) => {
   if (config.env === 'production') {

@@ -7,8 +7,9 @@ import api from '../../services/api';
 import {
   ArrowLeft, Phone, Mail, MapPin, Building2, IndianRupee,
   User, Calendar, Clock, Edit3, Save, X, Loader2,
-  AlertTriangle, MessageSquare, CheckCircle
+  AlertTriangle, MessageSquare, CheckCircle, Trash2,
 } from 'lucide-react';
+import { deleteLead } from '../../services/resourceDelete';
 import LeadStatusBadge from '../../components/leads/LeadStatusBadge';
 import LeadStatusSelect from '../../components/leads/LeadStatusSelect';
 
@@ -103,6 +104,7 @@ const LeadDetailPage: React.FC = () => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [editForm, setEditForm] = useState({
@@ -232,6 +234,31 @@ const LeadDetailPage: React.FC = () => {
     (user?.role === 'sales_agent' && lead.assigned_agent_id === user?.id);
 
   const canChangeStatus = canEdit;
+  const canDeleteLead =
+    user?.role === 'company_admin' ||
+    user?.role === 'super_admin' ||
+    (user?.role === 'sales_agent' && lead.assigned_agent_id === user?.id);
+
+  const handleDeleteLead = async () => {
+    if (
+      !window.confirm(
+        'Permanently delete this lead? Conversations, messages, and visits for this lead will also be removed.',
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setError('');
+    try {
+      await deleteLead(lead.id);
+      navigate(dashboardPath('/leads'));
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } } };
+      setError(ax.response?.data?.error || 'Failed to delete lead');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="investo-page space-y-6 max-w-5xl">
@@ -267,6 +294,17 @@ const LeadDetailPage: React.FC = () => {
             {canEdit && !editing && (
               <button onClick={startEditing} className="flex items-center gap-1 px-3 py-1.5 border rounded-lg hover:bg-surface-muted text-sm">
                 <Edit3 className="h-4 w-4" /> Edit
+              </button>
+            )}
+            {canDeleteLead && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteLead()}
+                disabled={deleting}
+                className="flex items-center gap-1 px-3 py-1.5 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 text-sm disabled:opacity-50"
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Delete
               </button>
             )}
           </div>

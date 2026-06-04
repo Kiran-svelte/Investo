@@ -2,6 +2,8 @@
  * Normalizes notification payloads from the API (Prisma camelCase) and legacy snake_case.
  */
 
+import api from './api';
+
 export type NotificationType =
   | 'lead_new'
   | 'lead_assigned'
@@ -118,4 +120,12 @@ export function formatNotificationTime(date: string | undefined): string {
 
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
+}
+
+export async function deleteNotificationById(id: string): Promise<void> {
+  await api.delete(`/notifications/${id}`);
+}
+
+export async function deleteAllNotificationsForCurrentUser(): Promise<void> {
+  await api.delete('/notifications/all');
 }

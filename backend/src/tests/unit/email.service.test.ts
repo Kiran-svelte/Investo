@@ -74,12 +74,15 @@ describe('EmailService (SMTP)', () => {
     });
 
     expect(createTransport).toHaveBeenCalledTimes(1);
-    expect(createTransport).toHaveBeenCalledWith({
-      host: 'smtp.example.com',
-      port: 587,
-      secure: false,
-      auth: { user: 'smtp-user', pass: 'smtp-pass' },
-    });
+    expect(createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'smtp.example.com',
+        port: 587,
+        secure: false,
+        auth: { user: 'smtp-user', pass: 'smtp-pass' },
+        requireTLS: true,
+      }),
+    );
 
     expect(sendMail).toHaveBeenCalledTimes(1);
     const mailArgs = sendMail.mock.calls[0]?.[0];
@@ -117,6 +120,16 @@ describe('EmailService (SMTP)', () => {
       default: mockLogger,
     }));
 
+    jest.doMock('../../config', () => ({
+      __esModule: true,
+      default: {
+        mail: {
+          from: 'Investo <no-reply@investo.ai>',
+          smtp: { host: '', port: 587, secure: false, user: '', pass: '' },
+        },
+      },
+    }));
+
     let emailService: any;
     jest.isolateModules(() => {
       emailService = require('../../services/email.service').emailService;
@@ -128,7 +141,7 @@ describe('EmailService (SMTP)', () => {
         toName: null,
         resetUrl: 'https://app.investo.ai/reset-password?token=abc&email=user%40example.com',
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ sent: false, reason: 'smtp_not_configured' });
 
     expect(createTransport).not.toHaveBeenCalled();
     expect(mockLogger.warn).toHaveBeenCalledWith(

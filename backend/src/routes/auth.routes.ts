@@ -4,6 +4,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { loginSchema, selfServiceSignupSchema, updateStaffProfileSchema } from '../models/validation';
 import { isStaffProfilePhoneComplete, normalizeStaffProfilePhone } from '../utils/userProfilePhone';
+import { assertStaffPhoneAvailable, isStaffPhoneInUseError } from '../utils/staffPhoneUniqueness';
 import logger from '../config/logger';
 import prisma from '../config/prisma';
 import config from '../config';
@@ -264,7 +265,16 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
 router.put('/profile', authenticate, validate(updateStaffProfileSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { name, phone } = req.body as { name?: string; phone: string };
-    const normalized = normalizeStaffProfilePhone(phone);
+    let normalized: string | null;
+    try {
+      normalized = await assertStaffPhoneAvailable(phone, req.user!.id);
+    } catch (err: unknown) {
+      if (isStaffPhoneInUseError(err)) {
+        res.status(409).json({ message: err.message });
+        return;
+      }
+      throw err;
+    }
     if (!normalized) {
       res.status(400).json({ message: 'Enter a valid Indian mobile number (10 digits)' });
       return;

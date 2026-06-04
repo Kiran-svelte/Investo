@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
-import { Users, TrendingUp, Award, Phone, Mail, Loader2, Plus, X } from 'lucide-react';
+import { Users, TrendingUp, Award, Phone, Mail, Loader2, Plus, X, Trash2 } from 'lucide-react';
+import { deleteUser } from '../../services/resourceDelete';
 import Pagination from '../../components/common/Pagination';
 
 interface AgentStats {
@@ -121,6 +122,7 @@ const AgentsPage: React.FC = () => {
   };
 
   const canCreateUsers = user?.role === 'super_admin' || user?.role === 'company_admin';
+  const canDeleteUsers = canCreateUsers;
 
   if (loading) {
     return (
@@ -183,7 +185,32 @@ const AgentsPage: React.FC = () => {
               : 0;
 
             return (
-              <div key={agent.id} className="investo-card-pad hover:shadow-md transition-shadow">
+              <div key={agent.id} className="investo-card-pad hover:shadow-md transition-shadow relative">
+                {canDeleteUsers && agent.id !== user?.id && (
+                  <button
+                    type="button"
+                    title="Delete user permanently"
+                    onClick={async () => {
+                      if (
+                        !window.confirm(
+                          `Permanently delete ${agent.name}? Their visits as agent will be removed; leads will be unassigned.`,
+                        )
+                      ) {
+                        return;
+                      }
+                      try {
+                        await deleteUser(agent.id);
+                        setAgentUsers((prev) => prev.filter((u) => u.id !== agent.id));
+                      } catch (err: unknown) {
+                        const ax = err as { response?: { data?: { error?: string } } };
+                        alert(ax.response?.data?.error || 'Failed to delete user');
+                      }
+                    }}
+                    className="absolute top-3 right-3 p-1.5 text-ink-faint hover:text-red-600 hover:bg-red-50 rounded-lg"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center">
                     <Users className="h-6 w-6 text-brand-700" />

@@ -11,6 +11,10 @@ import { provisionNewCompany } from '../services/companyProvisioning.service';
 import { buildPaginationMeta, parsePagination } from '../utils/pagination';
 import { sanitizeCompanyRecord, mergeSettingsPreservingSecrets } from '../utils/sanitize';
 import { assertUniqueMetaPhoneNumberId } from '../services/whatsappTenantGuard.service';
+import {
+  deleteCompanyPermanently,
+  ResourceDeleteError,
+} from '../services/resourceDelete.service';
 
 const router = Router();
 
@@ -308,7 +312,7 @@ router.put(
 
 /**
  * PATCH /api/companies/:id/deactivate
- * Super admin only. Companies cannot be deleted, only deactivated.
+ * Super admin only. Soft-deactivate a tenant.
  */
 router.patch(
   '/:id/deactivate',
@@ -354,6 +358,32 @@ router.patch(
       res.status(500).json({ error: 'Failed to activate company' });
     }
   }
+);
+
+/**
+ * DELETE /api/companies/:id
+ * Super admin only. Permanently deletes company and all tenant data.
+ */
+router.delete(
+  '/:id',
+  hasRole('super_admin'),
+  authorize('companies', 'delete'),
+  auditLog('delete', 'companies'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await deleteCompanyPermanently(id);
+      res.json({ message: 'Company deleted permanently' });
+    } catch (err: unknown) {
+      if (err instanceof ResourceDeleteError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : 'Delete failed';
+      logger.error('Failed to delete company', { error: message });
+      res.status(500).json({ error: 'Failed to delete company' });
+    }
+  },
 );
 
 export default router;

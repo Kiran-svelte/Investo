@@ -87,6 +87,7 @@ export function mapPropertyToSnakeCaseDTO(property: any) {
     longitude: toNullableNumber(property.longitude),
     created_at: toIsoString(property.createdAt),
     updated_at: toIsoString(property.updatedAt),
+    project_id: property.projectId ?? null,
   };
 }
 
@@ -127,9 +128,11 @@ router.get(
       const where: any = { companyId };
 
       // Filters
-      const { status, property_type, location_city, location_area, bedrooms, price_min, price_max, search } = req.query;
+      const { status, property_type, location_city, location_area, bedrooms, price_min, price_max, search, project_id } = req.query;
       if (status) where.status = status as string;
       if (property_type) where.propertyType = property_type as string;
+      if (project_id === 'unassigned') where.projectId = null;
+      else if (project_id) where.projectId = project_id as string;
       if (location_city) where.locationCity = { contains: location_city as string, mode: 'insensitive' as const };
       if (location_area) where.locationArea = { contains: location_area as string, mode: 'insensitive' as const };
       if (bedrooms) where.bedrooms = parseInt(bedrooms as string);
@@ -274,9 +277,21 @@ router.post(
       }
 
       // After Zod validation, req.body uses snake_case field names
+      let projectId: string | null = req.body.project_id ?? null;
+      if (projectId) {
+        const project = await prisma.propertyProject.findFirst({
+          where: { id: projectId, companyId },
+        });
+        if (!project) {
+          res.status(400).json({ error: 'Project not found' });
+          return;
+        }
+      }
+
       const property = await prisma.property.create({
         data: {
           companyId,
+          projectId,
           name: req.body.name,
           builder: req.body.builder || null,
           locationCity: req.body.location_city || null,

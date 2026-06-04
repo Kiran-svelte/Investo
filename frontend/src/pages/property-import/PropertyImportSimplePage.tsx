@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 import { dashboardPath, getRoleCapabilities } from '../../config/navigation.config';
@@ -116,6 +116,8 @@ export default function PropertyImportSimplePage() {
   const gateReason = (location.state as { knowledgeGateReason?: string } | null)?.knowledgeGateReason;
   const { draftId: routeDraftId } = useParams();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const importProjectId = searchParams.get('projectId');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const knowledgeSectionRef = useRef<HTMLElement | null>(null);
 
@@ -361,6 +363,7 @@ export default function PropertyImportSimplePage() {
       const created = await createPropertyImportDraft({
         draft_data: serializePropertyImportFormValues(nextForm),
         max_retries: 3,
+        project_id: importProjectId,
       });
       applyDraftUpdate(created);
       navigate(dashboardPath(`/properties/import/${created.id}`), { replace: true });
@@ -391,6 +394,7 @@ export default function PropertyImportSimplePage() {
       const created = await createPropertyImportDraft({
         draft_data: serializePropertyImportFormValues(formValues),
         max_retries: 3,
+        project_id: importProjectId,
       });
       applyDraftUpdate(created);
       draftId = created.id;
@@ -540,9 +544,15 @@ export default function PropertyImportSimplePage() {
             loading={isCancellingDraft}
             onClick={() => {
               if (!draft.id) return;
-              if (!confirm('Cancel this import? The draft and uploads will be removed.')) return;
+              if (
+                !confirm(
+                  'Remove this import permanently? The draft, uploads, and parsed units will be deleted.',
+                )
+              ) {
+                return;
+              }
               setIsCancellingDraft(true);
-              void cancelPropertyImportDraft(draft.id, { reason: 'Cancelled by user' })
+              void cancelPropertyImportDraft(draft.id, { reason: 'Removed by user', purge: true })
                 .then(() => navigate(dashboardPath('/properties'), { replace: true }))
                 .catch((error) => setPageError(getErrorMessage(error, 'Failed to cancel import')))
                 .finally(() => setIsCancellingDraft(false));

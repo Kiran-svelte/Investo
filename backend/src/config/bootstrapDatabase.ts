@@ -37,6 +37,12 @@ async function applyCompatibilityPatches(): Promise<void> {
   await prisma.$executeRawUnsafe(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_role_id UUID NULL`);
   await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS users_auth_provider_id_key ON users(auth_provider_id)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS users_custom_role_id_idx ON users(custom_role_id)`);
+  // One active staff mobile per platform (deleted/inactive users do not block reuse).
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS users_active_phone_unique
+    ON users (phone)
+    WHERE status = 'active' AND phone IS NOT NULL
+  `);
 
   // company_roles used by onboarding/user creation custom-role flow.
   await prisma.$executeRawUnsafe(`
@@ -206,6 +212,43 @@ async function applyCompatibilityPatches(): Promise<void> {
       created_at TIMESTAMP NOT NULL DEFAULT now()
     )
   `);
+  // Property projects — group listings and imports per site/development.
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS property_projects (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      name VARCHAR(255) NOT NULL,
+      description TEXT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS property_projects_company_sort_idx ON property_projects (company_id, sort_order)`,
+  );
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS property_project_files (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      project_id UUID NOT NULL REFERENCES property_projects(id) ON DELETE CASCADE,
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      file_name VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(120) NULL,
+      storage_key VARCHAR(500) NOT NULL,
+      file_size INTEGER NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS property_project_files_project_idx ON property_project_files (project_id)`,
+  );
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE properties ADD COLUMN IF NOT EXISTS project_id UUID NULL REFERENCES property_projects(id) ON DELETE SET NULL
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE property_import_drafts ADD COLUMN IF NOT EXISTS project_id UUID NULL REFERENCES property_projects(id) ON DELETE SET NULL
+  `);
+
   // Agent action log — AI transparency / audit trail (90-day TTL via cron purge).
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS agent_action_logs (

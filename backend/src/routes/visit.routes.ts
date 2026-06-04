@@ -14,8 +14,22 @@ import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate
 import { transitionLeadStatus } from '../services/leadTransition.service';
 import { automationService } from '../services/automation.service';
 import { buildPaginationMeta, parsePagination } from '../utils/pagination';
+import {
+  deleteVisitPermanently,
+  ResourceDeleteError,
+} from '../services/resourceDelete.service';
 
 const router = Router();
+
+function handleDeleteError(err: unknown, res: Response): void {
+  if (err instanceof ResourceDeleteError) {
+    res.status(err.statusCode).json({ error: err.message });
+    return;
+  }
+  const message = err instanceof Error ? err.message : 'Delete failed';
+  logger.error('Delete failed', { error: message });
+  res.status(500).json({ error: message });
+}
 
 type VisitWithRelations = {
   id: string;
@@ -423,6 +437,39 @@ router.put(
       res.status(500).json({ error: 'Failed to reschedule visit' });
     }
   }
+);
+
+/**
+ * DELETE /api/visits/:id
+ * Permanently remove a visit record.
+ */
+router.delete(
+  '/:id',
+  authorize('visits', 'delete'),
+  auditLog('delete', 'visits'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const visit = await prisma.visit.findFirst({
+        where: { id: req.params.id, companyId },
+      });
+
+      if (!visit) {
+        res.status(404).json({ error: 'Visit not found' });
+        return;
+      }
+
+      if (req.user!.role === 'sales_agent' && visit.agentId !== req.user!.id) {
+        res.status(403).json({ error: 'Can only delete your own visits' });
+        return;
+      }
+
+      await deleteVisitPermanently(companyId, req.params.id);
+      res.json({ message: 'Visit deleted permanently' });
+    } catch (err: unknown) {
+      handleDeleteError(err, res);
+    }
+  },
 );
 
 export default router;

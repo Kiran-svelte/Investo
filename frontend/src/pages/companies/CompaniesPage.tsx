@@ -4,8 +4,9 @@ import api from '../../services/api';
 import Pagination from '../../components/common/Pagination';
 import {
   Building2, Plus, Search, Users, Check, X,
-  Edit2, Power, PowerOff, UserPlus,
+  Edit2, Power, PowerOff, UserPlus, Trash2,
 } from 'lucide-react';
+import { deleteCompany } from '../../services/resourceDelete';
 import { useAuth } from '../../context/AuthContext';
 
 interface Company {
@@ -170,6 +171,20 @@ const CompaniesPage: React.FC = () => {
       setInviteError(err.response?.data?.error || 'Failed to create company admin');
     } finally {
       setInviteSubmitting(false);
+    }
+  };
+
+  const handleDeleteCompany = async (company: Company) => {
+    const typed = window.prompt(
+      `Type the company slug "${company.slug}" to permanently delete this tenant and ALL its data.`,
+    );
+    if (typed !== company.slug) return;
+    try {
+      await deleteCompany(company.id);
+      loadData();
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } } };
+      alert(ax.response?.data?.error || 'Failed to delete company');
     }
   };
 
@@ -365,6 +380,16 @@ const CompaniesPage: React.FC = () => {
                             <Power className="h-4 w-4" />
                           )}
                         </button>
+                        {isPlatformAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteCompany(company)}
+                            className="p-2 text-ink-faint hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Permanently delete company"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

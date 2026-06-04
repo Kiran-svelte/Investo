@@ -11,6 +11,8 @@ import {
   type PropertyImportDraftSummary,
 } from '../../services/propertyImport';
 import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
+import PropertyProjectsBoard from './PropertyProjectsBoard';
+import { listPropertyProjects, type PropertyProject } from '../../services/propertyProjects';
 import Pagination from '../../components/common/Pagination';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
@@ -21,6 +23,7 @@ import {
 
 interface Property {
   id: string;
+  project_id?: string | null;
   name: string;
   builder: string | null;
   location_city: string | null;
@@ -89,6 +92,9 @@ const PropertiesPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [importDrafts, setImportDrafts] = useState<PropertyImportDraftSummary[]>([]);
   const [cancellingDraftId, setCancellingDraftId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<PropertyProject[]>([]);
+  const [unassignedCount, setUnassignedCount] = useState(0);
+  const [useProjectBoard, setUseProjectBoard] = useState(true);
 
   const loadImportDrafts = useCallback(async () => {
     if (!capabilities.canUploadProperties) {
@@ -108,8 +114,8 @@ const PropertiesPage: React.FC = () => {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (typeFilter) params.append('property_type', typeFilter);
-      params.append('page', String(page));
-      params.append('limit', '25');
+      params.append('page', String(useProjectBoard ? 1 : page));
+      params.append('limit', useProjectBoard ? '200' : '25');
       const res = await api.get(`/properties?${params.toString()}`);
       const body = res.data as { data?: Property[]; pagination?: { pages?: number; total?: number } };
       const list = Array.isArray(body?.data) ? body.data : [];
@@ -121,18 +127,45 @@ const PropertiesPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, typeFilter, page]);
+  }, [search, typeFilter, page, useProjectBoard]);
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const { projects: list, unassigned_property_count } = await listPropertyProjects();
+      setProjects(list);
+      setUnassignedCount(unassigned_property_count);
+    } catch {
+      setProjects([]);
+      setUnassignedCount(0);
+    }
+  }, []);
 
   useEffect(() => { setPage(1); }, [search, typeFilter]);
 
   useEffect(() => { loadProperties(); }, [loadProperties]);
   useEffect(() => { void loadImportDrafts(); }, [loadImportDrafts]);
+  useEffect(() => { void loadProjects(); }, [loadProjects]);
+
+  const refreshAll = useCallback(() => {
+    void loadProperties();
+    void loadImportDrafts();
+    void loadProjects();
+  }, [loadProperties, loadImportDrafts, loadProjects]);
 
   const handleCancelImportDraft = async (draftId: string, draftName: string) => {
-    if (!confirm(`Cancel import draft "${draftName}"? Uploaded files will be discarded.`)) return;
+    if (
+      !confirm(
+        `Remove import draft "${draftName}" permanently? All uploaded files and parsed units will be deleted.`,
+      )
+    ) {
+      return;
+    }
     setCancellingDraftId(draftId);
     try {
-      await cancelPropertyImportDraft(draftId, { reason: 'Cancelled from properties list' });
+      await cancelPropertyImportDraft(draftId, {
+        reason: 'Removed from properties list',
+        purge: true,
+      });
       await loadImportDrafts();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
@@ -211,7 +244,26 @@ const PropertiesPage: React.FC = () => {
         </select>
       </div>
 
-      {importDrafts.length > 0 && capabilities.canUploadProperties && (
+      {useProjectBoard && capabilities.canManageProperties ? (
+        <PropertyProjectsBoard
+          properties={properties}
+          projects={projects}
+          unassignedCount={unassignedCount}
+          importDrafts={importDrafts}
+          canManage={capabilities.canManageProperties}
+          canUpload={capabilities.canUploadProperties}
+          formatPrice={formatPrice}
+          onRefresh={refreshAll}
+          onPropertyClick={(p) => setDetailProperty(p as Property)}
+          onEdit={(p) => handleEdit(p as Property)}
+          onDelete={handleDelete}
+          onCancelDraft={handleCancelImportDraft}
+          cancellingDraftId={cancellingDraftId}
+          deletingId={deleting}
+        />
+      ) : null}
+
+      {!useProjectBoard && importDrafts.length > 0 && capabilities.canUploadProperties && (
         <section className="investo-card-pad border border-violet-100 bg-violet-50/40">
           <h2 className="text-sm font-semibold text-violet-900">Import drafts</h2>
           <p className="mt-1 text-xs text-violet-800">
@@ -255,13 +307,13 @@ const PropertiesPage: React.FC = () => {
         </section>
       )}
 
-      {properties.length === 0 ? (
+      {!useProjectBoard && properties.length === 0 ? (
         <div className="investo-card-pad text-center text-ink-muted">
           {importDrafts.length > 0 && capabilities.canUploadProperties
             ? 'No published properties yet. Continue an import draft above or publish when ready.'
             : t('common.no_data')}
         </div>
-      ) : (
+      ) : !useProjectBoard ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {properties.map((property) => {
             const images = parseArr(property.images);
@@ -319,8 +371,9 @@ const PropertiesPage: React.FC = () => {
             );
           })}
         </div>
-      )}
+      ) : null}
 
+      {!useProjectBoard && (
       <Pagination
         page={page}
         totalPages={totalPages}
@@ -329,6 +382,17 @@ const PropertiesPage: React.FC = () => {
         label="properties"
         className="mt-6"
       />
+      )}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setUseProjectBoard((v) => !v)}
+          className="text-sm text-brand-700 underline"
+        >
+          {useProjectBoard ? 'Switch to flat list view' : 'Switch to project board view'}
+        </button>
+      </div>
 
       {showModal && <PropertyModal property={editingProperty} onClose={() => { setShowModal(false); setEditingProperty(null); }} onSaved={() => { setShowModal(false); setEditingProperty(null); loadProperties(); }} />}
       {detailProperty && <PropertyDetailModal property={detailProperty} onClose={() => setDetailProperty(null)} />}

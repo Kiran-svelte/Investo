@@ -1,10 +1,17 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { auditLog } from '../middleware/audit';
 import { requireFeature } from '../middleware/featureGate';
 import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import {
+  deleteAllNotificationsForUser,
+  deleteNotificationPermanently,
+  ResourceDeleteError,
+} from '../services/resourceDelete.service';
 
 const router = Router();
 
@@ -118,5 +125,53 @@ const markAllReadHandler = async (req: AuthRequest, res: Response) => {
 
 router.patch('/read-all', markAllReadHandler);
 router.put('/read-all', markAllReadHandler);
+
+function handleDeleteError(err: unknown, res: Response): void {
+  if (err instanceof ResourceDeleteError) {
+    res.status(err.statusCode).json({ error: err.message });
+    return;
+  }
+  const message = err instanceof Error ? err.message : 'Delete failed';
+  logger.error('Delete failed', { error: message });
+  res.status(500).json({ error: message });
+}
+
+/**
+ * DELETE /api/notifications/all
+ * Permanently delete all notifications visible to the current user.
+ */
+router.delete(
+  '/all',
+  authorize('notifications', 'delete'),
+  auditLog('delete', 'notifications'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const count = await deleteAllNotificationsForUser(companyId, req.user!.id);
+      res.json({ message: 'Notifications deleted', deleted: count });
+    } catch (err: unknown) {
+      handleDeleteError(err, res);
+    }
+  },
+);
+
+/**
+ * DELETE /api/notifications/:id
+ * Permanently delete one notification.
+ */
+router.delete(
+  '/:id',
+  authorize('notifications', 'delete'),
+  auditLog('delete', 'notifications'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      await deleteNotificationPermanently(companyId, req.user!.id, req.params.id);
+      res.json({ message: 'Notification deleted' });
+    } catch (err: unknown) {
+      handleDeleteError(err, res);
+    }
+  },
+);
 
 export default router;

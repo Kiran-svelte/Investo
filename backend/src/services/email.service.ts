@@ -59,8 +59,39 @@ function resolveSmtpConfig(): SmtpConfig {
   };
 }
 
+/**
+ * Detect if the configured SMTP host is AWS SES.
+ * SES SMTP requires STARTTLS on port 587 and does not allow plain auth.
+ *
+ * @param host - SMTP hostname from config
+ * @returns True if this is an AWS SES SMTP endpoint
+ */
+function isAwsSesSmtpHost(host: string): boolean {
+  return host.includes('amazonaws.com') || host.includes('email-smtp.');
+}
+
 function buildTransportOptions(smtp: SmtpConfig) {
   const auth = smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined;
+  const isSesSstp = isAwsSesSmtpHost(smtp.host);
+
+  // AWS SES SMTP always uses STARTTLS on port 587 — force it
+  if (isSesSstp) {
+    return {
+      host: smtp.host,
+      port: 587,
+      secure: false,        // STARTTLS — not direct TLS
+      requireTLS: true,     // Mandatory STARTTLS for SES
+      auth,
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 30_000,
+      tls: {
+        // SES has a valid cert — enforce it
+        rejectUnauthorized: true,
+      },
+    };
+  }
+
   const useTls = smtp.port === 587 && !smtp.secure;
 
   return {

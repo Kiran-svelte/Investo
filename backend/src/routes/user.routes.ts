@@ -13,6 +13,11 @@ import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { buildPaginationMeta, parsePagination } from '../utils/pagination';
+import {
+  deleteUserPermanently,
+  ResourceDeleteError,
+} from '../services/resourceDelete.service';
+import { assertStaffPhoneAvailable, isStaffPhoneInUseError } from '../utils/staffPhoneUniqueness';
 
 const router = Router();
 
@@ -252,6 +257,10 @@ router.post(
 
       res.status(201).json({ data: result, id: result.id });
     } catch (err: any) {
+      if (isStaffPhoneInUseError(err)) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       if (err.message === 'Email already registered') {
         res.status(409).json({ error: err.message });
         return;
@@ -308,6 +317,9 @@ router.put(
           res.status(400).json({ error: 'Enter a valid Indian mobile number (10 digits).' });
           return;
         }
+        if (normalizedPhone) {
+          await assertStaffPhoneAvailable(normalizedPhone, id);
+        }
         await prisma.user.update({
           where: { id },
           data: {
@@ -318,6 +330,7 @@ router.put(
       } else {
         // Company admin or super admin
         const { name, phone, role, status } = req.body;
+        const { normalizeStaffProfilePhone } = await import('../utils/userProfilePhone');
 
         // Cannot change to super_admin unless you are super_admin
         if (role === 'super_admin' && req.user!.role !== 'super_admin') {
@@ -325,11 +338,26 @@ router.put(
           return;
         }
 
+        let phoneToSave: string | null | undefined;
+        if (phone !== undefined) {
+          if (phone === null || String(phone).trim() === '') {
+            phoneToSave = null;
+          } else {
+            const normalized = normalizeStaffProfilePhone(String(phone));
+            if (!normalized) {
+              res.status(400).json({ error: 'Enter a valid Indian mobile number (10 digits).' });
+              return;
+            }
+            await assertStaffPhoneAvailable(normalized, id);
+            phoneToSave = normalized;
+          }
+        }
+
         await prisma.user.update({
           where: { id },
           data: {
             ...(name && { name }),
-            ...(phone !== undefined && { phone }),
+            ...(phoneToSave !== undefined && { phone: phoneToSave }),
             ...(role && { role }),
             ...(status && { status }),
           },
@@ -343,6 +371,10 @@ router.put(
 
       res.json({ data: updated });
     } catch (err: any) {
+      if (isStaffPhoneInUseError(err)) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       logger.error('Failed to update user', { error: err.message });
       res.status(500).json({ error: 'Failed to update user' });
     }
@@ -390,6 +422,48 @@ router.patch(
       res.status(500).json({ error: 'Failed to deactivate user' });
     }
   }
+);
+
+/**
+ * DELETE /api/users/:id
+ * Permanently delete a user (company admin / super admin). Prefer deactivate when unsure.
+ */
+router.delete(
+  '/:id',
+  authorize('users', 'delete'),
+  auditLog('delete', 'users'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const companyId = getCompanyId(req);
+
+      const targetUser = await prisma.user.findFirst({ where: { id } });
+      if (!targetUser) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      if (req.user!.role !== 'super_admin' && targetUser.companyId !== companyId) {
+        res.status(403).json({ error: 'Cannot delete users in other companies' });
+        return;
+      }
+
+      await deleteUserPermanently(
+        targetUser.companyId,
+        id,
+        req.user!.id,
+      );
+      res.json({ message: 'User deleted permanently' });
+    } catch (err: unknown) {
+      if (err instanceof ResourceDeleteError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : 'Delete failed';
+      logger.error('Failed to delete user', { error: message });
+      res.status(500).json({ error: 'Failed to delete user' });
+    }
+  },
 );
 
 export default router;

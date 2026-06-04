@@ -620,6 +620,29 @@ class StorageService {
       throw error;
     }
   }
+
+  /** Store a project attachment (CSV, Excel, PDF) under the tenant prefix. */
+  async uploadProjectFileBuffer(input: {
+    companyId: string;
+    projectId: string;
+    fileName: string;
+    mimeType: string;
+    buffer: Buffer;
+  }): Promise<{ storageKey: string }> {
+    ensureAwsConfig();
+    const safeName = sanitizeFileName(input.fileName);
+    const storageKey = `companies/${input.companyId}/property-projects/${input.projectId}/files/${randomUUID()}-${safeName}${getMimeTypeExtension(input.mimeType)}`;
+    const client = this.getAwsClient();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: config.storage.awsBucket!,
+        Key: storageKey,
+        Body: input.buffer,
+        ContentType: input.mimeType,
+      }),
+    );
+    return { storageKey };
+  }
 }
 
 export const storageService = new StorageService();

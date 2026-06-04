@@ -96,7 +96,9 @@ function isFieldFilled(key: string, draftData: Record<string, unknown>, typeKnow
   if (key === 'price') {
     const min = draftData.price_min ?? draftData.priceMin;
     const max = draftData.price_max ?? draftData.priceMax;
-    if (min != null && max != null && String(min).trim() && String(max).trim()) {
+    const hasMin = min != null && String(min).trim();
+    const hasMax = max != null && String(max).trim();
+    if (hasMin || hasMax) {
       return true;
     }
   }

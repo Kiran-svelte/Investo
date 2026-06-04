@@ -130,6 +130,7 @@ export interface PropertyImportDraft {
 export interface CreatePropertyImportDraftInput {
   draft_data?: Record<string, unknown>;
   max_retries?: number;
+  project_id?: string | null;
 }
 
 export interface RegisterPropertyImportUploadInput {
@@ -168,6 +169,8 @@ export interface RetryPropertyImportDraftInput {
 
 export interface CancelPropertyImportDraftInput {
   reason?: string | null;
+  /** When true, removes draft rows and uploads from the database (not recoverable). */
+  purge?: boolean;
 }
 
 export interface PropertyImportUploadProgress {
@@ -242,6 +245,7 @@ export interface PropertyImportDraftSummary {
   id: string;
   status: PropertyImportDraftStatus;
   extractionStatus: string;
+  project_id?: string | null;
   name: string;
   property_type: string | null;
   knowledge_deferred: boolean;

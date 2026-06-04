@@ -47,8 +47,10 @@ function isWhatsAppVerified(settings: unknown): boolean {
   return Boolean(whatsapp.verifiedAt || whatsapp.lastVerifiedAt);
 }
 
+import { isMailConfigured as isMailEnvConfigured } from './mailHealth.service';
+
 function isMailConfigured(): boolean {
-  return Boolean(config.mail.smtp.host && config.mail.from);
+  return isMailEnvConfigured();
 }
 
 export async function getTenantReadiness(companyId: string): Promise<TenantReadinessReport> {

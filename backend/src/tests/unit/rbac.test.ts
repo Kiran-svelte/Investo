@@ -15,12 +15,12 @@ const PERMISSIONS: Record<Role, Partial<Record<Resource, Permission[]>>> = {
     users: ['create', 'read', 'update', 'delete'],
     leads: ['create', 'read', 'update', 'delete'],
     properties: ['create', 'read', 'update', 'delete'],
-    conversations: ['read'],
+    conversations: ['read', 'delete'],
     visits: ['create', 'read', 'update', 'delete'],
     analytics: ['read'],
     ai_settings: ['create', 'read', 'update', 'delete'],
     audit_logs: ['read'],
-    notifications: ['read'],
+    notifications: ['read', 'delete'],
   },
   company_admin: {
     companies: ['read'],
@@ -28,30 +28,30 @@ const PERMISSIONS: Record<Role, Partial<Record<Resource, Permission[]>>> = {
     users: ['create', 'read', 'update', 'delete'],
     leads: ['create', 'read', 'update', 'delete'],
     properties: ['create', 'read', 'update', 'delete'],
-    conversations: ['read'],
+    conversations: ['read', 'delete'],
     visits: ['create', 'read', 'update', 'delete'],
     analytics: ['read'],
     ai_settings: ['create', 'read', 'update', 'delete'],
     audit_logs: ['read'],
-    notifications: ['read', 'update'],
+    notifications: ['read', 'update', 'delete'],
   },
   sales_agent: {
-    users: ['read'],
-    leads: ['read', 'update'],
+    users: ['read', 'update'],
+    leads: ['read', 'update', 'delete'],
     properties: ['read'],
-    conversations: ['read'],
+    conversations: ['read', 'delete'],
     visits: ['create', 'read', 'update', 'delete'],
     analytics: ['read'],
-    notifications: ['read', 'update'],
+    notifications: ['read', 'update', 'delete'],
   },
   operations: {
-    users: ['read'],
+    users: ['read', 'update'],
     leads: ['read'],
     properties: ['read'],
-    conversations: ['read'],
-    visits: ['read', 'update'],
+    conversations: ['read', 'delete'],
+    visits: ['read', 'update', 'delete'],
     analytics: ['read'],
-    notifications: ['read', 'update'],
+    notifications: ['read', 'update', 'delete'],
   },
   viewer: {
     users: ['read'],
@@ -109,11 +109,11 @@ describe('RBAC Permission Matrix', () => {
   });
 
   // Sales agent
-  test('sales_agent can read and update leads but not create or delete', () => {
+  test('sales_agent can read, update, and delete assigned leads but not create', () => {
     expect(hasPermission('sales_agent', 'leads', 'read')).toBe(true);
     expect(hasPermission('sales_agent', 'leads', 'update')).toBe(true);
+    expect(hasPermission('sales_agent', 'leads', 'delete')).toBe(true);
     expect(hasPermission('sales_agent', 'leads', 'create')).toBe(false);
-    expect(hasPermission('sales_agent', 'leads', 'delete')).toBe(false);
   });
 
   test('sales_agent cannot access platform_settings', () => {

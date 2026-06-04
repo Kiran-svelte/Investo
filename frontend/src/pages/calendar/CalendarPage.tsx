@@ -4,8 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, MapPin,
-  Phone, CheckCircle, XCircle, AlertCircle, X, Loader2
+  Phone, CheckCircle, XCircle, AlertCircle, X, Loader2, Trash2,
 } from 'lucide-react';
+import { deleteVisit } from '../../services/resourceDelete';
 
 interface Visit {
   id: string;
@@ -52,6 +53,7 @@ const CalendarPage: React.FC = () => {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [visitDeleting, setVisitDeleting] = useState(false);
 
   const getDateRange = useCallback(() => {
     const from = new Date(currentDate); const to = new Date(currentDate);
@@ -291,6 +293,40 @@ const CalendarPage: React.FC = () => {
                   </div>
                 </div>
               )}
+              <div className="pt-3 border-t">
+                <button
+                  type="button"
+                  disabled={visitDeleting}
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        'Permanently delete this visit? This cannot be undone.',
+                      )
+                    ) {
+                      return;
+                    }
+                    setVisitDeleting(true);
+                    try {
+                      await deleteVisit(selectedVisit.id);
+                      setVisits((prev) => prev.filter((v) => v.id !== selectedVisit.id));
+                      setSelectedVisit(null);
+                    } catch (err: unknown) {
+                      const ax = err as { response?: { data?: { error?: string } } };
+                      alert(ax.response?.data?.error || 'Failed to delete visit');
+                    } finally {
+                      setVisitDeleting(false);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-700 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                >
+                  {visitDeleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  Delete visit
+                </button>
+              </div>
             </div>
           </div>
         </div>
