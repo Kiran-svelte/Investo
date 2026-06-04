@@ -275,7 +275,7 @@ const LeadDetailPage: React.FC = () => {
           <div className="flex items-center gap-3">
             {lead.conversation_id && (
               <button 
-                onClick={() => navigate(dashboardPath('/conversations'))}
+                onClick={() => navigate(dashboardPath(`/conversations?id=${lead.conversation_id}`))}
                 className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-brand-50 text-brand-800 hover:bg-brand-100 text-sm font-medium"
               >
                 <MessageSquare className="h-4 w-4" /> Go to Conversation

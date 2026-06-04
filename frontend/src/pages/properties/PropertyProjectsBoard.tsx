@@ -22,6 +22,16 @@ import {
 } from '../../services/propertyProjects';
 import type { PropertyImportDraftSummary } from '../../services/propertyImport';
 import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
+import { stashBulkImportFile } from '../../utils/bulk-import-pending-file';
+
+function isSpreadsheetFile(file: File): boolean {
+  return (
+    /\.(csv|xlsx)$/i.test(file.name) ||
+    file.type.includes('csv') ||
+    file.type.includes('spreadsheet') ||
+    file.type.includes('excel')
+  );
+}
 
 export interface BoardProperty {
   id: string;
@@ -83,6 +93,7 @@ export default function PropertyProjectsBoard({
   const [uploadingFile, setUploadingFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadTargetProject, setUploadTargetProject] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<Record<string, string>>({});
 
   const byProject = useCallback(
     (projectId: string | null) =>
@@ -135,7 +146,12 @@ export default function PropertyProjectsBoard({
     try {
       const files = await listProjectFiles(projectId);
       setProjectFiles((prev) => ({ ...prev, [projectId]: files }));
-    } catch {
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } } };
+      setUploadNotice((prev) => ({
+        ...prev,
+        [projectId]: ax.response?.data?.error || 'Could not load attached files.',
+      }));
       setProjectFiles((prev) => ({ ...prev, [projectId]: [] }));
     }
   };
@@ -155,9 +171,39 @@ export default function PropertyProjectsBoard({
     const projectId = uploadTargetProject;
     e.target.value = '';
     if (!file || !projectId) return;
+
+    const project = projects.find((p) => p.id === projectId);
+
+    if (isSpreadsheetFile(file)) {
+      setUploadingFile(projectId);
+      try {
+        await stashBulkImportFile(file, {
+          projectId,
+          projectName: project?.name,
+        });
+        const q = new URLSearchParams({
+          projectId,
+          autoBulk: '1',
+          ...(project?.name ? { projectName: project.name } : {}),
+        });
+        navigate(dashboardPath(`/properties/import?${q.toString()}`));
+      } catch {
+        alert('Could not open the import wizard. Use Import here and upload the same file.');
+      } finally {
+        setUploadingFile(null);
+        setUploadTargetProject(null);
+      }
+      return;
+    }
+
     setUploadingFile(projectId);
     try {
       await uploadProjectFile(projectId, file);
+      setExpandedProject(projectId);
+      setUploadNotice((prev) => ({
+        ...prev,
+        [projectId]: `"${file.name}" attached under Files (reference only — use Import here to create listings).`,
+      }));
       await loadFiles(projectId);
       onRefresh();
     } catch (err: unknown) {
@@ -328,7 +374,7 @@ export default function PropertyProjectsBoard({
                   ) : (
                     <FileSpreadsheet className="h-3.5 w-3.5" />
                   )}
-                  Add CSV/file
+                  Import CSV
                 </button>
                 <button
                   type="button"
@@ -394,6 +440,11 @@ export default function PropertyProjectsBoard({
                 )}
               </>,
               headerActions,
+            )}
+            {project && uploadNotice[project.id] && (
+              <p className="mt-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-900">
+                {uploadNotice[project.id]}
+              </p>
             )}
             {project && expandedProject === project.id && (
               <ul className="mt-2 space-y-1 rounded-lg border bg-white p-3 text-sm">

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { SOCKET_EVENTS, useSocketEvent } from '../../context/SocketContext';
@@ -39,7 +41,10 @@ type ComposerMode = 'text' | 'document' | 'quick_reply';
 const ConversationsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const openConversationId = searchParams.get('id');
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,7 +71,13 @@ const ConversationsPage: React.FC = () => {
 
   useEffect(() => {
     loadConversations();
-  }, [search, convPage]);
+  }, [search, convPage, openConversationId]);
+
+  useEffect(() => {
+    if (!openConversationId || selectedConv?.id === openConversationId) return;
+    const match = conversations.find((c) => c.id === openConversationId);
+    if (match) setSelectedConv(match);
+  }, [openConversationId, conversations, selectedConv?.id]);
 
   useEffect(() => {
     setConvPage(1);
@@ -106,16 +117,39 @@ const ConversationsPage: React.FC = () => {
   const loadConversations = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       params.append('page', String(convPage));
       params.append('limit', '25');
       const res = await api.get(`/conversations?${params.toString()}`);
-      setConversations(res.data.data);
+      const list = res.data.data || [];
+      setConversations(list);
       setConvTotalPages(res.data.pagination?.pages || 1);
       setConvTotal(res.data.pagination?.total || 0);
+      if (openConversationId) {
+        const match = list.find((c: Conversation) => c.id === openConversationId);
+        if (match) {
+          setSelectedConv(match);
+        } else {
+          try {
+            const detail = await api.get(`/conversations/${openConversationId}`);
+            const conv = detail.data.data as Conversation;
+            if (conv?.id) setSelectedConv(conv);
+          } catch {
+            // Deep link invalid or no access — list still shown
+          }
+        }
+      }
     } catch (err) {
       console.error('Failed to load conversations', err);
+      if (axios.isAxiosError(err) && err.response?.status === 423) {
+        const payload = err.response.data as { message?: string; error?: string };
+        setLoadError(payload.message || payload.error || 'Complete your property catalog before viewing conversations.');
+      } else {
+        setLoadError('Failed to load conversations. Try refreshing the page.');
+      }
+      setConversations([]);
     } finally {
       setLoading(false);
     }
@@ -341,6 +375,12 @@ const ConversationsPage: React.FC = () => {
             />
           </div>
         </div>
+
+        {loadError && (
+          <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {loadError}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (

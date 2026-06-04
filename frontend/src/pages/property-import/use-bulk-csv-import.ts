@@ -67,6 +67,8 @@ export interface UseBulkCsvImportReturn {
   clearError: () => void;
   /** Auto-detected headers (used to render confidence badge in the UI). */
   autoDetectedHeaders: string[];
+  /** Property project board column for published listings. */
+  setTargetProjectId: (id: string | null) => void;
 }
 
 /** Extracts a clean user-facing error message from an unknown thrown value. */
@@ -85,6 +87,10 @@ function extractErrorMessage(error: unknown, fallback: string): string {
 
 /** Validates the selected file before uploading. */
 function validateFile(file: File): string | null {
+  if (file.size === 0) {
+    return 'The file is empty. Add column headers and at least one property row.';
+  }
+
   if (file.size > BULK_IMPORT_MAX_FILE_SIZE_BYTES) {
     return `File is too large. Maximum allowed size is ${BULK_IMPORT_MAX_FILE_SIZE_LABEL}.`;
   }
@@ -106,6 +112,7 @@ function validateFile(file: File): string | null {
  */
 export function useBulkCsvImport(
   defaultPropertyType: 'villa' | 'apartment' | 'plot' | 'commercial' | 'other' = 'apartment',
+  initialProjectId: string | null = null,
 ): UseBulkCsvImportReturn {
   const [wizardStep, setWizardStep] = useState<BulkImportWizardStep>(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -119,6 +126,7 @@ export function useBulkCsvImport(
   const [publishResult, setPublishResult] = useState<BulkImportPublishResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [allRawRows, setAllRawRows] = useState<Record<string, string>[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(initialProjectId);
 
   const clearError = useCallback(() => setErrorMessage(null), []);
 
@@ -162,7 +170,13 @@ export function useBulkCsvImport(
       // To keep this simple and avoid double-parsing, we use the previewRows.
       // TODO(agent): verify — for files >5 rows the full rows are not re-sent to confirm.
       // A follow-up can add a sessionStorage-keyed row cache or move to streaming.
-      setAllRawRows(result.previewRows);
+      const allRows =
+        Array.isArray(result.rows) && result.rows.length > 0 ? result.rows : result.previewRows;
+      if (allRows.length === 0) {
+        setErrorMessage('No data rows found. Add at least one property row below the header.');
+        return;
+      }
+      setAllRawRows(allRows);
 
       setWizardStep(1);
     } catch (error) {
@@ -193,6 +207,7 @@ export function useBulkCsvImport(
     try {
       const result = await confirmBulkImport({
         project_name: projectName.trim(),
+        project_id: projectId,
         property_type: propertyType,
         column_mapping: columnMapping,
         raw_rows: allRawRows,
@@ -206,7 +221,7 @@ export function useBulkCsvImport(
     } finally {
       setIsLoading(false);
     }
-  }, [parseResult, projectName, propertyType, columnMapping, allRawRows, autoDetectedHeaders]);
+  }, [parseResult, projectName, projectId, propertyType, columnMapping, allRawRows, autoDetectedHeaders]);
 
   const handlePublish = useCallback(async () => {
     if (!confirmResult?.draft_id) {
@@ -240,7 +255,8 @@ export function useBulkCsvImport(
     setPublishResult(null);
     setSelectedFile(null);
     setAllRawRows([]);
-  }, [defaultPropertyType]);
+    setProjectId(initialProjectId);
+  }, [defaultPropertyType, initialProjectId]);
 
   return {
     wizardStep,
@@ -262,5 +278,6 @@ export function useBulkCsvImport(
     handleReset,
     clearError,
     autoDetectedHeaders,
+    setTargetProjectId: setProjectId,
   };
 }

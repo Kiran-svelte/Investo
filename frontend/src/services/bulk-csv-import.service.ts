@@ -18,6 +18,8 @@ export interface BulkImportParseResult {
   headers: string[];
   /** First 5 rows for the mapping preview table. */
   previewRows: BulkImportRawRow[];
+  /** All parsed rows (capped server-side) for confirm/publish. */
+  rows?: BulkImportRawRow[];
   rowCount: number;
   /** Backend auto-detected mapping suggestion. */
   suggestedMapping: BulkImportColumnMapping;
@@ -41,6 +43,7 @@ export interface BulkImportPublishResult {
 /** Input for the confirm endpoint. */
 export interface BulkImportConfirmInput {
   project_name: string;
+  project_id?: string | null;
   property_type: 'villa' | 'apartment' | 'plot' | 'commercial' | 'other';
   column_mapping: BulkImportColumnMapping;
   raw_rows: BulkImportRawRow[];

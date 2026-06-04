@@ -196,8 +196,11 @@ const AISettingsPage: React.FC = () => {
           // Company settings might not be accessible
         }
       }
-    } catch {
-      // Settings may not exist yet
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || 'Could not load AI settings. Check your plan includes AI bot or refresh the page.';
+      setMessage(msg);
     } finally {
       setLoading(false);
     }

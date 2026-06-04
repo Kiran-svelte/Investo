@@ -334,6 +334,9 @@ export class CsvImportService {
     }
 
     const trimmedRows = rows.slice(0, CSV_IMPORT_MAX_ROW_COUNT);
+    if (trimmedRows.length === 0) {
+      throw new Error('No data rows found. Add at least one property row below the header.');
+    }
     const previewRows = trimmedRows.slice(0, 5);
     const suggestedMapping = buildSuggestedMapping(headers);
 

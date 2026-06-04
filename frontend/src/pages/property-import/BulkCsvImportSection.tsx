@@ -33,10 +33,15 @@ import {
   BULK_IMPORT_TARGET_FIELD_LABELS,
   BULK_IMPORT_MAX_FILE_SIZE_LABEL,
 } from '../../constants/bulk-csv-import.constants';
+import { takeBulkImportPendingFile } from '../../utils/bulk-import-pending-file';
 
 interface BulkCsvImportSectionProps {
   /** Property type pre-selected in the parent wizard step 1. */
   defaultPropertyType?: 'villa' | 'apartment' | 'plot' | 'commercial' | 'other';
+  /** Pre-fill project name (e.g. from property project board). */
+  initialProjectName?: string;
+  /** Target property project board column — published listings are assigned here. */
+  initialProjectId?: string | null;
   /** Called when publish succeeds so the parent can navigate away. */
   onPublishSuccess: (publishedCount: number) => void;
 }
@@ -463,6 +468,8 @@ function ReviewStep({
 
 export default function BulkCsvImportSection({
   defaultPropertyType = 'apartment',
+  initialProjectName = '',
+  initialProjectId = null,
   onPublishSuccess,
 }: BulkCsvImportSectionProps) {
   const {
@@ -484,7 +491,30 @@ export default function BulkCsvImportSection({
     handleReset,
     clearError,
     autoDetectedHeaders,
-  } = useBulkCsvImport(defaultPropertyType);
+    setTargetProjectId,
+  } = useBulkCsvImport(defaultPropertyType, initialProjectId);
+
+  const autoUploadStarted = React.useRef(false);
+
+  React.useEffect(() => {
+    if (initialProjectName.trim()) {
+      setProjectName(initialProjectName.trim());
+    }
+  }, [initialProjectName, setProjectName]);
+
+  React.useEffect(() => {
+    if (autoUploadStarted.current) return;
+    const pending = takeBulkImportPendingFile();
+    if (!pending) return;
+    autoUploadStarted.current = true;
+    if (pending.projectName?.trim()) {
+      setProjectName(pending.projectName.trim());
+    }
+    if (pending.projectId) {
+      setTargetProjectId(pending.projectId);
+    }
+    void handleFileSelected(pending.file);
+  }, [handleFileSelected, setProjectName, setTargetProjectId]);
 
   // When publish succeeds, call the parent callback.
   const handlePublishAndNotify = async () => {

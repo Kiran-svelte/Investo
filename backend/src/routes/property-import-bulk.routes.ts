@@ -82,6 +82,7 @@ const upload = multer({
 /** Zod schema for the confirm endpoint body. */
 const confirmBodySchema = z.object({
   project_name: z.string().min(1).max(255),
+  project_id: z.string().uuid().optional().nullable(),
   property_type: z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']),
   /** Column mapping: header name → target field or 'skip' */
   column_mapping: z.record(z.string()),
@@ -100,6 +101,11 @@ const publishBodySchema = z.object({
 function handleBulkError(err: unknown, res: Response, fallback: string): void {
   if (err instanceof BulkImportError) {
     res.status(err.statusCode).json({ error: { code: 'BULK_IMPORT_ERROR', message: err.message } });
+    return;
+  }
+
+  if (err instanceof Error && err.message) {
+    res.status(400).json({ error: { code: 'BULK_IMPORT_ERROR', message: err.message } });
     return;
   }
 
@@ -145,6 +151,13 @@ router.post(
         throw new BulkImportError('No file uploaded. Include a "file" field in the multipart request.', 400);
       }
 
+      if (!file.buffer?.length) {
+        throw new BulkImportError(
+          'The uploaded file is empty. Add a header row and at least one data row, then try again.',
+          400,
+        );
+      }
+
       validateMagicBytes(file.buffer, file.mimetype);
 
       const result = await csvImportService.parseFile(file.buffer, file.mimetype);
@@ -185,18 +198,30 @@ router.post(
         body.property_type,
       );
 
+      let projectId: string | null = body.project_id ?? null;
+      if (projectId) {
+        const project = await prisma.propertyProject.findFirst({
+          where: { id: projectId, companyId },
+        });
+        if (!project) {
+          throw new BulkImportError('Property project not found', 404);
+        }
+      }
+
       const aiKnowledgeContext = csvImportService.buildAiKnowledgeContext(candidates, body.project_name);
 
       const draft = await prisma.propertyImportDraft.create({
         data: {
           companyId,
           createdByUserId: userId,
+          projectId,
           maxRetries: 3,
           status: 'review_ready',
           extractionStatus: 'extracted',
           draftData: {
             import_mode: 'bulk_csv',
             project_name: body.project_name,
+            project_id: projectId,
             property_type: body.property_type,
             column_mapping: body.column_mapping,
             auto_detected_headers: body.auto_detected_headers ?? [],
@@ -293,6 +318,18 @@ router.post(
       }
 
       const projectName = String(draftData.project_name ?? 'Untitled project');
+      const projectId =
+        draft.projectId
+        ?? (typeof draftData.project_id === 'string' ? draftData.project_id : null);
+
+      if (projectId) {
+        const project = await prisma.propertyProject.findFirst({
+          where: { id: projectId, companyId },
+        });
+        if (!project) {
+          throw new BulkImportError('Property project not found', 404);
+        }
+      }
 
       // Atomic: all-or-nothing insert. If any property.create fails, everything rolls back.
       const published = await prisma.$transaction(async (tx) => {
@@ -302,6 +339,7 @@ router.post(
             return tx.property.create({
               data: {
                 companyId,
+                projectId,
                 name: data.name ?? projectName,
                 builder: data.builder ?? null,
                 locationCity: data.location_city ?? null,

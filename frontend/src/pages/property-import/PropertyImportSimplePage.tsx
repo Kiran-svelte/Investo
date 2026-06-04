@@ -118,11 +118,13 @@ export default function PropertyImportSimplePage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const importProjectId = searchParams.get('projectId');
+  const importProjectName = searchParams.get('projectName') ?? '';
+  const autoBulkImport = searchParams.get('autoBulk') === '1';
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const knowledgeSectionRef = useRef<HTMLElement | null>(null);
 
   const canManageProperties = getRoleCapabilities(user?.role).canUploadProperties;
-  const [importMode, setImportMode] = useState<ImportMode>('ai');
+  const [importMode, setImportMode] = useState<ImportMode>(autoBulkImport ? 'bulk' : 'ai');
   const [draft, setDraft] = useState<PropertyImportDraft | null>(null);
   const [formValues, setFormValues] = useState<PropertyImportFormValues>(PROPERTY_IMPORT_DEFAULT_FORM_VALUES);
   const [loadingDraft, setLoadingDraft] = useState(Boolean(routeDraftId));
@@ -937,7 +939,16 @@ export default function PropertyImportSimplePage() {
         <section className="rounded-2xl border border-surface-border bg-surface-elevated p-6 shadow-sm">
           <BulkCsvImportSection
             defaultPropertyType="apartment"
-            onPublishSuccess={() => navigate(dashboardPath('/properties'), { replace: true })}
+            initialProjectName={importProjectName}
+            initialProjectId={importProjectId}
+            onPublishSuccess={() =>
+              navigate(
+                importProjectId
+                  ? dashboardPath('/properties')
+                  : dashboardPath('/properties'),
+                { replace: true },
+              )
+            }
           />
         </section>
       )}

@@ -9,11 +9,13 @@ import logger from '../config/logger';
  */
 const READ_ONLY_CRM_PATH_PREFIXES = [
   '/api/leads',
+  '/api/conversations',
   '/api/analytics',
   '/api/error-logs',
   '/api/assignment-settings',
   '/api/readiness',
   '/api/notifications',
+  '/api/visits',
 ];
 
 export async function propertyCompletenessGate(
