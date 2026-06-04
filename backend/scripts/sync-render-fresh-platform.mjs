@@ -60,6 +60,7 @@ async function main() {
     SMTP_USER: smtpUser,
     SMTP_PASS: smtpPass,
     MAIL_FROM: mailFrom,
+    MAIL_TRANSPORT: 'ses-api',
   };
 
   for (const [key, value] of Object.entries(patch)) {

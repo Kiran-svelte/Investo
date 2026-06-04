@@ -1,6 +1,7 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import config from '../config';
 import logger from '../config/logger';
+import { isSesApiConfigured, sendSesEmail, verifySesApi } from './ses-email.service';
 
 export type PasswordResetEmailParams = {
   toEmail: string;
@@ -47,6 +48,13 @@ function sanitizeSmtpConfigForLogs(smtp: SmtpConfig): Record<string, unknown> {
 
 function isSmtpConfigured(smtp: SmtpConfig): boolean {
   return Boolean(smtp.host) && Number.isFinite(smtp.port) && smtp.port > 0;
+}
+
+function isMailConfigured(): boolean {
+  if (config.mail.transport === 'ses-api') {
+    return isSesApiConfigured();
+  }
+  return isSmtpConfigured(resolveSmtpConfig());
 }
 
 function resolveSmtpConfig(): SmtpConfig {
@@ -194,9 +202,10 @@ export class EmailService {
   async sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<MailSendResult> {
     const smtp = resolveSmtpConfig();
 
-    if (!isSmtpConfigured(smtp)) {
-      logger.warn('Password reset email skipped: SMTP not configured', {
+    if (!isMailConfigured()) {
+      logger.warn('Password reset email skipped: mail not configured', {
         userEmail: params.toEmail,
+        transport: config.mail.transport,
         smtp: sanitizeSmtpConfigForLogs(smtp),
       });
       return { sent: false, reason: 'smtp_not_configured' };
@@ -242,7 +251,7 @@ export class EmailService {
 
   async sendWelcomeInviteEmail(params: WelcomeInviteEmailParams): Promise<boolean> {
     const smtp = resolveSmtpConfig();
-    if (!isSmtpConfigured(smtp) || !config.mail.from) {
+    if (!isMailConfigured() || !config.mail.from) {
       logger.warn('Welcome invite email skipped: SMTP not configured', {
         userEmail: params.toEmail,
         smtp: sanitizeSmtpConfigForLogs(smtp),
@@ -286,7 +295,7 @@ export class EmailService {
   async sendReEngagementEmail(params: ReEngagementEmailParams): Promise<boolean> {
     const smtp = resolveSmtpConfig();
 
-    if (!isSmtpConfigured(smtp) || !config.mail.from) {
+    if (!isMailConfigured() || !config.mail.from) {
       logger.warn('Re-engagement email skipped: SMTP not configured', {
         userEmail: params.toEmail,
         smtp: sanitizeSmtpConfigForLogs(smtp),

@@ -317,6 +317,8 @@ const config = {
   },
 
   mail: {
+    // "smtp" (default) or "ses-api" (AWS SES SendEmail — uses IAM keys, works on Render)
+    transport: (process.env.MAIL_TRANSPORT || 'smtp').trim().toLowerCase(),
     // Email "From" address for transactional emails (password reset, invites, etc.)
     from: (process.env.MAIL_FROM || '').trim(),
     smtp: {

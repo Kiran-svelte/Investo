@@ -19,6 +19,7 @@
   "dependencies": {
     "@aws-sdk/client-iam": "^3.1059.0",
     "@aws-sdk/client-s3": "^3.758.0",
+    "@aws-sdk/client-ses": "^3.1061.0",
     "@aws-sdk/s3-request-presigner": "^3.758.0",
     "@langchain/anthropic": "^0.3.17",
     "@langchain/core": "^0.3.58",
