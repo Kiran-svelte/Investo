@@ -4,12 +4,13 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/notifications/ToastContainer';
-import SkeletonLoader from './components/loading/SkeletonLoader';
+import WorkspaceLoader from './components/loading/WorkspaceLoader';
 import LoginPage from './pages/auth/LoginPage';
 import ChangePasswordPage from './pages/auth/ChangePasswordPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import DashboardLayout from './components/layout/DashboardLayout';
+import AccessFeedbackPage from './components/layout/AccessFeedbackPage';
 import RootEntry from './components/layout/RootEntry';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import LeadsPage from './pages/leads/LeadsPage';
@@ -49,20 +50,15 @@ import {
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
 
-export const LoadingScreen: React.FC = () => (
-  <div className="flex min-h-[100dvh] w-full items-center justify-center bg-surface-muted px-6">
-    <div className="w-full max-w-md space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="h-10 w-10 animate-pulse rounded-lg bg-brand-200" />
-        <div className="flex-1 space-y-2">
-          <div className="investo-skeleton-line h-4 w-32" />
-          <div className="investo-skeleton-line h-3 w-24" />
-        </div>
-      </div>
-      <SkeletonLoader type="card" count={3} animated />
-      <p className="text-center text-sm font-medium text-ink-muted">Loading workspace…</p>
-    </div>
-  </div>
+export const LoadingScreen: React.FC<{ hint?: string }> = ({ hint }) => (
+  <WorkspaceLoader
+    message="Loading workspace…"
+    hint={
+      hint
+        ?? 'First load after idle can take up to a minute while the server starts.'
+    }
+    rotateStatus
+  />
 );
 
 export const ProtectedRoute: React.FC = () => {
@@ -173,7 +169,7 @@ const PublicRoute: React.FC = () => {
 /** Redirects authenticated users away from routes their role cannot access. */
 export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
   const { user } = useAuth();
-  const { loading, isFeatureEnabled } = useCompanyFeatures();
+  const { loading } = useCompanyFeatures();
   const role = user?.role;
 
   if (!role) {
@@ -181,11 +177,17 @@ export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
   }
 
   if (loading && role !== 'super_admin') {
-    return <LoadingScreen />;
+    return <LoadingScreen hint="Loading your company features…" />;
   }
 
-  if (!isPathAllowedForRole(path, role, isFeatureEnabled)) {
-    return <Navigate to={getRoleHomePath(role)} replace />;
+  if (!isPathAllowedForRole(path, role, () => true)) {
+    return (
+      <AccessFeedbackPage
+        title="This page is not available for your role"
+        description="Your workspace role does not include this page. Use your assigned home page or ask a company admin to update your role."
+        primaryHref={getRoleHomePath(role)}
+      />
+    );
   }
 
   return <Outlet />;
@@ -209,7 +211,14 @@ const RoleAwareNotFound: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <Navigate to={getRoleHomePath(user?.role)} replace />;
+  return (
+    <AccessFeedbackPage
+      eyebrow="Page not found"
+      title="We could not find that page"
+      description="The link may be old, mistyped, or no longer part of this workspace."
+      primaryHref={getRoleHomePath(user?.role)}
+    />
+  );
 };
 
 export const OnboardingAccessRoute: React.FC = () => {
@@ -220,7 +229,13 @@ export const OnboardingAccessRoute: React.FC = () => {
   }
 
   if (!ONBOARDING_ALLOWED_ROLES.has(user?.role || '')) {
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <AccessFeedbackPage
+        title="Onboarding is only for company admins"
+        description="This setup flow changes company-wide settings, team roles, WhatsApp, and property knowledge. Use your assigned workspace instead."
+        primaryHref={getRoleHomePath(user?.role)}
+      />
+    );
   }
 
   return <Outlet />;
@@ -239,7 +254,14 @@ export const FeatureRoute: React.FC<{ featureKey: string }> = ({ featureKey }) =
   }
 
   if (!isFeatureEnabled(featureKey)) {
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <AccessFeedbackPage
+        eyebrow="Feature disabled"
+        title="This feature is turned off"
+        description="A company admin can enable this module from Settings if the team needs it."
+        primaryHref={getRoleHomePath(user?.role)}
+      />
+    );
   }
 
   return <Outlet />;

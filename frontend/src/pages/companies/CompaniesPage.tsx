@@ -4,10 +4,11 @@ import api from '../../services/api';
 import Pagination from '../../components/common/Pagination';
 import {
   Building2, Plus, Search, Users, Check, X,
-  Edit2, Power, PowerOff, UserPlus, Trash2,
+  Edit2, Power, PowerOff, UserPlus, Trash2, Loader2,
 } from 'lucide-react';
 import { deleteCompany } from '../../services/resourceDelete';
 import { useAuth } from '../../context/AuthContext';
+import useConfirmDialog from '../../hooks/useConfirmDialog';
 
 interface Company {
   id: string;
@@ -33,6 +34,7 @@ interface SubscriptionPlan {
 const CompaniesPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { confirm, Dialog } = useConfirmDialog();
   const isPlatformAdmin = user?.role === 'super_admin';
   const [companies, setCompanies] = useState<Company[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -52,7 +54,7 @@ const CompaniesPage: React.FC = () => {
   const [inviteForm, setInviteForm] = useState({
     name: '',
     email: '',
-    password: 'Welcome@123',
+    password: '',
     must_change_password: true,
   });
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
@@ -61,9 +63,15 @@ const CompaniesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
+  const [deleteSlug, setDeleteSlug] = useState('');
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const loadData = async () => {
     try {
+      setPageError(null);
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       params.append('page', String(page));
@@ -79,6 +87,7 @@ const CompaniesPage: React.FC = () => {
       setPlans(planList);
     } catch (err) {
       console.error('Failed to load companies', err);
+      setPageError('Could not load companies.');
     } finally {
       setLoading(false);
     }
@@ -115,10 +124,10 @@ const CompaniesPage: React.FC = () => {
       } else {
         const createRes = await api.post('/companies', submitData);
         const created = createRes.data.data as Company;
+        const warning = createRes.data?.warning as string | undefined;
         setShowModal(false);
         setEditingCompany(null);
         setFormData({ name: '', slug: '', whatsapp_phone: '', plan_id: '' });
-        await loadData();
         setInviteCompany({
           ...created,
           whatsappPhone: created.whatsappPhone ?? submitData.whatsapp_phone ?? null,
@@ -126,12 +135,24 @@ const CompaniesPage: React.FC = () => {
           agent_count: 0,
         });
         setInviteError('');
-        setInviteSuccess('Company created. Now create the company admin account below.');
+        setInviteSuccess(
+          warning
+            ? `${warning} Create the company admin account below.`
+            : 'Company created. Now create the company admin account below.',
+        );
+        void loadData().catch(() => {
+          /* List refresh can fail on cold backend; company was still created */
+        });
       }
     } catch (err: any) {
       console.error('Company save error:', err.response?.data);
-      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save company';
-      setError(errorMessage);
+      const status = err.response?.status;
+      if (!editingCompany && status === 409) {
+        setError(err.response?.data?.error || 'This slug or WhatsApp number is already in use.');
+      } else {
+        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save company';
+        setError(errorMessage);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -166,7 +187,7 @@ const CompaniesPage: React.FC = () => {
       setInviteSuccess(
         `Company admin created. They should log in and complete the 6-step onboarding wizard.`,
       );
-      setInviteForm({ name: '', email: '', password: 'Welcome@123', must_change_password: true });
+      setInviteForm({ name: '', email: '', password: '', must_change_password: true });
     } catch (err: any) {
       setInviteError(err.response?.data?.error || 'Failed to create company admin');
     } finally {
@@ -175,20 +196,35 @@ const CompaniesPage: React.FC = () => {
   };
 
   const handleDeleteCompany = async (company: Company) => {
-    const typed = window.prompt(
-      `Type the company slug "${company.slug}" to permanently delete this tenant and ALL its data.`,
-    );
-    if (typed !== company.slug) return;
+    setDeleteTarget(company);
+    setDeleteSlug('');
+    setDeleteError('');
+  };
+
+  const confirmDeleteCompany = async () => {
+    if (!deleteTarget || deleteSlug !== deleteTarget.slug) return;
+    setDeleteSubmitting(true);
+    setDeleteError('');
     try {
-      await deleteCompany(company.id);
-      loadData();
+      await deleteCompany(deleteTarget.id);
+      setDeleteTarget(null);
+      await loadData();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      alert(ax.response?.data?.error || 'Failed to delete company');
+      setDeleteError(ax.response?.data?.error || 'Failed to delete company');
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
   const handleToggleStatus = async (company: Company) => {
+    const nextAction = company.status === 'active' ? 'deactivate' : 'activate';
+    const confirmed = await confirm(
+      `${nextAction === 'deactivate' ? 'Deactivate' : 'Activate'} company?`,
+      `${company.name} will be ${nextAction === 'deactivate' ? 'blocked from tenant operations' : 'restored for tenant operations'}.`,
+      { variant: nextAction === 'deactivate' ? 'warning' : 'info', confirmLabel: nextAction === 'deactivate' ? 'Deactivate' : 'Activate' },
+    );
+    if (!confirmed) return;
     try {
       if (company.status === 'active') {
         await api.patch(`/companies/${company.id}/deactivate`);
@@ -198,6 +234,7 @@ const CompaniesPage: React.FC = () => {
       loadData();
     } catch (err) {
       console.error('Failed to toggle status', err);
+      setPageError('Could not update company status.');
     }
   };
 
@@ -254,6 +291,12 @@ const CompaniesPage: React.FC = () => {
           {t('companies.new_company')}
         </button>
       </div>
+
+      {pageError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {pageError}
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative max-w-md">
@@ -442,15 +485,18 @@ const CompaniesPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-ink-secondary mb-1">Temporary password *</label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
                   value={inviteForm.password}
                   onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg"
-                />
-              </div>
+                    className="w-full px-3 py-2 border border-surface-border-strong rounded-lg"
+                  />
+                  <p className="mt-1 text-xs text-ink-muted">
+                    Create a unique temporary password. The admin will be asked to change it on first login.
+                  </p>
+                </div>
               <label className="flex items-center gap-2 text-sm text-ink-secondary">
                 <input
                   type="checkbox"
@@ -468,6 +514,53 @@ const CompaniesPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="investo-modal-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="investo-modal-panel sm:max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold text-red-700">Delete company permanently</h2>
+            <p className="mt-2 text-sm text-ink-secondary">
+              This deletes {deleteTarget.name} and all tenant data. Type the slug below to continue.
+            </p>
+            <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+              {deleteTarget.slug}
+            </div>
+            {deleteError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                {deleteError}
+              </div>
+            )}
+            <label className="mt-4 block text-sm font-medium text-ink-secondary">
+              Confirm slug
+              <input
+                value={deleteSlug}
+                onChange={(e) => setDeleteSlug(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-surface-border-strong px-3 py-2 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
+                autoFocus
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteSubmitting}
+                className="px-4 py-2 text-ink-secondary hover:bg-surface-subtle rounded-lg disabled:opacity-50"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteCompany()}
+                disabled={deleteSlug !== deleteTarget.slug || deleteSubmitting}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Delete company
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -571,6 +664,7 @@ const CompaniesPage: React.FC = () => {
           </div>
         </div>
       )}
+      {Dialog}
     </div>
   );
 };

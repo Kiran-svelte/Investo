@@ -129,8 +129,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      // Keep session on cold-start / network blips (Render spin-up, timeouts)
+      // Cold start: clear loading so login page is usable; user can sign in again
       if (isTransientAuthError(err)) {
+        clearTokens();
         setUser(null);
         return;
       }

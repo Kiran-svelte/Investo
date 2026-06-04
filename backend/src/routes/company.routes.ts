@@ -187,9 +187,20 @@ router.post(
         },
       });
 
-      await provisionNewCompany(company.id, company.name);
+      let provisionWarning: string | undefined;
+      try {
+        await provisionNewCompany(company.id, company.name);
+      } catch (provisionErr: unknown) {
+        const message = provisionErr instanceof Error ? provisionErr.message : String(provisionErr);
+        logger.warn('Company created but provisioning failed', { companyId: company.id, error: message });
+        provisionWarning = 'Company created; default settings will finish on next save or onboarding.';
+      }
 
-      res.status(201).json({ data: company, id: company.id });
+      res.status(201).json({
+        data: company,
+        id: company.id,
+        ...(provisionWarning ? { warning: provisionWarning } : {}),
+      });
     } catch (err: any) {
       logger.error('Failed to create company', { error: err.message });
       res.status(500).json({ error: 'Failed to create company' });

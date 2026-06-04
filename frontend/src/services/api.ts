@@ -106,12 +106,33 @@ const getApiBaseUrl = (): string => {
   return 'https://investo-backend-v2.onrender.com/api';
 };
 
+const DEFAULT_TIMEOUT_MS = 20_000;
+const WARMUP_TIMEOUT_MS = 90_000;
+
+function isWarmupPath(url?: string): boolean {
+  if (!url) return false;
+  return (
+    url.includes('/auth/login')
+    || url.includes('/auth/me')
+    || url.includes('/auth/refresh')
+    || url.includes('/onboarding/status')
+    || url.includes('/features')
+  );
+}
+
 const api: AxiosInstance = axios.create({
   baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15_000,
+  timeout: DEFAULT_TIMEOUT_MS,
+});
+
+api.interceptors.request.use((config) => {
+  if (isWarmupPath(config.url)) {
+    config.timeout = WARMUP_TIMEOUT_MS;
+  }
+  return config;
 });
 
 // ──────────────────────────────────────────────

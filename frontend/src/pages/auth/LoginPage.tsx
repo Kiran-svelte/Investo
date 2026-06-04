@@ -17,6 +17,7 @@ const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginStatus, setLoginStatus] = useState('');
 
   const isFormValid = email.trim().length > 0 && password.trim().length > 0;
 
@@ -26,12 +27,15 @@ const LoginPage: React.FC = () => {
     if (!isFormValid) return;
 
     setIsSubmitting(true);
+    setLoginStatus('');
     try {
+      setLoginStatus('Signing in…');
       const loggedInUser = await login(email, password);
+      setLoginStatus('Opening your workspace…');
       navigate(getRoleHomePath(loggedInUser.role), { replace: true });
     } catch (err) {
       if (isTransientAuthError(err)) {
-        setError('The server is waking up. Wait a few seconds and try again.');
+        setError('The server is waking up. This can take up to a minute on first visit — please try again.');
         return;
       }
       const axiosError = err as AxiosError<{ message?: string }>;
@@ -43,6 +47,7 @@ const LoginPage: React.FC = () => {
       setError(apiMessage ?? t('auth.login_error'));
     } finally {
       setIsSubmitting(false);
+      setLoginStatus('');
     }
   };
 
@@ -128,12 +133,15 @@ const LoginPage: React.FC = () => {
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    {t('auth.logging_in')}
+                    {loginStatus || t('auth.logging_in')}
                   </>
                 ) : (
                   t('auth.login_button')
                 )}
               </button>
+              {isSubmitting && loginStatus ? (
+                <p className="text-center text-xs text-ink-muted">{loginStatus}</p>
+              ) : null}
             </form>
 
             <p className="mt-6 text-center text-xs text-ink-muted">

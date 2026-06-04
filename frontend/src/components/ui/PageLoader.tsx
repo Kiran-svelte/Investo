@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'motion/react';
 import SkeletonLoader, { type SkeletonType } from '../loading/SkeletonLoader';
 
 interface PageLoaderProps {
@@ -21,11 +22,16 @@ export default function PageLoader({
 }: PageLoaderProps) {
   if (loading) {
     return (
-      <div className={`investo-page ${className}`.trim()}>
+      <motion.div
+        className={`investo-page ${className}`.trim()}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.25 }}
+      >
         <div className="investo-skeleton-grid">
           <SkeletonLoader type={skeleton} count={count} animated />
         </div>
-      </div>
+      </motion.div>
     );
   }
 
