@@ -34,7 +34,7 @@ export function createBrochureTools(context: ToolContext): AgentTool[] {
     new DynamicStructuredTool({
       name: 'sendBrochureToClient',
       description:
-        'Send a property brochure link to a customer via WhatsApp. ' +
+        'Send a property brochure PDF to a customer via WhatsApp. ' +
         'Use when a lead asks for a brochure or when the agent wants to share details.',
       schema: z.object({
         leadId: z.string().uuid().describe('Lead who will receive the brochure'),
@@ -65,19 +65,34 @@ export function createBrochureTools(context: ToolContext): AgentTool[] {
           return 'No active conversation found for this lead. Cannot send WhatsApp.';
         }
 
-        const message =
+        const intro =
           `Hi ${lead.customerName ?? 'there'}! 👋\n\n` +
-          `Here is the brochure for *${property.name}*:\n${property.brochureUrl}\n\n` +
+          `Here is the brochure for *${property.name}* (PDF attached).\n\n` +
           `Feel free to reply with any questions!`;
 
         await prisma.message.create({
-          data: { conversationId: conversation.id, senderType: 'agent', content: message },
+          data: { conversationId: conversation.id, senderType: 'agent', content: intro },
         });
 
         const { whatsappService } = await import('../../whatsapp.service');
-        await whatsappService.sendCompanyTextMessage(lead.phone, message, context.companyId);
+        const waConfig = await whatsappService.resolveCompanyWhatsAppConfig(context.companyId);
+        if (!waConfig) {
+          return 'WhatsApp is not configured for this company.';
+        }
 
-        return `Brochure for ${property.name} sent to ${lead.customerName ?? maskPhone(lead.phone)}.`;
+        const pdfResult = await whatsappService.sendPropertyBrochure(
+          lead.phone,
+          property.brochureUrl,
+          property.name,
+          waConfig,
+        );
+        if (!pdfResult.success) {
+          return `Could not send brochure PDF: ${pdfResult.error ?? 'unknown error'}`;
+        }
+
+        await whatsappService.sendMessage(lead.phone, intro, waConfig);
+
+        return `Brochure PDF for ${property.name} sent to ${lead.customerName ?? maskPhone(lead.phone)}.`;
       },
     }),
   ];

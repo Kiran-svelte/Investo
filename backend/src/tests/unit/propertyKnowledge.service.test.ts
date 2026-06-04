@@ -40,7 +40,7 @@ describe('propertyKnowledge.service', () => {
     const joined = sections.join('\n');
     expect(joined).toContain('Green Valley');
     expect(joined).toContain('PRM/KA/RERA/123');
-    expect(joined).toContain('Brochure URL: https://cdn.example.com/green-valley-brochure.pdf');
+    expect(joined).toContain('Brochure PDF: on file');
     expect(joined).toContain('Lake-facing towers');
     expect(joined).toContain('Phase 2 launch');
     expect(joined).not.toContain('invented');

@@ -38,6 +38,47 @@ export class GreenApiWhatsAppProvider implements WhatsAppOutboundProvider {
     return { success: true, messageId: result.idMessage };
   }
 
+  async sendFileByUrl(
+    to: string,
+    fileUrl: string,
+    fileName: string,
+    caption: string | null,
+    companyConfig: WhatsAppProviderConfig,
+  ): Promise<{ success: true; messageId?: string } | { success: false; error: string }> {
+    const { idInstance, apiTokenInstance } = companyConfig;
+
+    if (!idInstance || !apiTokenInstance) {
+      return { success: false, error: 'Missing idInstance or apiTokenInstance' };
+    }
+
+    if (!fileUrl.startsWith('https://')) {
+      return { success: false, error: 'fileUrl must be HTTPS' };
+    }
+
+    const body: Record<string, string> = {
+      chatId: normalizePhoneToChatId(to),
+      urlFile: fileUrl,
+      fileName: fileName || 'document.pdf',
+    };
+    if (caption?.trim()) {
+      body.caption = caption.trim().substring(0, 1024);
+    }
+
+    const response = await fetch(this.buildUrl('sendFileByUrl', { idInstance, apiTokenInstance }), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `API Error: ${response.status} - ${errorText}` };
+    }
+
+    const result = (await response.json()) as GreenApiSendMessageResponse;
+    return { success: true, messageId: result.idMessage };
+  }
+
   async testConnection(companyConfig: WhatsAppProviderConfig): Promise<{ success: boolean; error?: string }> {
     const { idInstance, apiTokenInstance } = companyConfig;
 
@@ -62,7 +103,10 @@ export class GreenApiWhatsAppProvider implements WhatsAppOutboundProvider {
     }
   }
 
-  private buildUrl(endpoint: 'sendMessage' | 'getSettings', params: { idInstance: string; apiTokenInstance: string }): string {
+  private buildUrl(
+    endpoint: 'sendMessage' | 'sendFileByUrl' | 'getSettings',
+    params: { idInstance: string; apiTokenInstance: string },
+  ): string {
     return `${this.apiUrl}/waInstance${params.idInstance}/${endpoint}/${params.apiTokenInstance}`;
   }
 }

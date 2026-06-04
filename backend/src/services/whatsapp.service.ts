@@ -69,7 +69,7 @@ interface IncomingMessage {
   businessDisplayPhone?: string;
 }
 
-interface CompanyWhatsAppConfig {
+export interface CompanyWhatsAppConfig {
   provider?: 'meta' | 'greenapi';
   phoneNumberId: string;
   accessToken: string;
@@ -1208,14 +1208,26 @@ export class WhatsAppService {
           language: aiResponse.detectedLanguage,
         });
         let outboundText = polished.text;
-        // #region agent log
-        fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'whatsapp.service.ts:outbound',message:'WhatsApp outbound polish',data:{hadMetaBefore: /Confidence:|Reply WRONG/i.test(guarded.text),hadMetaAfter: /Confidence:|Reply WRONG/i.test(outboundText),guardApplied: guarded.guardApplied,textLen: outboundText.length},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         if (!outboundText.trim()) {
           outboundText =
             `Thanks for messaging *${company.name}*! I'm your property assistant.\n\n` +
             `Please share your *area*, *budget*, and *property type* so I can help.`;
         }
+
+        const { deliverBrochuresForAiTurn } = await import('./brochureDelivery.service');
+        const brochureDelivery = await deliverBrochuresForAiTurn({
+          customerPhone,
+          customerMessage: msg.messageText,
+          aiText: outboundText,
+          properties: properties.map((p) => ({
+            id: p.id,
+            name: p.name,
+            brochureUrl: p.brochureUrl,
+          })),
+          whatsappConfig: whatsappConfig!,
+          whatsappService: this,
+        });
+        outboundText = brochureDelivery.cleanedText;
 
         logger.info('AI response generated', {
           conversationId: conversation.id,
@@ -1342,15 +1354,9 @@ export class WhatsAppService {
           await prisma.lead.update({ where: { id: lead.id }, data: { status: 'contacted' } });
         }
 
-        // Send via WhatsApp Cloud API using company-specific config
-        const sent = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
-
-        await this.maybeSendCatalogBrochureForQuery({
-          companyId,
-          customerPhone,
-          messageText: msg.messageText,
-          whatsappConfig: whatsappConfig!,
-        });
+        if (outboundText.trim()) {
+          await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
+        }
 
         // CHUNK 5: AI Rich Media Presentation
         // If AI recommended properties and they have media, send it automatically
@@ -1509,11 +1515,12 @@ export class WhatsAppService {
     }
   }
 
-  async sendCompanyTextMessage(to: string, text: string, companyId: string): Promise<boolean> {
+  async resolveCompanyWhatsAppConfig(companyId: string): Promise<CompanyWhatsAppConfig | null> {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
       select: { settings: true },
     });
+    if (!company) return null;
 
     const normalizeStringLike = (value: unknown): string => {
       if (typeof value === 'string') return value.trim();
@@ -1521,13 +1528,13 @@ export class WhatsAppService {
       return '';
     };
 
-    const settings = (company?.settings as any) || {};
+    const settings = (company.settings as any) || {};
     const whatsapp = (settings.whatsapp as any) || {};
     const meta = (whatsapp.meta as any) || {};
     const greenapi = (whatsapp.greenapi as any) || {};
     const provider = normalizeStringLike(whatsapp.provider) as 'meta' | 'greenapi' | '';
 
-    const whatsappConfig: CompanyWhatsAppConfig = {
+    return {
       provider: provider || undefined,
       phoneNumberId:
         normalizeStringLike(meta.phoneNumberId) ||
@@ -1544,7 +1551,11 @@ export class WhatsAppService {
       idInstance: normalizeStringLike(greenapi.idInstance),
       apiTokenInstance: normalizeStringLike(greenapi.apiTokenInstance),
     };
+  }
 
+  async sendCompanyTextMessage(to: string, text: string, companyId: string): Promise<boolean> {
+    const whatsappConfig = await this.resolveCompanyWhatsAppConfig(companyId);
+    if (!whatsappConfig) return false;
     return this.sendMessage(to, text, whatsappConfig);
   }
 
@@ -1779,11 +1790,31 @@ export class WhatsAppService {
     caption: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-      return {
-        success: false,
-        error: "Not supported: rich media sends require WHATSAPP_PROVIDER='meta'",
-      };
+    const providerName = this.resolveOutboundProviderName(whatsappConfig);
+
+    if (providerName === 'greenapi') {
+      const provider = this.getOutboundProvider('greenapi');
+      if (!provider.sendFileByUrl) {
+        return { success: false, error: 'Green API file send not available' };
+      }
+      const { idInstance, apiTokenInstance } = whatsappConfig;
+      if (!idInstance || !apiTokenInstance) {
+        return { success: false, error: 'Missing WhatsApp configuration' };
+      }
+      if (!documentUrl?.startsWith('https://')) {
+        return { success: false, error: 'Document URL must be HTTPS' };
+      }
+      const result = await provider.sendFileByUrl(
+        to,
+        documentUrl,
+        filename || 'document.pdf',
+        caption,
+        { idInstance, apiTokenInstance },
+      );
+      if (result.success === false) {
+        return { success: false, error: result.error };
+      }
+      return { success: true, messageId: result.messageId };
     }
 
     const { phoneNumberId, accessToken } = whatsappConfig;
@@ -2209,6 +2240,7 @@ export class WhatsAppService {
         top.name,
         input.whatsappConfig,
       );
+      // Intro only — PDF is sent by sendPropertyBrochure (no link in chat)
     } catch (err: unknown) {
       logger.warn('Catalog brochure auto-send skipped', {
         companyId: input.companyId,
@@ -2234,21 +2266,16 @@ export class WhatsAppService {
       return { success: false, error: 'No brochure URL provided' };
     }
 
+    const { resolveBrochureUrlForWhatsApp } = await import('./brochureDelivery.service');
+    const downloadUrl = await resolveBrochureUrlForWhatsApp(brochureUrl);
+    if (!downloadUrl) {
+      return { success: false, error: 'Could not resolve brochure file for WhatsApp' };
+    }
+
     const filename = `${propertyName.replace(/[^a-zA-Z0-9]/g, '_')}_Brochure.pdf`;
     const caption = `📋 Brochure - ${propertyName}`;
 
-    const docResult = await this.sendDocument(to, brochureUrl, filename, caption, whatsappConfig);
-    if (!docResult.success && this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-      const fallbackSent = await this.sendMessage(
-        to,
-        `${caption}\n\nView brochure: ${brochureUrl}`,
-        whatsappConfig,
-      );
-      if (fallbackSent) {
-        return { success: true, messageId: 'fallback-text-url' };
-      }
-    }
-    return docResult;
+    return this.sendDocument(to, downloadUrl, filename, caption, whatsappConfig);
   }
 
   // ============================================================================

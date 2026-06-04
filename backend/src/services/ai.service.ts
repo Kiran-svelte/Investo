@@ -199,7 +199,7 @@ export class AIService {
       .slice(0, 10)
       .map((p: any) => {
         const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}${p.brochureUrl ? ` | Brochure: ${p.brochureUrl}` : ''}`;
+        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
       })
       .join('\n');
 
@@ -239,7 +239,7 @@ ${buildRealEstateAssistantPolicyPrompt()}
 4. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet (deterministic calculator output).
 5. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
 6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
-6b. When a listing shows Brochure URL in AVAILABLE PROPERTIES, you may offer to share it; the system may send the PDF after your message. Never invent brochure links.
+6b. When a listing shows Brochure PDF on file, offer to share it; the system sends the PDF attachment after your message. Never paste URLs or markdown links for brochures.
 6c. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
 7. ONE clear call-to-action per message.
 8. Keep responses under 200 words.
@@ -361,7 +361,7 @@ End your response with:
       .slice(0, 10)
       .map((p: any) => {
         const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}${p.brochureUrl ? ` | Brochure: ${p.brochureUrl}` : ''}`;
+        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
       })
       .join('\n');
 

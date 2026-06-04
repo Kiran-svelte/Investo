@@ -5,6 +5,38 @@ export const DB_PROPERTY_IMPORT_MEDIA_PREFIX = 'db/property-import-media/';
 
 export type StorageProviderKind = 'aws' | 'r2' | 'supabase' | 'db' | 'legacy-r2';
 
+/** Extract S3 object key from aws:// prefix, HTTPS URL, or path fragment. */
+export function extractAwsObjectKeyFromReference(ref: string): string | null {
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+
+  const fromPrefix = parseAwsStorageKey(trimmed);
+  if (fromPrefix) return fromPrefix;
+
+  const pathMatch = trimmed.match(
+    /(?:^|\/)(investo\/)?companies\/[0-9a-f-]{36}\/properties\/[^/\s"'()]+(?:\/brochure\/[^?\s"'()]+)?/i,
+  );
+  if (pathMatch) {
+    let path = pathMatch[0].replace(/^\//, '');
+    if (!path.startsWith('investo/')) {
+      path = `investo/${path.replace(/^investo\//, '')}`;
+    }
+    return path;
+  }
+
+  try {
+    const normalized = trimmed.replace(/\.s3\.[a-z0-9-]+\.s3\./gi, '.s3.');
+    const url = new URL(normalized.split(/\s/)[0]);
+    if (!url.hostname.includes('amazonaws.com') && !url.hostname.includes('s3.')) {
+      return null;
+    }
+    const key = decodeURIComponent(url.pathname.replace(/^\//, ''));
+    return key || null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseAwsStorageKey(key: string): string | null {
   if (!key.startsWith(AWS_STORAGE_PREFIX)) {
     return null;

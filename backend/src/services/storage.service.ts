@@ -9,6 +9,7 @@ import {
   DB_PROPERTY_IMPORT_MEDIA_PREFIX,
   R2_STORAGE_PREFIX,
   isDbPropertyImportMediaKey,
+  extractAwsObjectKeyFromReference,
   parseAwsStorageKey,
   parseR2StorageKey,
   parseSupabaseStorageKey,
@@ -288,14 +289,42 @@ class StorageService {
   }
 
   private getAwsPublicUrl(objectKey: string): string {
+    const trimmed = objectKey.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
     const configured = (config.storage.awsPublicBaseUrl || '').trim();
     if (configured) {
-      return new URL(objectKey, normalizeBaseUrl(configured)).toString();
+      const base = normalizeBaseUrl(configured);
+      const path = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+      return new URL(path, base).toString();
     }
 
     const region = config.storage.awsRegion;
     const bucket = config.storage.awsBucket;
-    return `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;
+    return `https://${bucket}.s3.${region}.amazonaws.com/${trimmed}`;
+  }
+
+  /**
+   * Presigned GET for WhatsApp/Meta document fetch (works with private buckets).
+   */
+  async getPresignedDownloadUrl(reference: string, expiresInSeconds = 3600): Promise<string> {
+    const objectKey = extractAwsObjectKeyFromReference(reference);
+    if (!objectKey) {
+      throw new Error('Could not resolve S3 object key for download');
+    }
+
+    ensureAwsConfig();
+    const url = await getSignedUrl(
+      this.getAwsClient(),
+      new GetObjectCommand({
+        Bucket: config.storage.awsBucket!,
+        Key: objectKey,
+      }),
+      { expiresIn: expiresInSeconds },
+    );
+    return url;
   }
 
   private getR2PublicUrl(key: string): string {

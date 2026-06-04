@@ -116,7 +116,7 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
             `*${p.name}* (${p.propertyType || 'type unknown'})`,
             `Location: ${[p.locationArea, p.locationCity].filter(Boolean).join(', ') || 'not set'}`,
             `ID: ${p.id}`,
-            p.brochureUrl ? `Brochure: ${p.brochureUrl}` : 'Brochure: not on file',
+            p.brochureUrl ? 'Brochure PDF: on file' : 'Brochure: not on file',
             `Match score: ${p.score}`,
           ].join('\n')),
         ].join('\n\n');

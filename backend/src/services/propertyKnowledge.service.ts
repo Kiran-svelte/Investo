@@ -233,7 +233,7 @@ export function buildPropertyKnowledgeSections(input: {
     p.reraNumber ? `RERA: ${p.reraNumber}` : 'RERA: not in records',
     p.status ? `Status: ${p.status}` : null,
     serializeAmenities(p.amenities) ? `Amenities: ${serializeAmenities(p.amenities)}` : null,
-    p.brochureUrl ? `Brochure URL: ${p.brochureUrl}` : null,
+    p.brochureUrl ? 'Brochure PDF: on file (sent as WhatsApp attachment, not a link)' : null,
   ].filter(Boolean) as string[];
 
   sections.push(catalogFacts.join('\n'));
