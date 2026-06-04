@@ -64,6 +64,7 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
 
   const { tryDeterministicAgentCrmReply } = await import('./agent-crm-query.service');
   const deterministic = await tryDeterministicAgentCrmReply(toolContext, messageText);
+  // visit cancel/reschedule handled inside tryDeterministicAgentCrmReply (mutation path first)
   // #region agent log
   fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-router.service.ts',message:'agent route branch',data:{userId:user.userId,role:user.userRole,usedDeterministic:Boolean(deterministic),preview:messageText.slice(0,80)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
   // #endregion

@@ -18,6 +18,54 @@ const DAY_PATTERN = new RegExp(
 
 const SHORT_CONFIRM = /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|done|👍|✅)[!.\s]*$/i;
 
+/** Cancel / reschedule site-visit requests (buyer or staff WhatsApp). */
+const VISIT_CANCEL_RESCHEDULE_HINT =
+  /\b(cancel(?:led|lation)?|call\s+off|postpone)\b[\s\S]{0,80}\b(visit|site\s*visit|appointment)\b|\b(reschedule|re-?schedule|move|change)\b[\s\S]{0,80}\b(visit|site\s*visit|appointment)\b|\b(visit|site\s*visit)\b[\s\S]{0,80}\b(cancel|reschedule|re-?schedule|move|change)\b/i;
+
+export function isVisitCancelOrRescheduleMessage(message: string): boolean {
+  const t = message.trim();
+  if (!t) return false;
+  return VISIT_CANCEL_RESCHEDULE_HINT.test(t);
+}
+
+/**
+ * Prefer the new slot after "reschedule to …" / "move to …" when both old and new days appear.
+ */
+export function parseRescheduleTargetFromMessage(
+  message: string,
+  reference = new Date(),
+): Date | null {
+  const text = message.trim();
+  if (!text) return null;
+
+  const tailMatch = text.match(
+    /\b(?:reschedule(?:\s+it)?\s+to|rescheduled?\s+to|move\s+(?:it\s+)?to|change\s+(?:it\s+)?to)\b([\s\S]+)$/i,
+  );
+  if (tailMatch?.[1]) {
+    const fromTail = parseVisitDateTimeFromMessage(tailMatch[1].trim(), reference);
+    if (fromTail) return fromTail;
+  }
+
+  const dayMatches = [...text.toLowerCase().matchAll(DAY_PATTERN)];
+  if (dayMatches.length > 1) {
+    const lastDay = dayMatches[dayMatches.length - 1][0];
+    const timeMatch = text.match(TIME_PATTERN);
+    if (timeMatch) {
+      const synthetic = `${lastDay} ${timeMatch[0]}`;
+      const parsed = parseVisitDateTimeFromMessage(synthetic, reference);
+      if (parsed) return parsed;
+    }
+  }
+
+  return parseVisitDateTimeFromMessage(text, reference);
+}
+
+export function messageReferencesVisitTomorrow(message: string): boolean {
+  return /\b(on\s+tomorrow|for\s+tomorrow|tomorrow'?s\s+visit|visit\s+.*\btomorrow\b)\b/i.test(
+    message.trim(),
+  );
+}
+
 export function isVisitSchedulingMessage(message: string): boolean {
   const t = message.trim();
   if (!t) return false;

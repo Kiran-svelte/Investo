@@ -1,5 +1,7 @@
 import {
+  isVisitCancelOrRescheduleMessage,
   isVisitSchedulingMessage,
+  parseRescheduleTargetFromMessage,
   parseVisitDateTimeFromMessage,
   parseVisitDateTimeFromHistory,
 } from '../../services/visitIntentFromMessage.service';
@@ -17,6 +19,24 @@ describe('visitIntentFromMessage.service', () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.getDay()).toBe(6);
     expect(parsed!.getHours()).toBe(12);
+  });
+
+  it('detects cancel and reschedule intent', () => {
+    expect(
+      isVisitCancelOrRescheduleMessage(
+        'Cancel my site visit which is on tomorrow and reschedule it to this saturday 1pm',
+      ),
+    ).toBe(true);
+  });
+
+  it('parses Saturday 1pm from reschedule tail, not tomorrow', () => {
+    const parsed = parseRescheduleTargetFromMessage(
+      'Cancel my site visit which is on tomorrow and reschedule it to this saturday 1pm',
+      friday,
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.getDay()).toBe(6);
+    expect(parsed!.getHours()).toBe(13);
   });
 
   it('parses slot from recent history when user replies yes', () => {

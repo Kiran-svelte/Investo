@@ -3,10 +3,12 @@ import logger from '../config/logger';
 import { assignLeadRoundRobin } from './leadAssignment.service';
 import {
   isShortVisitConfirmation,
+  isVisitCancelOrRescheduleMessage,
   isVisitSchedulingMessage,
   parseVisitDateTimeFromHistory,
   parseVisitDateTimeFromMessage,
 } from './visitIntentFromMessage.service';
+import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
 import { scheduleVisit } from './visitBooking.service';
 import { createVisitApprovalRequest } from './visitPendingApproval.service';
 
@@ -31,7 +33,7 @@ export interface CommitCustomerVisitInput {
 
 export interface CommitCustomerVisitResult {
   committed: boolean;
-  mode?: 'scheduled' | 'pending_approval' | 'already_booked';
+  mode?: 'scheduled' | 'pending_approval' | 'already_booked' | 'rescheduled' | 'cancelled';
   scheduledAt?: Date;
   visitId?: string;
   customerReply?: string;
@@ -105,15 +107,71 @@ function formatVisitConfirmation(
   );
 }
 
+function formatVisitRescheduled(
+  scheduledAt: Date,
+  propertyName: string,
+  agentName: string | null,
+): string {
+  const when = scheduledAt.toLocaleString('en-IN', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return (
+    `✅ *Visit rescheduled*\n\n` +
+    `📍 *${propertyName}*\n` +
+    `📅 ${when}\n\n` +
+    `Our specialist${agentName ? ` *${agentName}*` : ''} will call you about an hour before the visit to confirm. See you then!`
+  );
+}
+
+async function findUpcomingLeadVisit(companyId: string, leadId: string) {
+  return prisma.visit.findFirst({
+    where: {
+      companyId,
+      leadId,
+      status: { in: ['scheduled', 'confirmed'] },
+      scheduledAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+    },
+    orderBy: { scheduledAt: 'asc' },
+    include: { property: { select: { name: true } }, agent: { select: { name: true } } },
+  });
+}
+
 /**
  * Books a site visit in CRM when the customer proposes a concrete date/time.
  * WhatsApp auto-confirm is on unless WHATSAPP_AUTO_CONFIRM_VISITS=0.
  */
+export async function tryCustomerVisitCancelReschedule(
+  input: CommitCustomerVisitInput,
+): Promise<CommitCustomerVisitResult> {
+  const mutation = await applyVisitMutationFromChat({
+    companyId: input.companyId,
+    message: input.customerMessage,
+    leadId: input.lead.id,
+  });
+  if (!mutation.handled) return { committed: false };
+  return {
+    committed: true,
+    mode: mutation.mode ?? 'rescheduled',
+    scheduledAt: mutation.scheduledAt,
+    visitId: mutation.visitId,
+    customerReply: mutation.reply,
+    leadStatus: mutation.mode === 'cancelled' ? 'contacted' : 'visit_scheduled',
+  };
+}
+
 export async function tryCommitCustomerVisitBooking(
   input: CommitCustomerVisitInput,
 ): Promise<CommitCustomerVisitResult> {
   const { companyId, lead, conversation, customerMessage, customerPhone, recentCustomerMessages } =
     input;
+
+  if (isVisitCancelOrRescheduleMessage(customerMessage)) {
+    return tryCustomerVisitCancelReschedule(input);
+  }
 
   if (!isVisitSchedulingMessage(customerMessage) && !isShortVisitConfirmation(customerMessage)) {
     return { committed: false };
@@ -144,7 +202,7 @@ export async function tryCommitCustomerVisitBooking(
     },
     orderBy: { scheduledAt: 'asc' },
   });
-  if (existing) {
+  if (existing && !isVisitCancelOrRescheduleMessage(customerMessage)) {
     const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { name: true } });
     return {
       committed: true,

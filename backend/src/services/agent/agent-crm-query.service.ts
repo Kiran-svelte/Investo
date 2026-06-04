@@ -1,6 +1,8 @@
 import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import type { ToolContext } from './agent-state';
+import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
+import { isVisitCancelOrRescheduleMessage } from '../visitIntentFromMessage.service';
 import {
   buildAgentScopeFilter,
   buildVisitScopeFilter,
@@ -111,6 +113,23 @@ function wantsNewLeadsToday(text: string): boolean {
 /**
  * Deterministic Zero-UI replies for common CRM lookups (no LLM hallucination).
  */
+export async function tryDeterministicAgentVisitMutation(
+  context: ToolContext,
+  messageText: string,
+): Promise<string | null> {
+  if (!isVisitCancelOrRescheduleMessage(messageText)) return null;
+  const mutation = await applyVisitMutationFromChat({
+    companyId: context.companyId,
+    message: messageText,
+    visitScope: buildVisitScopeFilter(context.companyId, context.userRole, context.userId),
+  });
+  if (!mutation.handled || !mutation.reply) return null;
+  // #region agent log
+  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-crm-query.service.ts',message:'deterministic visit mutation',data:{userId:context.userId,mode:mutation.mode,visitId:mutation.visitId},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+  // #endregion
+  return mutation.reply;
+}
+
 export async function tryDeterministicAgentCrmReply(
   context: ToolContext,
   messageText: string,
@@ -119,6 +138,9 @@ export async function tryDeterministicAgentCrmReply(
   if (!text) return null;
 
   try {
+    const visitMutation = await tryDeterministicAgentVisitMutation(context, text);
+    if (visitMutation) return visitMutation;
+
     if (wantsNewLeadsToday(text)) {
       // #region agent log
       fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a72821'},body:JSON.stringify({sessionId:'a72821',location:'agent-crm-query.service.ts',message:'deterministic new leads today',data:{userId:context.userId,role:context.userRole},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});

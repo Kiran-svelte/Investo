@@ -13,6 +13,16 @@ jest.mock('../../config/logger', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
+jest.mock('../../services/visitMutationFromChat.service', () => ({
+  applyVisitMutationFromChat: jest.fn(),
+}));
+
+jest.mock('../../services/visitIntentFromMessage.service', () => ({
+  isVisitCancelOrRescheduleMessage: (text: string) =>
+    /cancel.*visit.*reschedule/i.test(text),
+}));
+
+import { applyVisitMutationFromChat } from '../../services/visitMutationFromChat.service';
 import { tryDeterministicAgentCrmReply } from '../../services/agent/agent-crm-query.service';
 import type { ToolContext } from '../../services/agent/agent-state';
 
@@ -67,5 +77,19 @@ describe('tryDeterministicAgentCrmReply', () => {
   it('returns null for unrelated chit-chat', async () => {
     const result = await tryDeterministicAgentCrmReply(ctx, 'Thanks!');
     expect(result).toBeNull();
+  });
+
+  it('returns deterministic visit mutation before LLM', async () => {
+    (applyVisitMutationFromChat as jest.Mock).mockResolvedValue({
+      handled: true,
+      mode: 'rescheduled',
+      reply: 'Visit rescheduled.\n\nSunset Heights\n07/06/2026, 01:00 pm',
+    });
+    const result = await tryDeterministicAgentCrmReply(
+      ctx,
+      'Cancel my visit tomorrow and reschedule to Saturday 1pm',
+    );
+    expect(result).toContain('Visit rescheduled');
+    expect(applyVisitMutationFromChat).toHaveBeenCalled();
   });
 });
