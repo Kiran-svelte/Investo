@@ -2,6 +2,7 @@ import config from '../../config';
 import logger from '../../config/logger';
 import { incrementOpsMetric } from '../opsMetrics.service';
 import {
+  BUYER_WORKFLOW_IDS,
   WORKFLOW_CONFIDENCE_THRESHOLD,
   WORKFLOW_LLM_TEMPERATURE,
   type WorkflowId,
@@ -227,6 +228,7 @@ export async function runWorkflow(
   };
 
   const messages: string[] = [];
+  const completedSteps: string[] = [];
 
   for (const step of definition.steps) {
     const handler = WORKFLOW_ACTION_HANDLERS[step.action];
@@ -234,8 +236,10 @@ export async function runWorkflow(
       if (step.optional) continue;
       return {
         ok: false,
-        reply: `Workflow step "${step.action}" is not configured.`,
+        reply: `Workflow "${workflowId}" failed at step "${step.action}": handler not configured.`,
         workflowId,
+        failedStep: step.action,
+        completedSteps,
       };
     }
 
@@ -246,9 +250,23 @@ export async function runWorkflow(
 
     if (!result.ok) {
       if (step.optional) continue;
-      return { ok: false, reply: result.message ?? 'Could not complete that request.', workflowId };
+      const detail = result.message ?? 'Could not complete that request.';
+      logger.warn('Workflow step failed', {
+        workflowId,
+        step: step.action,
+        completedSteps,
+        detail,
+      });
+      return {
+        ok: false,
+        reply: `Workflow "${workflowId}" failed at step "${step.action}": ${detail}`,
+        workflowId,
+        failedStep: step.action,
+        completedSteps,
+      };
     }
 
+    completedSteps.push(step.action);
     if (result.message) messages.push(result.message);
     if (result.stop) break;
   }
@@ -268,7 +286,7 @@ export async function runWorkflow(
 
   const reply = messages.length === 1 ? messages[0] : messages.join('\n\n');
   incrementOpsMetric('workflow_runs');
-  return { ok: true, reply, workflowId };
+  return { ok: true, reply, workflowId, completedSteps };
 }
 
 /**
@@ -287,10 +305,15 @@ export async function runWorkflowForIntent(
   if (!workflowId) return null;
 
   const result = await runWorkflow(workflowId, run, { ...params, messageText: params.messageText ?? run.messageText });
-  // Return empty string (not null) when all steps skipped — this is distinct from
-  // "no workflow mapped" and prevents the orchestrator from double-executing via
-  // the executeAgentIntent fallback for the same intent.
-  return result.reply ?? '';
+  const label = getWorkflowDefinition(workflowId)?.label ?? workflowId;
+  if (!result.ok) {
+    return (
+      result.reply?.trim()
+      || `Could not complete ${label}${result.failedStep ? ` (step: ${result.failedStep})` : ''}.`
+    );
+  }
+  // Non-null string prevents double-execution via executeAgentIntent / invokeAgent.
+  return result.reply?.trim() || `✅ ${label} completed.`;
 }
 
 
@@ -425,7 +448,14 @@ export async function classifyAndRunWorkflow(
     }
 
     const result = await runWorkflow(classified.workflowId, run, classified.parameters);
-    return result.reply;
+    const label = getWorkflowDefinition(classified.workflowId)?.label ?? classified.workflowId;
+    if (!result.ok) {
+      return (
+        result.reply?.trim()
+        || `Could not complete ${label}${result.failedStep ? ` (step: ${result.failedStep})` : ''}.`
+      );
+    }
+    return result.reply?.trim() || `✅ ${label} completed.`;
   } catch (err: unknown) {
     logger.warn('Workflow engine classify path skipped', {
       error: err instanceof Error ? err.message : String(err),
@@ -435,12 +465,19 @@ export async function classifyAndRunWorkflow(
   }
 }
 
-/** Buyer-channel workflow hints (price, brochure, availability). */
+const BUYER_WORKFLOW_SET = new Set<string>(BUYER_WORKFLOW_IDS);
+
+function isBuyerWorkflowId(id: WorkflowId | 'unknown'): id is WorkflowId {
+  return id !== 'unknown' && BUYER_WORKFLOW_SET.has(id);
+}
+
+/** Regex fallback when LLM classifier is unavailable or low-confidence. */
 export async function tryRunBuyerWorkflow(input: {
   companyId: string;
   leadId?: string;
   messageText: string;
   propertyId?: string;
+  companyName?: string;
 }): Promise<string | null> {
   const text = input.messageText.toLowerCase();
   let workflowId: WorkflowId | null = null;
@@ -450,7 +487,24 @@ export async function tryRunBuyerWorkflow(input: {
   else if (/\b(amenit|pool|gym|clubhouse)\b/.test(text)) workflowId = 'amenities_question';
   if (!workflowId) return null;
 
-  const run: WorkflowRunContext = {
+  const result = await runWorkflow(workflowId, buildBuyerWorkflowRun(input), {
+    leadId: input.leadId,
+    propertyId: input.propertyId,
+    message: input.messageText,
+  });
+
+  if (!result.ok || !result.reply?.trim()) return null;
+  return result.reply;
+}
+
+function buildBuyerWorkflowRun(input: {
+  companyId: string;
+  leadId?: string;
+  messageText: string;
+  companyName?: string;
+  sessionVisitId?: string | null;
+}): WorkflowRunContext {
+  return {
     toolContext: {
       userId: 'system',
       companyId: input.companyId,
@@ -459,21 +513,81 @@ export async function tryRunBuyerWorkflow(input: {
     },
     messageText: input.messageText,
     recentMessages: [],
-    companyName: '',
+    companyName: input.companyName ?? '',
     sessionLeadId: input.leadId,
+    sessionVisitId: input.sessionVisitId,
     channel: 'buyer',
   };
+}
 
-  const result = await runWorkflow(workflowId, run, {
-    leadId: input.leadId,
-    propertyId: input.propertyId,
-    message: input.messageText,
-  });
+/**
+ * Buyer orchestrator step 1–3: LLM intent classifier → workflow action handlers → reply.
+ * Returns null to fall through to aiService.generateResponse (language brain).
+ */
+export async function classifyAndRunBuyerWorkflow(
+  input: {
+    companyId: string;
+    leadId: string;
+    messageText: string;
+    propertyId?: string;
+    companyName: string;
+    sessionVisitId?: string | null;
+  },
+  deps?: { llm?: WorkflowLlmCaller },
+): Promise<string | null> {
+  if (!shouldClassifyWorkflow(input.messageText)) {
+    return null;
+  }
 
-  // Only surface the reply when the workflow fully succeeded.
-  // On failure (e.g. missing propertyId for brochure), return null so the
-  // full AI pipeline generates a natural-language response instead of
-  // exposing raw internal error strings to the customer.
-  if (!result.ok || !result.reply?.trim()) return null;
-  return result.reply;
+  const run = buildBuyerWorkflowRun(input);
+
+  if (!config.agentAi?.enabled) {
+    return tryRunBuyerWorkflow(input);
+  }
+
+  try {
+    const classified = await classifyWorkflowMessage(
+      {
+        messageText: input.messageText,
+        recentMessages: [],
+        sessionLeadId: input.leadId,
+        sessionVisitId: input.sessionVisitId,
+        companyName: input.companyName,
+      },
+      deps?.llm,
+    );
+
+    if (
+      classified.workflowId === 'unknown'
+      || classified.confidence < WORKFLOW_CONFIDENCE_THRESHOLD
+      || !isBuyerWorkflowId(classified.workflowId)
+    ) {
+      return tryRunBuyerWorkflow(input);
+    }
+
+    const params: WorkflowParams = {
+      ...classified.parameters,
+      leadId: classified.parameters.leadId ?? input.leadId,
+      propertyId: classified.parameters.propertyId ?? input.propertyId,
+      message: input.messageText,
+    };
+
+    const result = await runWorkflow(classified.workflowId, run, params);
+    const label = getWorkflowDefinition(classified.workflowId)?.label ?? classified.workflowId;
+
+    if (!result.ok) {
+      if (!result.reply?.trim()) return null;
+      return result.reply.trim();
+    }
+
+    if (result.reply?.trim()) return result.reply.trim();
+    return null;
+  } catch (err: unknown) {
+    logger.warn('Buyer workflow orchestrator skipped', {
+      error: err instanceof Error ? err.message : String(err),
+      companyId: input.companyId,
+      leadId: input.leadId,
+    });
+    return tryRunBuyerWorkflow(input);
+  }
 }

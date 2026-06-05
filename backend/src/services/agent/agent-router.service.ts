@@ -7,9 +7,8 @@ import { ToolContext } from './agent-state';
 
 import { isCopilotGreeting, normalizeCopilotInboundText } from '../../utils/copilotGreeting.util';
 import {
-  COPILOT_SHORTCUT_BUTTONS,
   resolveCopilotInboundCommand,
-  shouldSendCopilotShortcutMenu,
+  resolveStaffCopilotQuickActions,
   type CopilotReplyKind,
 } from '../../utils/copilotShortcut.util';
 import {
@@ -44,14 +43,18 @@ async function getPrisma() {
   return module.default;
 }
 
-async function sendStaffCopilotQuickActions(phone: string, companyId: string): Promise<void> {
+async function sendStaffCopilotQuickActions(
+  phone: string,
+  companyId: string,
+  buttons: Array<{ id: string; title: string }>,
+): Promise<void> {
   try {
     const { whatsappService } = await import('../whatsapp.service');
     await whatsappService.sendCompanyInteractiveButtons(
       phone,
       companyId,
       'Tap a shortcut (or type your own command):',
-      COPILOT_SHORTCUT_BUTTONS.map(({ id, title }) => ({ id, title })),
+      buttons,
       'Investo Copilot',
       'CRM shortcuts',
     );
@@ -177,7 +180,7 @@ async function handleAgentMessage(
     sessionVisitId: sessionCtx.lastVisitId,
     staffPhone: user.phone,
   });
-  if (workflowReply) {
+  if (workflowReply !== null && workflowReply !== undefined) {
     if (session?.id) {
       await recordAgentCopilotExchange({
         sessionId: session.id,
@@ -197,7 +200,7 @@ async function handleAgentMessage(
     sessionVisitId: sessionCtx.lastVisitId,
     staffPhone: user.phone,
   });
-  if (intentReply) {
+  if (intentReply !== null && intentReply !== undefined) {
     if (session?.id) {
       await recordAgentCopilotExchange({
         sessionId: session.id,
@@ -323,8 +326,9 @@ export async function routeIfInternalUserForCompany(
   try {
     const { text: response, replyKind } = await handleAgentMessage(user, messageText, interactiveId);
     await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
-    if (shouldSendCopilotShortcutMenu(replyKind)) {
-      await sendStaffCopilotQuickActions(normalizedPhone, user.companyId);
+    const quickActions = resolveStaffCopilotQuickActions({ replyKind, outboundText: response });
+    if (quickActions?.length) {
+      await sendStaffCopilotQuickActions(normalizedPhone, user.companyId, quickActions);
     }
     return true;
   } catch (error: any) {

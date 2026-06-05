@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { deduplicationService } from './deduplication.service';
 import logger from '../config/logger';
 
@@ -70,4 +71,55 @@ export async function releaseStaffCopilotTurn(
 ): Promise<void> {
   const key = `${STAFF_PROCESSING_PREFIX}${companyId}:${userId}`;
   await deduplicationService.release(key);
+}
+
+function normalizeCustomerFingerprintText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Blocks duplicate customer processing when Meta + GreenAPI (or webhook retry)
+ * deliver the same user text within a short window with different message IDs.
+ */
+export async function claimCustomerInboundFingerprint(
+  companyId: string,
+  phone: string,
+  messageText: string,
+  ttlSeconds = 90,
+): Promise<boolean> {
+  const phoneKey = phone.replace(/\D/g, '').slice(-10);
+  if (!phoneKey || !messageText.trim()) return true;
+  const hash = createHash('sha256')
+    .update(normalizeCustomerFingerprintText(messageText))
+    .digest('hex')
+    .slice(0, 16);
+  const key = `customer-fp:${companyId}:${phoneKey}:${hash}`;
+  const claimed = await deduplicationService.claimMessageProcessing(key, ttlSeconds);
+  if (!claimed) {
+    logger.info('Customer inbound fingerprint dedup: duplicate blocked', {
+      companyId,
+      phoneKey,
+    });
+  }
+  return claimed;
+}
+
+/**
+ * Ensures at most one AI WhatsApp text reply per inbound messageId.
+ */
+export async function claimOutboundAiReply(
+  companyId: string,
+  inboundMessageId: string | undefined | null,
+  ttlSeconds = 300,
+): Promise<boolean> {
+  if (!inboundMessageId?.trim()) return true;
+  const key = `outbound-ai:${companyId}:${inboundMessageId.trim()}`;
+  const claimed = await deduplicationService.claimMessageProcessing(key, ttlSeconds);
+  if (!claimed) {
+    logger.info('Outbound AI reply dedup: duplicate send blocked', {
+      companyId,
+      inboundMessageId,
+    });
+  }
+  return claimed;
 }

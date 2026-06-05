@@ -326,6 +326,9 @@ async function confirmNextUpcomingVisit(context: ToolContext): Promise<string> {
         data: { status: 'confirmed' },
         include: visitInclude,
       });
+      void import('../visitNotificationBridge.service').then(({ notifyVisitStatusChangeFromTool }) =>
+        notifyVisitStatusChangeFromTool(focused.id, 'scheduled', 'confirmed'),
+      );
       return `✅ Visit confirmed.\n\n${formatVisitLine(updated)}`;
     }
     if (focused?.status === 'confirmed') {
@@ -350,6 +353,9 @@ async function confirmNextUpcomingVisit(context: ToolContext): Promise<string> {
     data: { status: 'confirmed' },
     include: visitInclude,
   });
+  void import('../visitNotificationBridge.service').then(({ notifyVisitStatusChangeFromTool }) =>
+    notifyVisitStatusChangeFromTool(visit.id, 'scheduled', 'confirmed'),
+  );
   return `✅ Visit confirmed.\n\n${formatVisitLine(updated)}`;
 }
 

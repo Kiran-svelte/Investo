@@ -21,3 +21,17 @@ export type WorkflowId = (typeof WORKFLOW_IDS)[number];
 
 export const WORKFLOW_CONFIDENCE_THRESHOLD = 0.62;
 export const WORKFLOW_LLM_TEMPERATURE = 0.05;
+
+/** Workflows safe to run on the buyer WhatsApp channel (prospects / clients). */
+export const BUYER_WORKFLOW_IDS = [
+  'brochure_request',
+  'price_inquiry',
+  'availability_check',
+  'amenities_question',
+  'schedule_visit',
+  'reschedule_visit',
+  'cancel_visit',
+  'escalate_to_human',
+] as const;
+
+export type BuyerWorkflowId = (typeof BUYER_WORKFLOW_IDS)[number];

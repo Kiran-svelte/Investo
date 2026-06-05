@@ -38,10 +38,29 @@ export const AI_STACK_CAPABILITIES = {
     'classifyAndExecuteAgentIntent',
     'invokeAgent + clientMemory RAG',
   ],
+  buyer_orchestrator: {
+    wired: true,
+    path: 'backend/src/services/whatsapp.service.ts',
+    layers: [
+      'classifyWorkflowMessage (LLM intent classifier)',
+      'WORKFLOW_ACTION_HANDLERS (45 action handlers)',
+      'classifyAndRunBuyerWorkflow → runWorkflow',
+    ],
+    fallback: 'aiService.generateResponse (policy + language brain)',
+  },
   buyer_router_order: [
     'tryCommitCustomerVisitBooking',
-    'tryRunBuyerWorkflow',
+    'classifyAndRunBuyerWorkflow (intent → handlers)',
     'aiService.generateResponse + RAG',
     'contextual quick replies + filters + media',
   ],
+  staff_orchestrator: {
+    wired: true,
+    path: 'backend/src/services/agent/agent-router.service.ts',
+    layers: [
+      'classifyWorkflowMessage / classifyAgentIntent (LLM)',
+      'WORKFLOW_ACTION_HANDLERS + executeAgentIntent tools',
+      'classifyAndRunWorkflow → classifyAndExecuteAgentIntent → invokeAgent',
+    ],
+  },
 } as const;

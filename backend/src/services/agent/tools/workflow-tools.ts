@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { WORKFLOW_IDS, type WorkflowId } from '../../../constants/workflow.constants';
 import { runWorkflow } from '../../workflow/workflow-engine.service';
-import { allWorkflowIds, WORKFLOW_DEFINITIONS } from '../../workflow/workflow-registry';
+import { allWorkflowIds } from '../../workflow/workflow-registry';
+import { formatWorkflowCatalogForTool } from '../../workflow/workflow-catalog.util';
 import { ToolContext } from '../agent-state';
 import { DynamicStructuredTool, type AgentTool } from './langchain-runtime';
 
@@ -35,12 +36,7 @@ export function createWorkflowTools(context: ToolContext): AgentTool[] {
       description:
         'List all CRM workflows the agent can run. Use before runWorkflow when unsure which workflow fits.',
       schema: z.object({}),
-      func: async () => {
-        const lines = WORKFLOW_DEFINITIONS.map(
-          (workflow) => `• *${workflow.id}* — ${workflow.label} (${workflow.steps.length} steps)`,
-        );
-        return ['*Available workflows*', ...lines].join('\n');
-      },
+      func: async () => formatWorkflowCatalogForTool(),
     }),
     new DynamicStructuredTool({
       name: 'runWorkflow',
@@ -82,9 +78,15 @@ export function createWorkflowTools(context: ToolContext): AgentTool[] {
         );
 
         if (!result.ok) {
-          return result.reply ?? `Workflow "${workflowId}" could not be completed.`;
+          const completed = result.completedSteps?.length
+            ? ` Completed before failure: ${result.completedSteps.join(' → ')}.`
+            : '';
+          return (result.reply ?? `Workflow "${workflowId}" could not be completed.`) + completed;
         }
-        return result.reply ?? `Workflow "${workflowId}" completed successfully.`;
+        const completed = result.completedSteps?.length
+          ? `\n\nSteps completed: ${result.completedSteps.join(' → ')}`
+          : '';
+        return (result.reply ?? `Workflow "${workflowId}" completed successfully.`) + completed;
       },
     }),
   ];

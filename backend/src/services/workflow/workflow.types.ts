@@ -78,6 +78,10 @@ export interface WorkflowRunResult {
   ok: boolean;
   reply: string | null;
   workflowId: WorkflowId;
+  /** Last step that failed (required step only). */
+  failedStep?: string;
+  /** Steps that completed before failure or full run. */
+  completedSteps?: string[];
 }
 
 export interface IntentWorkflowMapping {

@@ -33,6 +33,8 @@ export interface BuildSystemPromptParams {
   clientMemoryBlock?: string;
   /** Tool names bound to the model for this role — keeps the agent aware of callable actions. */
   availableTools?: string[];
+  /** All 15 workflows + direct-tool routing + 4-step execution contract. */
+  workflowExecutionGuide?: string;
 }
 
 export function buildSystemPrompt(params: BuildSystemPromptParams): string {
@@ -48,6 +50,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     recentErrors,
     clientMemoryBlock,
     availableTools = [],
+    workflowExecutionGuide = '',
   } = params;
 
   const roleLine = userRole === 'sales_agent'
@@ -123,12 +126,13 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     '   - If user says "reschedule" → Reference existing visit from upcoming visits list',
     '   - If you failed before (see "RECENT ISSUE" section) → Try a different approach or ask clarifying question',
     '',
-    '6. TOOL USAGE GUIDELINES:',
-    '   - Simple lookups → call the direct tool (listVisitsToday, listLeadsAddedToday, getPropertyDetails, etc.)',
-    '   - Multi-step mutations → call runWorkflow with the matching workflow id (schedule_visit, reschedule_visit, assign_agent, etc.)',
-    '   - Single-step updates → updateLeadStatus, scheduleVisit, rescheduleVisit when a full workflow is not needed',
-    '   - Call listWorkflows if unsure which workflow applies; never call tools speculatively',
+    '6. TOOL + WORKFLOW ROUTING:',
+    '   - Follow the EXECUTION CONTRACT and workflow catalog below exactly.',
+    '   - Read-only → direct tool. Multi-step mutation → runWorkflow with exact workflow id.',
+    '   - Call listWorkflows when unsure; never guess workflow ids.',
     toolLine,
+    '',
+    workflowExecutionGuide,
     '',
     '7. WHEN YOU DON\'T KNOW:',
     '   - Don\'t say "I hit an issue" or "I couldn\'t complete that"',

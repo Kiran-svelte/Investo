@@ -18,11 +18,16 @@ import { normalizeInboundWhatsAppPhone, phonesMatchLast10 } from '../utils/phone
 import {
   routeCompanyScopedInbound,
 } from './inboundWhatsAppRouting.service';
-import { claimInboundMessage } from './inboundMessageGuard.service';
+import {
+  claimInboundMessage,
+  claimCustomerInboundFingerprint,
+  claimOutboundAiReply,
+} from './inboundMessageGuard.service';
 import {
   shouldAttachContextualQuickReplies,
   type QuickReplyRecentAction,
 } from '../utils/contextQuickReplies.util';
+import { resolveCustomerQuickActions } from '../utils/customerQuickReplies.util';
 
 import {
   parseVisitTimeInteractiveId,
@@ -770,6 +775,20 @@ export class WhatsAppService {
       };
     }
 
+    const fingerprintClaimed = await claimCustomerInboundFingerprint(
+      companyId,
+      customerPhone,
+      msg.messageText,
+    );
+    if (!fingerprintClaimed) {
+      return {
+        status: 'skipped',
+        reason: 'duplicate_customer_fingerprint',
+        companyId,
+        propagation: notAttempted,
+      };
+    }
+
     // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
     let lead =
       (await prisma.lead.findFirst({
@@ -1120,12 +1139,14 @@ export class WhatsAppService {
         // Only run buyer workflow when visit fast-path did not already mutate state.
         let buyerWorkflowReply: string | null | undefined;
         if (!visitCommit.committed) {
-          const { tryRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
-          buyerWorkflowReply = await tryRunBuyerWorkflow({
+          const { classifyAndRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
+          buyerWorkflowReply = await classifyAndRunBuyerWorkflow({
             companyId,
             leadId: lead.id,
             messageText: msg.messageText,
             propertyId: conversation.selectedPropertyId ?? undefined,
+            companyName: company.name,
+            sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
           });
         }
         if (buyerWorkflowReply?.trim()) {
@@ -1137,7 +1158,9 @@ export class WhatsAppService {
               status: 'sent',
             },
           });
-          await this.sendMessage(customerPhone, buyerWorkflowReply, whatsappConfig!);
+          if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            await this.sendMessage(customerPhone, buyerWorkflowReply, whatsappConfig!);
+          }
 
           if (
             shouldAttachContextualQuickReplies({
@@ -1150,6 +1173,7 @@ export class WhatsAppService {
               conversationState.stage,
               {
                 propertyId: conversationState.selectedPropertyId ?? conversation.selectedPropertyId,
+                outboundText: buyerWorkflowReply,
                 hasActiveVisit: Boolean(liveCtx.activeVisit),
                 visitStatus: liveCtx.activeVisit?.status,
                 visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
@@ -1485,18 +1509,25 @@ export class WhatsAppService {
         }
 
         if (outboundText.trim()) {
-          incrementOpsMetric('ai_replies');
-          await simulateHumanReplyPacing({
-            to: customerPhone,
-            whatsappConfig: whatsappConfig!,
-            outboundTextLength: outboundText.length,
-            inboundMessageId: msg.messageId,
-          });
-          await withRetry(async () => {
+          const outboundClaimed = await claimOutboundAiReply(companyId, msg.messageId);
+          if (outboundClaimed) {
+            incrementOpsMetric('ai_replies');
+            await simulateHumanReplyPacing({
+              to: customerPhone,
+              whatsappConfig: whatsappConfig!,
+              outboundTextLength: outboundText.length,
+              inboundMessageId: msg.messageId,
+            });
             const ok = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
-            if (!ok) throw new Error('WhatsApp send failed');
-          }, { label: 'whatsapp_ai_reply', maxAttempts: 2 });
-          incrementOpsMetric('whatsapp_outbound');
+            if (!ok) {
+              logger.error('WhatsApp AI reply send failed', {
+                conversationId: conversation.id,
+                inboundMessageId: msg.messageId,
+              });
+            } else {
+              incrementOpsMetric('whatsapp_outbound');
+            }
+          }
         }
 
         // CHUNK 5: AI Rich Media Presentation
@@ -1548,6 +1579,9 @@ export class WhatsAppService {
             aiResponse.newState.stage,
             {
               propertyId: aiResponse.newState.selectedPropertyId ?? conversation.selectedPropertyId,
+              recommendedPropertyIds: this.getRecommendedPropertyIds(aiResponse.newState),
+              properties: properties.map((p) => ({ id: p.id, name: p.name })),
+              outboundText,
               hasActiveVisit: Boolean(liveCtx.activeVisit),
               visitStatus: liveCtx.activeVisit?.status,
               visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
@@ -2516,6 +2550,9 @@ export class WhatsAppService {
     stage: string,
     context: {
       propertyId?: string | null;
+      recommendedPropertyIds?: string[];
+      properties?: Array<{ id: string; name: string }>;
+      outboundText?: string;
       /** True when the lead has a scheduled or confirmed site visit. */
       hasActiveVisit?: boolean;
       /** Status string of the active visit (e.g. 'scheduled', 'confirmed'). */
@@ -2529,6 +2566,29 @@ export class WhatsAppService {
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
     if (context.recentAction) return;
+
+    const dynamicActions =
+      context.outboundText
+        ? resolveCustomerQuickActions({
+            stage,
+            outboundText: context.outboundText,
+            selectedPropertyId: context.propertyId,
+            recommendedPropertyIds: context.recommendedPropertyIds,
+            properties: context.properties,
+            hasActiveVisit: context.hasActiveVisit,
+          })
+        : null;
+    if (dynamicActions) {
+      await this.sendInteractiveButtons(
+        to,
+        dynamicActions.body,
+        dynamicActions.buttons,
+        null,
+        null,
+        whatsappConfig,
+      ).catch(() => undefined);
+      return;
+    }
 
     const pid = context.propertyId ?? '';
     const hasVisit = Boolean(context.hasActiveVisit);

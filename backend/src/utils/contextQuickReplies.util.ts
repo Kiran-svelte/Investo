@@ -1,8 +1,8 @@
 import type { NextBestAction } from '../services/conversationStateMachine';
 
-/** Outbound text that already asks the user a direct question — skip stacked menus. */
-const OUTBOUND_ASKS_QUESTION =
-  /\b(would you like|let me know|does this work|shall i|when would you|preferred time|just to confirm|reply\s*["']?(yes|no)|anything specific)\b/i;
+/** Hard blocks — yes/no confirm or explicit time-slot collection (not soft "would you like details"). */
+const OUTBOUND_HARD_BLOCK_MENU =
+  /\b(reply\s*["']?(yes|no)|just to confirm,?\s*(would|do) you|pick a time|when would you prefer to visit|preferred time for your visit)\b/i;
 
 const OUTBOUND_SCHEDULING_PROMPT =
   /\b(schedule your visit|when would you prefer|pick a time|preferred time|site visit for)\b/i;
@@ -29,7 +29,9 @@ export function shouldAttachContextualQuickReplies(input: {
   const text = input.outboundText.trim();
   if (!text) return false;
 
-  if (OUTBOUND_ASKS_QUESTION.test(text)) return false;
+  if (OUTBOUND_HARD_BLOCK_MENU.test(text)) return false;
+
+  // Soft follow-ups ("would you like more details?") still get Book Visit / Property Details buttons.
 
   // Dedicated schedule-visit flows send their own time-slot buttons via handleInteractiveAction.
   if (input.stage === 'visit_booking' && OUTBOUND_SCHEDULING_PROMPT.test(text)) {

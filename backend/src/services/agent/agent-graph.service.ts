@@ -6,6 +6,7 @@ import { ToolContext } from './agent-state';
 import { getCheckpointer } from './agent-memory.service';
 import { buildAgentPromptContext } from './agent-prompt-context.service';
 import { buildSystemPrompt } from './prompts/system-prompt';
+import { buildWorkflowExecutionGuideForPrompt } from '../workflow/workflow-catalog.util';
 import { getToolsForRole } from './tools';
 import { formatDateIST, formatTimeIST } from './response-formatter.service';
 
@@ -113,6 +114,7 @@ export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
     recentErrors: promptContext.recentErrors,
     clientMemoryBlock: params.clientMemoryBlock,
     availableTools: tools.map((tool) => tool.name),
+    workflowExecutionGuide: buildWorkflowExecutionGuideForPrompt(),
   });
 
   async function agentNode(state: any) {

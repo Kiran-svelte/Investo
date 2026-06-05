@@ -1,4 +1,5 @@
 import { buildSystemPrompt } from '../../services/agent/prompts/system-prompt';
+import { buildWorkflowExecutionGuideForPrompt } from '../../services/workflow/workflow-catalog.util';
 
 describe('buildSystemPrompt', () => {
   it('includes visit context, history, and available tools', () => {
@@ -29,11 +30,15 @@ describe('buildSystemPrompt', () => {
       },
       recentErrors: [],
       availableTools: ['listVisitsToday', 'scheduleVisit', 'updateLeadStatus'],
+      workflowExecutionGuide: buildWorkflowExecutionGuideForPrompt(),
     });
 
     expect(prompt).toContain('Sunset Heights');
     expect(prompt).toContain('When is my visit?');
     expect(prompt).toContain('listVisitsToday');
     expect(prompt).toContain('CONTEXT AWARENESS');
+    expect(prompt).toContain('ALL 15 WORKFLOWS');
+    expect(prompt).toContain('schedule_visit');
+    expect(prompt).toContain('RIGHT TOOL');
   });
 });

@@ -109,6 +109,9 @@ export function createVisitTools(context: ToolContext): AgentTool[] {
         if (LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE.has(lead.status)) {
           await prisma.lead.update({ where: { id: leadId }, data: { status: 'visit_scheduled' } });
         }
+        void import('../../visitNotificationBridge.service').then(({ notifyVisitScheduledFromTool }) =>
+          notifyVisitScheduledFromTool(visit.id),
+        );
         return `Visit scheduled.\n\n${formatVisit(visit)}`;
       },
     }),
@@ -122,6 +125,9 @@ export function createVisitTools(context: ToolContext): AgentTool[] {
         if (visit.status === 'cancelled') return 'Cannot complete a cancelled visit.';
         const updated = await prisma.visit.update({ where: { id: visitId }, data: { status: 'completed', notes: notes ?? undefined }, include });
         await prisma.lead.update({ where: { id: visit.leadId }, data: { status: 'visited', lastContactAt: new Date() } });
+        void import('../../visitNotificationBridge.service').then(({ notifyVisitStatusChangeFromTool }) =>
+          notifyVisitStatusChangeFromTool(visitId, visit.status, 'completed'),
+        );
         return `Visit completed.\n\n${formatVisit(updated)}`;
       },
     }),
@@ -144,10 +150,17 @@ export function createVisitTools(context: ToolContext): AgentTool[] {
       description: 'Reschedule a visit to a new date/time.',
       schema: z.object({ visitId: z.string().uuid(), newScheduledAt: z.string() }),
       func: async ({ visitId, newScheduledAt }) => {
-        const visit = await prisma.visit.findFirst({ where: { id: visitId, ...visitScope(context) }, select: { id: true, status: true } });
+        const visit = await prisma.visit.findFirst({
+          where: { id: visitId, ...visitScope(context) },
+          select: { id: true, status: true, scheduledAt: true },
+        });
         if (!visit) return 'Visit not found or access denied.';
         if (visit.status === 'completed' || visit.status === 'cancelled') return `Cannot reschedule a ${visit.status} visit.`;
+        const oldTime = visit.scheduledAt;
         const updated = await prisma.visit.update({ where: { id: visitId }, data: { scheduledAt: new Date(newScheduledAt), reminderSent: false }, include });
+        void import('../../visitNotificationBridge.service').then(({ notifyVisitRescheduledFromTool }) =>
+          notifyVisitRescheduledFromTool(visitId, oldTime),
+        );
         return `Visit rescheduled.\n\n${formatVisit(updated)}`;
       },
     }),
