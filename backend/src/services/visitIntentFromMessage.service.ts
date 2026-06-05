@@ -46,7 +46,7 @@ const VISIT_MUTATION_SOFT_HINT =
 export function isVisitListQueryMessage(message: string): boolean {
   const t = message.trim();
   if (!t) return false;
-  return /\b(visits?\s+on|visits?\s+for|site\s+visits?\s+on|list\s+visits?|show\s+visits?|get\s+visits?|which\s+visits?)\b/i.test(
+  return /\b(visits?\s+on|visits?\s+for|site\s+visits?\s+on|list\s+visits?|show\s+(my\s+)?visits?|get\s+(my\s+)?visits?|which\s+visits?)\b/i.test(
     t,
   );
 }

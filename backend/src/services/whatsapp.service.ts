@@ -1160,6 +1160,34 @@ export class WhatsAppService {
     const aiReady = await this.ensureProspectConversationAiActive(conversation);
     conversation = { ...conversation, status: aiReady.status as typeof conversation.status, aiEnabled: aiReady.aiEnabled };
 
+    // CRITICAL: If the stage was 'human_escalated' and we just reset it to 'rapport' in the DB,
+    // we must also reset the in-memory conversationState — it was built before the DB update.
+    // Without this, the AI still sees stage='human_escalated' this turn and generates
+    // "A human specialist will assist you" again, which is the bug we are fixing.
+    if (conversationState.stage === 'human_escalated') {
+      const resetState = conversationStateManager.createInitialState();
+      // Preserve any commitments already collected — don't wipe their budget/location data.
+      Object.assign(conversationState, {
+        stage: 'rapport' as ConversationStage,
+        previousStage: 'human_escalated' as ConversationStage,
+        stageEnteredAt: new Date(),
+        messageCount: 0,
+        consecutiveObjections: 0,
+        escalationReason: null,
+        commitments: resetState.commitments,
+      });
+      logger.info('In-memory conversationState reset from human_escalated to rapport', {
+        conversationId: conversation.id,
+      });
+    }
+
+
+    // Pre-capture a lightweight fallback context for the error handler.
+    // liveCtx is declared inside the try block below; if the LLM call throws,
+    // we need a safe snapshot here so the catch block can send a contextual reply
+    // instead of the generic "I'm having a little trouble connecting" message.
+    let preFetchedActiveVisitName: string | null = null;
+
     if (conversation.status === 'ai_active' && conversation.aiEnabled) {
       try {
         const history = await prisma.message.findMany({
@@ -1179,6 +1207,8 @@ export class WhatsAppService {
         // Direct DB read — not the eventual-consistent vector store.
         const { getLiveLeadContext } = await import('./liveLeadContext.service');
         const liveCtx = await getLiveLeadContext(lead.id, companyId);
+        // Capture visit name for the outer catch block fallback before we go deeper.
+        preFetchedActiveVisitName = liveCtx.activeVisit?.propertyName ?? null;
 
         const visitCommit = await tryCommitCustomerVisitBooking({
           companyId,
@@ -1673,11 +1703,24 @@ export class WhatsAppService {
           conversationId: conversation.id,
           stage: conversationState.stage,
         });
-        // liveCtx is declared inside the try block so may be undefined here.
-        // Use a simple neutral message that is safe in all conversation states.
-        const fallbackText = `I'm having a little trouble connecting right now. Give me a moment and I'll get back to you! 🙏`;
+        // Build a context-aware fallback — never a generic "I'm having a little trouble"
+        // that resets the conversation or ignores that the customer has an active visit.
+        const fallbackText = buildAiFallbackMessage({
+          customerName: lead.customerName,
+          activeVisitPropertyName: preFetchedActiveVisitName,
+          isVisitQuery: isVisitCancelOrRescheduleMessage(msg.messageText)
+            || /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
+        });
         try {
           await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderType: 'ai',
+              content: fallbackText,
+              status: 'sent',
+            },
+          });
         } catch (sendErr: unknown) {
           logger.error('Failed to send AI fallback WhatsApp message', {
             error: sendErr instanceof Error ? sendErr.message : String(sendErr),
@@ -1743,13 +1786,22 @@ export class WhatsAppService {
   /**
    * Prospects (any phone not registered as company staff) must get AI replies.
    * Re-enable AI when a customer messages again after agent takeover or manual disable.
+   *
+   * CRITICAL FIX: If stage is 'human_escalated', reset it to 'rapport' so the AI
+   * does not permanently output "A human specialist will assist you" on every turn.
+   * A customer messaging again after escalation is re-engaging — treat them as re-entering
+   * the funnel, not as still escalated.
    */
   private async ensureProspectConversationAiActive(conversation: {
     id: string;
     status: string;
     aiEnabled: boolean;
+    stage?: string | null;
   }): Promise<{ status: string; aiEnabled: boolean }> {
-    if (conversation.status === 'ai_active' && conversation.aiEnabled) {
+    const isAlreadyActive = conversation.status === 'ai_active' && conversation.aiEnabled;
+    const isStuckEscalated = conversation.stage === 'human_escalated';
+
+    if (isAlreadyActive && !isStuckEscalated) {
       return { status: conversation.status, aiEnabled: conversation.aiEnabled };
     }
 
@@ -1757,14 +1809,34 @@ export class WhatsAppService {
       conversationId: conversation.id,
       previousStatus: conversation.status,
       previousAiEnabled: conversation.aiEnabled,
+      previousStage: conversation.stage,
+      stageReset: isStuckEscalated,
     });
+
+    const updateData: {
+      status: string;
+      aiEnabled: boolean;
+      stage?: string;
+      stageEnteredAt?: Date;
+      stageMessageCount?: number;
+      escalationReason?: null;
+    } = {
+      status: 'ai_active',
+      aiEnabled: true,
+    };
+
+    // Reset stage when stuck in human_escalated so conversation resumes naturally.
+    // The customer is re-engaging — do not force them through another escalation message.
+    if (isStuckEscalated) {
+      updateData.stage = 'rapport';
+      updateData.stageEnteredAt = new Date();
+      updateData.stageMessageCount = 0;
+      updateData.escalationReason = null;
+    }
 
     const updated = await prisma.conversation.update({
       where: { id: conversation.id },
-      data: {
-        status: 'ai_active',
-        aiEnabled: true,
-      },
+      data: updateData,
       select: { status: true, aiEnabled: true },
     });
 
@@ -4345,6 +4417,50 @@ function normalizeLeadPropertyType(value: unknown): 'villa' | 'apartment' | 'plo
   if (normalized.includes('other')) return 'other';
 
   return null;
+}
+
+/**
+ * Builds a context-aware fallback message when the AI provider fails.
+ *
+ * Rules (in priority order):
+ * 1. If customer has an active visit → acknowledge it; offer Confirm/Reschedule/Cancel.
+ * 2. If the message was about visits/bookings → surface the specific failure reason.
+ * 3. Default → brief apology with a prompt to try again.
+ *
+ * NEVER produces the generic "I'm having a little trouble connecting" alone —
+ * that resets context and violates the Stateful + Transparent pillars.
+ *
+ * @param input.customerName - Lead name for personalisation.
+ * @param input.activeVisitPropertyName - Property name if an active visit exists.
+ * @param input.isVisitQuery - Whether the customer was asking about their visit.
+ */
+function buildAiFallbackMessage(input: {
+  customerName: string | null | undefined;
+  activeVisitPropertyName: string | null;
+  isVisitQuery: boolean;
+}): string {
+  const name = input.customerName ? ` ${input.customerName}` : '';
+
+  if (input.activeVisitPropertyName) {
+    const prop = `*${input.activeVisitPropertyName}*`;
+    return (
+      `I had a brief connection issue, but here's what I know${name}: ` +
+      `your visit to ${prop} is on record 🗓️\n\n` +
+      `Reply *Confirm*, *Reschedule*, or *Cancel* and I'll handle it right away. ✅`
+    );
+  }
+
+  if (input.isVisitQuery) {
+    return (
+      `I ran into a brief issue fetching your visit details${name}. ` +
+      `Could you give me a moment and try again? I'll pull up your booking status right away. 🙏`
+    );
+  }
+
+  return (
+    `I had a brief technical issue${name}. ` +
+    `Please resend your message and I'll respond immediately — no need to start over! 🙏`
+  );
 }
 
 export const whatsappService = new WhatsAppService();
