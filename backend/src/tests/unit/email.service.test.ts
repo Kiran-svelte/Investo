@@ -124,6 +124,7 @@ describe('EmailService (SMTP)', () => {
       __esModule: true,
       default: {
         mail: {
+          transport: 'smtp',
           from: 'Investo <no-reply@investo.ai>',
           smtp: { host: '', port: 587, secure: false, user: '', pass: '' },
         },
@@ -145,7 +146,7 @@ describe('EmailService (SMTP)', () => {
 
     expect(createTransport).not.toHaveBeenCalled();
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      'Password reset email skipped: SMTP not configured',
+      'Password reset email skipped: mail not configured',
       expect.any(Object)
     );
   });

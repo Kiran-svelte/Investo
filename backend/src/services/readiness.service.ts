@@ -148,8 +148,8 @@ export async function getTenantReadiness(companyId: string): Promise<TenantReadi
       label: 'Password reset email delivery',
       status: isMailConfigured() ? 'pass' : 'warn',
       detail: isMailConfigured()
-        ? 'SMTP configured for forgot-password and invites'
-        : 'SMTP not configured — password reset emails may not send (contact platform admin)',
+        ? 'Email delivery configured for forgot-password and invites'
+        : 'Email not configured — password reset emails may not send (contact platform admin)',
     },
   ];
 

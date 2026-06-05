@@ -1,5 +1,9 @@
-import config from '../config';
 import { emailService } from './email.service';
+import {
+  getMailNotConfiguredDetail,
+  getMailTransportLabel,
+  isMailConfigured,
+} from './mailConfig.service';
 
 export interface MailServiceHealth {
   status: 'ok' | 'warn' | 'down';
@@ -7,16 +11,14 @@ export interface MailServiceHealth {
   detail: string;
 }
 
-export function isMailConfigured(): boolean {
-  return Boolean(config.mail.smtp.host?.trim() && config.mail.from?.trim());
-}
+export { isMailConfigured };
 
 export async function getMailServiceHealth(): Promise<MailServiceHealth> {
   if (!isMailConfigured()) {
     return {
       status: 'warn',
       configured: false,
-      detail: 'SMTP_HOST and MAIL_FROM are required for password reset and invite emails.',
+      detail: getMailNotConfiguredDetail(),
     };
   }
 
@@ -25,13 +27,13 @@ export async function getMailServiceHealth(): Promise<MailServiceHealth> {
     return {
       status: 'ok',
       configured: true,
-      detail: verified.detail,
+      detail: `${getMailTransportLabel()}: ${verified.detail}`,
     };
   }
 
   return {
     status: 'down',
     configured: true,
-    detail: verified.detail,
+    detail: `${getMailTransportLabel()}: ${verified.detail}`,
   };
 }
