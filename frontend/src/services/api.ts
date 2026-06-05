@@ -86,6 +86,8 @@ export const isTransientAuthError = (error: unknown): boolean => {
 // Axios instance
 // ──────────────────────────────────────────────
 
+const PRODUCTION_API_URL = 'https://investo-backend-production.up.railway.app/api';
+
 const getApiBaseUrl = (): string => {
   const envApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
 
@@ -102,12 +104,12 @@ const getApiBaseUrl = (): string => {
     if (prodApi?.trim()) {
       return prodApi.trim().replace(/\/$/, '').replace(/\/api$/, '/api');
     }
-    if (hostname === 'biginvesto.online' || hostname === 'www.biginvesto.online') {
-      return 'https://investo-backend-v2.onrender.com/api';
-    }
   }
 
-  return 'https://investo-backend-v2.onrender.com/api';
+  // Production fallback — Railway backend URL.
+  // If this URL ever changes, update VITE_API_URL in the build environment
+  // rather than changing this constant (Rule 23: config is not code).
+  return PRODUCTION_API_URL;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;

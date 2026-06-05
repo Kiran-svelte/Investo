@@ -6,8 +6,12 @@ let client: SESClient | null = null;
 
 function getSesClient(): SESClient {
   if (!client) {
+    // Use dedicated MAIL_AWS_REGION if set, else fall back to the storage region.
+    // SES and S3 can be in different regions; prefer an explicit override.
+    // TODO(agent): verify — add MAIL_AWS_REGION to Railway env vars if SES is in a different region than S3.
+    const sesRegion = process.env.MAIL_AWS_REGION || config.storage.awsRegion || 'eu-north-1';
     client = new SESClient({
-      region: config.storage.awsRegion,
+      region: sesRegion,
       credentials: {
         accessKeyId: config.storage.awsAccessKeyId,
         secretAccessKey: config.storage.awsSecretAccessKey,

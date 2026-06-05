@@ -46,7 +46,7 @@ const getSocketUrl = (): string => {
   if (prodApi?.trim()) {
     return prodApi.trim().replace(/\/api\/?$/, '');
   }
-  return 'https://investo-backend-v2.onrender.com';
+  return 'https://investo-backend-production.up.railway.app';
 };
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

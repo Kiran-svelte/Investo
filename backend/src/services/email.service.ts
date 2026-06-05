@@ -172,6 +172,27 @@ export class EmailService {
     }
   }
 
+  /**
+   * Unified send dispatcher: routes to SES API or SMTP based on MAIL_TRANSPORT.
+   * All send methods MUST call this — never call sendWithRetry directly.
+   *
+   * @param mail - The email to send
+   * @throws Error if the send fails after retries
+   */
+  private async sendEmail(mail: {
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+  }): Promise<void> {
+    if (config.mail.transport === 'ses-api') {
+      await sendSesEmail({ to: mail.to, subject: mail.subject, text: mail.text, html: mail.html });
+    } else {
+      await this.sendWithRetry(mail);
+    }
+  }
+
   private async sendWithRetry(mail: {
     from: string;
     to: string;
@@ -235,7 +256,7 @@ export class EmailService {
       <p>If you did not request this, you can ignore this email.</p>
     `;
 
-    await this.sendWithRetry({
+    await this.sendEmail({
       from: config.mail.from,
       to: params.toEmail,
       subject,
@@ -280,7 +301,7 @@ export class EmailService {
       <p>Complete the 6-step onboarding wizard after login.</p>
     `;
 
-    await this.sendWithRetry({
+    await this.sendEmail({
       from: config.mail.from,
       to: params.toEmail,
       subject,
@@ -307,7 +328,7 @@ export class EmailService {
     const text = `Hi ${greetingName},\n\n${params.bodyText}`;
     const html = `<p>Hi ${escapeHtml(greetingName)},</p><p>${escapeHtml(params.bodyText).replace(/\n/g, '<br>')}</p>`;
 
-    await this.sendWithRetry({
+    await this.sendEmail({
       from: config.mail.from,
       to: params.toEmail,
       subject: params.subject,
