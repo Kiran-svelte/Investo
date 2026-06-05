@@ -1,4 +1,5 @@
 import prisma from '../config/prisma';
+import { Prisma } from '@prisma/client';
 import config from '../config';
 import logger from '../config/logger';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
@@ -1813,14 +1814,7 @@ export class WhatsAppService {
       stageReset: isStuckEscalated,
     });
 
-    const updateData: {
-      status: string;
-      aiEnabled: boolean;
-      stage?: string;
-      stageEnteredAt?: Date;
-      stageMessageCount?: number;
-      escalationReason?: null;
-    } = {
+    const updateData: Prisma.ConversationUpdateInput = {
       status: 'ai_active',
       aiEnabled: true,
     };
