@@ -139,6 +139,10 @@ class NotificationEngine {
         const agent = await prisma_1.default.user.findUnique({ where: { id: agentId } });
         if (!agent)
             return;
+        // DB in-app notification only.
+        // The WhatsApp push is handled by the notifyAgent workflow step or
+        // notifyAgentOfNewLead in leadAssignment.service.ts — not here — to
+        // avoid duplicate messages.
         await this.notify({
             companyId: lead.companyId,
             userId: agentId,
@@ -147,23 +151,6 @@ class NotificationEngine {
             message: `You have been assigned a new lead: ${lead.customerName || lead.phone}`,
             data: { leadId: lead.id },
         });
-        // Send WhatsApp so the agent is notified immediately, not just in-app.
-        // Uses dynamic import to avoid circular dependency with whatsapp.service.
-        if (agent?.phone) {
-            const { notifyAgentOfNewLead } = await Promise.resolve().then(() => __importStar(require('./leadAssignment.service')));
-            void notifyAgentOfNewLead(agentId, lead.id, lead.companyId);
-        }
-        else {
-            // agent.phone may be missing if caller passed a partial record; fetch it
-            const fullAgent = await prisma_1.default.user.findUnique({
-                where: { id: agentId },
-                select: { phone: true },
-            });
-            if (fullAgent?.phone) {
-                const { notifyAgentOfNewLead } = await Promise.resolve().then(() => __importStar(require('./leadAssignment.service')));
-                void notifyAgentOfNewLead(agentId, lead.id, lead.companyId);
-            }
-        }
     }
     /**
      * Notify when lead is reassigned (old agent loses it, new agent gets it).
@@ -408,8 +395,15 @@ class NotificationEngine {
     /**
      * Notify when visit is rescheduled.
      */
-    async onVisitRescheduled(visit, oldTime, newTime, lead, company) {
+    async onVisitRescheduled(visit, oldTime, newTime, lead, company, 
+    /**
+     * When true, skip the WhatsApp message to the customer.
+     * Set this for buyer-initiated reschedules: the main handler
+     * (whatsapp.service.ts visitCommit path) already sends the reply.
+     */
+    suppressCustomerNotification = false) {
         const oldTimeStr = oldTime.toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
             weekday: 'short',
             day: 'numeric',
             month: 'short',
@@ -417,35 +411,95 @@ class NotificationEngine {
             minute: '2-digit',
         });
         const newTimeStr = newTime.toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
             weekday: 'short',
             day: 'numeric',
             month: 'short',
             hour: '2-digit',
             minute: '2-digit',
         });
-        // Notify agent
+        const customerName = lead?.customerName || lead?.phone || 'Customer';
+        const propertyName = visit.property?.name ?? 'Property';
+        // 1. DB notification for the assigned agent
         await this.notify({
             companyId: visit.companyId,
             userId: visit.agentId,
             type: 'visit_rescheduled',
             title: 'Visit Rescheduled',
-            message: `Visit with ${lead?.customerName || lead?.phone} moved from ${oldTimeStr} to ${newTimeStr}`,
+            message: `Visit with ${customerName} moved from ${oldTimeStr} to ${newTimeStr}`,
             data: { visitId: visit.id, oldTime: oldTime.toISOString(), newTime: newTime.toISOString() },
         });
-        // Send WhatsApp to customer
-        if (lead?.phone) {
+        // 2. WhatsApp to the assigned agent — critical for real-time awareness.
+        //    The agent must know immediately, not wait for their next dashboard login.
+        const agentRecord = await prisma_1.default.user.findUnique({
+            where: { id: visit.agentId },
+            select: { phone: true, name: true },
+        });
+        if (agentRecord?.phone) {
+            const agentMsg = [
+                `📅 *Visit Rescheduled*`,
+                ``,
+                `Customer: *${customerName}*`,
+                `Property: *${propertyName}*`,
+                ``,
+                `❌ Was: *${oldTimeStr}*`,
+                `✅ Now: *${newTimeStr}*`,
+                ``,
+                `Please confirm your availability for the new time.`,
+            ].join('\n');
+            void sendWhatsAppToUser(agentRecord.phone, visit.companyId, agentMsg);
+            // Update agent session context so the copilot knows about this visit
+            void Promise.resolve().then(() => __importStar(require('./clientMemory.service'))).then(({ setAgentSessionClientContext }) => {
+                void setAgentSessionClientContext({
+                    userId: visit.agentId,
+                    phone: agentRecord.phone,
+                    leadId: visit.leadId,
+                    visitId: visit.id,
+                });
+            });
+        }
+        // 3. DB + WhatsApp to company admins (same pattern as onVisitScheduled)
+        const admins = await prisma_1.default.user.findMany({
+            where: { companyId: visit.companyId, role: 'company_admin', status: 'active' },
+            select: { id: true, phone: true },
+        });
+        for (const admin of admins) {
+            if (admin.id === visit.agentId)
+                continue; // agent already notified above
+            await this.notify({
+                companyId: visit.companyId,
+                userId: admin.id,
+                type: 'visit_rescheduled',
+                title: 'Visit Rescheduled',
+                message: `${customerName} rescheduled from ${oldTimeStr} to ${newTimeStr}`,
+                data: { visitId: visit.id },
+            });
+            if (admin.phone) {
+                const adminMsg = [
+                    `📅 *Visit Rescheduled*`,
+                    `Customer: *${customerName}*`,
+                    `Property: *${propertyName}*`,
+                    `❌ Was: *${oldTimeStr}*`,
+                    `✅ Now: *${newTimeStr}*`,
+                ].join('\n');
+                void sendWhatsAppToUser(admin.phone, visit.companyId, adminMsg);
+            }
+        }
+        // 4. WhatsApp to the customer — confirmation of the reschedule.
+        // Skip when suppressCustomerNotification=true (buyer-initiated reschedule:
+        // the main handler already sent visitCommit.customerReply as the primary reply).
+        if (!suppressCustomerNotification && lead?.phone) {
             const whatsappConfig = getCompanyWhatsAppConfig(company);
             if (!whatsappConfig.isCompanyConfigured ||
                 (whatsappConfig.provider === 'meta'
                     ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
                     : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)) {
-                logger_1.default.debug('Skipping WhatsApp reschedule notification (company not configured)', {
+                logger_1.default.debug('Skipping customer WhatsApp reschedule notification (company not configured)', {
                     companyId: visit.companyId,
                     visitId: visit.id,
                 });
                 return;
             }
-            const customerName = lead.customerName || 'there';
             const whatsappMsg = `Hi ${customerName}! 📅\n\nYour property visit has been *rescheduled*.\n\n❌ Old: ${oldTimeStr}\n✅ New: ${newTimeStr}\n\nPlease reply YES to confirm the new time.`;
             try {
                 const { whatsappService } = await Promise.resolve().then(() => __importStar(require('./whatsapp.service')));
@@ -458,14 +512,14 @@ class NotificationEngine {
                     apiTokenInstance: whatsappConfig.apiTokenInstance,
                 });
                 if (!sent) {
-                    logger_1.default.warn('Failed to send WhatsApp reschedule notification', {
+                    logger_1.default.warn('Failed to send WhatsApp reschedule notification to customer', {
                         companyId: visit.companyId,
                         visitId: visit.id,
                     });
                 }
             }
             catch (err) {
-                logger_1.default.warn('Failed to send reschedule WhatsApp', { error: err.message });
+                logger_1.default.warn('Failed to send reschedule WhatsApp to customer', { error: err.message });
             }
         }
     }

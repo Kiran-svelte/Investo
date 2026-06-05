@@ -70,6 +70,9 @@ exports.CRON_SCHEDULES = {
     MONTHLY_ADMIN_REPORT: '30 3 1 * *',
     /** Purge AgentActionLog entries older than 90 days — nightly at 2:00 AM IST = 20:30 UTC */
     ACTION_LOG_PURGE: '30 20 * * *',
+    /** EOD attendance check — 7:00 PM IST = 13:30 UTC Mon-Sat.
+     *  Asks agents "Did the customer show up?" (YES/NO) for unresolved today-visits. */
+    EOD_ATTENDANCE_CHECK: '30 13 * * 1-6',
 };
 // ─── Emoji Maps ─────────────────────────────────────────────────────
 /** Emoji indicators for visit statuses */

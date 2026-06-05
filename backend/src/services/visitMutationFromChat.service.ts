@@ -18,6 +18,13 @@ export interface VisitMutationFromChatInput {
   leadId?: string;
   /** Agent copilot: sales-agent / company scope filter */
   visitScope?: Record<string, unknown>;
+  /**
+   * When true, skips the WhatsApp confirmation sent to the customer by
+   * notificationEngine.onVisitRescheduled(). Set this when the customer
+   * themselves triggered the reschedule — the main handler already sends
+   * the visitCommit.customerReply, so a second notification is a duplicate.
+   */
+  suppressCustomerNotification?: boolean;
 }
 
 export interface VisitMutationFromChatResult {
@@ -258,6 +265,10 @@ export async function applyVisitMutationFromChat(
         newScheduledAt,
         visit.lead,
         company,
+        // Suppress the duplicate customer WhatsApp when the customer themselves
+        // triggered the reschedule — the caller (whatsapp.service.ts) already
+        // sends visitCommit.customerReply as the primary response.
+        Boolean(input.suppressCustomerNotification),
       );
     }
   } catch (err: unknown) {

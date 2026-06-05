@@ -149,6 +149,10 @@ export async function tryCustomerVisitCancelReschedule(
     companyId: input.companyId,
     message: input.customerMessage,
     leadId: input.lead.id,
+    // Customer initiated this reschedule via WhatsApp. The main handler sends
+    // visitCommit.customerReply as the primary response. Suppress the duplicate
+    // WhatsApp confirmation that notificationEngine.onVisitRescheduled would otherwise send.
+    suppressCustomerNotification: true,
   });
   if (!mutation.handled) return { committed: false };
   return {
@@ -248,6 +252,8 @@ export async function tryCommitCustomerVisitBooking(
         companyId,
         message: customerMessage,
         leadId: lead.id,
+        // Customer initiated this reschedule via WhatsApp — suppress duplicate notification.
+        suppressCustomerNotification: true,
       });
       if (mutation.handled && mutation.reply) {
         return {

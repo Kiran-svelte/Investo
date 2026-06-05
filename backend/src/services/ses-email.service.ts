@@ -36,8 +36,9 @@ export async function verifySesApi(): Promise<{ ok: boolean; detail: string }> {
   try {
     const res = await getSesClient().send(new GetAccountSendingEnabledCommand({}));
     const enabled = res.Enabled === true;
+    const sesRegion = process.env.MAIL_AWS_REGION || config.storage.awsRegion || 'eu-north-1';
     return enabled
-      ? { ok: true, detail: `SES API ready (${config.storage.awsRegion}).` }
+      ? { ok: true, detail: `ready (${sesRegion}).` }
       : { ok: false, detail: 'SES sending is disabled for this AWS account.' };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

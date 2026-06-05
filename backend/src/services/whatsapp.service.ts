@@ -1,4 +1,5 @@
 import prisma from '../config/prisma';
+import { Prisma } from '@prisma/client';
 import config from '../config';
 import logger from '../config/logger';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
@@ -46,6 +47,11 @@ import {
   isVisitCancelOrRescheduleMessage,
   isVisitSchedulingMessage,
 } from './visitIntentFromMessage.service';
+import {
+  buildBuyerVisitStatusReply,
+  isBuyerVisitStatusQuery,
+} from './buyerVisitQuery.service';
+import { formatCustomerSalutation } from './customerMessageFastPath.service';
 import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
 
 import {
@@ -65,6 +71,31 @@ import {
   MicroCommitments,
   NextBestAction,
 } from './conversationStateMachine';
+
+/**
+ * Safely deserializes the `commitments` JSONB field from Prisma.
+ * Never use a bare type cast here — old DB rows may be missing fields
+ * added in later migrations (e.g., `visitSlotDiscussed` added after launch).
+ * Missing fields are filled with safe boolean `false` defaults.
+ *
+ * @param raw - Raw Prisma JsonValue from the conversation row
+ * @returns A fully populated MicroCommitments object
+ */
+function safeParseCommitments(raw: unknown): MicroCommitments {
+  const defaults = conversationStateManager.createInitialState().commitments;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  const r = raw as Record<string, unknown>;
+  return {
+    budgetConfirmed:       typeof r.budgetConfirmed === 'boolean'       ? r.budgetConfirmed       : defaults.budgetConfirmed,
+    locationConfirmed:     typeof r.locationConfirmed === 'boolean'     ? r.locationConfirmed     : defaults.locationConfirmed,
+    propertyTypeConfirmed: typeof r.propertyTypeConfirmed === 'boolean' ? r.propertyTypeConfirmed : defaults.propertyTypeConfirmed,
+    timelineConfirmed:     typeof r.timelineConfirmed === 'boolean'     ? r.timelineConfirmed     : defaults.timelineConfirmed,
+    propertyInterestShown: typeof r.propertyInterestShown === 'boolean' ? r.propertyInterestShown : defaults.propertyInterestShown,
+    visitSlotDiscussed:    typeof r.visitSlotDiscussed === 'boolean'    ? r.visitSlotDiscussed    : defaults.visitSlotDiscussed,
+    visitSlotConfirmed:    typeof r.visitSlotConfirmed === 'boolean'    ? r.visitSlotConfirmed    : defaults.visitSlotConfirmed,
+    contactInfoShared:     typeof r.contactInfoShared === 'boolean'     ? r.contactInfoShared     : defaults.contactInfoShared,
+  };
+}
 
 interface IncomingMessage {
   /** Which inbound webhook delivered this message. Defaults to 'meta' for backward compatibility. */
@@ -796,18 +827,23 @@ export class WhatsAppService {
       })) ?? null;
 
     if (!lead) {
-      const leads = await prisma.lead.findMany({
-        where: { companyId },
-        select: { id: true, phone: true },
-        take: 500,
-        orderBy: { updatedAt: 'desc' },
-      });
-      const matched = leads.find((row) => phonesMatchLast10(row.phone, customerPhone));
-      if (matched) {
-        lead = await prisma.lead.findUnique({ where: { id: matched.id } });
-        if (lead && lead.phone !== customerPhone) {
-          await prisma.lead.update({ where: { id: lead.id }, data: { phone: customerPhone } });
-          lead = { ...lead, phone: customerPhone };
+      // P0-2: Efficient DB-level phone matching instead of O(n) in-process scan.
+      // Extracts last 10 digits for flexible phone format matching (e.g. +91XXXXXXXXXX vs XXXXXXXXXX).
+      const last10Digits = customerPhone.replace(/\D/g, '').slice(-10);
+      if (last10Digits) {
+        const matched = await prisma.lead.findFirst({
+          where: {
+            companyId,
+            phone: { endsWith: last10Digits },
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
+        if (matched) {
+          lead = matched;
+          if (lead.phone !== customerPhone) {
+            await prisma.lead.update({ where: { id: lead.id }, data: { phone: customerPhone } });
+            lead = { ...lead, phone: customerPhone };
+          }
         }
       }
     }
@@ -822,18 +858,42 @@ export class WhatsAppService {
         metadata: { source_detail: sourceDetail },
       });
 
-      lead = await prisma.lead.create({
-        data: {
+      try {
+        // P0-2: Use upsert with unique(companyId, phone) to handle concurrent webhook retries.
+        // If two simultaneous webhooks from the same new phone both reach here, the second
+        // upsert is a no-op (the unique constraint ensures only one lead is created).
+        lead = await prisma.lead.upsert({
+          where: {
+            companyId_phone: { companyId, phone: customerPhone },
+          },
+          create: {
+            companyId,
+            customerName: msg.customerName || null,
+            phone: customerPhone,
+            source: 'whatsapp',
+            status: 'new',
+            assignedAgentId: agentId,
+            language: 'en',
+            metadata: { source_detail: sourceDetail },
+          },
+          update: {
+            // On conflict: update last contact time only — don't overwrite agent assignment
+            lastContactAt: new Date(),
+          },
+        });
+      } catch (upsertErr: unknown) {
+        // If upsert fails (shouldn't happen with unique constraint), fetch the existing lead
+        logger.error('Lead upsert failed, fetching existing lead', {
+          error: upsertErr instanceof Error ? upsertErr.message : String(upsertErr),
+          customerPhone: maskPhoneNumberForLogs(customerPhone),
           companyId,
-          customerName: msg.customerName || null,
-          phone: customerPhone,
-          source: 'whatsapp',
-          status: 'new',
-          assignedAgentId: agentId,
-          language: 'en',
-          metadata: { source_detail: sourceDetail },
-        },
-      });
+        });
+        const existingLead = await prisma.lead.findFirst({
+          where: { companyId, phone: customerPhone },
+        });
+        if (!existingLead) throw upsertErr;
+        lead = existingLead;
+      }
 
       // Notify company admin about new lead
       await prisma.notification.create({
@@ -909,15 +969,18 @@ export class WhatsAppService {
       });
     }
 
-    // Reconstruct conversation state from DB
+    // Reconstruct conversation state from DB.
+    // IMPORTANT: Prisma returns JSONB as `JsonValue`. Never use `as unknown as Type` here —
+    // that performs zero runtime validation. Old DB rows may be missing fields added in later
+    // migrations (e.g., visitSlotDiscussed). safeParseCommitments fills in safe defaults.
     const conversationState: ConversationState = {
       stage: (conversation.stage as ConversationStage) || 'rapport',
       previousStage: null,
       stageEnteredAt: conversation.stageEnteredAt || new Date(),
       messageCount: conversation.stageMessageCount || 0,
-      commitments: (conversation.commitments as unknown as MicroCommitments) || conversationStateManager.createInitialState().commitments,
+      commitments: safeParseCommitments(conversation.commitments),
       objectionCount: conversation.objectionCount || 0,
-      lastObjectionType: (conversation.lastObjectionType as any) || null,
+      lastObjectionType: (conversation.lastObjectionType as import('./conversationStateMachine').ObjectionType | null) || null,
       consecutiveObjections: conversation.consecutiveObjections || 0,
       urgencyScore: conversation.urgencyScore || 5,
       valueScore: conversation.valueScore || 5,
@@ -927,16 +990,63 @@ export class WhatsAppService {
       proposedVisitTime: conversation.proposedVisitTime || null,
     };
 
-    // 3. Store incoming message
-    await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        senderType: 'customer',
-        content: msg.messageText,
-        whatsappMessageId: msg.messageId,
-        status: 'delivered',
-      },
-    });
+    // 3. Webhook deduplication: Meta's WhatsApp Cloud API guarantees at-least-once delivery
+    // and retries webhooks that don't receive a fast 200. Without this guard, the same
+    // messageId can be processed 2–3 times concurrently, each sending a separate AI reply.
+    // P0-1: Rely on the @@unique([whatsappMessageId]) DB constraint instead of findFirst+create
+    // (which has a TOCTOU race). We attempt the insert and catch the P2002 conflict error.
+    if (msg.messageId) {
+      const existingMessage = await prisma.message.findFirst({
+        where: { whatsappMessageId: msg.messageId },
+        select: { id: true },
+      });
+      if (existingMessage) {
+        logger.info('Skipping duplicate webhook message', {
+          whatsappMessageId: msg.messageId,
+          existingMessageId: existingMessage.id,
+        });
+        return {
+          status: 'skipped',
+          companyId,
+          leadId: lead.id,
+          conversationId: conversation?.id,
+          propagation: null,
+        };
+      }
+    }
+
+    // Store incoming message — P0-1: If the @@unique constraint fires (concurrent retry),
+    // catch P2002 and skip processing rather than sending a duplicate AI response.
+    try {
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: 'customer',
+          content: msg.messageText,
+          whatsappMessageId: msg.messageId,
+          status: 'delivered',
+        },
+      });
+    } catch (createErr: unknown) {
+      const isPrismaUniqueViolation =
+        createErr instanceof Error &&
+        'code' in createErr &&
+        (createErr as NodeJS.ErrnoException & { code?: string }).code === 'P2002';
+      if (isPrismaUniqueViolation && msg.messageId) {
+        logger.info('Duplicate whatsappMessageId blocked by unique constraint — skipping', {
+          whatsappMessageId: msg.messageId,
+          conversationId: conversation.id,
+        });
+        return {
+          status: 'skipped',
+          companyId,
+          leadId: lead.id,
+          conversationId: conversation.id,
+          propagation: null,
+        };
+      }
+      throw createErr;
+    }
 
     // Update last contact
     await prisma.lead.update({
@@ -1097,6 +1207,34 @@ export class WhatsAppService {
     const aiReady = await this.ensureProspectConversationAiActive(conversation);
     conversation = { ...conversation, status: aiReady.status as typeof conversation.status, aiEnabled: aiReady.aiEnabled };
 
+    // CRITICAL: If the stage was 'human_escalated' and we just reset it to 'rapport' in the DB,
+    // we must also reset the in-memory conversationState — it was built before the DB update.
+    // Without this, the AI still sees stage='human_escalated' this turn and generates
+    // "A human specialist will assist you" again, which is the bug we are fixing.
+    if (conversationState.stage === 'human_escalated') {
+      const resetState = conversationStateManager.createInitialState();
+      // Preserve any commitments already collected — don't wipe their budget/location data.
+      Object.assign(conversationState, {
+        stage: 'rapport' as ConversationStage,
+        previousStage: 'human_escalated' as ConversationStage,
+        stageEnteredAt: new Date(),
+        messageCount: 0,
+        consecutiveObjections: 0,
+        escalationReason: null,
+        commitments: resetState.commitments,
+      });
+      logger.info('In-memory conversationState reset from human_escalated to rapport', {
+        conversationId: conversation.id,
+      });
+    }
+
+
+    // Pre-capture a lightweight fallback context for the error handler.
+    // liveCtx is declared inside the try block below; if the LLM call throws,
+    // we need a safe snapshot here so the catch block can send a contextual reply
+    // instead of the generic "I'm having a little trouble connecting" message.
+    let preFetchedActiveVisitName: string | null = null;
+
     if (conversation.status === 'ai_active' && conversation.aiEnabled) {
       try {
         const history = await prisma.message.findMany({
@@ -1116,6 +1254,8 @@ export class WhatsAppService {
         // Direct DB read — not the eventual-consistent vector store.
         const { getLiveLeadContext } = await import('./liveLeadContext.service');
         const liveCtx = await getLiveLeadContext(lead.id, companyId);
+        // Capture visit name for the outer catch block fallback before we go deeper.
+        preFetchedActiveVisitName = liveCtx.activeVisit?.propertyName ?? null;
 
         const visitCommit = await tryCommitCustomerVisitBooking({
           companyId,
@@ -1137,6 +1277,7 @@ export class WhatsAppService {
         });
 
         // Only run buyer workflow when visit fast-path did not already mutate state.
+        // Running both causes a double-write race (fast-path saves correct time, workflow overwrites with stale params).
         let buyerWorkflowReply: string | null | undefined;
         if (!visitCommit.committed) {
           const { classifyAndRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
@@ -1264,6 +1405,59 @@ export class WhatsAppService {
           };
         }
 
+        // Deterministic visit-status replies — no LLM, no escalation (ai.md §3 & §5).
+        if (isBuyerVisitStatusQuery(msg.messageText)) {
+          const visitReply = await buildBuyerVisitStatusReply({
+            leadId: lead.id,
+            companyId,
+            companyName: company.name,
+          });
+
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderType: 'ai',
+              content: visitReply,
+              status: 'sent',
+            },
+          });
+          await this.sendMessage(customerPhone, visitReply, whatsappConfig!);
+
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              stage: 'confirmation',
+              escalationReason: null,
+            },
+          });
+
+          await this.sendContextualQuickReplies(
+            customerPhone,
+            'confirmation',
+            {
+              propertyId: conversation.selectedPropertyId,
+              hasActiveVisit: Boolean(liveCtx.activeVisit),
+              visitStatus: liveCtx.activeVisit?.status,
+              visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+              visitTime: liveCtx.activeVisit
+                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+                  })
+                : undefined,
+            },
+            whatsappConfig!,
+          );
+
+          return {
+            status: 'processed',
+            companyId,
+            leadId: lead.id,
+            conversationId: conversation.id,
+            propagation,
+          };
+        }
+
         const aiSettings = await prisma.aiSetting.findUnique({
           where: { companyId },
         });
@@ -1337,6 +1531,12 @@ export class WhatsAppService {
             } else if (mutation.mode === 'rescheduled' && mutation.scheduledAt) {
               visitMutationRecentAction = 'rescheduled';
             }
+          } else if (!visitCommit.committed && liveCtx.activeVisit) {
+            const { formatDateIST } = await import('./agent/tools/format-helpers');
+            outboundCandidate =
+              `I found your visit for *${liveCtx.activeVisit.propertyName ?? 'your property'}* ` +
+              `on ${formatDateIST(new Date(liveCtx.activeVisit.scheduledAt))}. ` +
+              `What date and time should we move it to? (e.g. "this Saturday 11am") \ud83d\udcc5`;
           }
         }
 
@@ -1362,10 +1562,17 @@ export class WhatsAppService {
           companyName: company.name,
         });
         let outboundText = polished.text;
+        // Empty-outbound fallback: use a context-aware message instead of the generic
+        // onboarding prompt ("Please share your area, budget...") which resets context mid-conversation.
         if (!outboundText.trim()) {
-          outboundText =
-            `Thanks for messaging *${company.name}*! I'm your property assistant.\n\n` +
-            `Please share your *area*, *budget*, and *property type* so I can help.`;
+          if (liveCtx.activeVisit) {
+            // Customer has an active visit — acknowledge without resetting context
+            outboundText = `I'm looking into your visit details, one moment\u2026 \uD83D\uDD0D`;
+          } else if (isVisitCancelOrRescheduleMessage(msg.messageText)) {
+            outboundText = `I couldn't find an upcoming visit to change. Would you like to book a new visit? \uD83D\uDCC5`;
+          } else {
+            outboundText = `Sorry, I had a brief issue. Could you repeat that? \uD83D\uDE4F`;
+          }
         }
 
         const { deliverBrochuresForAiTurn } = await import('./brochureDelivery.service');
@@ -1461,24 +1668,31 @@ export class WhatsAppService {
                 },
               },
             });
-          }
 
-          // Follow-up with operator contact when configured
-          if (newState.stage === 'human_escalated' && aiSettings) {
-            const operatorLine = formatOperatorHandoffLine(aiSettings.operatorContact);
-            if (operatorLine) {
-              await prisma.message.create({
-                data: {
-                  conversationId: conversation.id,
-                  senderType: 'ai',
-                  content: operatorLine,
-                  language: aiResponse.detectedLanguage,
-                  status: 'sent',
-                },
-              });
-              await this.sendMessage(customerPhone, operatorLine, whatsappConfig!);
+            // Also notify the agent via WhatsApp immediately — a DB notification alone
+            // is invisible until the agent opens the dashboard. Agents need real-time awareness.
+            const agentRecord = await prisma.user.findUnique({
+              where: { id: lead.assignedAgentId },
+              select: { phone: true, name: true },
+            });
+            if (agentRecord?.phone) {
+              const escalationAlert = [
+                `🚨 *Escalation Alert — Action Required*`,
+                ``,
+                `Customer: *${lead.customerName ?? lead.phone}*`,
+                `Phone: ${lead.phone}`,
+                `Reason: ${newState.escalationReason ?? 'Customer requested human agent'}`,
+                ``,
+                `Reply to this number or call the customer directly.`,
+              ].join('\n');
+              void this.sendCompanyTextMessage(agentRecord.phone, escalationAlert, companyId);
             }
           }
+
+          // Operator contact is embedded directly in the LLM response via the
+          // operatorContactPromptBlock in buildGoalDirectedPrompt() (action === 'escalate').
+          // Do NOT send a separate message here — that caused a double WhatsApp message
+          // (AI text + operator line) on every escalation event.
         }
 
         // Update lead language if detected
@@ -1563,7 +1777,12 @@ export class WhatsAppService {
             aiResponse.newState &&
               this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction),
           );
-        const recentAction: QuickReplyRecentAction | undefined = visitMutationRecentAction;
+        const recentAction: QuickReplyRecentAction | undefined =
+          visitCommit.committed && visitCommit.mode === 'cancelled'
+            ? 'cancelled'
+            : visitCommit.committed && (visitCommit.mode === 'rescheduled' || visitCommit.mode === 'scheduled')
+              ? 'rescheduled'
+              : visitMutationRecentAction;
         if (
           aiResponse.newState?.stage &&
           shouldAttachContextualQuickReplies({
@@ -1601,17 +1820,47 @@ export class WhatsAppService {
           conversationId: conversation.id,
           language: aiResponse.detectedLanguage,
         });
-      } catch (err: any) {
-        logger.error('AI response generation failed', { error: err.message });
-        const fallbackText =
-          `Hi! Thanks for messaging *${company.name}*. I'm here to help you find the right property.\n\n` +
-          `Could you share your preferred *area*, *budget*, and *BHK*? I'll suggest options from our listings.`;
+      } catch (err: unknown) {
+        logger.error('AI response generation failed', {
+          error: err instanceof Error ? err.message : String(err),
+          conversationId: conversation.id,
+          stage: conversationState.stage,
+        });
+        // Build a context-aware fallback — never a generic "I'm having a little trouble"
+        // that resets the conversation or ignores that the customer has an active visit.
+        let fallbackText: string;
+        if (isBuyerVisitStatusQuery(msg.messageText)) {
+          fallbackText = await buildBuyerVisitStatusReply({
+            leadId: lead.id,
+            companyId,
+            companyName: company.name,
+          });
+        } else {
+          fallbackText = buildAiFallbackMessage({
+            customerName: lead.customerName,
+            activeVisitPropertyName: preFetchedActiveVisitName,
+            isVisitQuery: isVisitCancelOrRescheduleMessage(msg.messageText)
+              || isBuyerVisitStatusQuery(msg.messageText)
+              || /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
+          });
+        }
         try {
           await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
-        } catch (sendErr: any) {
-          logger.error('Failed to send AI fallback WhatsApp message', { error: sendErr?.message });
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderType: 'ai',
+              content: fallbackText,
+              status: 'sent',
+            },
+          });
+        } catch (sendErr: unknown) {
+          logger.error('Failed to send AI fallback WhatsApp message', {
+            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+          });
         }
       }
+
     } else {
       // Human takeover in CRM — still reply on WhatsApp so unknown prospects are never left silent
       const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId } });
@@ -1670,13 +1919,22 @@ export class WhatsAppService {
   /**
    * Prospects (any phone not registered as company staff) must get AI replies.
    * Re-enable AI when a customer messages again after agent takeover or manual disable.
+   *
+   * CRITICAL FIX: If stage is 'human_escalated', reset it to 'rapport' so the AI
+   * does not permanently output "A human specialist will assist you" on every turn.
+   * A customer messaging again after escalation is re-engaging — treat them as re-entering
+   * the funnel, not as still escalated.
    */
   private async ensureProspectConversationAiActive(conversation: {
     id: string;
     status: string;
     aiEnabled: boolean;
+    stage?: string | null;
   }): Promise<{ status: string; aiEnabled: boolean }> {
-    if (conversation.status === 'ai_active' && conversation.aiEnabled) {
+    const isAlreadyActive = conversation.status === 'ai_active' && conversation.aiEnabled;
+    const isStuckEscalated = conversation.stage === 'human_escalated';
+
+    if (isAlreadyActive && !isStuckEscalated) {
       return { status: conversation.status, aiEnabled: conversation.aiEnabled };
     }
 
@@ -1684,14 +1942,27 @@ export class WhatsAppService {
       conversationId: conversation.id,
       previousStatus: conversation.status,
       previousAiEnabled: conversation.aiEnabled,
+      previousStage: conversation.stage,
+      stageReset: isStuckEscalated,
     });
+
+    const updateData: Prisma.ConversationUpdateInput = {
+      status: 'ai_active',
+      aiEnabled: true,
+    };
+
+    // Reset stage when stuck in human_escalated so conversation resumes naturally.
+    // The customer is re-engaging — do not force them through another escalation message.
+    if (isStuckEscalated) {
+      updateData.stage = 'rapport';
+      updateData.stageEnteredAt = new Date();
+      updateData.stageMessageCount = 0;
+      updateData.escalationReason = null;
+    }
 
     const updated = await prisma.conversation.update({
       where: { id: conversation.id },
-      data: {
-        status: 'ai_active',
-        aiEnabled: true,
-      },
+      data: updateData,
       select: { status: true, aiEnabled: true },
     });
 
@@ -2286,11 +2557,21 @@ export class WhatsAppService {
     footerText: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    // P1-7: GreenAPI fallback — send numbered text menu when Meta list is unsupported.
     if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-      return {
-        success: false,
-        error: "Not supported: interactive sends require WHATSAPP_PROVIDER='meta'",
-      };
+      const allRows = sections.flatMap((s) => s.rows);
+      if (allRows.length === 0) {
+        return { success: false, error: 'No rows to display in list fallback' };
+      }
+      const numberedList = allRows
+        .slice(0, 10)
+        .map((row, idx) => `${idx + 1}. *${row.title}*${row.description ? `\n   ${row.description}` : ''}`)
+        .join('\n');
+      const fallbackText = `${bodyText}\n\n${numberedList}\n\n_Reply with the number of your choice._`;
+      const sent = await this.sendMessage(to, fallbackText, whatsappConfig);
+      return sent
+        ? { success: true }
+        : { success: false, error: 'GreenAPI text fallback for list message failed' };
     }
 
     const { phoneNumberId, accessToken } = whatsappConfig;
@@ -2561,6 +2842,7 @@ export class WhatsAppService {
       visitProperty?: string;
       /** Formatted visit time string for the button body. */
       visitTime?: string;
+      /** Set when an action just completed — suppresses follow-up buttons for this turn. */
       recentAction?: QuickReplyRecentAction;
     },
     whatsappConfig: CompanyWhatsAppConfig,
@@ -2596,6 +2878,7 @@ export class WhatsAppService {
 
     // ── Visit-management CTAs (overrides stage-based buttons) ─────────────────
     // When the client already has an active visit, NEVER show 'Book Visit'.
+    // Includes visit_booking stage — time-picker slots must not appear when a visit exists.
     const visitStages = ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation', 'visit_booking'];
     if (hasVisit && visitStages.includes(stage)) {
       const visitBody = context.visitProperty
@@ -2603,6 +2886,7 @@ export class WhatsAppService {
         : 'You have an upcoming site visit 🗓️';
 
       if (isConfirmed) {
+        // Visit already confirmed — skip the Confirm button, offer post-confirm actions.
         await this.sendInteractiveButtons(
           to,
           visitBody,
@@ -2618,6 +2902,7 @@ export class WhatsAppService {
         return;
       }
 
+      // Visit scheduled (not yet confirmed) — offer confirm / reschedule / call.
       await this.sendInteractiveButtons(
         to,
         visitBody,
@@ -2635,7 +2920,6 @@ export class WhatsAppService {
 
     // ── Stage-based CTAs (default path — no active visit) ────────────────────
     const STAGE_REPLIES: Partial<Record<string, { body: string; buttons: Array<{ id: string; title: string }> }>> = {
-      // rapport: greeting stage — guide them to share requirements or browse
       rapport: {
         body: 'What are you looking for? 🏡',
         buttons: [
@@ -2668,6 +2952,7 @@ export class WhatsAppService {
           { id: pid ? `location-${pid}` : 'more-info', title: '📍 Show Location' },
         ],
       },
+      // visit_booking: only shown when no active visit exists (guard above handles the hasVisit case)
       visit_booking: {
         body: 'Pick a time that works for you 🗓️',
         buttons: [
@@ -2962,6 +3247,32 @@ export class WhatsAppService {
         whatsappConfig,
       );
 
+      // FIX P2-7: Notify the assigned agent that the customer has confirmed their visit.
+      // Agent notification is best-effort — a failure must never block the customer confirmation flow.
+      if (lead.assignedAgentId) {
+        const agentRecord = await prisma.user.findUnique({
+          where: { id: lead.assignedAgentId },
+          select: { phone: true },
+        });
+        if (agentRecord?.phone) {
+          const agentAlert =
+            `✅ *Visit Confirmed by Customer!*\n\n` +
+            `👤 ${lead.customerName || lead.phone}\n` +
+            `🏠 ${propName}\n` +
+            `📅 ${visitDate}\n\n` +
+            `Please ensure you are available to receive the customer.`;
+          try {
+            await this.sendCompanyTextMessage(agentRecord.phone, agentAlert, company.id);
+          } catch (notifyErr: unknown) {
+            logger.warn('Failed to notify agent of visit confirmation', {
+              agentId: lead.assignedAgentId,
+              visitId: existingVisit.id,
+              error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+            });
+          }
+        }
+      }
+
       logger.info('Visit confirmed via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
       return { handled: true, action: 'visit-confirmed', leadStatus: 'visit_scheduled' };
     }
@@ -2985,10 +3296,21 @@ export class WhatsAppService {
 
       const propertyId = (existingVisit.property as { id?: string })?.id ?? null;
       const propName = (existingVisit.property as { name?: string })?.name ?? 'the property';
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const dayAfter = new Date();
-      dayAfter.setDate(dayAfter.getDate() + 2);
+
+      /**
+       * FIX P1-11: Returns a Date offset by N days from now, constructed in IST so that
+       * button labels reflect the correct calendar date regardless of server timezone.
+       * IST is UTC+5:30 (19 800 seconds ahead of UTC).
+       */
+      const getIstDatePlusDays = (days: number): Date => {
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const nowUtcMs = Date.now();
+        return new Date(nowUtcMs + IST_OFFSET_MS + days * DAY_MS - IST_OFFSET_MS);
+      };
+
+      const tomorrow = getIstDatePlusDays(1);
+      const dayAfter = getIstDatePlusDays(2);
       const formatDate = (d: Date) =>
         d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
 
@@ -3025,9 +3347,10 @@ export class WhatsAppService {
         return { handled: true, action: 'book-visit-no-property' };
       }
 
-      // Look up the property
-      const property = await prisma.property.findUnique({ where: { id: propertyId } });
-      
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      // findUnique without companyId would allow cross-tenant property access.
+      const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
+
       if (!property) {
         await this.sendMessage(
           customerPhone,
@@ -3037,11 +3360,21 @@ export class WhatsAppService {
         return { handled: true, action: 'book-visit-invalid-property' };
       }
 
+      /**
+       * FIX P1-11: Returns a Date offset by N days from now, constructed in IST so that
+       * button labels reflect the correct calendar date regardless of server timezone.
+       * IST is UTC+5:30 (19 800 seconds ahead of UTC).
+       */
+      const getIstDatePlusDaysForBooking = (days: number): Date => {
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const nowUtcMs = Date.now();
+        return new Date(nowUtcMs + IST_OFFSET_MS + days * DAY_MS - IST_OFFSET_MS);
+      };
+
       // Send confirmation with visit scheduling buttons
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const dayAfter = new Date();
-      dayAfter.setDate(dayAfter.getDate() + 2);
+      const tomorrow = getIstDatePlusDaysForBooking(1);
+      const dayAfter = getIstDatePlusDaysForBooking(2);
 
       const formatDate = (d: Date) => d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
 
@@ -3118,7 +3451,11 @@ export class WhatsAppService {
         return { handled: true, action: 'visit-no-agent', leadStatus: 'contacted' };
       }
 
-      const autoConfirm = process.env.WHATSAPP_AUTO_CONFIRM_VISITS !== '0';
+      // P0-4: Read autoConfirmVisits from DB (aiSettings) instead of the previously undocumented
+      // env var WHATSAPP_AUTO_CONFIRM_VISITS that defaulted to TRUE.
+      // New DB field defaults to FALSE \u2014 agents must explicitly enable auto-confirm per company.
+      const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: company.id } });
+      const autoConfirm = aiSettings?.autoConfirmVisits === true;
       if (autoConfirm) {
         const { scheduleVisit } = await import('./visitBooking.service');
         const booking = await scheduleVisit({
@@ -3137,12 +3474,31 @@ export class WhatsAppService {
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
+            timeZone: 'Asia/Kolkata',
           });
           await this.sendMessage(
             customerPhone,
-            `✅ *Visit confirmed!*\n\n📍 *${property?.name || 'Property'}*\n📅 ${when}\n\nOur team will call you about an hour before the visit.`,
+            `✅ *Visit confirmed!*\n\n📍 *${property?.name || 'Property'}*\n📅 ${when} IST\n\nOur team will call you about an hour before the visit.`,
             whatsappConfig,
           );
+
+          // Notify assigned agent immediately via WhatsApp
+          if (agentId) {
+            try {
+              const agentRecord = await prisma.user.findUnique({ where: { id: agentId }, select: { phone: true, name: true } });
+              if (agentRecord?.phone) {
+                const agentMsg = `📅 *New Visit Booked!*\n\n👤 ${lead.customerName || lead.phone}\n🏠 ${property?.name || 'Property'}\n🕐 ${when} IST\n\nCustomer booked via WhatsApp. Please confirm availability.`;
+                void this.sendMessage(agentRecord.phone, agentMsg, whatsappConfig);
+              }
+            } catch (notifyErr: unknown) {
+              logger.warn('Failed to notify agent of auto-confirmed visit', {
+                agentId,
+                visitId: booking.visit.id,
+                error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+              });
+            }
+          }
+
           return {
             handled: true,
             action: 'visit-scheduled',
@@ -3155,6 +3511,7 @@ export class WhatsAppService {
           };
         }
       }
+
 
       const { createVisitApprovalRequest } = await import('./visitPendingApproval.service');
       await createVisitApprovalRequest({
@@ -3226,8 +3583,9 @@ export class WhatsAppService {
         return { handled: false };
       }
 
-      const property = await prisma.property.findUnique({ where: { id: propertyId } });
-      
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
+
       if (!property) {
         return { handled: false };
       }
@@ -3574,7 +3932,8 @@ export class WhatsAppService {
     // ---- Show Location ----
     if (interactiveId.startsWith('location-')) {
       const propertyId = interactiveId.replace('location-', '');
-      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
 
       if (!property) {
         return { handled: false };
@@ -3623,8 +3982,9 @@ export class WhatsAppService {
     // ---- EMI Calculator Request ----
     if (interactiveId === 'emi-calculator' || interactiveId === 'calculate-emi') {
       const propertyId = conversation.selectedPropertyId;
-      const property = propertyId 
-        ? await prisma.property.findUnique({ where: { id: propertyId } })
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      const property = propertyId
+        ? await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } })
         : null;
 
       const propertyPrice = property?.priceMin ? Number(property.priceMin) : null;
@@ -4122,19 +4482,29 @@ export class WhatsAppService {
   }
 
   /**
-   * CHUNK 6: Determine if we should send filter buttons based on conversation state
-   * Send filters when:
-   * - In 'qualify' stage and haven't captured property type preference yet
-   * - User seems uncertain or asking general questions
-   * - No filters sent in last 5 minutes (prevent spam)
+   * Determines whether to send property type filter buttons after an AI response.
+   *
+   * Key rules:
+   * - NEVER fire in `rapport` stage — the stage-based CTA from `sendContextualQuickReplies`
+   *   already shows property-type options. Firing both creates a message storm.
+   * - Only fires in `qualify` stage (or when advancing into it) and the lead has no property
+   *   type preference yet.
+   * - The 5-minute dedup guard inside `sendPropertyTypeFilters` prevents repeat sends
+   *   within a conversation session.
+   *
+   * @param state - Current conversation state from the state machine
+   * @param lead - Lead record (used to check if property type is already known)
+   * @param action - Next best action from the policy brain (optional)
+   * @returns true when filter buttons should be sent this turn
    */
   private shouldSendPropertyFilters(
     state: ConversationState,
-    lead: any,
+    lead: { propertyType?: string | null },
     action?: NextBestAction
   ): boolean {
     // Don't send if already in shortlisting or later stages.
-    if (['shortlist', 'commitment', 'visit_booking', 'confirmation', 'closed_won', 'closed_lost'].includes(state.stage)) {
+    const laterStages = ['shortlist', 'commitment', 'visit_booking', 'confirmation', 'closed_won', 'closed_lost'];
+    if (laterStages.includes(state.stage)) {
       return false;
     }
 
@@ -4148,18 +4518,19 @@ export class WhatsAppService {
       return false;
     }
 
-    // Fire on qualify stage as usual.
+    // Fire on qualify stage — this is the right moment for structured type selection.
     if (state.stage === 'qualify') {
       return true;
     }
 
-    // Fire when AI is advancing into the qualify stage.
+    // Fire when AI is explicitly advancing into the qualify stage.
     if (action?.action === 'advance_stage' && action.targetStage === 'qualify') {
       return true;
     }
 
     return false;
   }
+
 }
 
 function formatOperatorHandoffLine(operatorContact: unknown): string | null {
@@ -4198,6 +4569,50 @@ function normalizeLeadPropertyType(value: unknown): 'villa' | 'apartment' | 'plo
   if (normalized.includes('other')) return 'other';
 
   return null;
+}
+
+/**
+ * Builds a context-aware fallback message when the AI provider fails.
+ *
+ * Rules (in priority order):
+ * 1. If customer has an active visit → acknowledge it; offer Confirm/Reschedule/Cancel.
+ * 2. If the message was about visits/bookings → surface the specific failure reason.
+ * 3. Default → brief apology with a prompt to try again.
+ *
+ * NEVER produces the generic "I'm having a little trouble connecting" alone —
+ * that resets context and violates the Stateful + Transparent pillars.
+ *
+ * @param input.customerName - Lead name for personalisation.
+ * @param input.activeVisitPropertyName - Property name if an active visit exists.
+ * @param input.isVisitQuery - Whether the customer was asking about their visit.
+ */
+function buildAiFallbackMessage(input: {
+  customerName: string | null | undefined;
+  activeVisitPropertyName: string | null;
+  isVisitQuery: boolean;
+}): string {
+  const salutation = formatCustomerSalutation(input.customerName);
+
+  if (input.activeVisitPropertyName) {
+    const prop = `*${input.activeVisitPropertyName}*`;
+    return (
+      `I had a brief connection issue, but here's what I know${salutation}: ` +
+      `your visit to ${prop} is on record 🗓️\n\n` +
+      `Reply *Confirm*, *Reschedule*, or *Cancel* and I'll handle it right away. ✅`
+    );
+  }
+
+  if (input.isVisitQuery) {
+    return (
+      `I ran into a brief issue fetching your visit details${salutation}. ` +
+      `Could you give me a moment and try again? I'll pull up your booking status right away. 🙏`
+    );
+  }
+
+  return (
+    `I had a brief technical issue${salutation}. ` +
+    `Please resend your message and I'll respond immediately — no need to start over! 🙏`
+  );
 }
 
 export const whatsappService = new WhatsAppService();

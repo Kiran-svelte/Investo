@@ -269,6 +269,26 @@ const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
 const smtpSecure = process.env.SMTP_SECURE !== undefined
     ? process.env.SMTP_SECURE === 'true'
     : smtpPort === 465;
+const mailFrom = (process.env.MAIL_FROM || '').trim();
+const awsAccessKeyId = firstNonEmptyEnv('AWS_ACCESS_KEY_ID');
+const awsSecretAccessKey = firstNonEmptyEnv('AWS_SECRET_ACCESS_KEY');
+/**
+ * Railway and many cloud hosts block outbound SMTP (port 587).
+ * In production, prefer SES API (HTTPS) when IAM credentials and MAIL_FROM are available.
+ */
+function resolveMailTransport() {
+    const explicit = (process.env.MAIL_TRANSPORT || '').trim().toLowerCase();
+    if (explicit === 'ses-api' || explicit === 'smtp') {
+        return explicit;
+    }
+    if (nodeEnv === 'production'
+        && awsAccessKeyId
+        && awsSecretAccessKey
+        && mailFrom) {
+        return 'ses-api';
+    }
+    return 'smtp';
+}
 const config = {
     env: nodeEnv,
     port: parseInt(process.env.PORT || '3001', 10),
@@ -285,10 +305,10 @@ const config = {
         signupEnabled: process.env.SELF_SERVICE_SIGNUP_ENABLED === 'true',
     },
     mail: {
-        // "smtp" (default) or "ses-api" (AWS SES SendEmail — uses IAM keys, works on Render)
-        transport: (process.env.MAIL_TRANSPORT || 'smtp').trim().toLowerCase(),
+        // "smtp" or "ses-api" (AWS SES SendEmail — uses IAM keys; required on Railway)
+        transport: resolveMailTransport(),
         // Email "From" address for transactional emails (password reset, invites, etc.)
-        from: (process.env.MAIL_FROM || '').trim(),
+        from: mailFrom,
         smtp: {
             host: (process.env.SMTP_HOST || '').trim(),
             port: smtpPort,
@@ -419,6 +439,7 @@ const config = {
         perUserAi: parseInt(process.env.RATE_LIMIT_USER_AI || '40', 10),
         perCompanyAi: parseInt(process.env.RATE_LIMIT_COMPANY_AI || '120', 10),
         webhookPerMinute: parseInt(process.env.RATE_LIMIT_WEBHOOK || '300', 10),
+        whatsappAiPerMinute: parseInt(process.env.RATE_LIMIT_WHATSAPP_AI || '60', 10),
         sensitivePerMinute: parseInt(process.env.RATE_LIMIT_SENSITIVE || '10', 10),
     },
     langgraph: {

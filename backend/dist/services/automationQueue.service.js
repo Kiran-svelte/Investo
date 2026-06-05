@@ -89,6 +89,39 @@ class AutomationQueueService {
         });
         return true;
     }
+    /**
+     * Cancels a scheduled job by type and uniqueKey.
+     * Idempotent: no-op if the job does not exist.
+     *
+     * @param type - The job type (e.g. 'visit_reminder_24h').
+     * @param uniqueKey - The unique key used when scheduling.
+     * @returns true if the job was deleted, false if it was not found.
+     */
+    async cancel(type, uniqueKey) {
+        const jobKey = buildJobKey(type, uniqueKey);
+        const redis = (0, redis_1.getRedis)();
+        if (redis) {
+            try {
+                const deleted = await redis.del(jobKey);
+                logger_1.default.info('Automation queue transition', {
+                    queue: 'automation',
+                    transition: 'cancelled',
+                    jobKey,
+                    type,
+                    uniqueKey,
+                });
+                return deleted > 0;
+            }
+            catch (err) {
+                logger_1.default.warn('Failed to cancel automation job in Redis, falling back to memory', {
+                    jobKey,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
+        const existed = memoryJobs.delete(jobKey);
+        return existed;
+    }
     async processDueJobs(processor) {
         const now = Date.now();
         let processed = 0;

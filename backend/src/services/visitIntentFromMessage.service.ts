@@ -42,13 +42,11 @@ const VISIT_CANCEL_RESCHEDULE_HINT =
 const VISIT_MUTATION_SOFT_HINT =
   /\b(can'?t\s+make|won'?t\s+be\s+able|not\s+available)\b[\s\S]{0,60}\b(visit|appointment)\b|\b(visit|appointment)\b[\s\S]{0,40}\b(different|another)\s+(day|time|date)\b|\b(change|move|shift)\b[\s\S]{0,40}\b(time|slot|date)\b/i;
 
+import { isBuyerVisitStatusQuery } from './buyerVisitQuery.service';
+
 /** List/query phrasing — must never run cancel/reschedule mutation. */
 export function isVisitListQueryMessage(message: string): boolean {
-  const t = message.trim();
-  if (!t) return false;
-  return /\b(visits?\s+on|visits?\s+for|site\s+visits?\s+on|list\s+visits?|show\s+visits?|get\s+visits?|which\s+visits?)\b/i.test(
-    t,
-  );
+  return isBuyerVisitStatusQuery(message);
 }
 
 export function isVisitCancelOrRescheduleMessage(message: string): boolean {
@@ -63,6 +61,8 @@ export function isVisitCancelOrRescheduleMessage(message: string): boolean {
 
 /**
  * Prefer the new slot after "reschedule to …" / "move to …" when both old and new days appear.
+ * Also handles day-only messages like "move visit to friday" with no explicit time
+ * by defaulting to 10:00 IST so the reschedule never silently fails.
  */
 export function parseRescheduleTargetFromMessage(
   message: string,
@@ -71,14 +71,25 @@ export function parseRescheduleTargetFromMessage(
   const text = message.trim();
   if (!text) return null;
 
+  // 1. Try explicit "reschedule/move/prepone to <target>" tail — most precise.
   const tailMatch = text.match(
     /\b(?:reschedule(?:\s+it)?\s+to|rescheduled?\s+to|move\s+(?:it\s+)?to|change\s+(?:it\s+)?to|pre\s*pone(?:\s+\w+)*\s+to|prepone(?:\s+\w+)*\s+to)\b([\s\S]+)$/i,
   );
   if (tailMatch?.[1]) {
-    const fromTail = parseVisitDateTimeFromMessage(tailMatch[1].trim(), reference);
+    const tail = tailMatch[1].trim();
+    const fromTail = parseVisitDateTimeFromMessage(tail, reference);
     if (fromTail) return fromTail;
+
+    // Tail has a recognisable day but no time — default to 10:00 IST.
+    const dayOnly = tail.match(new RegExp(DAY_PATTERN_SOURCE, 'i'));
+    if (dayOnly) {
+      const synthetic = `${dayOnly[0]} 10am`;
+      const fallback = parseVisitDateTimeFromMessage(synthetic, reference);
+      if (fallback) return fallback;
+    }
   }
 
+  // 2. Multiple day names: treat LAST as target ("move sunday visit to friday").
   const dayMatches = [...text.toLowerCase().matchAll(new RegExp(DAY_PATTERN_SOURCE, 'gi'))];
   if (dayMatches.length > 1) {
     const lastDay = dayMatches[dayMatches.length - 1][0];
@@ -88,6 +99,9 @@ export function parseRescheduleTargetFromMessage(
       const parsed = parseVisitDateTimeFromMessage(synthetic, reference);
       if (parsed) return parsed;
     }
+    // Day found but no time — default 10:00 IST.
+    const fallback = parseVisitDateTimeFromMessage(`${lastDay} 10am`, reference);
+    if (fallback) return fallback;
   }
 
   return parseVisitDateTimeFromMessage(text, reference);

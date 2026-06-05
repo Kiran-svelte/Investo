@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -7,6 +40,7 @@ exports.checkAndResolvePendingConfirmation = checkAndResolvePendingConfirmation;
 exports.createPendingConfirmation = createPendingConfirmation;
 exports.cleanupExpiredConfirmations = cleanupExpiredConfirmations;
 exports.executePendingAction = executePendingAction;
+exports.handleAttendanceCheckRejected = handleAttendanceCheckRejected;
 const prisma_1 = __importDefault(require("../../config/prisma"));
 const logger_1 = __importDefault(require("../../config/logger"));
 const agent_ai_constants_1 = require("../../constants/agent-ai.constants");
@@ -99,6 +133,8 @@ async function executePendingAction(pendingActionId) {
     const params = asRecord(pending.actionParams);
     const companyId = pending.session.companyId;
     switch (pending.actionType) {
+        case 'attendance_check':
+            return attendanceCheckYes(companyId, params);
         case 'deleteLead':
             return deleteLead(companyId, params);
         case 'cancelVisit':
@@ -115,6 +151,92 @@ async function executePendingAction(pendingActionId) {
             logger_1.default.warn('Unsupported pending action confirmed', { actionType: pending.actionType });
             return `Unsupported action: ${pending.actionType}`;
     }
+}
+/**
+ * Handles NO reply on an attendance_check pending action.
+ * Marks the visit as no_show and sends the customer an invitation to reschedule.
+ * Called by agent-router when the agent's reply is rejected (NO).
+ *
+ * @param companyId - Company scope for authorization.
+ * @param params - ActionParams from the PendingAction record.
+ * @returns Confirmation message for the agent.
+ */
+async function handleAttendanceCheckRejected(companyId, params) {
+    const visitId = getString(params, 'visitId');
+    const customerPhone = getString(params, 'customerPhone');
+    const customerName = getString(params, 'customerName') ?? 'Customer';
+    const propertyName = getString(params, 'propertyName') ?? 'your property';
+    if (visitId) {
+        await db.visit.update({
+            where: { id: visitId },
+            data: { status: 'no_show' },
+        });
+        logger_1.default.info('Attendance check: visit marked no_show via agent NO reply', { visitId, companyId });
+    }
+    if (customerPhone) {
+        const rescheduleMsg = [
+            `Hi ${customerName}! \uD83D\uDC4B`,
+            ``,
+            `We missed you at *${propertyName}* today. Hope all is well!`,
+            ``,
+            `Would you like to reschedule your visit? Just reply with a preferred date and time \uD83D\uDCC5`,
+            `(e.g. "this Saturday 11am")`,
+        ].join('\n');
+        try {
+            const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp.service')));
+            await whatsappService.sendCompanyTextMessage(customerPhone, rescheduleMsg, companyId);
+            logger_1.default.info('Sent reschedule invitation to customer after no-show', { customerPhone, companyId });
+        }
+        catch (err) {
+            logger_1.default.warn('Failed to send reschedule invitation to customer', {
+                customerPhone,
+                companyId,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+    return [
+        `\u274C Marked as no-show.`,
+        customerPhone
+            ? `\nA reschedule invitation has been sent to ${customerName}.`
+            : '',
+    ].join('');
+}
+/**
+ * Handles YES reply on an attendance_check pending action.
+ * Marks the visit as completed and updates lead status to visited.
+ *
+ * @param companyId - Company scope for authorization.
+ * @param params - ActionParams from the PendingAction record.
+ * @returns Confirmation message for the agent.
+ */
+async function attendanceCheckYes(companyId, params) {
+    const visitId = getString(params, 'visitId');
+    const leadId = getString(params, 'leadId');
+    const customerName = getString(params, 'customerName') ?? 'Customer';
+    const propertyName = getString(params, 'propertyName') ?? 'Property';
+    if (visitId) {
+        await db.visit.update({
+            where: { id: visitId },
+            data: { status: 'completed' },
+        });
+        logger_1.default.info('Attendance check: visit marked completed via agent YES reply', { visitId, companyId });
+    }
+    if (leadId) {
+        await db.lead.update({
+            where: { id: leadId },
+            data: { status: 'visited' },
+        });
+        logger_1.default.info('Lead status updated to visited after attendance confirmation', { leadId, companyId });
+    }
+    return [
+        `\u2705 *Attendance confirmed!*`,
+        ``,
+        `Visit with *${customerName}* at *${propertyName}* marked as *completed*.`,
+        `Lead status updated to *Visited*.`,
+        ``,
+        `To log notes or next steps, type "update lead ${customerName}".`,
+    ].join('\n');
 }
 async function deleteLead(companyId, params) {
     const leadId = getString(params, 'leadId');

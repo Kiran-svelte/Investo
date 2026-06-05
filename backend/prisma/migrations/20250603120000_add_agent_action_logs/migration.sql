@@ -1,6 +1,6 @@
 -- Agent action log — AI transparency / audit trail (90-day TTL via cron purge).
 CREATE TABLE "agent_action_logs" (
-    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "company_id" UUID NOT NULL,
     "triggered_by" VARCHAR(40) NOT NULL,
     "actor_id" UUID,

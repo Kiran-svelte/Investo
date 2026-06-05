@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
+import logger from '../../../config/logger';
 import { DEFAULT_LIST_LIMIT, LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';

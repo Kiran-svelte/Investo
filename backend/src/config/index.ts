@@ -297,6 +297,32 @@ const smtpSecure = process.env.SMTP_SECURE !== undefined
   ? process.env.SMTP_SECURE === 'true'
   : smtpPort === 465;
 
+const mailFrom = (process.env.MAIL_FROM || '').trim();
+const awsAccessKeyId = firstNonEmptyEnv('AWS_ACCESS_KEY_ID');
+const awsSecretAccessKey = firstNonEmptyEnv('AWS_SECRET_ACCESS_KEY');
+
+/**
+ * Railway and many cloud hosts block outbound SMTP (port 587).
+ * In production, prefer SES API (HTTPS) when IAM credentials and MAIL_FROM are available.
+ */
+function resolveMailTransport(): 'smtp' | 'ses-api' {
+  const explicit = (process.env.MAIL_TRANSPORT || '').trim().toLowerCase();
+  if (explicit === 'ses-api' || explicit === 'smtp') {
+    return explicit;
+  }
+
+  if (
+    nodeEnv === 'production'
+    && awsAccessKeyId
+    && awsSecretAccessKey
+    && mailFrom
+  ) {
+    return 'ses-api';
+  }
+
+  return 'smtp';
+}
+
 const config = {
   env: nodeEnv,
   port: parseInt(process.env.PORT || '3001', 10),
@@ -317,10 +343,10 @@ const config = {
   },
 
   mail: {
-    // "smtp" (default) or "ses-api" (AWS SES SendEmail — uses IAM keys, works on Render)
-    transport: (process.env.MAIL_TRANSPORT || 'smtp').trim().toLowerCase(),
+    // "smtp" or "ses-api" (AWS SES SendEmail — uses IAM keys; required on Railway)
+    transport: resolveMailTransport(),
     // Email "From" address for transactional emails (password reset, invites, etc.)
-    from: (process.env.MAIL_FROM || '').trim(),
+    from: mailFrom,
     smtp: {
       host: (process.env.SMTP_HOST || '').trim(),
       port: smtpPort,

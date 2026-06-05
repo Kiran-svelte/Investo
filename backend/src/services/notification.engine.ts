@@ -433,7 +433,13 @@ class NotificationEngine {
     oldTime: Date,
     newTime: Date,
     lead: any,
-    company: any
+    company: any,
+    /**
+     * When true, skip the WhatsApp message to the customer.
+     * Set this for buyer-initiated reschedules: the main handler
+     * (whatsapp.service.ts visitCommit path) already sends the reply.
+     */
+    suppressCustomerNotification = false,
   ): Promise<void> {
     const oldTimeStr = oldTime.toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
@@ -523,8 +529,10 @@ class NotificationEngine {
       }
     }
 
-    // 4. WhatsApp to the customer — confirmation of the reschedule
-    if (lead?.phone) {
+    // 4. WhatsApp to the customer — confirmation of the reschedule.
+    // Skip when suppressCustomerNotification=true (buyer-initiated reschedule:
+    // the main handler already sent visitCommit.customerReply as the primary reply).
+    if (!suppressCustomerNotification && lead?.phone) {
       const whatsappConfig = getCompanyWhatsAppConfig(company);
       if (
         !whatsappConfig.isCompanyConfigured ||

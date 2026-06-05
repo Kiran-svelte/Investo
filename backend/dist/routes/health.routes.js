@@ -7,12 +7,63 @@ const express_1 = require("express");
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
 const prisma_1 = __importDefault(require("../config/prisma"));
+const redis_1 = require("../config/redis");
 const storage_service_1 = require("../services/storage.service");
 const supabaseStorage_service_1 = require("../services/supabaseStorage.service");
 const mailHealth_service_1 = require("../services/mailHealth.service");
 const openaiStatus_service_1 = require("../services/openaiStatus.service");
 const propertyKnowledge_service_1 = require("../services/propertyKnowledge.service");
+const ai_capabilities_constants_1 = require("../constants/ai-capabilities.constants");
+const production_polish_constants_1 = require("../constants/production-polish.constants");
+const opsMetrics_service_1 = require("../services/opsMetrics.service");
 const router = (0, express_1.Router)();
+/** Liveness: process is up (no dependency checks). */
+router.get('/live', (_req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        uptime_seconds: Math.floor(process.uptime()),
+    });
+});
+/** Readiness: DB + cache must be reachable before accepting traffic. */
+router.get('/ready', async (_req, res) => {
+    const checks = {};
+    let ready = true;
+    try {
+        await prisma_1.default.$queryRaw `SELECT 1`;
+        checks.db = { status: 'ok' };
+    }
+    catch (err) {
+        ready = false;
+        checks.db = {
+            status: 'down',
+            detail: err instanceof Error ? err.message : String(err),
+        };
+    }
+    const redis = (0, redis_1.getRedis)();
+    if (redis) {
+        try {
+            await redis.ping();
+            checks.redis = { status: 'ok' };
+        }
+        catch (err) {
+            ready = false;
+            checks.redis = {
+                status: 'down',
+                detail: err instanceof Error ? err.message : String(err),
+            };
+        }
+    }
+    else {
+        checks.redis = { status: 'skipped', detail: `cache_backend=${(0, redis_1.getCacheType)()}` };
+    }
+    res.status(ready ? 200 : 503).json({
+        status: ready ? 'ready' : 'not_ready',
+        timestamp: new Date().toISOString(),
+        checks,
+    });
+});
+/** Deep health: dependencies, AI stack, production polish pillars. */
 router.get('/', async (_req, res) => {
     const startedAt = Date.now();
     try {
@@ -43,6 +94,10 @@ router.get('/', async (_req, res) => {
                 mail,
                 property_knowledge_embeddings: propertyKnowledgeEmbeddings,
             },
+            ai_capabilities: ai_capabilities_constants_1.AI_STACK_CAPABILITIES,
+            agent_ai_enabled: Boolean(config_1.default.agentAi?.enabled),
+            production_polish: production_polish_constants_1.PRODUCTION_POLISH_PILLARS,
+            ops_metrics: await (0, opsMetrics_service_1.getOpsMetricsSnapshot)(),
         });
     }
     catch (err) {

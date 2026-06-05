@@ -1,6 +1,7 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import config from '../config';
 import logger from '../config/logger';
+import { isMailConfigured } from './mailConfig.service';
 import { isSesApiConfigured, sendSesEmail, verifySesApi } from './ses-email.service';
 
 export type PasswordResetEmailParams = {
@@ -48,13 +49,6 @@ function sanitizeSmtpConfigForLogs(smtp: SmtpConfig): Record<string, unknown> {
 
 function isSmtpConfigured(smtp: SmtpConfig): boolean {
   return Boolean(smtp.host) && Number.isFinite(smtp.port) && smtp.port > 0;
-}
-
-function isMailConfigured(): boolean {
-  if (config.mail.transport === 'ses-api') {
-    return isSesApiConfigured();
-  }
-  return isSmtpConfigured(resolveSmtpConfig());
 }
 
 function resolveSmtpConfig(): SmtpConfig {
@@ -141,6 +135,10 @@ export class EmailService {
   }
 
   async verifyConnection(force = false): Promise<{ ok: boolean; detail: string }> {
+    if (config.mail.transport === 'ses-api') {
+      return verifySesApi();
+    }
+
     const smtp = resolveSmtpConfig();
     if (!isSmtpConfigured(smtp)) {
       return { ok: false, detail: 'SMTP_HOST and SMTP_PORT are not configured.' };
@@ -159,14 +157,14 @@ export class EmailService {
       await transporter.verify();
       this.lastVerifyAt = now;
       this.lastVerifyOk = true;
-      this.lastVerifyDetail = `SMTP verified (${smtp.host}:${smtp.port}).`;
+      this.lastVerifyDetail = `verified (${smtp.host}:${smtp.port}).`;
       return { ok: true, detail: this.lastVerifyDetail };
     } catch (err: unknown) {
       this.resetTransporter();
       const message = err instanceof Error ? err.message : String(err);
       this.lastVerifyAt = now;
       this.lastVerifyOk = false;
-      this.lastVerifyDetail = `SMTP verification failed: ${message}`;
+      this.lastVerifyDetail = `verification failed: ${message}`;
       logger.warn('SMTP verify failed', { smtp: sanitizeSmtpConfigForLogs(smtp), error: message });
       return { ok: false, detail: this.lastVerifyDetail };
     }

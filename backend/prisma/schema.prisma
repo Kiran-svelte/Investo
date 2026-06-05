@@ -233,6 +233,9 @@ model Lead {
   @@index([companyId, assignedAgentId])
   @@index([phone])
   @@index([companyId, lastContactAt])
+  /// Prevent duplicate leads for the same phone number within a company.
+  /// Handles concurrent webhook retries that both try to create a new lead.
+  @@unique([companyId, phone])
   @@map("leads")
 }
 
@@ -281,6 +284,8 @@ model Conversation {
 
   @@index([companyId])
   @@index([whatsappPhone])
+  /// Index on leadId to efficiently retrieve all conversations for a lead.
+  @@index([leadId])
   @@map("conversations")
 }
 
@@ -298,6 +303,9 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id])
 
   @@index([conversationId, createdAt])
+  /// Unique constraint prevents duplicate processing of the same WhatsApp message.
+  /// Handles Meta's at-least-once delivery guarantees (webhook retries).
+  @@unique([whatsappMessageId])
   @@map("messages")
 }
 
@@ -576,6 +584,12 @@ model AiSetting {
   offerRentToOwn      Boolean      @default(true) @map("offer_rent_to_own")
   /// Budget stretch percentage (default 15%)
   budgetStretchPct    Int          @default(15) @map("budget_stretch_pct")
+  /// Whether to auto-confirm visits booked via WhatsApp buttons without agent approval.
+  /// Default is FALSE — agents must approve via WhatsApp interactive button.
+  /// Previously controlled by WHATSAPP_AUTO_CONFIRM_VISITS env var (undocumented).
+  autoConfirmVisits   Boolean      @default(false) @map("auto_confirm_visits")
+  /// Optional custom name for the AI assistant persona shown to customers.
+  agentName           String       @default("Riya") @map("agent_name") @db.VarChar(50)
 
   createdAt           DateTime     @default(now()) @map("created_at")
   updatedAt           DateTime     @updatedAt @map("updated_at")

@@ -53,6 +53,19 @@ export function resolveAdminLanguageCode(aiSettings: { defaultLanguage?: string 
   return LANGUAGE_LABELS[code] ? code : 'en';
 }
 
+/**
+ * Safe salutation for fallback/error messages — first name only, comma-prefixed.
+ * Avoids awkward WhatsApp profile names like "Kannada media" appearing mid-sentence.
+ */
+export function formatCustomerSalutation(customerName: string | null | undefined): string {
+  const raw = (customerName ?? '').trim();
+  if (!raw) return '';
+  const first = raw.split(/\s+/)[0];
+  if (!first || first.length > 20) return '';
+  if (/\b(media|channel|page|official|news|group|broadcast)\b/i.test(raw)) return '';
+  return `, ${first}`;
+}
+
 export function isSimpleGreetingMessage(message: string): boolean {
   const trimmed = message.trim();
   if (!trimmed || trimmed.length > 40) {
@@ -159,8 +172,10 @@ export function buildFastPathCustomerReply(input: {
   const company = input.companyName.trim() || 'our team';
 
   if (isSimpleGreetingMessage(trimmed)) {
-    // Priority 1: Visit-aware greeting — returning client with active visit.
-    // Always shown regardless of conversation history length.
+    const historyLength = (input.conversationHistory ?? []).length;
+
+    // Priority 1: Visit-aware greeting whenever the client has an active visit.
+    // Per ai.md — returning clients with a booking should see visit context, not onboarding.
     if (input.upcomingVisit) {
       return {
         text: buildVisitAwareGreeting(input.customerName ?? null, input.upcomingVisit, company),
@@ -168,12 +183,9 @@ export function buildFastPathCustomerReply(input: {
       };
     }
 
-    // Priority 2: Returning client with prior conversation history.
-    // Let the LLM handle it so it can continue the property discussion naturally
-    // instead of resetting to "What area are you looking in? What is your budget?"
-    const historyLength = (input.conversationHistory ?? []).length;
+    // Priority 2: Returning client with prior history — let LLM continue naturally.
     if (historyLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
-      return null; // LLM takes over with full context
+      return null;
     }
 
     // Priority 3: First-contact or new client — use greeting template or default.

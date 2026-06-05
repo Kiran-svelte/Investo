@@ -8,6 +8,8 @@ const auth_1 = require("../middleware/auth");
 const rbac_1 = require("../middleware/rbac");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const opsMetrics_service_1 = require("../services/opsMetrics.service");
+const production_polish_constants_1 = require("../constants/production-polish.constants");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use((0, rbac_1.hasRole)('super_admin'));
@@ -229,6 +231,23 @@ router.get('/usage', async (req, res) => {
     catch (err) {
         logger_1.default.error('Failed to fetch usage stats', { error: err.message });
         res.status(500).json({ error: 'Failed to fetch usage' });
+    }
+});
+/**
+ * GET /api/admin/ops-metrics
+ * Platform ops counters (webhooks, AI replies, errors) for monitoring dashboards.
+ */
+router.get('/ops-metrics', async (_req, res) => {
+    try {
+        const metrics = await (0, opsMetrics_service_1.getOpsMetricsSnapshot)();
+        res.json({
+            data: metrics,
+            production_polish: production_polish_constants_1.PRODUCTION_POLISH_PILLARS,
+        });
+    }
+    catch (err) {
+        logger_1.default.error('Failed to fetch ops metrics', { error: err.message });
+        res.status(500).json({ error: 'Failed to fetch ops metrics' });
     }
 });
 exports.default = router;

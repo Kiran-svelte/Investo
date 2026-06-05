@@ -7,6 +7,7 @@ exports.emailService = exports.EmailService = void 0;
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
+const mailConfig_service_1 = require("./mailConfig.service");
 const ses_email_service_1 = require("./ses-email.service");
 function sanitizeSmtpConfigForLogs(smtp) {
     return {
@@ -18,12 +19,6 @@ function sanitizeSmtpConfigForLogs(smtp) {
 }
 function isSmtpConfigured(smtp) {
     return Boolean(smtp.host) && Number.isFinite(smtp.port) && smtp.port > 0;
-}
-function isMailConfigured() {
-    if (config_1.default.mail.transport === 'ses-api') {
-        return (0, ses_email_service_1.isSesApiConfigured)();
-    }
-    return isSmtpConfigured(resolveSmtpConfig());
 }
 function resolveSmtpConfig() {
     return {
@@ -99,6 +94,9 @@ class EmailService {
         return this.transporter;
     }
     async verifyConnection(force = false) {
+        if (config_1.default.mail.transport === 'ses-api') {
+            return (0, ses_email_service_1.verifySesApi)();
+        }
         const smtp = resolveSmtpConfig();
         if (!isSmtpConfigured(smtp)) {
             return { ok: false, detail: 'SMTP_HOST and SMTP_PORT are not configured.' };
@@ -115,7 +113,7 @@ class EmailService {
             await transporter.verify();
             this.lastVerifyAt = now;
             this.lastVerifyOk = true;
-            this.lastVerifyDetail = `SMTP verified (${smtp.host}:${smtp.port}).`;
+            this.lastVerifyDetail = `verified (${smtp.host}:${smtp.port}).`;
             return { ok: true, detail: this.lastVerifyDetail };
         }
         catch (err) {
@@ -123,9 +121,24 @@ class EmailService {
             const message = err instanceof Error ? err.message : String(err);
             this.lastVerifyAt = now;
             this.lastVerifyOk = false;
-            this.lastVerifyDetail = `SMTP verification failed: ${message}`;
+            this.lastVerifyDetail = `verification failed: ${message}`;
             logger_1.default.warn('SMTP verify failed', { smtp: sanitizeSmtpConfigForLogs(smtp), error: message });
             return { ok: false, detail: this.lastVerifyDetail };
+        }
+    }
+    /**
+     * Unified send dispatcher: routes to SES API or SMTP based on MAIL_TRANSPORT.
+     * All send methods MUST call this — never call sendWithRetry directly.
+     *
+     * @param mail - The email to send
+     * @throws Error if the send fails after retries
+     */
+    async sendEmail(mail) {
+        if (config_1.default.mail.transport === 'ses-api') {
+            await (0, ses_email_service_1.sendSesEmail)({ to: mail.to, subject: mail.subject, text: mail.text, html: mail.html });
+        }
+        else {
+            await this.sendWithRetry(mail);
         }
     }
     async sendWithRetry(mail) {
@@ -149,7 +162,7 @@ class EmailService {
     }
     async sendPasswordResetEmail(params) {
         const smtp = resolveSmtpConfig();
-        if (!isMailConfigured()) {
+        if (!(0, mailConfig_service_1.isMailConfigured)()) {
             logger_1.default.warn('Password reset email skipped: mail not configured', {
                 userEmail: params.toEmail,
                 transport: config_1.default.mail.transport,
@@ -176,7 +189,7 @@ class EmailService {
       <p><a href="${escapeHtmlAttr(params.resetUrl)}">Reset your password</a></p>
       <p>If you did not request this, you can ignore this email.</p>
     `;
-        await this.sendWithRetry({
+        await this.sendEmail({
             from: config_1.default.mail.from,
             to: params.toEmail,
             subject,
@@ -190,7 +203,7 @@ class EmailService {
     }
     async sendWelcomeInviteEmail(params) {
         const smtp = resolveSmtpConfig();
-        if (!isMailConfigured() || !config_1.default.mail.from) {
+        if (!(0, mailConfig_service_1.isMailConfigured)() || !config_1.default.mail.from) {
             logger_1.default.warn('Welcome invite email skipped: SMTP not configured', {
                 userEmail: params.toEmail,
                 smtp: sanitizeSmtpConfigForLogs(smtp),
@@ -214,7 +227,7 @@ class EmailService {
       ${params.temporaryPassword ? `<p>Temporary password: <code>${escapeHtml(params.temporaryPassword)}</code><br><small>Change it on first login if prompted.</small></p>` : ''}
       <p>Complete the 6-step onboarding wizard after login.</p>
     `;
-        await this.sendWithRetry({
+        await this.sendEmail({
             from: config_1.default.mail.from,
             to: params.toEmail,
             subject,
@@ -226,7 +239,7 @@ class EmailService {
     }
     async sendReEngagementEmail(params) {
         const smtp = resolveSmtpConfig();
-        if (!isMailConfigured() || !config_1.default.mail.from) {
+        if (!(0, mailConfig_service_1.isMailConfigured)() || !config_1.default.mail.from) {
             logger_1.default.warn('Re-engagement email skipped: SMTP not configured', {
                 userEmail: params.toEmail,
                 smtp: sanitizeSmtpConfigForLogs(smtp),
@@ -236,7 +249,7 @@ class EmailService {
         const greetingName = (params.toName || '').trim() || 'there';
         const text = `Hi ${greetingName},\n\n${params.bodyText}`;
         const html = `<p>Hi ${escapeHtml(greetingName)},</p><p>${escapeHtml(params.bodyText).replace(/\n/g, '<br>')}</p>`;
-        await this.sendWithRetry({
+        await this.sendEmail({
             from: config_1.default.mail.from,
             to: params.toEmail,
             subject: params.subject,

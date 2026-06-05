@@ -125,6 +125,14 @@ async function handleAgentMessage(
       };
     }
     if (confirmation.hasPending && confirmation.isRejected) {
+      if (confirmation.actionType === 'attendance_check') {
+        const { handleAttendanceCheckRejected } = await import('./confirmation.service');
+        const text = await handleAttendanceCheckRejected(
+          user.companyId,
+          confirmation.actionParams ?? {},
+        );
+        return { text, replyKind: 'confirmation' };
+      }
       return { text: 'Action cancelled.', replyKind: 'confirmation' };
     }
     if (confirmation.hasPending) {

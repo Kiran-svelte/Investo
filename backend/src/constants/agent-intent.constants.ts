@@ -56,6 +56,7 @@ export const AGENT_INTENTS = [
   'get_readiness_score',
   'get_audit_logs',
   'get_ai_action_log',
+  'bulk_forward',
   'unknown',
 ] as const;
 
