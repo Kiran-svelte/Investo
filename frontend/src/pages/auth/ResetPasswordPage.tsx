@@ -57,7 +57,7 @@ export default function ResetPasswordPage() {
 
   if (!token || !email) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100 py-12 px-4">
         <div className="max-w-md w-full space-y-8 text-center">
           <div className="investo-card-pad shadow-xl">
             <AlertCircle className="mx-auto h-16 w-16 text-red-500 mb-4" />
@@ -69,7 +69,7 @@ export default function ResetPasswordPage() {
             </p>
             <Link
               to="/forgot-password"
-              className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700"
+              className="investo-btn-primary w-full py-3"
             >
               {t('auth.request_new_link') || 'Request New Link'}
             </Link>
@@ -81,7 +81,7 @@ export default function ResetPasswordPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100 py-12 px-4">
         <div className="max-w-md w-full space-y-8 text-center">
           <div className="investo-card-pad shadow-xl">
             <CheckCircle className="mx-auto h-16 w-16 text-green-500 mb-4" />
@@ -93,7 +93,7 @@ export default function ResetPasswordPage() {
             </p>
             <Link
               to="/login"
-              className="inline-flex items-center gap-2 text-primary-600 hover:text-primary-700 font-medium"
+              className="inline-flex items-center gap-2 text-brand-600 hover:text-brand-700 font-medium"
             >
               <ArrowLeft className="h-4 w-4" />
               {t('auth.go_to_login') || 'Go to Login'}
@@ -105,10 +105,10 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h1 className="text-center text-3xl font-bold text-primary-600">INVESTO</h1>
+          <h1 className="text-center text-3xl font-bold text-brand-600">INVESTO</h1>
           <h2 className="mt-6 text-center text-2xl font-bold text-ink-primary">
             {t('auth.reset_password_title') || 'Set New Password'}
           </h2>
@@ -167,7 +167,7 @@ export default function ResetPasswordPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="investo-btn-primary w-full py-3"
           >
             {loading ? (
               <span className="flex items-center">
