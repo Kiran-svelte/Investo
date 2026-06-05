@@ -98,6 +98,10 @@ const getApiBaseUrl = (): string => {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return '/api';
     }
+    const prodApi = (import.meta as any).env?.VITE_PROD_API_URL as string | undefined;
+    if (prodApi?.trim()) {
+      return prodApi.trim().replace(/\/$/, '').replace(/\/api$/, '/api');
+    }
     if (hostname === 'biginvesto.online' || hostname === 'www.biginvesto.online') {
       return 'https://investo-backend-v2.onrender.com/api';
     }

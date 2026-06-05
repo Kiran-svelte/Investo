@@ -226,19 +226,40 @@ export async function updateLeadStatusVisited(ctx: ActionContext) {
   return result.handled ? ok(result.reply) : skip();
 }
 
+/**
+ * Updates the lead's urgency/value score based on the triggering message.
+ * Positive signals ("interested", "buy", "want") boost scores 1-10.
+ * Negative signals ("not interested", "expensive", "later") lower them.
+ * Scores stored on the Conversation row — used by the AI for tone calibration.
+ */
 export async function updateLeadScore(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);
   if (!leadId) return skip();
-  void logAgentAction({
-    companyId: ctx.run.toolContext.companyId,
-    triggeredBy: 'agent_tool',
-    action: 'workflow_lead_score_touch',
-    resourceType: 'lead',
-    resourceId: leadId,
-    inputs: { message: ctx.params.message },
-    status: 'success',
+
+  const text = String(ctx.params.message ?? ctx.params.note ?? ctx.run.messageText ?? '').toLowerCase();
+  const isPositive = /interest|liked|loved|want|sure|proceed|confirm|good|great|buy|book/i.test(text);
+  const isNegative = /not interest|no thanks|pass|later|busy|expensive|too much|decline/i.test(text);
+  if (!isPositive && !isNegative) return skip();
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { leadId, status: { not: 'closed' } },
+    select: { id: true, urgencyScore: true, valueScore: true },
+    orderBy: { updatedAt: 'desc' },
   });
-  return skip();
+  if (!conversation) return skip();
+
+  const delta = isPositive ? 2 : -2;
+  const clamp = (v: number) => Math.min(10, Math.max(1, v));
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      urgencyScore: clamp((conversation.urgencyScore ?? 5) + delta),
+      valueScore: clamp((conversation.valueScore ?? 5) + delta),
+    },
+  });
+
+  logger.info('Lead score updated', { leadId, delta, signal: isPositive ? 'positive' : 'negative' });
+  return ok(`Lead score updated (${isPositive ? '+' : ''}${delta}).`);
 }
 
 export async function updateLeadInterest(ctx: ActionContext) {
@@ -260,7 +281,9 @@ export async function tagLead(ctx: ActionContext) {
     leadId,
     note: `[tag] ${String(tag).slice(0, 200)}`,
   });
-  return result.ok ? skip() : skip();
+  // Previously both branches returned skip() — the tag was always silently
+  // discarded regardless of tool result. Now we surface success/failure correctly.
+  return result.ok ? ok(`Lead tagged: ${String(tag).slice(0, 60)}`) : skip();
 }
 
 export async function markLeadUrgent(ctx: ActionContext) {

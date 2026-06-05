@@ -23,6 +23,7 @@ export interface CommitCustomerVisitInput {
   conversation: {
     id: string;
     selectedPropertyId: string | null;
+    /** May be stale — always refreshed from DB before use. */
     proposedVisitTime: Date | null;
     recommendedPropertyIds?: unknown;
   };
@@ -38,6 +39,36 @@ export interface CommitCustomerVisitResult {
   visitId?: string;
   customerReply?: string;
   leadStatus?: 'visit_scheduled' | 'contacted';
+}
+
+/**
+ * Fetches the latest proposedVisitTime from DB.
+ * Avoids stale in-memory conversation object causing duplicate bookings
+ * when a reschedule updates the DB but the caller still holds the old object.
+ */
+async function refreshProposedVisitTime(conversationId: string): Promise<Date | null> {
+  const row = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { proposedVisitTime: true },
+  });
+  return row?.proposedVisitTime ?? null;
+}
+
+/**
+ * Returns true when the conversation has a confirmed visit slot — i.e. the
+ * stage is 'confirmation' OR commitments.visitSlotConfirmed is set.
+ * Used to guard against short confirmations ("okay", "yes") re-triggering a
+ * booking after a reschedule has already been committed.
+ */
+async function isVisitAlreadyConfirmed(conversationId: string): Promise<boolean> {
+  const row = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { stage: true, commitments: true },
+  });
+  if (!row) return false;
+  if (row.stage === 'confirmation') return true;
+  const c = row.commitments as Record<string, unknown> | null;
+  return Boolean(c?.visitSlotConfirmed);
 }
 
 function resolvePropertyId(
@@ -98,6 +129,7 @@ function formatVisitConfirmation(
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
   });
   return (
     `✅ *Visit scheduled*\n\n` +
@@ -107,42 +139,8 @@ function formatVisitConfirmation(
   );
 }
 
-function formatVisitRescheduled(
-  scheduledAt: Date,
-  propertyName: string,
-  agentName: string | null,
-): string {
-  const when = scheduledAt.toLocaleString('en-IN', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  return (
-    `✅ *Visit rescheduled*\n\n` +
-    `📍 *${propertyName}*\n` +
-    `📅 ${when}\n\n` +
-    `Our specialist${agentName ? ` *${agentName}*` : ''} will call you about an hour before the visit to confirm. See you then!`
-  );
-}
-
-async function findUpcomingLeadVisit(companyId: string, leadId: string) {
-  return prisma.visit.findFirst({
-    where: {
-      companyId,
-      leadId,
-      status: { in: ['scheduled', 'confirmed'] },
-      scheduledAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
-    },
-    orderBy: { scheduledAt: 'asc' },
-    include: { property: { select: { name: true } }, agent: { select: { name: true } } },
-  });
-}
-
 /**
- * Books a site visit in CRM when the customer proposes a concrete date/time.
- * WhatsApp auto-confirm is on unless WHATSAPP_AUTO_CONFIRM_VISITS=0.
+ * Handles customer cancel / reschedule requests (buyer WhatsApp).
  */
 export async function tryCustomerVisitCancelReschedule(
   input: CommitCustomerVisitInput,
@@ -163,6 +161,21 @@ export async function tryCustomerVisitCancelReschedule(
   };
 }
 
+/** Dedup window: two resolvedAt values within 5 minutes are considered the same slot. */
+const DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * Books a site visit in CRM when the customer proposes a concrete date/time.
+ *
+ * FIX (double-booking after reschedule):
+ *   1. proposedVisitTime is always re-fetched from DB so a stale in-memory
+ *      conversation object does not cause the old date to be re-booked.
+ *   2. Short confirmations ("okay", "yes", "sure") are rejected when the
+ *      conversation already has a confirmed visit slot (stage='confirmation'
+ *      or commitments.visitSlotConfirmed=true).
+ *   3. A 5-minute dedupe window prevents creating a second booking when the
+ *      resolved scheduledAt matches an existing confirmed visit.
+ */
 export async function tryCommitCustomerVisitBooking(
   input: CommitCustomerVisitInput,
 ): Promise<CommitCustomerVisitResult> {
@@ -177,9 +190,26 @@ export async function tryCommitCustomerVisitBooking(
     return { committed: false };
   }
 
+  // Guard: never re-book on a short confirmation when a visit was already confirmed.
+  // This is the primary fix for the "Okay → old Saturday booking" bug.
+  if (isShortVisitConfirmation(customerMessage)) {
+    const alreadyConfirmed = await isVisitAlreadyConfirmed(conversation.id);
+    if (alreadyConfirmed) {
+      logger.info('Short confirmation skipped — visit already confirmed, not re-booking', {
+        conversationId: conversation.id,
+        message: customerMessage,
+      });
+      return { committed: false };
+    }
+  }
+
+  // Always load fresh proposedVisitTime from DB — the conversation object passed
+  // by the caller may be stale from before a reschedule committed.
+  const freshProposedVisitTime = await refreshProposedVisitTime(conversation.id);
+
   const scheduledAt = resolveScheduledAt(
     customerMessage,
-    conversation.proposedVisitTime,
+    freshProposedVisitTime,
     recentCustomerMessages,
   );
   if (!scheduledAt) {
@@ -188,7 +218,10 @@ export async function tryCommitCustomerVisitBooking(
 
   const propertyId = await resolvePropertyId(companyId, conversation, customerMessage);
   if (!propertyId) {
-    logger.warn('Visit commit skipped: no property', { leadId: lead.id, conversationId: conversation.id });
+    logger.warn('Visit commit skipped: no property resolved', {
+      leadId: lead.id,
+      conversationId: conversation.id,
+    });
     return { committed: false };
   }
 
@@ -202,12 +235,15 @@ export async function tryCommitCustomerVisitBooking(
     },
     orderBy: { scheduledAt: 'asc' },
   });
+
   if (existing && !isVisitCancelOrRescheduleMessage(customerMessage)) {
     const proposedNew = parseVisitDateTimeFromMessage(customerMessage);
-    if (
-      proposedNew
-      && Math.abs(proposedNew.getTime() - existing.scheduledAt.getTime()) > 60_000
-    ) {
+    const timeDiffFromProposed = proposedNew
+      ? Math.abs(proposedNew.getTime() - existing.scheduledAt.getTime())
+      : 0;
+
+    if (proposedNew && timeDiffFromProposed > 60_000) {
+      // Customer wants a different time — route to reschedule.
       const mutation = await applyVisitMutationFromChat({
         companyId,
         message: customerMessage,
@@ -224,7 +260,23 @@ export async function tryCommitCustomerVisitBooking(
         };
       }
     }
-    const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { name: true } });
+
+    // Dedupe: resolved time matches the existing visit (within 5 min) — skip silently.
+    const resolvedDiff = Math.abs(scheduledAt.getTime() - existing.scheduledAt.getTime());
+    if (resolvedDiff <= DEDUPE_WINDOW_MS) {
+      logger.info('Visit dedupe: resolved time matches existing visit, skipping re-booking', {
+        leadId: lead.id,
+        existingVisitId: existing.id,
+        existingScheduledAt: existing.scheduledAt,
+        resolvedScheduledAt: scheduledAt,
+      });
+      return { committed: false };
+    }
+
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { name: true },
+    });
     return {
       committed: true,
       mode: 'already_booked',

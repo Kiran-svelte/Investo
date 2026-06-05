@@ -9,7 +9,7 @@ const mockPrisma = {
     findMany: jest.fn(),
     update: jest.fn(),
   },
-  visit: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+  visit: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   user: { findFirst: jest.fn(), findMany: jest.fn() },
   property: { findFirst: jest.fn(), findMany: jest.fn() },
   notification: { create: jest.fn() },
@@ -46,6 +46,13 @@ jest.mock('../../services/clientMemory.service', () => ({
 
 jest.mock('../../services/agent-action-log.service', () => ({
   logAgentAction: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/automationQueue.service', () => ({
+  automationQueueService: {
+    schedule: jest.fn().mockResolvedValue(undefined),
+    cancel: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 jest.mock('../../services/agent/lead-status-actions', () => ({
@@ -181,8 +188,10 @@ describe('workflow scenario matrix (15 workflows × phrasing variants)', () => {
     mockPrisma.lead.findMany.mockResolvedValue([defaultLead]);
     mockPrisma.lead.update.mockResolvedValue(defaultLead);
     mockPrisma.visit.findFirst.mockResolvedValue(defaultVisit);
+    mockPrisma.visit.findUnique.mockResolvedValue(defaultVisit);
     mockPrisma.visit.findMany.mockResolvedValue([defaultVisit]);
     mockPrisma.visit.update.mockResolvedValue(defaultVisit);
+    mockPrisma.visit.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.user.findFirst.mockResolvedValue({ id: 'agent-2', name: 'Rajesh', phone: '919999999999' });
     mockPrisma.user.findMany.mockResolvedValue([{ id: 'agent-2', name: 'Rajesh' }]);
     mockPrisma.property.findFirst.mockResolvedValue({

@@ -474,12 +474,23 @@ Return JSON only: {"intent":"<intent>","toolName":"<exact action handler or null
 Intents: ${AGENT_INTENTS.join(', ')}.
 Available deterministic action handlers for this staff role:
 ${formatToolCatalogForPrompt(availableTools)}.
-Rules:
-- "update lead X status to visited" => update_lead_status (NOT list_leads_today).
+Disambiguation rules (apply in order, use the FIRST matching rule):
+- "new leads today" / "leads we got today" / "how many leads today" => list_leads_today.
+- "update lead X status to visited" / "mark lead X as visited" => update_lead_status (NOT list_leads_today).
+- "visits tomorrow" / "who is visiting tomorrow" => list_visits_tomorrow.
+- "visits on [date]" / "visits this week" => list_visits_by_date_range.
+- "confirm visit" / "approve visit for X" => confirm_visit.
+- "reschedule visit" / "move visit to [date]" => reschedule_visit (NOT cancel_visit).
+- "cancel visit" => cancel_visit (NOT reschedule_visit).
+- "assign lead X to agent Y" => assign_lead.
+- "reassign all leads from A to B" / "transfer portfolio" => transfer_lead_portfolio.
+- "flag as hot" / "mark priority" / "high priority" => flag_lead_priority.
+- "re-engage" / "follow up with" / "reach out again" => re_engage_lead.
+- "bulk reassign visits" / "move all visits" => bulk_reassign_visits.
+- "delete lead" / "remove lead" => delete_lead.
+- "update lead details" / "change lead phone" (not status) => update_lead.
 - For CRM actions, set toolName to the exact matching handler name from the available list.
 - Never invent a toolName that is not in the available list.
-- "new leads today" / "leads we got today" => list_leads_today.
-- "visits tomorrow" => list_visits_tomorrow.
 - Partial parameters OK (leadName, status, visitId, propertyName, agentName).
 - unknown if unclear.`;
 
@@ -758,11 +769,10 @@ export async function classifyAndExecuteAgentIntent(
     if (listReply) return listReply;
   }
 
+  // Do NOT gate on openAiKeyProblem() here — the LLM caller (defaultLlmCaller)
+  // already has a full Claude → Kimi fallback chain. Blocking here kills the
+  // entire intent pipeline even when Claude/Kimi are healthy.
   if (!config.agentAi?.enabled || !shouldRunIntentOrchestrator(params.messageText)) {
-    return null;
-  }
-
-  if (openAiKeyProblem()) {
     return null;
   }
 
@@ -808,7 +818,11 @@ export async function classifyAndExecuteAgentIntent(
         staffPhone: params.staffPhone,
         channel: 'staff',
       });
-      if (workflowReply) return workflowReply;
+      // Only fall through to executeAgentIntent if the workflow produced NO reply
+      // (i.e. all steps skipped AND no error). If it produced any reply (success
+      // OR failure message), return it immediately to prevent double-execution.
+      if (workflowReply !== null && workflowReply !== undefined) return workflowReply;
+      // Workflow ran but all steps skipped (no output) — fall through to tool execution.
     }
 
     return executeAgentIntent(

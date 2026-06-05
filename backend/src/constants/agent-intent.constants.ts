@@ -15,6 +15,7 @@ export const AGENT_INTENTS = [
   'get_visit_details',
   'confirm_visit',
   'complete_visit',
+  'mark_visit_outcome',
   'cancel_visit',
   'reschedule_visit',
   'bulk_reassign_visits',

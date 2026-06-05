@@ -56,8 +56,7 @@ const AuditLogsPage: React.FC = () => {
       const res = await api.get(`/audit?${params.toString()}`);
       setLogs(res.data.data || []);
       setTotalPages(res.data.totalPages || 1);
-    } catch (err) {
-      console.error('Failed to load audit logs', err);
+    } catch {
       setLogs([]);
       setLoadError('Could not load audit logs.');
     } finally {

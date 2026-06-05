@@ -12,14 +12,20 @@ export const INTENT_TO_WORKFLOW: Partial<Record<AgentIntent, WorkflowId>> = {
   reschedule_visit: 'reschedule_visit',
   cancel_visit: 'cancel_visit',
   complete_visit: 'complete_visit',
+  mark_visit_outcome: 'mark_visit_outcome',
   send_brochure: 'brochure_request',
   search_catalog: 'availability_check',
   search_properties_for_lead: 'availability_check',
   get_property_details: 'price_inquiry',
+  // list_properties covers amenity questions when staff asks about features
+  list_properties: 'amenities_question',
   get_available_slots: 'agent_availability',
   get_calendar_events: 'agent_availability',
   takeover_conversation: 'escalate_to_human',
   flag_lead_priority: 'escalate_to_human',
+  // 'send_message_to_client' is also an escalation signal when staff is
+  // asked to handle a client personally ('call me', 'talk to agent')
+  send_message_to_client: 'escalate_to_human',
 };
 
 export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
@@ -80,7 +86,10 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     label: 'Reschedule Visit',
     steps: [
       { action: 'resolveVisit' },
-      { action: 'cancelVisitSlot', optional: true },
+      // CRITICAL: cancel the existing visit slot BEFORE booking new one.
+      // Without this step, the old visit record stays as 'scheduled' — creating
+      // a ghost duplicate booking visible in the agent calendar.
+      { action: 'cancelVisitSlot' },
       { action: 'bookVisit' },
       { action: 'updateVisitStatus', optional: true },
       { action: 'sendVisitConfirmation', optional: true },
@@ -105,6 +114,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
       { action: 'completeVisit' },
       { action: 'updateLeadStatusVisited', optional: true },
       { action: 'logFeedback', optional: true },
+      { action: 'updateLeadScore', optional: true },
       { action: 'scheduleFollowUp', optional: true },
       { action: 'syncLeadMemory', optional: true },
     ],
@@ -118,6 +128,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
       { action: 'addLeadNote', optional: true },
       { action: 'notifyAgent', optional: true },
       { action: 'touchAnalytics', optional: true },
+      { action: 'updateLeadScore', optional: true },
       { action: 'syncLeadMemory', optional: true },
     ],
   },

@@ -27,8 +27,10 @@ describe('navigation.config', () => {
   it('company_admin sees full tenant nav', () => {
     const items = getVisibleNavItems('company_admin', allFeatures);
     expect(items.map((i) => i.key)).toEqual(
-      expect.arrayContaining(['dashboard', 'leads', 'agents', 'ai_settings', 'billing']),
+      expect.arrayContaining(['dashboard', 'leads', 'agents', 'ai_settings', 'emi_calculator']),
     );
+    // Billing is disabled in this version — must NOT appear in the sidebar
+    expect(items.some((i) => (i.key as string) === 'billing')).toBe(false);
     expect(items.some((i) => i.key === 'companies')).toBe(false);
   });
 
@@ -63,6 +65,8 @@ describe('navigation.config', () => {
     const caps = getRoleCapabilities('company_admin');
     expect(caps.canManageTenantSettings).toBe(true);
     expect(caps.canUploadProperties).toBe(true);
+    // Billing management capability is removed in this version
+    expect('canManageBilling' in caps).toBe(false);
   });
 
   it('hides feature-gated nav when toggle is off', () => {

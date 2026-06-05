@@ -266,8 +266,7 @@ const SettingsPage: React.FC = () => {
       setPageError(null);
       const res = await api.get('/roles');
       setRoles(res.data.data);
-    } catch (err) {
-      console.error('Failed to load roles', err);
+    } catch {
       setPageError('Could not load roles.');
     } finally {
       setRolesLoading(false);
@@ -280,8 +279,7 @@ const SettingsPage: React.FC = () => {
       setPageError(null);
       const res = await api.get('/features');
       setFeatures(res.data.data);
-    } catch (err) {
-      console.error('Failed to load features', err);
+    } catch {
       setPageError('Could not load feature toggles.');
     } finally {
       setFeaturesLoading(false);
@@ -294,8 +292,7 @@ const SettingsPage: React.FC = () => {
       setPageError(null);
       const res = await api.get('/conversion-settings');
       setConversion(res.data.data);
-    } catch (err) {
-      console.error('Failed to load conversion settings', err);
+    } catch {
       setPageError('Could not load conversion settings.');
     } finally {
       setConversionLoading(false);
@@ -394,8 +391,7 @@ const SettingsPage: React.FC = () => {
       await api.put(`/features/${key}`, { enabled });
       setFeatures(prev => prev.map(f => f.key === key ? { ...f, enabled } : f));
       dispatchCompanyFeaturesReload();
-    } catch (err) {
-      console.error('Failed to toggle feature', err);
+    } catch {
       setPageError('Could not update that feature toggle.');
     } finally {
       setTogglingKey(null);

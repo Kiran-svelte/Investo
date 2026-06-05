@@ -2,8 +2,11 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
-  testMatch: ['**/tests/**/*.test.ts'],
+  // Search for tests in both the top-level tests/ directory AND src/ (for
+  // co-located tests in src/tests/). Previously roots: ['<rootDir>/src'] caused
+  // tests/unit/*.test.ts to be silently ignored.
+  roots: ['<rootDir>/src', '<rootDir>/tests'],
+  testMatch: ['**/*.test.ts'],
   moduleNameMapper: {
     '^jwks-rsa$': '<rootDir>/src/tests/mocks/jwks-rsa.mock.ts',
   },
@@ -24,3 +27,4 @@ module.exports = {
     },
   },
 };
+

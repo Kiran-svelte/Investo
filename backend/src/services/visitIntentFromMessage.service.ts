@@ -1,6 +1,12 @@
 /**
  * Parses customer WhatsApp text into a proposed site-visit datetime.
  * Used to book visits in CRM (calendar + lead status), not only LLM prose.
+ *
+ * TIMEZONE RULE: All Date values returned are built as explicit IST ISO strings
+ * (`YYYY-MM-DDTHH:MM:00+05:30`) so the UTC value stored in the DB is always
+ * correct regardless of the server process timezone (which may be UTC).
+ * Never use `date.setHours(h, m, 0, 0)` for visit times — that operates in
+ * server local time and silently shifts by 5:30h on UTC servers.
  */
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
@@ -11,10 +17,16 @@ const VISIT_SCHEDULING_HINT =
 const TIME_PATTERN =
   /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b|\b(\d{1,2})\s*(am|pm)\b/i;
 
-const DAY_PATTERN = new RegExp(
-  `\\b(?:this\\s+)?(${DAY_NAMES.join('|')}|tomorrow|today)\\b`,
-  'i',
-);
+/**
+ * Shared pattern source for day-name matching.
+ * Always build fresh RegExp instances from this string — never share one global
+ * RegExp across multiple calls, as `lastIndex` state causes non-deterministic
+ * match skipping: .test() and .match() reset lastIndex; .matchAll() requires `g`.
+ */
+const DAY_PATTERN_SOURCE = `\\b(?:this\\s+)?(${DAY_NAMES.join('|')}|tomorrow|today)\\b`;
+
+/** Non-global variant for .test() and single .match() operations. */
+const DAY_PATTERN = new RegExp(DAY_PATTERN_SOURCE, 'i');
 
 const SHORT_CONFIRM = /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|done|👍|✅)[!.\s]*$/i;
 
@@ -67,7 +79,7 @@ export function parseRescheduleTargetFromMessage(
     if (fromTail) return fromTail;
   }
 
-  const dayMatches = [...text.toLowerCase().matchAll(DAY_PATTERN)];
+  const dayMatches = [...text.toLowerCase().matchAll(new RegExp(DAY_PATTERN_SOURCE, 'gi'))];
   if (dayMatches.length > 1) {
     const lastDay = dayMatches[dayMatches.length - 1][0];
     const timeMatch = text.match(TIME_PATTERN);
@@ -99,30 +111,7 @@ export function isShortVisitConfirmation(message: string): boolean {
   return SHORT_CONFIRM.test(message.trim());
 }
 
-/**
- * Returns next calendar occurrence of weekday (0=Sun) at given local hours/minutes.
- */
-function nextWeekdayAt(
-  from: Date,
-  targetDow: number,
-  hour: number,
-  minute: number,
-): Date {
-  const result = new Date(from);
-  result.setSeconds(0, 0);
-  const currentDow = result.getDay();
-  let delta = (targetDow - currentDow + 7) % 7;
-  if (delta === 0) {
-    const candidate = new Date(result);
-    candidate.setHours(hour, minute, 0, 0);
-    if (candidate <= from) {
-      delta = 7;
-    }
-  }
-  result.setDate(result.getDate() + delta);
-  result.setHours(hour, minute, 0, 0);
-  return result;
-}
+
 
 function parseHourMinute(match: RegExpMatchArray): { hour: number; minute: number } | null {
   const h = Number(match[1] ?? match[4]);
@@ -140,7 +129,86 @@ function parseHourMinute(match: RegExpMatchArray): { hour: number; minute: numbe
 }
 
 /**
- * Parse a visit datetime from free text (IST-local wall clock, server TZ).
+ * Returns the IST date string (YYYY-MM-DD) for the given UTC Date, using
+ * the Asia/Kolkata locale formatter. Safe on any server timezone.
+ *
+ * @param d - UTC Date object
+ * @returns IST date string in YYYY-MM-DD format
+ */
+function toISTDateString(d: Date): string {
+  return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+}
+
+/**
+ * Build a Date at a specific wall-clock time in IST, independent of server
+ * timezone. Constructs an explicit ISO 8601 string with +05:30 offset so
+ * the UTC value stored in DB is always correct.
+ *
+ * @param istDateStr - Date part in YYYY-MM-DD format (IST)
+ * @param hour - 0-23 hour in IST wall clock
+ * @param minute - 0-59 minute
+ * @returns Date object at the requested IST wall time
+ */
+function buildISTDate(istDateStr: string, hour: number, minute: number): Date {
+  const hh = String(hour).padStart(2, '0');
+  const mm = String(minute).padStart(2, '0');
+  return new Date(`${istDateStr}T${hh}:${mm}:00+05:30`);
+}
+
+/**
+ * Extract the day-of-week (0=Sunday…6=Saturday) that the user is referencing
+ * as the *source* visit in a reschedule message (e.g. "this sunday visit",
+ * "my saturday appointment"). Returns null when no clear day is mentioned.
+ * Used by findTargetVisit to pick the correct visit to mutate.
+ *
+ * @param message - Raw user message text
+ * @returns day-of-week number or null
+ */
+export function extractReferencedDayFromMessage(message: string): number | null {
+  const text = message.trim().toLowerCase();
+  if (!text) return null;
+
+  // "today" / "tomorrow" are handled separately by caller
+  if (/\btoday\b/i.test(text)) return new Date().getDay();
+
+  const matches = [...text.matchAll(new RegExp(DAY_PATTERN_SOURCE, 'gi'))];
+  if (!matches.length) return null;
+
+  // When multiple day names appear (e.g. "move sunday visit to friday"),
+  // use the FIRST one as the source visit day. The last is the new time.
+  const firstDay = matches[0][1].toLowerCase();
+  const dow = DAY_NAMES.indexOf(firstDay as (typeof DAY_NAMES)[number]);
+  return dow >= 0 ? dow : null;
+}
+
+/**
+ * Get the IST [start, end] Date bounds for the upcoming occurrence of the
+ * given day-of-week, starting from now. If the day is today, returns today's bounds.
+ *
+ * @param targetDow - Day of week (0=Sunday, 6=Saturday)
+ * @returns [start, end] UTC Dates covering that full IST calendar day
+ */
+export function getISTDateBoundsForDow(targetDow: number): [Date, Date] {
+  const todayISTStr = toISTDateString(new Date());
+  const todayDow = new Date(`${todayISTStr}T12:00:00+05:30`).getDay();
+  const delta = (targetDow - todayDow + 7) % 7;
+  const targetDate = new Date();
+  targetDate.setDate(targetDate.getDate() + delta);
+  const targetISTStr = toISTDateString(targetDate);
+  const start = buildISTDate(targetISTStr, 0, 0);
+  const end = buildISTDate(targetISTStr, 23, 59);
+  return [start, end];
+}
+
+/**
+ * Parse a visit datetime from free text.
+ * Returns a Date representing the IST wall-clock time the user stated,
+ * stored as the correct UTC equivalent. Always uses explicit IST ISO strings
+ * so server timezone has no effect.
+ *
+ * @param message - User message text
+ * @param reference - Reference Date for relative terms ('today', 'tomorrow')
+ * @returns Parsed Date or null if no recognizable datetime found
  */
 export function parseVisitDateTimeFromMessage(message: string, reference = new Date()): Date | null {
   const text = message.trim().toLowerCase();
@@ -157,22 +225,36 @@ export function parseVisitDateTimeFromMessage(message: string, reference = new D
   const dayToken = dayMatch[1].toLowerCase();
 
   if (dayToken === 'today') {
-    const d = new Date(reference);
-    d.setHours(hm.hour, hm.minute, 0, 0);
+    const todayISTStr = toISTDateString(reference);
+    const d = buildISTDate(todayISTStr, hm.hour, hm.minute);
+    // Reject past times on today
     if (d <= reference) return null;
     return d;
   }
 
   if (dayToken === 'tomorrow') {
-    const d = new Date(reference);
-    d.setDate(d.getDate() + 1);
-    d.setHours(hm.hour, hm.minute, 0, 0);
-    return d;
+    const tomorrow = new Date(reference);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowISTStr = toISTDateString(tomorrow);
+    return buildISTDate(tomorrowISTStr, hm.hour, hm.minute);
   }
 
   const dow = DAY_NAMES.indexOf(dayToken as (typeof DAY_NAMES)[number]);
   if (dow < 0) return null;
-  return nextWeekdayAt(reference, dow, hm.hour, hm.minute);
+
+  // Find the next occurrence of this day-of-week in IST
+  const refISTStr = toISTDateString(reference);
+  const refDow = new Date(`${refISTStr}T12:00:00+05:30`).getDay();
+  let delta = (dow - refDow + 7) % 7;
+  if (delta === 0) {
+    // Same day: only use today if the requested time is in the future
+    const candidate = buildISTDate(refISTStr, hm.hour, hm.minute);
+    if (candidate <= reference) delta = 7;
+  }
+  const targetDate = new Date(reference);
+  targetDate.setDate(targetDate.getDate() + delta);
+  const targetISTStr = toISTDateString(targetDate);
+  return buildISTDate(targetISTStr, hm.hour, hm.minute);
 }
 
 /**

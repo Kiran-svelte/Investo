@@ -126,7 +126,6 @@ const LeadDetailPage: React.FC = () => {
       const res = await api.get(`/leads/${id}`);
       setLead(normalizeLeadDetail(res.data.data));
     } catch (err: any) {
-      console.error('Failed to load lead', err);
       const rawError = err?.response?.data?.error;
       setError(typeof rawError === 'string' ? rawError : 'Failed to load lead details.');
     } finally {

@@ -42,6 +42,10 @@ const getSocketUrl = (): string => {
     }
   }
 
+  const prodApi = (import.meta as any).env?.VITE_PROD_API_URL as string | undefined;
+  if (prodApi?.trim()) {
+    return prodApi.trim().replace(/\/api\/?$/, '');
+  }
   return 'https://investo-backend-v2.onrender.com';
 };
 
@@ -74,17 +78,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     newSocket.on('connect', () => {
-      console.log('Socket connected');
       setIsConnected(true);
     });
 
-    newSocket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
+    newSocket.on('disconnect', () => {
       setIsConnected(false);
     });
 
-    newSocket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error.message);
+    newSocket.on('connect_error', () => {
       setIsConnected(false);
     });
 

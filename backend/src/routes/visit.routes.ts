@@ -5,7 +5,7 @@ import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
-import { createVisitSchema, updateVisitStatusSchema, isValidTransition, VISIT_TRANSITIONS, VisitStatus } from '../models/validation';
+import { createVisitSchema, updateVisitStatusSchema, rescheduleVisitSchema, isValidTransition, VISIT_TRANSITIONS, VisitStatus } from '../models/validation';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from '../services/notification.engine';
@@ -343,6 +343,7 @@ router.patch(
 router.put(
   '/:id',
   authorize('visits', 'update'),
+  validate(rescheduleVisitSchema),
   auditLog('reschedule', 'visits'),
   async (req: AuthRequest, res: Response) => {
     try {

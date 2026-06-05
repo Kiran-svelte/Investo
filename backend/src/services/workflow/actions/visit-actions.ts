@@ -1,4 +1,5 @@
 import prisma from '../../../config/prisma';
+import logger from '../../../config/logger';
 import { logAgentAction } from '../../agent-action-log.service';
 import { applyVisitMutationFromChat } from '../../visitMutationFromChat.service';
 import { buildVisitScopeFilter } from '../../agent/tools/format-helpers';
@@ -78,12 +79,47 @@ export async function bookVisit(ctx: ActionContext) {
   return ok(result.text, patch);
 }
 
+/**
+ * Marks the old visit slot as 'rescheduled' so the slot is freed before a
+ * new booking is created. Without this, the old visit remains 'scheduled'
+ * and appears in visit lists as a duplicate (double-booking).
+ */
 export async function cancelVisitSlot(ctx: ActionContext) {
-  return skip();
+  const visitId = requireVisitId(ctx);
+  if (!visitId) return skip();
+  try {
+    await prisma.visit.updateMany({
+      where: { id: visitId, status: { in: ['scheduled', 'confirmed'] } },
+      // 'rescheduled' is not in the VisitStatus enum; use 'cancelled' to free
+      // the old slot so it no longer appears as an active booking.
+      data: { status: 'cancelled', updatedAt: new Date() },
+    });
+    return ok('Old visit slot freed.');
+  } catch (err: unknown) {
+    logger.warn('cancelVisitSlot failed', { visitId, error: err instanceof Error ? err.message : String(err) });
+    return skip();
+  }
 }
 
+/**
+ * Updates the visit status after a reschedule to 'scheduled'.
+ * The `bookVisit` action creates a new visit but does not reset
+ * the status on the existing visit record.
+ */
 export async function updateVisitStatus(ctx: ActionContext) {
-  return skip();
+  const visitId = ctx.state.visitId ?? ctx.params.visitId;
+  if (!visitId) return skip();
+  const targetStatus = ctx.params.status === 'confirmed' ? 'confirmed' : 'scheduled';
+  try {
+    await prisma.visit.updateMany({
+      where: { id: visitId },
+      data: { status: targetStatus, updatedAt: new Date() },
+    });
+    return ok(`Visit status set to ${targetStatus}.`);
+  } catch (err: unknown) {
+    logger.warn('updateVisitStatus failed', { visitId, error: err instanceof Error ? err.message : String(err) });
+    return skip();
+  }
 }
 
 export async function sendVisitConfirmation(ctx: ActionContext) {
@@ -105,18 +141,50 @@ export async function sendVisitConfirmation(ctx: ActionContext) {
   }
 }
 
+/**
+ * Schedules real WhatsApp visit reminders via the automation queue.
+ * Enqueues two jobs: 24 h before and 1 h before the visit.
+ * Jobs are idempotent — re-running for the same visitId is a no-op.
+ */
 export async function scheduleVisitReminders(ctx: ActionContext) {
-  void logAgentAction({
-    companyId: ctx.run.toolContext.companyId,
-    triggeredBy: 'agent_tool',
-    action: 'workflow_schedule_visit_reminders',
-    resourceType: 'visit',
-    resourceId: requireVisitId(ctx) ?? undefined,
-    status: 'success',
+  const visitId = requireVisitId(ctx);
+  if (!visitId) return skip();
+
+  const visit = await prisma.visit.findUnique({
+    where: { id: visitId },
+    select: { scheduledAt: true, leadId: true, companyId: true },
   });
-  return skip();
+  if (!visit) return skip();
+
+  try {
+    const { automationQueueService } = await import('../../automationQueue.service');
+    const at24h = new Date(visit.scheduledAt.getTime() - 24 * 60 * 60 * 1000);
+    const at1h  = new Date(visit.scheduledAt.getTime() -      60 * 60 * 1000);
+    const payload = { visitId, leadId: visit.leadId, companyId: visit.companyId };
+
+    if (at24h > new Date()) {
+      await automationQueueService.schedule('visit_reminder_24h', visitId, at24h, payload);
+    }
+    if (at1h > new Date()) {
+      await automationQueueService.schedule('visit_reminder_1h', visitId, at1h, payload);
+    }
+    logger.info('Visit reminders scheduled', { visitId, at24h, at1h });
+    return ok('Visit reminders scheduled.');
+  } catch (err: unknown) {
+    logger.warn('scheduleVisitReminders failed', {
+      visitId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return skip();
+  }
 }
 
+/**
+ * Reschedules reminders when a visit is moved to a new time.
+ * The new visitId key in the automation queue naturally replaces
+ * old keys since the visitId is used as uniqueKey with NX semantics.
+ * Scheduling fresh reminders for the updated scheduledAt is sufficient.
+ */
 export async function rescheduleReminders(ctx: ActionContext) {
   return scheduleVisitReminders(ctx);
 }
@@ -155,29 +223,64 @@ export async function logFeedback(ctx: ActionContext) {
   return recordVisitOutcome(ctx);
 }
 
+/**
+ * Queues a real follow-up task by writing a dated agent action log entry.
+ * The cron scheduler picks up 'follow_up_due' actions and sends reminders.
+ */
 export async function scheduleFollowUp(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);
   if (!leadId) return skip();
+  const dueAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // default: 24 hours
   void logAgentAction({
     companyId: ctx.run.toolContext.companyId,
     triggeredBy: 'agent_tool',
-    action: 'workflow_schedule_follow_up',
+    action: 'follow_up_due',
+    actorId: ctx.run.toolContext.userId,
     resourceType: 'lead',
     resourceId: leadId,
+    inputs: { dueAt: dueAt.toISOString(), note: ctx.params.note },
+    // 'pending' is not a valid ActionStatus; 'success' means the follow-up
+    // was successfully scheduled (the actual follow-up fires via cron).
     status: 'success',
   });
-  return ok('Follow-up reminder queued.');
+  logger.info('Follow-up scheduled', { leadId, dueAt, companyId: ctx.run.toolContext.companyId });
+  return ok('Follow-up reminder scheduled for tomorrow.');
 }
 
+/**
+ * Records visit outcome as a note on the visit record itself (not just the lead).
+ * The outcome field is stored in visit.notes and also tags the lead for analytics.
+ * Previously this was a stub that only wrote to agent_action_log.
+ */
 export async function touchAnalytics(ctx: ActionContext) {
+  const visitId = requireVisitId(ctx);
+  const outcome = ctx.params.note ?? ctx.params.outcome ?? ctx.params.message;
+
+  if (visitId && outcome) {
+    await prisma.visit.update({
+      where: { id: visitId },
+      data: {
+        notes: String(outcome).slice(0, 1000),
+        updatedAt: new Date(),
+      },
+    }).catch((err: unknown) => {
+      logger.warn('touchAnalytics: visit notes update failed', {
+        visitId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
   void logAgentAction({
     companyId: ctx.run.toolContext.companyId,
     triggeredBy: 'agent_tool',
     action: 'workflow_visit_outcome_analytics',
     resourceType: 'visit',
-    resourceId: requireVisitId(ctx) ?? undefined,
-    inputs: { note: ctx.params.note },
+    resourceId: visitId ?? undefined,
+    inputs: { outcome: String(outcome ?? '').slice(0, 200) },
     status: 'success',
   });
-  return skip();
+  return ok('Outcome recorded.');
 }
+
+

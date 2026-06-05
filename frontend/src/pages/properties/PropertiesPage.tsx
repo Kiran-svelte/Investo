@@ -126,8 +126,7 @@ const PropertiesPage: React.FC = () => {
       setProperties(list);
       setTotalPages(body.pagination?.pages || 1);
       setTotal(body.pagination?.total || 0);
-    } catch (err) {
-      console.error('Failed to load properties', err);
+    } catch {
       setPageError('Could not load properties. Refresh the page or check that Property Management is enabled.');
     } finally {
       setLoading(false);
@@ -196,7 +195,6 @@ const PropertiesPage: React.FC = () => {
       await api.delete(`/properties/${id}`);
       await loadProperties(); // Refresh the list after deletion
     } catch (err: any) {
-      console.error('Delete failed', err);
       setPageError(err.response?.data?.error || 'Failed to delete property.');
     } finally {
       setDeleting(null);

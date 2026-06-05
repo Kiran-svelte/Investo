@@ -516,15 +516,18 @@ export async function buildClientMemoryContextForAgent(input: {
 }): Promise<{ block: string; leadId: string | null; visitId: string | null }> {
   const resolved = await resolveLeadContextForAgent(input);
   if (resolved.leadId) {
-    try {
-      await syncLeadClientMemory(resolved.leadId);
-    } catch (err: unknown) {
-      logger.warn('Client memory sync failed', {
+    // Fire-and-forget: sync the latest message/visit into the vector store in
+    // the background. We do NOT await this \u2014 it calls the OpenAI Embeddings API
+    // and awaiting it would add 300-600ms to every agent response. The search
+    // below uses the chunks from the PREVIOUS sync which are already current.
+    syncLeadClientMemory(resolved.leadId).catch((err: unknown) => {
+      logger.warn('Client memory sync failed (background)', {
         leadId: resolved.leadId,
         error: err instanceof Error ? err.message : String(err),
       });
-    }
+    });
   }
+
 
   const chunks = await searchClientMemory({
     companyId: input.companyId,

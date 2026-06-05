@@ -30,7 +30,6 @@ import NotificationsPage from './pages/notifications/NotificationsPage';
 import OnboardingPage from './pages/onboarding/OnboardingPage';
 import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage';
 import CompaniesPage from './pages/companies/CompaniesPage';
-import BillingPage from './pages/billing/BillingPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
 import ErrorLogsPage from './pages/error-logs/ErrorLogsPage';
 import ProfilePage from './pages/profile/ProfilePage';
@@ -441,9 +440,8 @@ const App: React.FC = () => {
                   <Route element={<RoleRoute path="/companies" />}>
                     <Route path="companies" element={<CompaniesPage />} />
                   </Route>
-                  <Route element={<RoleRoute path="/billing" />}>
-                    <Route path="billing" element={<BillingPage />} />
-                  </Route>
+                  {/* Billing is not available in this version — redirect to dashboard */}
+                  <Route path="billing" element={<Navigate to={DASHBOARD_BASE} replace />} />
                   <Route element={<RoleRoute path="/audit-logs" />}>
                     <Route element={<FeatureRoute featureKey="audit_logs" />}>
                       <Route path="audit-logs" element={<AuditLogsPage />} />
@@ -465,7 +463,6 @@ const App: React.FC = () => {
               <Route path="/agents/*" element={<LegacyDashboardRedirect />} />
               <Route path="/analytics/*" element={<LegacyDashboardRedirect />} />
               <Route path="/ai-settings/*" element={<LegacyDashboardRedirect />} />
-              <Route path="/billing/*" element={<LegacyDashboardRedirect />} />
               <Route path="/settings/*" element={<LegacyDashboardRedirect />} />
               <Route path="/notifications/*" element={<LegacyDashboardRedirect />} />
               <Route path="/companies/*" element={<LegacyDashboardRedirect />} />

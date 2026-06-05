@@ -154,6 +154,49 @@ function normalizeWorkflowId(value: unknown): WorkflowId | 'unknown' {
 }
 
 /**
+ * Post-processes LLM-extracted workflow parameters.
+ * Coerces scheduledAt/newScheduledAt to ISO strings even if the LLM
+ * returned a natural-language date like "saturday 4pm".
+ * Falls back to parseVisitDateTimeFromMessage from the original message.
+ */
+function normalizeWorkflowParameters(params: WorkflowParams, messageText: string): WorkflowParams {
+  const normalized = { ...params };
+
+  const coerceToIso = (value: unknown, fallbackMessage?: string): string | undefined => {
+    if (!value && !fallbackMessage) return undefined;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now() - 60_000) {
+        // Preserve the original ISO string (may carry +05:30 offset from LLM).
+        // Both representations resolve to the same UTC moment; preserving the
+        // IST offset avoids an ambiguous round-trip through UTC toISOString().
+        return value.trim();
+      }
+      // LLM output a non-ISO string (e.g. "saturday 4pm") — parse deterministically
+      const { parseVisitDateTimeFromMessage } = require('../visitIntentFromMessage.service');
+      const fallback: Date | null = parseVisitDateTimeFromMessage(value);
+      if (fallback) return fallback.toISOString();
+    }
+    if (fallbackMessage) {
+      const { parseVisitDateTimeFromMessage } = require('../visitIntentFromMessage.service');
+      const fromMsg: Date | null = parseVisitDateTimeFromMessage(fallbackMessage);
+      if (fromMsg) return fromMsg.toISOString();
+    }
+    return undefined;
+  };
+
+  if (params.scheduledAt !== undefined || params.newScheduledAt !== undefined) {
+    const iso = coerceToIso(params.scheduledAt ?? params.newScheduledAt, messageText);
+    if (iso) {
+      normalized.scheduledAt = iso;
+      normalized.newScheduledAt = iso;
+    }
+  }
+
+  return normalized;
+}
+
+/**
  * Execute ordered workflow steps. Stops on first failure or `stop: true`.
  */
 export async function runWorkflow(
@@ -230,6 +273,10 @@ export async function runWorkflow(
 
 /**
  * Run a workflow mapped from a staff copilot intent (after classify + extract).
+ *
+ * Returns:
+ *   - `null`   → no workflow mapped for this intent (caller may fall through)
+ *   - `string` → workflow ran; may be empty if all steps skipped (do NOT fall through)
  */
 export async function runWorkflowForIntent(
   intent: AgentIntent,
@@ -240,8 +287,12 @@ export async function runWorkflowForIntent(
   if (!workflowId) return null;
 
   const result = await runWorkflow(workflowId, run, { ...params, messageText: params.messageText ?? run.messageText });
-  return result.reply;
+  // Return empty string (not null) when all steps skipped — this is distinct from
+  // "no workflow mapped" and prevents the orchestrator from double-executing via
+  // the executeAgentIntent fallback for the same intent.
+  return result.reply ?? '';
 }
+
 
 export async function classifyWorkflowMessage(
   input: {
@@ -253,6 +304,16 @@ export async function classifyWorkflowMessage(
   },
   llm: WorkflowLlmCaller = defaultWorkflowLlm,
 ): Promise<ClassifyWorkflowMessageResult> {
+  // Inject today's IST date so the LLM can resolve relative dates
+  // like "saturday 4pm" or "tomorrow morning" to absolute ISO timestamps.
+  const todayIST = new Date().toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
   const system = `Classify Investo WhatsApp CRM messages into one workflow.
 Return JSON only: {"workflow":"<id>","confidence":0.0-1.0,"parameters":{}}.
 Workflows:
@@ -262,9 +323,19 @@ Rules:
 - Use exact workflow ids. Use unknown if none fit.
 - "update lead X status to visited" => update_status (NOT new_lead or list workflows).
 - Messages with "today" about lead STATUS are update_status, not schedule_visit.
-- "when is my visit booked" => schedule_visit or get_visit_details context; prefer listing next visit.
+- "liked it", "not interested", "will decide later" after a visit => mark_visit_outcome.
+- "when is my visit booked" => agent_availability context; prefer listing next visit.
 - Put customer feedback in note; preserve questions in message.
-- Extract leadId, leadName, visitId, status, note, scheduledAt, newScheduledAt, propertyId, agentName, customerName, phone.`;
+- Extract: leadId, leadName, visitId, status, note, scheduledAt, newScheduledAt, propertyId, agentName, customerName, phone, outcome.
+
+CRITICAL - scheduledAt extraction:
+Today in IST is: ${todayIST}
+- ALWAYS output scheduledAt and newScheduledAt as ISO 8601 strings: "YYYY-MM-DDTHH:mm:ss+05:30".
+- Resolve relative days: "saturday 4pm" => next Saturday at 16:00 IST.
+- Resolve "tomorrow" relative to today's date above.
+- If time is ambiguous (e.g. "morning"), default to 10:00.
+- If time is "afternoon", default to 15:00. If "evening", default to 18:00.
+- Never output partial strings like "saturday 4pm" — always compute and output the full ISO date.`;
 
   const raw = await llm(
     system,
@@ -288,10 +359,11 @@ Rules:
   }
 
   const workflowId = normalizeWorkflowId(parsed.workflow);
+  const parameters = normalizeWorkflowParameters(parsed.parameters ?? {}, input.messageText);
   return {
     workflowId,
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
-    parameters: parsed.parameters ?? {},
+    parameters,
   };
 }
 
@@ -305,9 +377,13 @@ export async function classifyAndRunWorkflow(
   run: WorkflowRunContext,
   deps?: { llm?: WorkflowLlmCaller },
 ): Promise<string | null> {
-  if (!config.agentAi?.enabled || !shouldClassifyWorkflow(run.messageText) || openAiKeyProblem()) {
+  // Do NOT gate on openAiKeyProblem() here — defaultWorkflowLlm has its own
+  // OpenAI → Claude → Kimi fallback chain. Blocking here kills classification
+  // even when Claude/Kimi are healthy.
+  if (!config.agentAi?.enabled || !shouldClassifyWorkflow(run.messageText)) {
     return null;
   }
+
 
   try {
     const { tryResolveVisitListReply, wantsVisitOnSpecificDate } = await import('../agent/agent-crm-query.service');
@@ -393,5 +469,11 @@ export async function tryRunBuyerWorkflow(input: {
     propertyId: input.propertyId,
     message: input.messageText,
   });
+
+  // Only surface the reply when the workflow fully succeeded.
+  // On failure (e.g. missing propertyId for brochure), return null so the
+  // full AI pipeline generates a natural-language response instead of
+  // exposing raw internal error strings to the customer.
+  if (!result.ok || !result.reply?.trim()) return null;
   return result.reply;
 }

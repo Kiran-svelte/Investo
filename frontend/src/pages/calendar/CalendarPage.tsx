@@ -76,8 +76,7 @@ const CalendarPage: React.FC = () => {
       const { from, to } = getDateRange();
       const res = await api.get(`/visits?from=${from.toISOString()}&to=${to.toISOString()}`);
       setVisits(res.data.data);
-    } catch (err) {
-      console.error('Failed to load visits', err);
+    } catch {
       setLoadError('Could not load visits for this date range.');
       setVisits([]);
     }

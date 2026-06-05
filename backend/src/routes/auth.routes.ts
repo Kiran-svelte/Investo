@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { authService } from '../services/auth.service';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { loginSchema, selfServiceSignupSchema, updateStaffProfileSchema } from '../models/validation';
+import { loginSchema, selfServiceSignupSchema, updateStaffProfileSchema, changePasswordSchema, forgotPasswordSchema, resetPasswordSchema } from '../models/validation';
 import { isStaffProfilePhoneComplete, normalizeStaffProfilePhone } from '../utils/userProfilePhone';
 import { assertStaffPhoneAvailable, isStaffPhoneInUseError } from '../utils/staffPhoneUniqueness';
 import logger from '../config/logger';
@@ -313,14 +313,9 @@ router.put('/profile', authenticate, validate(updateStaffProfileSchema), async (
  * POST /api/auth/change-password
  * Change password (required for users with mustChangePassword=true)
  */
-router.post('/change-password', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/change-password', authenticate, validate(changePasswordSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { current_password, new_password } = req.body;
-    
-    if (!new_password || new_password.length < 8) {
-      res.status(400).json({ message: 'New password must be at least 8 characters' });
-      return;
-    }
 
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
@@ -369,15 +364,9 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
  * POST /api/auth/forgot-password
  * Request password reset email
  */
-router.post('/forgot-password', async (req: Request, res: Response) => {
+router.post('/forgot-password', validate(forgotPasswordSchema), async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-
-    if (!email) {
-      res.status(400).json({ message: 'Email is required' });
-      return;
-    }
-
     const normalizedEmail = normalizeAuthEmail(email);
 
     // Find user (don't reveal if email exists)
@@ -456,19 +445,9 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
  * POST /api/auth/reset-password
  * Reset password using token
  */
-router.post('/reset-password', async (req: Request, res: Response) => {
+router.post('/reset-password', validate(resetPasswordSchema), async (req: Request, res: Response) => {
   try {
     const { token, email, new_password } = req.body;
-
-    if (!token || !email || !new_password) {
-      res.status(400).json({ message: 'Token, email, and new password are required' });
-      return;
-    }
-
-    if (new_password.length < 8) {
-      res.status(400).json({ message: 'Password must be at least 8 characters' });
-      return;
-    }
 
     const normalizedEmail = normalizeAuthEmail(email);
 

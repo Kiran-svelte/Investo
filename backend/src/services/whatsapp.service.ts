@@ -1069,6 +1069,13 @@ export class WhatsAppService {
           .map((m) => m.content)
           .slice(-7);
 
+        // Fetch real-time lead context (visit status, agent) once at the start
+        // of the AI block so it is available to ALL downstream paths:
+        // the workflow-reply CTA, the visitCommit reply, and the AI response.
+        // Direct DB read — not the eventual-consistent vector store.
+        const { getLiveLeadContext } = await import('./liveLeadContext.service');
+        const liveCtx = await getLiveLeadContext(lead.id, companyId);
+
         const visitCommit = await tryCommitCustomerVisitBooking({
           companyId,
           lead: {
@@ -1111,7 +1118,18 @@ export class WhatsAppService {
           await this.sendContextualQuickReplies(
             customerPhone,
             conversationState.stage,
-            { propertyId: conversationState.selectedPropertyId ?? conversation.selectedPropertyId },
+            {
+              propertyId: conversationState.selectedPropertyId ?? conversation.selectedPropertyId,
+              hasActiveVisit: Boolean(liveCtx.activeVisit),
+              visitStatus: liveCtx.activeVisit?.status,
+              visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+              visitTime: liveCtx.activeVisit
+                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+                  })
+                : undefined,
+            },
             whatsappConfig!,
           );
 
@@ -1219,6 +1237,7 @@ export class WhatsAppService {
         const customerMessageCount =
           history.filter((m) => m.senderType === 'customer').length + 1;
 
+
         const aiResponse = await Promise.race([
           aiService.generateResponse({
             companyId,
@@ -1233,6 +1252,10 @@ export class WhatsAppService {
             neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
             neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
             customerMessageCount,
+            // Inject real-time context so LLM knows about booked visits
+            liveLeadContextBlock: liveCtx.promptBlock || undefined,
+            // Pass active visit for visit-aware fast-path greeting
+            activeVisit: liveCtx.activeVisit,
           }),
           new Promise<never>((_, reject) => {
             setTimeout(() => reject(new Error('AI response timed out after 28s')), 28_000);
@@ -1475,7 +1498,19 @@ export class WhatsAppService {
           await this.sendContextualQuickReplies(
             customerPhone,
             aiResponse.newState.stage,
-            { propertyId: aiResponse.newState.selectedPropertyId ?? conversation.selectedPropertyId },
+            {
+              propertyId: aiResponse.newState.selectedPropertyId ?? conversation.selectedPropertyId,
+              // Pass live visit context so buttons reflect real state
+              hasActiveVisit: Boolean(liveCtx.activeVisit),
+              visitStatus: liveCtx.activeVisit?.status,
+              visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+              visitTime: liveCtx.activeVisit
+                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+                  })
+                : undefined,
+            },
             whatsappConfig!,
           );
         }
@@ -2419,78 +2454,115 @@ export class WhatsAppService {
 
   /**
    * Send contextual quick-reply suggestion buttons after an AI response.
-   * Button set is chosen based on the current conversation stage.
+   * Button set is chosen based on the current conversation stage AND live visit state.
+   * When the client already has an active visit, replaces 'Book Visit' with visit-management CTAs.
    * On GreenAPI the text-fallback in sendInteractiveButtons is used automatically.
    *
    * @param to - Recipient phone number
    * @param stage - Current conversation stage (from ConversationStateMachine)
-   * @param context - Optional property/lead context for button IDs
+   * @param context - Property/lead context and real-time visit state for button selection
    * @param whatsappConfig - Company WhatsApp credentials
    */
   async sendContextualQuickReplies(
     to: string,
     stage: string,
-    context: { propertyId?: string | null },
+    context: {
+      propertyId?: string | null;
+      /** True when the lead has a scheduled or confirmed site visit. */
+      hasActiveVisit?: boolean;
+      /** Status string of the active visit (e.g. 'scheduled', 'confirmed'). */
+      visitStatus?: string;
+      /** Property name for the active visit — used in button body text. */
+      visitProperty?: string;
+      /** Formatted visit time string for the button body. */
+      visitTime?: string;
+    },
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
     const pid = context.propertyId ?? '';
+    const hasVisit = Boolean(context.hasActiveVisit);
 
-    const STAGE_REPLIES: Record<string, { body: string; buttons: Array<{ id: string; title: string }> }> = {
+    // ── Visit-management CTAs (overrides stage-based buttons) ─────────────────
+    // When the client already has a scheduled/confirmed visit, NEVER show
+    // 'Book Visit'. Instead offer Confirm / Reschedule / Call Agent so the
+    // conversation stays contextual and does not repeat the booking pitch.
+    if (hasVisit && ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation'].includes(stage)) {
+      const visitBody = context.visitProperty
+        ? `Your visit for *${context.visitProperty}*${context.visitTime ? ` on ${context.visitTime}` : ''} 🗓️`
+        : 'You have an upcoming site visit 🗓️';
+
+      await this.sendInteractiveButtons(
+        to,
+        visitBody,
+        [
+          { id: 'visit-confirm', title: '✅ Confirm Visit' },
+          { id: 'visit-reschedule', title: '📅 Reschedule' },
+          { id: 'call-me', title: '📞 Call Agent' },
+        ],
+        null,
+        null,
+        whatsappConfig,
+      ).catch(() => undefined);
+      return;
+    }
+
+    // ── Stage-based CTAs (default path — no active visit) ────────────────────
+    const STAGE_REPLIES: Partial<Record<string, { body: string; buttons: Array<{ id: string; title: string }> }>> = {
       // rapport: greeting stage — guide them to share requirements or browse
       rapport: {
-        body: 'How can I help you today?',
+        body: 'What are you looking for? 🏡',
         buttons: [
-          { id: 'filter-apartment', title: 'Apartments' },
-          { id: 'filter-villa', title: 'Villas' },
-          { id: 'call-me', title: 'Call Me' },
+          { id: 'filter-apartment', title: '🏢 Apartments' },
+          { id: 'filter-villa', title: '🏡 Villas' },
+          { id: 'call-me', title: '📞 Call Me' },
         ],
       },
       qualify: {
-        body: 'Filter by type:',
+        body: 'Filter by property type:',
         buttons: [
-          { id: 'filter-apartment', title: 'Apartment' },
-          { id: 'filter-villa', title: 'Villa' },
-          { id: 'filter-plot', title: 'Plot' },
+          { id: 'filter-apartment', title: '🏢 Apartment' },
+          { id: 'filter-villa', title: '🏡 Villa' },
+          { id: 'filter-plot', title: '📐 Plot' },
         ],
       },
       shortlist: {
-        body: 'Next step:',
+        body: 'Ready for your next step? ✅',
         buttons: [
-          { id: pid ? `book-visit-${pid}` : 'book-visit', title: 'Book Visit' },
-          { id: 'emi-calculator', title: 'Calculate EMI' },
-          { id: 'call-me', title: 'Call Me' },
+          { id: pid ? `book-visit-${pid}` : 'book-visit', title: '🗓️ Book Free Visit' },
+          { id: 'emi-calculator', title: '💰 EMI Calculator' },
+          { id: 'call-me', title: '📞 Call Me' },
         ],
       },
       commitment: {
-        body: 'What would you like?',
+        body: "Let's take the next step 🚀",
         buttons: [
-          { id: pid ? `book-visit-${pid}` : 'book-visit', title: 'Book Visit' },
-          { id: 'call-me', title: 'Call Me' },
-          { id: pid ? `location-${pid}` : 'more-info', title: 'Show Location' },
+          { id: pid ? `book-visit-${pid}` : 'book-visit', title: '🗓️ Book Visit' },
+          { id: 'call-me', title: '📞 Call Me' },
+          { id: pid ? `location-${pid}` : 'more-info', title: '📍 Show Location' },
         ],
       },
       visit_booking: {
-        body: 'Preferred time:',
+        body: 'Pick a time that works for you 🗓️',
         buttons: [
-          { id: 'visit-slot-morning', title: 'Morning 10AM' },
-          { id: 'visit-slot-afternoon', title: 'Afternoon 3PM' },
-          { id: 'call-me', title: 'Call to Confirm' },
+          { id: 'visit-slot-morning', title: '☀️ Morning 10AM' },
+          { id: 'visit-slot-afternoon', title: '🌤️ Afternoon 3PM' },
+          { id: 'call-me', title: '📞 Call to Confirm' },
         ],
       },
       confirmation: {
-        body: 'Anything else?',
+        body: 'Anything else I can help with?',
         buttons: [
-          { id: pid ? `more-info-${pid}` : 'more-info', title: 'Property Details' },
-          { id: 'emi-calculator', title: 'EMI Calculator' },
-          { id: 'call-me', title: 'Call Me' },
+          { id: pid ? `more-info-${pid}` : 'more-info', title: '🏗️ Property Details' },
+          { id: 'emi-calculator', title: '💰 EMI Calculator' },
+          { id: 'call-me', title: '📞 Call Me' },
         ],
       },
     };
 
-    const config = STAGE_REPLIES[stage];
-    if (!config) return;
+    const stageConfig = STAGE_REPLIES[stage];
+    if (!stageConfig) return;
 
-    await this.sendInteractiveButtons(to, config.body, config.buttons, null, null, whatsappConfig).catch(
+    await this.sendInteractiveButtons(to, stageConfig.body, stageConfig.buttons, null, null, whatsappConfig).catch(
       () => undefined,
     );
   }
@@ -2729,6 +2801,86 @@ export class WhatsAppService {
       leadId: lead.id,
       conversationId: conversation.id,
     });
+
+    // ---- Visit Confirmation (from visit-aware CTA) ----
+    if (interactiveId === 'visit-confirm') {
+      const existingVisit = await prisma.visit.findFirst({
+        where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
+        orderBy: { scheduledAt: 'asc' },
+        include: { property: { select: { name: true } } },
+      });
+
+      if (!existingVisit) {
+        await this.sendMessage(
+          customerPhone,
+          `I couldn't find an upcoming visit to confirm. Would you like to book a new site visit?`,
+          whatsappConfig,
+        );
+        return { handled: true, action: 'visit-confirm-no-visit' };
+      }
+
+      await prisma.visit.update({
+        where: { id: existingVisit.id },
+        data: { status: 'confirmed' },
+      });
+
+      const visitDate = new Date(existingVisit.scheduledAt).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+        month: 'long', hour: '2-digit', minute: '2-digit', hour12: true,
+      });
+      const propName = (existingVisit.property as { name?: string })?.name ?? 'the property';
+      await this.sendMessage(
+        customerPhone,
+        `✅ *Visit Confirmed!*\n\n🏠 *${propName}*\n📅 ${visitDate}\n\nWe look forward to seeing you! 😊\n\nNeed anything else? Feel free to ask.`,
+        whatsappConfig,
+      );
+
+      logger.info('Visit confirmed via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
+      return { handled: true, action: 'visit-confirmed', leadStatus: 'visit_scheduled' };
+    }
+
+    // ---- Visit Reschedule (from visit-aware CTA) ----
+    if (interactiveId === 'visit-reschedule') {
+      const existingVisit = await prisma.visit.findFirst({
+        where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
+        orderBy: { scheduledAt: 'asc' },
+        include: { property: { select: { name: true, id: true } } },
+      });
+
+      if (!existingVisit) {
+        await this.sendMessage(
+          customerPhone,
+          `I couldn't find an upcoming visit to reschedule. Would you like to book a new site visit?`,
+          whatsappConfig,
+        );
+        return { handled: true, action: 'visit-reschedule-no-visit' };
+      }
+
+      const propertyId = (existingVisit.property as { id?: string })?.id ?? null;
+      const propName = (existingVisit.property as { name?: string })?.name ?? 'the property';
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dayAfter = new Date();
+      dayAfter.setDate(dayAfter.getDate() + 2);
+      const formatDate = (d: Date) =>
+        d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
+
+      await this.sendInteractiveButtons(
+        customerPhone,
+        `📅 Let's find a new time for your visit to *${propName}*. When works best for you?`,
+        [
+          { id: `visit-time-${propertyId ?? 'x'}-tomorrow-10am`, title: `${formatDate(tomorrow)} 10AM` },
+          { id: `visit-time-${propertyId ?? 'x'}-tomorrow-3pm`, title: `${formatDate(tomorrow)} 3PM` },
+          { id: `visit-time-${propertyId ?? 'x'}-dayafter`, title: `${formatDate(dayAfter)}` },
+        ],
+        `📅 Reschedule Visit`,
+        `Or type your preferred date and time`,
+        whatsappConfig,
+      );
+
+      logger.info('Reschedule flow triggered via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
+      return { handled: true, action: 'visit-reschedule-initiated' };
+    }
 
     // ---- Book Visit Action ----
     if (interactiveId === 'book-visit' || interactiveId.startsWith('book-visit-')) {
@@ -2996,19 +3148,50 @@ export class WhatsAppService {
         await this.sendPropertyImages(customerPhone, images, property.name, whatsappConfig);
       }
 
-      // Follow up with action buttons
-      await this.sendInteractiveButtons(
-        customerPhone,
-        `Would you like to take the next step? 🚀`,
-        [
-          { id: `book-visit-${propertyId}`, title: 'Book Visit' },
-          { id: 'call-me', title: 'Call Me' },
-          { id: `location-${propertyId}`, title: 'Show Location' },
-        ],
-        null,
-        null,
-        whatsappConfig
-      );
+      // Check if lead already has an active visit before deciding what buttons to show.
+      // If so, show visit-management CTAs instead of 'Book Visit'.
+      const activeVisitForProperty = await prisma.visit.findFirst({
+        where: {
+          leadId: lead.id,
+          status: { in: ['scheduled', 'confirmed'] },
+        },
+        orderBy: { scheduledAt: 'asc' },
+        include: { property: { select: { name: true } } },
+      });
+
+      // Follow up with context-aware action buttons
+      if (activeVisitForProperty) {
+        const visitDate = new Date(activeVisitForProperty.scheduledAt).toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+          month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+        });
+        const visitPropName = (activeVisitForProperty.property as { name?: string })?.name ?? 'the property';
+        await this.sendInteractiveButtons(
+          customerPhone,
+          `You already have a visit for *${visitPropName}* on ${visitDate} 🗓️`,
+          [
+            { id: 'visit-confirm', title: '✅ Confirm Visit' },
+            { id: 'visit-reschedule', title: '📅 Reschedule' },
+            { id: 'call-me', title: '📞 Call Agent' },
+          ],
+          null,
+          null,
+          whatsappConfig
+        );
+      } else {
+        await this.sendInteractiveButtons(
+          customerPhone,
+          `Would you like to take the next step? 🚀`,
+          [
+            { id: `book-visit-${propertyId}`, title: 'Book Visit' },
+            { id: 'call-me', title: 'Call Me' },
+            { id: `location-${propertyId}`, title: 'Show Location' },
+          ],
+          null,
+          null,
+          whatsappConfig
+        );
+      }
 
       return {
         handled: true,

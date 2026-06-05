@@ -59,6 +59,10 @@ export async function ensurePropertyKnowledgeSchema(): Promise<void> {
     return;
   }
 
+  // uuid-ossp is required for uuid_generate_v4() used as the PRIMARY KEY default.
+  // Both clientMemory and propertyKnowledge create tables with this default, so
+  // each schema setup MUST ensure the extension exists independently.
+  await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
   await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector`);
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS property_knowledge_chunks (
@@ -79,6 +83,7 @@ export async function ensurePropertyKnowledgeSchema(): Promise<void> {
 
   schemaReady = true;
 }
+
 
 function splitIntoChunks(text: string): string[] {
   const normalized = text.replace(/\r\n/g, '\n').trim();
@@ -351,14 +356,20 @@ function fallbackEmbeddings(texts: string[], reason: string): number[][] {
     throw new Error(`${reason} Local property knowledge embeddings are disabled.`);
   }
 
-  logger.warn('Using local property knowledge embeddings fallback', {
+  // DEGRADED MODE: local hash embeddings have no semantic meaning.
+  // Cosine similarity scores will be near-random, so RAG search results
+  // will not be semantically relevant until OpenAI embeddings are restored.
+  // This is logged at ERROR level so it surfaces in monitoring dashboards.
+  logger.error('RAG quality degraded: using local hash embeddings (no semantic meaning)', {
     reason,
     provider: LOCAL_EMBEDDING_PROVIDER,
     count: texts.length,
+    impact: 'vector similarity search results are near-random until OpenAI billing is restored',
   });
 
   return createLocalEmbeddings(texts);
 }
+
 
 async function createEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) {

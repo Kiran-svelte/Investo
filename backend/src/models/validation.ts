@@ -185,6 +185,23 @@ export const updateLeadStatusSchema = z.object({
   force: z.boolean().optional(),
 });
 
+/** Partial update schema for PUT /api/leads/:id — all fields optional but typed. */
+export const updateLeadSchema = z.object({
+  customer_name: z.string().trim().max(255).optional().nullable(),
+  email: z.string().email('Invalid email').optional().nullable(),
+  budget_min: z.number().nonnegative().optional().nullable(),
+  budget_max: z.number().nonnegative().optional().nullable(),
+  location_preference: z.string().trim().max(255).optional().nullable(),
+  property_type: z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']).optional().nullable(),
+  assigned_agent_id: z.string().uuid().optional().nullable(),
+  notes: z.string().trim().max(5000).optional().nullable(),
+  language: z.string().trim().max(5).optional().nullable(),
+  tags: z.array(z.string().trim().max(50)).max(20).optional(),
+  lead_score: z.string().trim().max(20).optional().nullable(),
+  source_detail: z.string().trim().max(500).optional().nullable(),
+  lost_reason: z.string().trim().max(1000).optional().nullable(),
+});
+
 export const createPropertySchema = z.object({
   project_id: z.string().uuid().optional().nullable(),
   name: z.string().min(1).max(255),
@@ -288,6 +305,14 @@ export const updateVisitStatusSchema = z.object({
   status: z.enum(VISIT_STATUSES),
 });
 
+/** Schema for PUT /api/visits/:id — reschedule a visit. All fields optional but typed. */
+export const rescheduleVisitSchema = z.object({
+  scheduled_at: z.string().datetime({ message: 'scheduled_at must be an ISO 8601 datetime string' }).optional(),
+  agent_id: z.string().uuid('agent_id must be a valid UUID').optional(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  property_id: z.string().uuid('property_id must be a valid UUID').optional().nullable(),
+});
+
 export const createUserSchema = z.object({
   name: z.string().min(1).max(255),
   email: emailSchema,
@@ -363,3 +388,21 @@ export function isValidTransition<T extends string>(
   const allowed = transitions[from];
   return allowed ? allowed.includes(to) : false;
 }
+
+/** Schema for POST /api/auth/change-password */
+export const changePasswordSchema = z.object({
+  current_password: z.string().optional(),
+  new_password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+});
+
+/** Schema for POST /api/auth/forgot-password */
+export const forgotPasswordSchema = z.object({
+  email: emailSchema,
+});
+
+/** Schema for POST /api/auth/reset-password */
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(1, 'Token is required'),
+  email: emailSchema,
+  new_password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+});

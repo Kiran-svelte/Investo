@@ -39,7 +39,7 @@ const FEATURES = [
 ];
 
 const ROLES = [
-  { role: 'Company admin', desc: 'Properties, AI brain, billing, team setup' },
+  { role: 'Company admin', desc: 'Properties, AI brain, analytics, team setup' },
   { role: 'Sales agent', desc: 'Leads, conversations, visits, takeover' },
   { role: 'Operations', desc: 'Scheduling and field coordination' },
   { role: 'Platform admin', desc: 'Multi-tenant companies and governance' },

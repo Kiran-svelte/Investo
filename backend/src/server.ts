@@ -153,6 +153,19 @@ async function start(): Promise<void> {
           autoSeed: config.db.autoSeed,
         });
 
+        // Pre-warm pgvector schemas so per-request ensureSchema() calls are
+        // instant in-memory cache hits instead of 5 SQL round-trips each.
+        try {
+          const { ensureClientMemorySchema } = await import('./services/clientMemory.service');
+          const { ensurePropertyKnowledgeSchema } = await import('./services/propertyKnowledge.service');
+          await Promise.all([ensureClientMemorySchema(), ensurePropertyKnowledgeSchema()]);
+          logger.info('pgvector schemas pre-warmed (clientMemory + propertyKnowledge)');
+        } catch (schemaErr: unknown) {
+          logger.warn('pgvector schema pre-warm failed; will retry on first request', {
+            error: schemaErr instanceof Error ? schemaErr.message : String(schemaErr),
+          });
+        }
+
         startAutomationIfNeeded();
         startAgentCronIfNeeded();
         startPropertyImportWorkerIfNeeded();

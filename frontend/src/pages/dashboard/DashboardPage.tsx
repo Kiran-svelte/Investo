@@ -104,8 +104,7 @@ const DashboardPage: React.FC = () => {
       setTrends(trendsRes.data.data);
       setRecentLeads(leadsRes.data.data);
       setUpcomingVisits(visitsRes.data.data);
-    } catch (err) {
-      console.error('Failed to load dashboard', err);
+    } catch {
       setLoadError('Could not load dashboard data. Try refreshing the page.');
       setStats(null);
       setTrends(null);

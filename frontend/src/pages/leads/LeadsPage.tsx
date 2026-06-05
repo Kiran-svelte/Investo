@@ -86,8 +86,7 @@ const LeadsPage: React.FC = () => {
       setLeads(res.data.data);
       setTotalPages(res.data.pagination?.pages || 1);
       setTotal(res.data.pagination?.total || 0);
-    } catch (err) {
-      console.error('Failed to load leads', err);
+    } catch {
       setPageError('Could not load leads.');
       setLeads([]);
     } finally {
@@ -124,8 +123,7 @@ const LeadsPage: React.FC = () => {
         ...(canForceAnyStatus ? { force: true } : {}),
       });
       await loadLeads();
-    } catch (err) {
-      console.error('Status update failed', err);
+    } catch {
       setPageError('Could not update lead status.');
     } finally {
       setStatusUpdatingId(null);
@@ -158,8 +156,7 @@ const LeadsPage: React.FC = () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Export failed', err);
+    } catch {
       setPageError('Could not export leads as CSV.');
     }
   };
@@ -175,8 +172,7 @@ const LeadsPage: React.FC = () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('JSON export failed', err);
+    } catch {
       setPageError('Could not export leads as JSON.');
     }
   };

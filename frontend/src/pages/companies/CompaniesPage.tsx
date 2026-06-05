@@ -76,17 +76,21 @@ const CompaniesPage: React.FC = () => {
       if (search) params.append('search', search);
       params.append('page', String(page));
       params.append('limit', '25');
-      const [companiesRes, plansRes] = await Promise.all([
-        api.get(`/companies?${params.toString()}`),
-        api.get('/subscriptions/plans'),
-      ]);
-      const planList = plansRes.data.data || [];
+
+      const companiesRes = await api.get(`/companies?${params.toString()}`);
       setCompanies(companiesRes.data.data || []);
       setTotalPages(companiesRes.data.pagination?.pages || 1);
       setTotal(companiesRes.data.pagination?.total || 0);
-      setPlans(planList);
+
+      // Plans endpoint returns 410 when billing is disabled — silently skip.
+      try {
+        const plansRes = await api.get('/subscriptions/plans');
+        setPlans(plansRes.data.data || []);
+      } catch {
+        // Billing disabled or unavailable — plans list stays empty.
+        setPlans([]);
+      }
     } catch (err) {
-      console.error('Failed to load companies', err);
       setPageError('Could not load companies.');
     } finally {
       setLoading(false);
@@ -145,7 +149,6 @@ const CompaniesPage: React.FC = () => {
         });
       }
     } catch (err: any) {
-      console.error('Company save error:', err.response?.data);
       const status = err.response?.status;
       if (!editingCompany && status === 409) {
         setError(err.response?.data?.error || 'This slug or WhatsApp number is already in use.');
@@ -232,8 +235,7 @@ const CompaniesPage: React.FC = () => {
         await api.patch(`/companies/${company.id}/activate`);
       }
       loadData();
-    } catch (err) {
-      console.error('Failed to toggle status', err);
+    } catch {
       setPageError('Could not update company status.');
     }
   };
@@ -626,6 +628,7 @@ const CompaniesPage: React.FC = () => {
                 />
               </div>
 
+              {plans.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-ink-secondary mb-1">
                   {t('companies.plan')}
@@ -635,7 +638,7 @@ const CompaniesPage: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, plan_id: e.target.value })}
                   className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 >
-                  <option value="">Select Plan</option>
+                  <option value="">No plan assigned</option>
                   {plans.map((plan) => (
                     <option key={plan.id} value={plan.id}>
                       {plan.name} - ₹{plan.priceMonthly}/mo ({plan.maxAgents} agents)
@@ -643,6 +646,7 @@ const CompaniesPage: React.FC = () => {
                   ))}
                 </select>
               </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-4">
                 <button

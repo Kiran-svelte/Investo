@@ -1,5 +1,15 @@
 /// <reference types="jest" />
 
+/**
+ * Tenant boundary tests for invoice routes.
+ *
+ * BILLING DISABLED: Invoice routes return 410 Gone for all requests.
+ * Tests verify the 410 behavior — no DB access should occur.
+ *
+ * When billing is re-enabled, restore the original tenant isolation tests
+ * from git history (tagged at the commit before billing was disabled).
+ */
+
 import express, { Express } from 'express';
 import request from 'supertest';
 
@@ -13,6 +23,12 @@ type MockPrisma = {
   };
 };
 
+/**
+ * Builds a test Express app with the invoice routes wired in.
+ *
+ * @param userRole - The role to assign the mocked user
+ * @returns Express app and Prisma mock
+ */
 function createInvoiceApp(userRole: string): { app: Express; mockPrisma: MockPrisma } {
   jest.resetModules();
 
@@ -64,65 +80,57 @@ function createInvoiceApp(userRole: string): { app: Express; mockPrisma: MockPri
     auditLog: () => (_req: any, _res: any, next: any) => next(),
   }));
 
-  let invoiceRoutes: any;
+  let invoiceRoutes: unknown;
   jest.isolateModules(() => {
     invoiceRoutes = require('../../routes/invoice.routes').default;
   });
 
   const app = express();
   app.use(express.json());
-  app.use('/api/subscriptions/invoices', invoiceRoutes);
+  app.use('/api/subscriptions/invoices', invoiceRoutes as any);
 
   return { app, mockPrisma };
 }
 
-describe('tenant boundary - invoice routes', () => {
+describe('tenant boundary - invoice routes (billing disabled)', () => {
   afterEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
   });
 
-  test('company admin cannot override company scope using query company_id', async () => {
+  test('all invoice endpoints return 410 Gone when billing is disabled', async () => {
+    /**
+     * BILLING DISABLED: Invoice routes return 410 for all requests.
+     * When billing is re-enabled, replace with the original tenant isolation tests.
+     */
     const { app, mockPrisma } = createInvoiceApp('company_admin');
 
-    const response = await request(app).get('/api/subscriptions/invoices?company_id=company-2');
+    const listResponse = await request(app).get('/api/subscriptions/invoices?company_id=company-2');
+    expect(listResponse.status).toBe(410);
+    expect(listResponse.body.error.code).toBe('billing_disabled');
 
-    expect(response.status).toBe(200);
-    expect(mockPrisma.invoice.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ companyId: 'company-1' }),
-      }),
-    );
+    // No DB access should occur when billing is disabled
+    expect(mockPrisma.invoice.findMany).not.toHaveBeenCalled();
   });
 
-  test('super admin can query invoices for a target company', async () => {
+  test('super admin also receives 410 when billing is disabled', async () => {
     const { app, mockPrisma } = createInvoiceApp('super_admin');
 
     const response = await request(app).get('/api/subscriptions/invoices?company_id=company-2');
+    expect(response.status).toBe(410);
+    expect(response.body.error.code).toBe('billing_disabled');
 
-    expect(response.status).toBe(200);
-    expect(mockPrisma.invoice.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ companyId: 'company-2' }),
-      }),
-    );
+    expect(mockPrisma.invoice.findMany).not.toHaveBeenCalled();
   });
 
-  test('company admin cannot fetch invoice from another company by id', async () => {
+  test('fetching a specific invoice by id returns 410 when billing is disabled', async () => {
     const { app, mockPrisma } = createInvoiceApp('company_admin');
 
-    mockPrisma.invoice.findFirst.mockResolvedValue(null);
-
     const response = await request(app).get('/api/subscriptions/invoices/invoice-2');
+    expect(response.status).toBe(410);
+    expect(response.body.error.code).toBe('billing_disabled');
 
-    expect(response.status).toBe(404);
-    expect(mockPrisma.invoice.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          id: 'invoice-2',
-          companyId: 'company-1',
-        }),
-      }),
-    );
+    // No DB access occurs
+    expect(mockPrisma.invoice.findFirst).not.toHaveBeenCalled();
   });
 });

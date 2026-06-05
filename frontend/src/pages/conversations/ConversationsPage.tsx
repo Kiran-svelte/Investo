@@ -146,7 +146,6 @@ const ConversationsPage: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error('Failed to load conversations', err);
       if (axios.isAxiosError(err) && err.response?.status === 423) {
         const payload = err.response.data as { message?: string; error?: string };
         setLoadError(payload.message || payload.error || 'Complete your property catalog before viewing conversations.');
@@ -169,8 +168,8 @@ const ConversationsPage: React.FC = () => {
       const apiMessages = (res.data.data.messages || []).map((msg: any) => normalizeMessage(msg));
       setMessages(apiMessages);
       setMsgTotalPages(res.data.pagination?.pages || 1);
-    } catch (err) {
-      console.error('Failed to load messages', err);
+    } catch {
+      // Message load failure is non-fatal — conversation view stays open
     }
   };
 

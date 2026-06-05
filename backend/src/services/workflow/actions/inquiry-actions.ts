@@ -51,14 +51,42 @@ export async function respondAvailability(ctx: ActionContext) {
 export async function sendBrochure(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);
   if (!leadId) return fail('Which lead should receive the brochure?');
-  if (!ctx.params.propertyId) return fail('Which property brochure should I send?');
-  const result = await runNamedTool(ctx.run.toolContext, 'sendBrochureToClient', {
-    leadId,
-    propertyId: ctx.params.propertyId,
+
+  // If propertyId is known, send directly.
+  if (ctx.params.propertyId) {
+    const result = await runNamedTool(ctx.run.toolContext, 'sendBrochureToClient', {
+      leadId,
+      propertyId: ctx.params.propertyId,
+    });
+    if (result.ok === false) return failToolResult(result);
+    return ok(result.text);
+  }
+
+  // propertyId is missing — attempt to find the best-matching property with a brochure
+  // by searching the catalog against the current message. This handles the common case
+  // where a buyer says "send me the brochure" without specifying which property.
+  const catalog = await runNamedTool(ctx.run.toolContext, 'searchCatalogByCustomerMessage', {
+    message: ctx.params.message ?? ctx.run.messageText,
   });
-  if (result.ok === false) return failToolResult(result);
-  return ok(result.text);
+  if (catalog.ok) {
+    // catalog text contains property details; extract the first propertyId if present
+    const idMatch = catalog.text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    if (idMatch) {
+      const resolved = await runNamedTool(ctx.run.toolContext, 'sendBrochureToClient', {
+        leadId,
+        propertyId: idMatch[0],
+      });
+      if (resolved.ok) return ok(resolved.text);
+    }
+  }
+
+  // No property could be resolved — let the buyer know we need more info.
+  return fail(
+    "I'd love to send you the brochure! Could you let me know which project you're interested in? " +
+    "We have several properties available.",
+  );
 }
+
 
 export async function logBrochureRequest(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);

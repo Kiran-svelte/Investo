@@ -118,14 +118,16 @@ app.use('/api/assignment-settings', companyRateLimiter, assignmentSettingsRoutes
 app.use('/api', financeRoutes);
 
 // 404 handler
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+app.use((req, res) => {
+  const requestId = (req as any).requestId as string | undefined;
+  res.status(404).json({ error: 'Endpoint not found', requestId });
 });
 
 // Global error handler - does NOT leak internal details
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error('Unhandled error', { message: err.message, stack: err.stack });
-  res.status(500).json({ error: 'Internal server error' });
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const requestId = (req as any).requestId as string | undefined;
+  logger.error('Unhandled error', { message: err.message, stack: err.stack, requestId });
+  res.status(500).json({ error: 'Internal server error', requestId });
 });
 
 export default app;

@@ -21,7 +21,6 @@ export type NavRouteKey =
   | 'analytics'
   | 'ai_settings'
   | 'companies'
-  | 'billing'
   | 'emi_calculator'
   | 'audit_logs'
   | 'error_logs'
@@ -56,7 +55,6 @@ export const NAV_ITEM_GROUP: Record<NavRouteKey, NavGroupKey> = {
   agents: 'admin',
   analytics: 'intelligence',
   ai_settings: 'intelligence',
-  billing: 'admin',
   emi_calculator: 'admin',
   notifications: 'admin',
   settings: 'admin',
@@ -133,11 +131,6 @@ export const NAV_ITEMS: NavItemSpec[] = [
     roles: ['super_admin'],
   },
   {
-    key: 'billing',
-    path: dashboardPath('/billing'),
-    roles: ['company_admin'],
-  },
-  {
     key: 'emi_calculator',
     path: dashboardPath('/emi-calculator'),
     roles: ['company_admin', 'sales_agent'],
@@ -209,7 +202,6 @@ export function resolveDashboardPath(pathname: string): string {
     'agents',
     'analytics',
     'ai-settings',
-    'billing',
     'settings',
     'notifications',
     'companies',
@@ -323,7 +315,6 @@ export function getRoleCapabilities(role: UserRole | undefined) {
     /** Only company admin uploads brochures / publishes listings (AI asks them for missing fields). */
     canUploadProperties: isCompanyAdmin,
     canManageProperties: isCompanyAdmin,
-    canManageBilling: isCompanyAdmin,
     canManageAiSettings: isCompanyAdmin,
     canManageTenantSettings: isCompanyAdmin,
     canCreateLeads: isCompanyAdmin || isSalesAgent,

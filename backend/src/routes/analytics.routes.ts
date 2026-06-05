@@ -116,7 +116,15 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const days = parseInt(req.query.days as string) || 30;
+      const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+
+      // Cache for 300s — 3 DB queries called on every dashboard poll
+      const cacheKey = `analytics:leads:${companyId}:${days}`;
+      const cached = await cacheGet<any>(cacheKey);
+      if (cached) {
+        res.json({ data: cached, cached: true });
+        return;
+      }
 
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
@@ -148,13 +156,10 @@ router.get(
         ORDER BY date ASC
       `;
 
-      res.json({
-        data: {
-          by_status,
-          by_source,
-          daily: dailyLeads,
-        },
-      });
+      const data = { by_status, by_source, daily: dailyLeads };
+      await cacheSet(cacheKey, data, 300);
+
+      res.json({ data, cached: false });
     } catch (err: any) {
       logger.error('Failed to fetch lead analytics', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch analytics' });
@@ -164,7 +169,8 @@ router.get(
 
 /**
  * GET /api/analytics/agents
- * Get agent performance analytics.
+ * Get agent performance analytics — uses groupBy to avoid N+1 fan-out.
+ * Previous: 41 queries for 10 agents. Now: 5 queries regardless of agent count.
  */
 router.get(
   '/agents',
@@ -173,23 +179,64 @@ router.get(
     try {
       const companyId = getCompanyId(req);
 
-      // For sales agents only
       if (req.user!.role === 'sales_agent') {
-        // Return only own stats
-        const ownStats = await getAgentStats(companyId, req.user!.id);
+        const ownStats = await getAgentStatsSingle(companyId, req.user!.id);
         res.json({ data: [ownStats] });
         return;
       }
 
-      // Get all agents
       const agents = await prisma.user.findMany({
         where: { companyId, role: 'sales_agent', status: 'active' },
         select: { id: true, name: true, email: true },
       });
 
-      const agentStats = await Promise.all(
-        agents.map((agent) => getAgentStats(companyId, agent.id, agent.name))
-      );
+      if (agents.length === 0) {
+        res.json({ data: [] });
+        return;
+      }
+
+      const agentIds = agents.map((a) => a.id);
+
+      // Fetch all metrics in 4 groupBy queries instead of 4 × N per-agent queries
+      const [activeGrouped, wonGrouped, lostGrouped, visitsGrouped] = await Promise.all([
+        prisma.lead.groupBy({
+          by: ['assignedAgentId'],
+          where: { companyId, assignedAgentId: { in: agentIds }, status: { notIn: ['closed_won', 'closed_lost'] } },
+          _count: { id: true },
+        }),
+        prisma.lead.groupBy({
+          by: ['assignedAgentId'],
+          where: { companyId, assignedAgentId: { in: agentIds }, status: 'closed_won' },
+          _count: { id: true },
+        }),
+        prisma.lead.groupBy({
+          by: ['assignedAgentId'],
+          where: { companyId, assignedAgentId: { in: agentIds }, status: 'closed_lost' },
+          _count: { id: true },
+        }),
+        prisma.visit.groupBy({
+          by: ['agentId'],
+          where: { companyId, agentId: { in: agentIds }, status: 'completed' },
+          _count: { id: true },
+        }),
+      ]);
+
+      const toMap = (rows: Array<{ assignedAgentId?: string | null; agentId?: string; _count: { id: number } }>, key: 'assignedAgentId' | 'agentId') =>
+        new Map(rows.map((r) => [r[key] as string, r._count.id]));
+
+      const activeMap = toMap(activeGrouped as any, 'assignedAgentId');
+      const wonMap = toMap(wonGrouped as any, 'assignedAgentId');
+      const lostMap = toMap(lostGrouped as any, 'assignedAgentId');
+      const visitsMap = toMap(visitsGrouped as any, 'agentId');
+
+      const agentStats = agents.map((agent) => ({
+        agent_id: agent.id,
+        agent_name: agent.name,
+        active_leads: activeMap.get(agent.id) || 0,
+        closed_won: wonMap.get(agent.id) || 0,
+        closed_lost: lostMap.get(agent.id) || 0,
+        visits_completed: visitsMap.get(agent.id) || 0,
+      }));
 
       res.json({ data: agentStats });
     } catch (err: any) {
@@ -199,30 +246,17 @@ router.get(
   }
 );
 
-async function getAgentStats(companyId: string, agentId: string, agentName?: string) {
+/**
+ * Fetch stats for a single agent. Used when a sales_agent requests their own stats.
+ */
+async function getAgentStatsSingle(companyId: string, agentId: string) {
   const [activeLeads, closedWon, closedLost, visitsCompleted] = await Promise.all([
-    prisma.lead.count({
-      where: { companyId, assignedAgentId: agentId, status: { notIn: ['closed_won', 'closed_lost'] } },
-    }),
-    prisma.lead.count({
-      where: { companyId, assignedAgentId: agentId, status: 'closed_won' },
-    }),
-    prisma.lead.count({
-      where: { companyId, assignedAgentId: agentId, status: 'closed_lost' },
-    }),
-    prisma.visit.count({
-      where: { companyId, agentId, status: 'completed' },
-    }),
+    prisma.lead.count({ where: { companyId, assignedAgentId: agentId, status: { notIn: ['closed_won', 'closed_lost'] } } }),
+    prisma.lead.count({ where: { companyId, assignedAgentId: agentId, status: 'closed_won' } }),
+    prisma.lead.count({ where: { companyId, assignedAgentId: agentId, status: 'closed_lost' } }),
+    prisma.visit.count({ where: { companyId, agentId, status: 'completed' } }),
   ]);
-
-  return {
-    agent_id: agentId,
-    agent_name: agentName || 'You',
-    active_leads: activeLeads,
-    closed_won: closedWon,
-    closed_lost: closedLost,
-    visits_completed: visitsCompleted,
-  };
+  return { agent_id: agentId, agent_name: 'You', active_leads: activeLeads, closed_won: closedWon, closed_lost: closedLost, visits_completed: visitsCompleted };
 }
 
 /**
@@ -329,6 +363,14 @@ router.get(
       const companyId = getCompanyId(req);
       const period = (req.query.period as string) || 'week';
 
+      // Cache for 120s — 8 queries per call, polled frequently by dashboard
+      const cacheKey = `analytics:trends:${companyId}:${period}`;
+      const cached = await cacheGet<any>(cacheKey);
+      if (cached) {
+        res.json({ data: cached, period, cached: true });
+        return;
+      }
+
       let currentDays = 7;
       if (period === 'today') currentDays = 1;
       else if (period === 'month') currentDays = 30;
@@ -353,15 +395,15 @@ router.get(
         return Math.round(((curr - prev) / prev) * 100);
       };
 
-      res.json({
-        data: {
-          leads: calcTrend(currentLeads, prevLeads),
-          visits: calcTrend(currentVisits, prevVisits),
-          deals: calcTrend(currentDeals, prevDeals),
-          conversations: calcTrend(currentConvos, prevConvos),
-        },
-        period,
-      });
+      const data = {
+        leads: calcTrend(currentLeads, prevLeads),
+        visits: calcTrend(currentVisits, prevVisits),
+        deals: calcTrend(currentDeals, prevDeals),
+        conversations: calcTrend(currentConvos, prevConvos),
+      };
+      await cacheSet(cacheKey, data, 120);
+
+      res.json({ data, period, cached: false });
     } catch (err: any) {
       logger.error('Failed to fetch trends', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch trends' });
@@ -372,6 +414,7 @@ router.get(
 /**
  * GET /api/analytics/extended
  * Response time, escalation rate, peak hours, lost reasons, source ROI proxy.
+ * Uses raw SQL aggregations instead of loading thousands of rows into Node.js memory.
  */
 router.get(
   '/extended',
@@ -379,60 +422,54 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const days = parseInt(req.query.days as string) || 30;
+      const days = Math.min(parseInt(req.query.days as string) || 30, 180);
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-      const [escalated, totalConvos, messages] = await Promise.all([
-        prisma.conversation.count({
-          where: { companyId, escalatedAt: { not: null, gte: since } },
-        }),
+      // Cache for 600s — heavy computation, not time-critical
+      const cacheKey = `analytics:extended:${companyId}:${days}`;
+      const cached = await cacheGet<any>(cacheKey);
+      if (cached) {
+        res.json({ data: cached, cached: true });
+        return;
+      }
+
+      const [escalated, totalConvos] = await Promise.all([
+        prisma.conversation.count({ where: { companyId, escalatedAt: { not: null, gte: since } } }),
         prisma.conversation.count({ where: { companyId, createdAt: { gte: since } } }),
-        prisma.message.findMany({
-          where: {
-            conversation: { companyId },
-            createdAt: { gte: since },
-            senderType: { in: ['customer', 'ai'] },
-          },
-          select: { senderType: true, createdAt: true, conversationId: true },
-          orderBy: { createdAt: 'asc' },
-          take: 5000,
-        }),
       ]);
 
-      const responseSamples: number[] = [];
-      const byConvo = new Map<string, { lastCustomer?: Date }>();
-      for (const m of messages) {
-        const state = byConvo.get(m.conversationId) || {};
-        if (m.senderType === 'customer') {
-          state.lastCustomer = m.createdAt;
-        } else if (m.senderType === 'ai' && state.lastCustomer) {
-          responseSamples.push(m.createdAt.getTime() - state.lastCustomer.getTime());
-          state.lastCustomer = undefined;
-        }
-        byConvo.set(m.conversationId, state);
-      }
-      const avgResponseMs =
-        responseSamples.length > 0
-          ? Math.round(responseSamples.reduce((a, b) => a + b, 0) / responseSamples.length)
-          : null;
+      // Avg response time: SQL pairs consecutive customer→ai messages per conversation.
+      // Eliminates loading 5000 rows into memory.
+      const avgResponseResult = await prisma.$queryRaw<Array<{ avg_ms: number | null }>>`
+        SELECT ROUND(AVG(EXTRACT(EPOCH FROM (ai.created_at - cust.created_at)) * 1000))::int AS avg_ms
+        FROM messages cust
+        JOIN LATERAL (
+          SELECT created_at FROM messages
+          WHERE conversation_id = cust.conversation_id
+            AND sender_type = 'ai'
+            AND created_at > cust.created_at
+          ORDER BY created_at ASC
+          LIMIT 1
+        ) ai ON true
+        JOIN conversations c ON c.id = cust.conversation_id
+        WHERE c.company_id = ${companyId}::uuid
+          AND cust.sender_type = 'customer'
+          AND cust.created_at >= ${since}
+          AND EXTRACT(EPOCH FROM (ai.created_at - cust.created_at)) BETWEEN 0 AND 300
+      `;
+      const avgResponseMs = avgResponseResult[0]?.avg_ms ?? null;
 
-      const customerMessages = await prisma.message.findMany({
-        where: {
-          senderType: 'customer',
-          createdAt: { gte: since },
-          conversation: { companyId },
-        },
-        select: { createdAt: true },
-        take: 8000,
-      });
-      const hourCounts = new Map<number, number>();
-      for (const m of customerMessages) {
-        const hour = new Date(m.createdAt).getUTCHours();
-        hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1);
-      }
-      const peakHoursRaw = [...hourCounts.entries()]
-        .map(([hour, count]) => ({ hour, count }))
-        .sort((a, b) => b.count - a.count);
+      // Peak hours: SQL GROUP BY HOUR — eliminates loading 8000 rows into memory.
+      const peakHoursResult = await prisma.$queryRaw<Array<{ hour: number; count: number }>>`
+        SELECT EXTRACT(HOUR FROM m.created_at)::int AS hour, COUNT(m.id)::int AS count
+        FROM messages m
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE c.company_id = ${companyId}::uuid
+          AND m.sender_type = 'customer'
+          AND m.created_at >= ${since}
+        GROUP BY hour
+        ORDER BY count DESC
+      `;
 
       const lostReasons: Record<string, number> = {};
       try {
@@ -447,19 +484,13 @@ router.get(
           lostReasons[reason] = (lostReasons[reason] || 0) + 1;
         }
       } catch {
-        // metadata column may be migrating on older DBs
+        // metadata column may not exist on all DB versions
       }
 
-      const sourcesRaw = await prisma.lead.groupBy({
-        by: ['source'],
-        where: { companyId, createdAt: { gte: since } },
-        _count: { id: true },
-      });
-      const wonBySource = await prisma.lead.groupBy({
-        by: ['source'],
-        where: { companyId, status: 'closed_won', updatedAt: { gte: since } },
-        _count: { id: true },
-      });
+      const [sourcesRaw, wonBySource] = await Promise.all([
+        prisma.lead.groupBy({ by: ['source'], where: { companyId, createdAt: { gte: since } }, _count: { id: true } }),
+        prisma.lead.groupBy({ by: ['source'], where: { companyId, status: 'closed_won', updatedAt: { gte: since } }, _count: { id: true } }),
+      ]);
       const wonMap = new Map(wonBySource.map((s) => [s.source, s._count.id]));
       const source_roi = sourcesRaw.map((s) => ({
         source: s.source,
@@ -468,16 +499,17 @@ router.get(
         conversion_pct: s._count.id > 0 ? Math.round(((wonMap.get(s.source) || 0) / s._count.id) * 100) : 0,
       }));
 
-      res.json({
-        data: {
-          avg_response_ms: avgResponseMs,
-          escalation_rate_pct: totalConvos > 0 ? Math.round((escalated / totalConvos) * 100) : 0,
-          escalated_count: escalated,
-          peak_hours: peakHoursRaw,
-          lost_reasons: lostReasons,
-          source_roi,
-        },
-      });
+      const data = {
+        avg_response_ms: avgResponseMs,
+        escalation_rate_pct: totalConvos > 0 ? Math.round((escalated / totalConvos) * 100) : 0,
+        escalated_count: escalated,
+        peak_hours: peakHoursResult,
+        lost_reasons: lostReasons,
+        source_roi,
+      };
+      await cacheSet(cacheKey, data, 600);
+
+      res.json({ data, cached: false });
     } catch (err: any) {
       logger.error('Failed to fetch extended analytics', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch extended analytics' });

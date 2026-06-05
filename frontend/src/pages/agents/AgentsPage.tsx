@@ -93,8 +93,7 @@ const AgentsPage: React.FC = () => {
           setPageError('Team loaded, but company choices are unavailable.');
         }
       }
-    } catch (err) {
-      console.error('Failed to load agents', err);
+    } catch {
       setPageError('Could not load team members.');
       setAgentUsers([]);
       setAgentStats([]);

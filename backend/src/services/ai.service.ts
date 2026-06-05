@@ -48,6 +48,17 @@ interface AIRequest {
   neverSayNoHasAlternatives?: boolean;
   /** Customer messages so far (for first-contact disclaimer). */
   customerMessageCount?: number;
+  /**
+   * Pre-built real-time lead context block from liveLeadContext.service.
+   * Injected at the top of the system prompt to prevent Context Amnesia.
+   * Contains current visit status, scheduled time, property, and agent info.
+   */
+  liveLeadContextBlock?: string;
+  /**
+   * The lead's current active (scheduled/confirmed) visit, if any.
+   * Passed to the fast-path so greetings are visit-aware.
+   */
+  activeVisit?: import('./liveLeadContext.service').ActiveVisitContext | null;
 }
 
 interface AIResponse {
@@ -111,6 +122,9 @@ export class AIService {
       aiSettings: request.aiSettings,
       conversationHistory: request.conversationHistory,
       propertyNames: request.properties?.map((p: { name?: string }) => p.name).filter(Boolean),
+      // Visit-aware greeting: if the client has an active visit, the fast path
+      // returns visit summary instead of the first-time-buyer welcome message.
+      upcomingVisit: request.activeVisit ?? null,
     });
     if (fastPath) {
       return {
@@ -122,7 +136,10 @@ export class AIService {
     }
 
     const knowledgeChunks =
-      request.companyId && !shouldSkipKnowledgeSearchForMessage(request.customerMessage)
+      request.companyId && !shouldSkipKnowledgeSearchForMessage(
+        request.customerMessage,
+        (request.conversationHistory ?? []).length,
+      )
         ? await searchPropertyKnowledge(request.companyId, request.customerMessage, 8)
         : [];
     const knowledgeContext = formatKnowledgeContextForPrompt(knowledgeChunks);
@@ -156,6 +173,7 @@ export class AIService {
       nextAction,
       knowledgeContext,
       clientMemoryContext,
+      request.liveLeadContextBlock,
     );
     const messages = this.buildMessages(request);
     const providers = this.getProviderOrder();
@@ -225,6 +243,7 @@ export class AIService {
     nextAction: NextBestAction,
     knowledgeContext = '',
     clientMemoryContext = '',
+    liveLeadContextBlock = '',
   ): string {
     const { aiSettings, companyName, properties, lead } = request;
     const stageConfig = getStageConfig(state.stage);
@@ -249,7 +268,7 @@ export class AIService {
     ].join(' | ');
 
     return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
-
+${liveLeadContextBlock ? `\n${liveLeadContextBlock}\n` : ''}
 ## YOUR MISSION
 You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.
 
@@ -281,7 +300,8 @@ ${buildRealEstateAssistantPolicyPrompt()}
 7. ONE clear call-to-action per message.
 8. Keep responses under 200 words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
-9. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
+9. ${state.stage === 'rapport' ? 'Ask ONE warm open question about what they are looking for (area, budget, property type). Do NOT list your services or say "Here is how I can help". Open with a personal question like "What area are you exploring?" or "Looking for something to move in soon, or a long-term investment?"' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
+10. NEVER list your capabilities. NEVER say "Here's how I can help:", "I can do:", or any numbered service menu. Respond to what they actually said.
 ${this.disclaimerPromptLine(request)}
 
 ## TONE: ${tone.toUpperCase()}
@@ -316,6 +336,12 @@ ${nextAction.action === 'escalate' ? this.operatorContactPromptBlock(aiSettings)
 
 ## RESPONSE FORMAT
 Respond with the WhatsApp message to send. Use *bold* for emphasis.
+
+⚠️ NEVER emit a numbered capability menu ("Here's how I can help: 1. Answer questions 2. Compare...")
+⚠️ NEVER start with "I'm here to assist you with" or "Here's what I can do" — that is robotic.
+✅ Instead: ask ONE warm question, or make ONE specific property observation relevant to their message.
+✅ Use emojis sparingly (1-2 per message) to match WhatsApp's natural tone: 🏡 💬 ✅ 🗓️
+
 End your response with:
 ###EXTRACT###
 {"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
@@ -427,13 +453,14 @@ ${this.disclaimerPromptLine(request)}
 - Never be pushy or aggressive
 - Always empathize with concerns before addressing them
 
-## CONVERSATION STRATEGY
-1. GREET warmly and ask how you can help
-2. DISCOVER needs: budget, preferred location, property type (apartment/villa/plot), bedrooms, timeline
-3. MATCH: Search the property database and present 2-3 best options
-4. PERSUADE: Highlight benefits, value, location advantages
-5. CLOSE: Get them to agree to a FREE, NO-COMMITMENT site visit
-6. Always end with a call-to-action
+## CONVERSATION APPROACH
+- Start with ONE warm, open question about what they're looking for (area, budget, type).
+- Discover needs naturally through conversation: budget, location, property type, timeline.
+- Match requirements to 2-3 best listings from AVAILABLE PROPERTIES.
+- Highlight value, location advantages, and unique benefits — no invented claims.
+- Guide them toward booking a *free, no-commitment site visit*.
+- Always end with ONE clear call-to-action.
+- NEVER open with a numbered list of what you can do. That reads like a robot.
 
 ## OBJECTION HANDLING
 - "Too expensive" → Show similar in lower range, explain long-term value, EMI options

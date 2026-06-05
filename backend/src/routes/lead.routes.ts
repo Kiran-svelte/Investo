@@ -8,7 +8,7 @@ import { requireFeature } from '../middleware/featureGate';
 import { exportRateLimiter } from '../middleware/rateLimiter';
 import { enforcePlanLimit, requireActivePaidSubscription } from '../middleware/subscriptionEnforcement';
 import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
-import { createLeadSchema, updateLeadStatusSchema, isValidTransition, LEAD_TRANSITIONS, LeadStatus } from '../models/validation';
+import { createLeadSchema, updateLeadSchema, updateLeadStatusSchema, isValidTransition, LEAD_TRANSITIONS, LeadStatus } from '../models/validation';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from '../services/notification.engine';
@@ -368,6 +368,7 @@ router.post(
 router.put(
   '/:id',
   authorize('leads', 'update'),
+  validate(updateLeadSchema),
   auditLog('update', 'leads'),
   async (req: AuthRequest, res: Response) => {
     try {

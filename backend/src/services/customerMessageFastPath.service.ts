@@ -1,12 +1,31 @@
 /**
  * Deterministic WhatsApp replies for greetings and identity questions.
- * Avoids slow/failing LLM calls on common first messages.
+ * Avoids slow/failing LLM calls on common FIRST-CONTACT messages.
+ *
+ * RETURNING CLIENT RULE: If `conversationHistory` has 2+ prior messages,
+ * the fast path returns null for simple greetings so the LLM can continue
+ * the conversation naturally (property Q&A, follow-up, etc.) instead of
+ * resetting to the first-time-buyer onboarding question.
  */
 
 import { isVisitSchedulingMessage } from './visitIntentFromMessage.service';
+import type { ActiveVisitContext } from './liveLeadContext.service';
+import { buildVisitAwareGreeting } from './liveLeadContext.service';
 
+/**
+ * Minimum number of prior conversation messages that qualifies a user as
+ * a "returning client" who should not receive the first-time-buyer greeting.
+ * Each exchange = 2 messages (customer + AI), so 2 = at least one prior turn.
+ */
+const RETURNING_CLIENT_HISTORY_THRESHOLD = 2;
+
+/**
+ * Matches messages that are simple greetings with no meaningful content.
+ * The trailing group includes U+00A0 (non-breaking space) which WhatsApp
+ * sometimes appends invisibly.
+ */
 const GREETING_PATTERN =
-  /^(hi|hello|hey|hii|hola|namaste|good\s*(morning|afternoon|evening)|start)\b[!.,?\s]*$/i;
+  /^(hi|hello|hey|hii|hola|namaste|good\s*(morning|afternoon|evening)|start)\b[!.,?\s\u00a0]*$/i;
 
 const IDENTITY_PATTERN =
   /\b(who\s+are\s+you|what\s+are\s+you|who\s+is\s+this|what\s+is\s+this|which\s+company|about\s+you|tell\s+me\s+about\s+(you|yourself)|aap\s+kaun|tum\s+kaun|aap\s+kya\s+ho)\b/i;
@@ -61,10 +80,24 @@ export function isIdentityQuestionMessage(message: string): boolean {
   return IDENTITY_PATTERN.test(trimmed);
 }
 
-export function shouldSkipKnowledgeSearchForMessage(message: string): boolean {
+/**
+ * Returns true when knowledge base search should be skipped for a message.
+ * Greetings from RETURNING clients (has prior history) are excluded so the
+ * LLM can search for relevant properties and continue the conversation.
+ *
+ * @param message - User message text
+ * @param conversationHistoryLength - Number of prior messages in the thread
+ * @returns true if knowledge search should be bypassed
+ */
+export function shouldSkipKnowledgeSearchForMessage(
+  message: string,
+  conversationHistoryLength = 0,
+): boolean {
   const trimmed = message.trim();
-  if (!trimmed) {
-    return true;
+  if (!trimmed) return true;
+  if (conversationHistoryLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
+    // Returning client: let LLM search knowledge base even for greetings
+    return isConversationAcknowledgmentMessage(trimmed) || isVisitSchedulingMessage(trimmed);
   }
   return (
     isSimpleGreetingMessage(trimmed)
@@ -113,6 +146,8 @@ export function buildFastPathCustomerReply(input: {
   aiSettings?: { defaultLanguage?: string | null; greetingTemplate?: string | null } | null;
   conversationHistory?: Array<{ senderType?: string; content?: string }>;
   propertyNames?: string[];
+  /** If provided and client sends a greeting, returns a visit-aware reply instead. */
+  upcomingVisit?: ActiveVisitContext | null;
 }): { text: string; detectedLanguage: string } | null {
   const trimmed = input.customerMessage.trim();
   if (!trimmed) {
@@ -124,6 +159,24 @@ export function buildFastPathCustomerReply(input: {
   const company = input.companyName.trim() || 'our team';
 
   if (isSimpleGreetingMessage(trimmed)) {
+    // Priority 1: Visit-aware greeting — returning client with active visit.
+    // Always shown regardless of conversation history length.
+    if (input.upcomingVisit) {
+      return {
+        text: buildVisitAwareGreeting(input.customerName ?? null, input.upcomingVisit, company),
+        detectedLanguage: lang,
+      };
+    }
+
+    // Priority 2: Returning client with prior conversation history.
+    // Let the LLM handle it so it can continue the property discussion naturally
+    // instead of resetting to "What area are you looking in? What is your budget?"
+    const historyLength = (input.conversationHistory ?? []).length;
+    if (historyLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
+      return null; // LLM takes over with full context
+    }
+
+    // Priority 3: First-contact or new client — use greeting template or default.
     const template = typeof input.aiSettings?.greetingTemplate === 'string'
       ? input.aiSettings.greetingTemplate.trim()
       : '';
@@ -161,33 +214,43 @@ export function buildFastPathCustomerReply(input: {
 }
 
 function buildGreetingByLanguage(lang: string, name: string, company: string): string {
-  const who = name ? ` ${name}` : '';
+  const who = name ? `, *${name}*` : '';
   switch (lang) {
     case 'hi':
-      return `*Namaste${who}!* 🙏\n\n${company} ke AI property assistant se baat ho rahi hai.\n\nBudget, area aur property type (apartment/villa/plot) batayiye — main sahi options suggest karunga.`;
+      return `*Namaste${who}!* 🙏\n\n*${company}* mein aapka swagat hai — aap bilkul sahi jagah aaye hain. 🏡\n\nAap kis area mein ghar dekhna chahte hain, aur budget roughly kitna hai?`;
     case 'kn':
-      return `*Namaskara${who}!* 🙏\n\n${company} na AI property assistant.\n\nBudget, area mattu property type helisi — nimage options suggest maadutteve.`;
+      return `*Namaskara${who}!* 🙏\n\n*${company}* ge swagata — neevu sari jagake bandiddeeri. 🏡\n\nYavu area nalli mane noduttiddiri, budget roughly eshtu?`;
     case 'te':
-      return `*Namaskaram${who}!* 🙏\n\n${company} AI property assistant.\n\nBudget, area mariyu property type cheppandi — best options suggest chestanu.`;
+      return `*Namaskaram${who}!* 🙏\n\n*${company}* ki svagatam — mee correct chotu vacharu. 🏡\n\nEe area lo property chustunnaru, budget daadupu enta?`;
     case 'ta':
-      return `*Vanakkam${who}!* 🙏\n\n${company} AI property assistant.\n\nBudget, area, property type sollunga — best options suggest pannuven.`;
+      return `*Vanakkam${who}!* 🙏\n\n*${company}* ku varaverppu — correct idattilukkae vanteerkal. 🏡\n\nEtha area la property paarkureerkal, budget roughly enna?`;
     default:
-      return `*Hello${who}!* 👋\n\nI'm the AI property assistant for *${company}*.\n\nShare your *budget*, *area*, and *property type* (apartment, villa, plot, or commercial) and I'll suggest the best matches.`;
+      return (
+        `*Hey${who}!* 👋  Welcome to *${company}*.\n\n` +
+        `I'm your personal property assistant — here to help you find the right home, fast. 🏡\n\n` +
+        `What *area* are you looking in, and what's your rough *budget*?`
+      );
   }
 }
 
+
 function buildIdentityByLanguage(lang: string, name: string, company: string): string {
-  const who = name ? ` ${name}` : '';
+  const who = name ? `, *${name}*` : '';
   switch (lang) {
     case 'hi':
-      return `Main *${company}* ka AI property assistant hoon${who ? `, ${name}` : ''}. 🏡\n\nMera kaam aapki requirement samajh kar sahi projects suggest karna aur *free site visit* arrange karna.\n\nBudget, area aur property type batayiye?`;
+      return `Main *${company}* ka property assistant hoon${who}. 🏡\n\nApke liye sahi projects dhundhna aur *free site visit* arrange karna — yahi kaam hai mera.\n\nKis area aur type ka ghar dhundh rahe hain?`;
     case 'kn':
-      return `Nanu *${company}* na AI property assistant${who ? `, ${name}` : ''}. 🏡\n\nNimma budget, area mattu property type helisi — options suggest maadutteve mattu site visit arrange maadutteve.`;
+      return `Nanu *${company}* property assistant${who}. 🏡\n\nNimma budget mattu needs ge match aaguvante options suggest maadutteve, mattu *free site visit* arrange maadutteve.\n\nYavu area, yaava type?`;
     case 'te':
-      return `Nenu *${company}* AI property assistant${who ? `, ${name}` : ''}. 🏡\n\nMee budget, area, property type cheppandi — best options suggest chestanu mariyu site visit arrange chestanu.`;
+      return `Nenu *${company}* property assistant${who}. 🏡\n\nMee requirements ku match ayye properties suggest chestanu — *free site visit* arrange chestanu.\n\nEe area, emi type chustunnaru?`;
     case 'ta':
-      return `Naan *${company}* AI property assistant${who ? `, ${name}` : ''}. 🏡\n\nUnga budget, area, property type sollunga — best options suggest pannuven.`;
+      return `Naan *${company}* property assistant${who}. 🏡\n\nUnga requirement ku match aana properties suggest pannuven — *free site visit* arrange pannuven.\n\nEtha area, enna type paarkureerkal?`;
     default:
-      return `I'm the *AI property assistant* for *${company}*${who ? `, ${name}` : ''}. 🏡\n\nI help you find matching projects and arrange a *free site visit* — I don't replace your sales team for final pricing.\n\nWhat *area*, *budget*, and *property type* are you looking for?`;
+      return (
+        `I'm the *property assistant* for *${company}*${who}. 🏡\n\n` +
+        `I match you with the right properties and help arrange a *free site visit* — ` +
+        `I don't replace your agent for final pricing or booking.\n\n` +
+        `What *area* and *property type* are you exploring?`
+      );
   }
 }
