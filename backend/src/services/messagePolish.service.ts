@@ -71,12 +71,12 @@ function applyWhatsAppFormatting(text: string, channel: PolishChannel): string {
 }
 
 function appendBrandFooter(text: string, companyName: string | undefined, channel: PolishChannel): string {
-  if (channel !== 'whatsapp' || !companyName?.trim()) return text;
-  const name = companyName.trim();
-  if (text.toLowerCase().includes(name.toLowerCase())) return text;
-  const footer = `\n\n— *${name}* via Investo`;
-  if (text.length + footer.length > WHATSAPP_MAX) return text;
-  return text + footer;
+  // No footer appended — company branding flows naturally from the LLM system prompt
+  // and the greeting templates. Appending a footer here leaked the internal platform
+  // name ("via Investo") to customers, breaking white-label deployments.
+  void companyName;
+  void channel;
+  return text;
 }
 
 function trimToLength(text: string, maxLen: number): string {

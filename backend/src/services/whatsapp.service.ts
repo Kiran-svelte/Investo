@@ -56,6 +56,31 @@ import {
   NextBestAction,
 } from './conversationStateMachine';
 
+/**
+ * Safely deserializes the `commitments` JSONB field from Prisma.
+ * Never use a bare type cast here — old DB rows may be missing fields
+ * added in later migrations (e.g., `visitSlotDiscussed` added after launch).
+ * Missing fields are filled with safe boolean `false` defaults.
+ *
+ * @param raw - Raw Prisma JsonValue from the conversation row
+ * @returns A fully populated MicroCommitments object
+ */
+function safeParseCommitments(raw: unknown): MicroCommitments {
+  const defaults = conversationStateManager.createInitialState().commitments;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+  const r = raw as Record<string, unknown>;
+  return {
+    budgetConfirmed:       typeof r.budgetConfirmed === 'boolean'       ? r.budgetConfirmed       : defaults.budgetConfirmed,
+    locationConfirmed:     typeof r.locationConfirmed === 'boolean'     ? r.locationConfirmed     : defaults.locationConfirmed,
+    propertyTypeConfirmed: typeof r.propertyTypeConfirmed === 'boolean' ? r.propertyTypeConfirmed : defaults.propertyTypeConfirmed,
+    timelineConfirmed:     typeof r.timelineConfirmed === 'boolean'     ? r.timelineConfirmed     : defaults.timelineConfirmed,
+    propertyInterestShown: typeof r.propertyInterestShown === 'boolean' ? r.propertyInterestShown : defaults.propertyInterestShown,
+    visitSlotDiscussed:    typeof r.visitSlotDiscussed === 'boolean'    ? r.visitSlotDiscussed    : defaults.visitSlotDiscussed,
+    visitSlotConfirmed:    typeof r.visitSlotConfirmed === 'boolean'    ? r.visitSlotConfirmed    : defaults.visitSlotConfirmed,
+    contactInfoShared:     typeof r.contactInfoShared === 'boolean'     ? r.contactInfoShared     : defaults.contactInfoShared,
+  };
+}
+
 interface IncomingMessage {
   /** Which inbound webhook delivered this message. Defaults to 'meta' for backward compatibility. */
   provider?: 'meta' | 'greenapi';
@@ -868,15 +893,18 @@ export class WhatsAppService {
       });
     }
 
-    // Reconstruct conversation state from DB
+    // Reconstruct conversation state from DB.
+    // IMPORTANT: Prisma returns JSONB as `JsonValue`. Never use `as unknown as Type` here —
+    // that performs zero runtime validation. Old DB rows may be missing fields added in later
+    // migrations (e.g., visitSlotDiscussed). safeParseCommitments fills in safe defaults.
     const conversationState: ConversationState = {
       stage: (conversation.stage as ConversationStage) || 'rapport',
       previousStage: null,
       stageEnteredAt: conversation.stageEnteredAt || new Date(),
       messageCount: conversation.stageMessageCount || 0,
-      commitments: (conversation.commitments as unknown as MicroCommitments) || conversationStateManager.createInitialState().commitments,
+      commitments: safeParseCommitments(conversation.commitments),
       objectionCount: conversation.objectionCount || 0,
-      lastObjectionType: (conversation.lastObjectionType as any) || null,
+      lastObjectionType: (conversation.lastObjectionType as import('./conversationStateMachine').ObjectionType | null) || null,
       consecutiveObjections: conversation.consecutiveObjections || 0,
       urgencyScore: conversation.urgencyScore || 5,
       valueScore: conversation.valueScore || 5,
@@ -1413,22 +1441,10 @@ export class WhatsAppService {
             });
           }
 
-          // Follow-up with operator contact when configured
-          if (newState.stage === 'human_escalated' && aiSettings) {
-            const operatorLine = formatOperatorHandoffLine(aiSettings.operatorContact);
-            if (operatorLine) {
-              await prisma.message.create({
-                data: {
-                  conversationId: conversation.id,
-                  senderType: 'ai',
-                  content: operatorLine,
-                  language: aiResponse.detectedLanguage,
-                  status: 'sent',
-                },
-              });
-              await this.sendMessage(customerPhone, operatorLine, whatsappConfig!);
-            }
-          }
+          // Operator contact is embedded directly in the LLM response via the
+          // operatorContactPromptBlock in buildGoalDirectedPrompt() (action === 'escalate').
+          // Do NOT send a separate message here — that caused a double WhatsApp message
+          // (AI text + operator line) on every escalation event.
         }
 
         // Update lead language if detected
@@ -1501,10 +1517,17 @@ export class WhatsAppService {
         }
 
         // CHUNK 7: Stage-based quick-reply buttons (Meta native; GreenAPI numbered menu fallback)
-        // recentAction suppresses buttons when the AI reply itself was a reschedule/cancel completion
-        // to avoid showing time-picker choices right after the action is confirmed.
+        // recentAction suppresses all follow-up buttons when this turn completed a mutation action.
+        // Without this, time-picker slots reappear immediately after "Visit rescheduled to Friday" —
+        // creating confusion (the action is done, no new choice is needed).
         const recentAction: 'rescheduled' | 'cancelled' | undefined =
-          isVisitCancelOrRescheduleMessage(msg.messageText) && liveCtx.activeVisit ? undefined : undefined;
+          visitCommit.committed && visitCommit.mode === 'cancelled'
+            ? 'cancelled'
+            : visitCommit.committed && (visitCommit.mode === 'rescheduled' || visitCommit.mode === 'scheduled')
+              ? 'rescheduled'
+              : isVisitCancelOrRescheduleMessage(msg.messageText) && !visitCommit.committed
+                ? 'rescheduled'   // mutation ran via the applyVisitMutationFromChat path at L1283
+                : undefined;
         if (
           aiResponse.newState?.stage &&
           aiResponse.newState.stage !== 'human_escalated' &&

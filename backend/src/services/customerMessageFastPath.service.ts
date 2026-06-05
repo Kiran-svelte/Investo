@@ -159,9 +159,14 @@ export function buildFastPathCustomerReply(input: {
   const company = input.companyName.trim() || 'our team';
 
   if (isSimpleGreetingMessage(trimmed)) {
-    // Priority 1: Visit-aware greeting — returning client with active visit.
-    // Always shown regardless of conversation history length.
-    if (input.upcomingVisit) {
+    const historyLength = (input.conversationHistory ?? []).length;
+
+    // Priority 1: Visit-aware greeting — only on FIRST contact or very fresh conversations.
+    // If the conversation already has history (>= threshold), the LLM handles the greeting
+    // with the full liveLeadContextBlock already in its system prompt. Without this guard,
+    // customers typing 'hi' mid-conversation (e.g., after a reschedule) got the visit banner
+    // again instead of a natural continuation — causing the 'greeting repeat' bug.
+    if (input.upcomingVisit && historyLength < RETURNING_CLIENT_HISTORY_THRESHOLD) {
       return {
         text: buildVisitAwareGreeting(input.customerName ?? null, input.upcomingVisit, company),
         detectedLanguage: lang,
@@ -171,7 +176,6 @@ export function buildFastPathCustomerReply(input: {
     // Priority 2: Returning client with prior conversation history.
     // Let the LLM handle it so it can continue the property discussion naturally
     // instead of resetting to "What area are you looking in? What is your budget?"
-    const historyLength = (input.conversationHistory ?? []).length;
     if (historyLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
       return null; // LLM takes over with full context
     }

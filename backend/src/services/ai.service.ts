@@ -187,14 +187,17 @@ export class AIService {
       try {
         const response = await this.callProvider(provider, systemPrompt, messages);
         
-        // Update state with extracted info from LLM response
+        // Update state with extracted info from LLM response.
+        // Do NOT call processMessage() again here — it would double-increment messageCount,
+        // causing stage advancement thresholds to fire at half the expected turn count.
+        // Instead, directly apply the extracted lead preferences to the already-advanced state.
         if (response.extractedInfo) {
-          const { newState: finalState } = conversationStateManager.processMessage(
-            newState,
-            '', // Empty message since we just extracted info
-            response.extractedInfo
-          );
-          response.newState = finalState;
+          const info = response.extractedInfo;
+          const updatedCommitments = { ...newState.commitments };
+          if (info.budget_min || info.budget_max) updatedCommitments.budgetConfirmed = true;
+          if (info.location_preference) updatedCommitments.locationConfirmed = true;
+          if (info.property_type) updatedCommitments.propertyTypeConfirmed = true;
+          response.newState = { ...newState, commitments: updatedCommitments };
         } else {
           response.newState = newState;
         }
@@ -623,50 +626,56 @@ Only include fields you are confident about. Use null for unknown fields.`;
   }
 
   /**
-   * Smart mock response for testing without API keys.
-   * Generates contextual responses based on the customer message.
+   * Fallback response when ALL configured LLM providers fail (network, rate-limit, API key).
+   * This path must NEVER produce the generic onboarding greeting mid-conversation — that was
+   * the root cause of the "Hello! Welcome to Palm. How can I help you find your dream property?"
+   * message appearing after a reschedule action.
+   *
+   * Rules:
+   * - If customer has an active visit → acknowledge it; do not reset.
+   * - If conversation has prior history → continue naturally; do not greet again.
+   * - Never list capabilities. Never use numbered menus.
+   * - One clear CTA only.
    */
   private mockResponse(request: AIRequest): AIResponse {
-    const msg = request.customerMessage.toLowerCase();
-    const name = request.lead.customerName || 'there';
-    const properties = request.properties.filter((p: any) => p.status === 'available').slice(0, 3);
-    const company = request.companyName;
+    const name = request.lead?.customerName ? ` ${request.lead.customerName}` : '';
+    const company = request.companyName || 'us';
 
-    let text: string;
-
-    if (isConversationAcknowledgmentMessage(request.customerMessage)) {
-      const propertyNames = request.properties?.map((p: { name?: string }) => p.name).filter(Boolean) as string[];
-      const ack = buildFastPathCustomerReply({
-        customerMessage: request.customerMessage,
-        companyName: request.companyName,
-        customerName: request.lead?.customerName,
-        aiSettings: request.aiSettings,
-        conversationHistory: request.conversationHistory,
-        propertyNames,
-      });
-      if (ack) {
-        return { text: ack.text, detectedLanguage: ack.detectedLanguage, extractedInfo: undefined };
-      }
+    // Priority 1: Visit-aware fallback — never ignore an active visit.
+    if (request.activeVisit) {
+      const { propertyName, status } = request.activeVisit;
+      const prop = propertyName ? `*${propertyName}*` : 'your property';
+      const statusLine =
+        status === 'confirmed'
+          ? `Your visit to ${prop} is confirmed ✅`
+          : `You have an upcoming visit to ${prop} 🗓️`;
+      return {
+        text:
+          `${statusLine}\n\nI'm having a brief connection issue but I'll be right back.\n\n` +
+          `Reply *Confirm*, *Reschedule*, or *Call Agent* and I'll take care of it. 👍`,
+        detectedLanguage: 'en',
+        extractedInfo: undefined,
+      };
     }
 
-    const isGreeting = /\b(hello|hey|namaste)\b/.test(msg) || /^hi\b/.test(msg) || msg === 'hi';
-    if (isGreeting && !msg.includes('budget') && !msg.includes('visit') && !msg.includes('schedule') && !msg.includes('price')) {
-      text = `*Namaste ${name}!* 🙏\n\nWelcome to ${company}! I'm your AI real estate assistant.\n\nI can help you find your dream property. Could you tell me:\n• Your *budget range*?\n• Preferred *location*?\n• Property type (apartment/villa/plot)?\n\nLet's find the perfect match for you! 🏡`;
-    } else if (msg.includes('budget') || msg.includes('price') || msg.includes('lakh') || msg.includes('crore') || msg.includes('cost')) {
-      const propList = properties.map((p: any) => `🏠 *${p.name}* - ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)}`).join('\n');
-      text = `Great! Based on your interest, here are some options:\n\n${propList || 'We are updating our listings. Let me note your budget and get back to you!'}\n\nWould you like to *schedule a free site visit* for any of these? 📅`;
-    } else if (msg.includes('visit') || msg.includes('see') || msg.includes('schedule') || msg.includes('appointment')) {
-      text = `Wonderful! 🎉 I'd love to arrange a *FREE site visit* for you.\n\nPlease share:\n• Your *preferred date* (weekday/weekend)\n• *Time slot* (morning/afternoon/evening)\n\nOur team will confirm and send you the location details. No commitment required! 😊`;
-    } else if (msg.includes('location') || msg.includes('area') || msg.includes('where')) {
-      const locations = request.aiSettings?.operatingLocations || ['Major cities'];
-      text = `We have premium properties across: *${Array.isArray(locations) ? locations.join(', ') : locations}*\n\nWhich area interests you most? I can show you the best options there! 📍`;
-    } else {
-      const propList = properties.slice(0, 2).map((p: any) => `🏠 *${p.name}* - ${p.locationArea} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)}`).join('\n');
-      text = `Thank you for your message, ${name}! 😊\n\nHere are some featured properties:\n${propList || 'Our listings are being updated.'}\n\nTell me your preferences (budget, location, type) and I'll find the *perfect match* for you! 🏡\n\nOr would you like to schedule a *free site visit*?`;
+    // Priority 2: Returning customer (has conversation history) — do not greet again.
+    const historyLength = (request.conversationHistory ?? []).length;
+    if (historyLength >= 2) {
+      return {
+        text:
+          `Apologies${name}, I'm experiencing a brief technical issue. ` +
+          `I'll respond to your query in a moment — please bear with me! 🙏`,
+        detectedLanguage: 'en',
+        extractedInfo: undefined,
+      };
     }
 
+    // Priority 3: First contact only — minimal, non-robotic greeting.
     return {
-      text,
+      text:
+        `*Hey${name}!* 👋 Welcome to *${company}*.\n\n` +
+        `What area are you exploring, and what's your budget range? ` +
+        `I'll match you with the right properties right away. 🏡`,
       detectedLanguage: 'en',
       extractedInfo: undefined,
     };

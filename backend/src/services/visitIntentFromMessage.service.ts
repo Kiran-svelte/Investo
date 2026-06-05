@@ -63,6 +63,8 @@ export function isVisitCancelOrRescheduleMessage(message: string): boolean {
 
 /**
  * Prefer the new slot after "reschedule to …" / "move to …" when both old and new days appear.
+ * Also handles day-only messages like "move visit to friday" with no explicit time
+ * by defaulting to 10:00 IST so the reschedule never silently fails.
  */
 export function parseRescheduleTargetFromMessage(
   message: string,
@@ -71,14 +73,25 @@ export function parseRescheduleTargetFromMessage(
   const text = message.trim();
   if (!text) return null;
 
+  // 1. Try explicit "reschedule/move/prepone to <target>" tail — most precise.
   const tailMatch = text.match(
     /\b(?:reschedule(?:\s+it)?\s+to|rescheduled?\s+to|move\s+(?:it\s+)?to|change\s+(?:it\s+)?to|pre\s*pone(?:\s+\w+)*\s+to|prepone(?:\s+\w+)*\s+to)\b([\s\S]+)$/i,
   );
   if (tailMatch?.[1]) {
-    const fromTail = parseVisitDateTimeFromMessage(tailMatch[1].trim(), reference);
+    const tail = tailMatch[1].trim();
+    const fromTail = parseVisitDateTimeFromMessage(tail, reference);
     if (fromTail) return fromTail;
+
+    // Tail has a recognisable day but no time — default to 10:00 IST.
+    const dayOnly = tail.match(new RegExp(DAY_PATTERN_SOURCE, 'i'));
+    if (dayOnly) {
+      const synthetic = `${dayOnly[0]} 10am`;
+      const fallback = parseVisitDateTimeFromMessage(synthetic, reference);
+      if (fallback) return fallback;
+    }
   }
 
+  // 2. Multiple day names: treat LAST as target ("move sunday visit to friday").
   const dayMatches = [...text.toLowerCase().matchAll(new RegExp(DAY_PATTERN_SOURCE, 'gi'))];
   if (dayMatches.length > 1) {
     const lastDay = dayMatches[dayMatches.length - 1][0];
@@ -88,6 +101,9 @@ export function parseRescheduleTargetFromMessage(
       const parsed = parseVisitDateTimeFromMessage(synthetic, reference);
       if (parsed) return parsed;
     }
+    // Day found but no time — default 10:00 IST.
+    const fallback = parseVisitDateTimeFromMessage(`${lastDay} 10am`, reference);
+    if (fallback) return fallback;
   }
 
   return parseVisitDateTimeFromMessage(text, reference);
