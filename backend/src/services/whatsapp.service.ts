@@ -1095,13 +1095,23 @@ export class WhatsAppService {
           recentCustomerMessages,
         });
 
-        const { tryRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
-        const buyerWorkflowReply = await tryRunBuyerWorkflow({
-          companyId,
-          leadId: lead.id,
-          messageText: msg.messageText,
-          propertyId: conversation.selectedPropertyId ?? undefined,
-        });
+        // CRITICAL: Only run the buyer workflow when the fast-path mutation service did NOT
+        // already handle this message. Running both causes a double-write race:
+        //   1. tryCommitCustomerVisitBooking → applyVisitMutationFromChat → saves correct new time (e.g. 4pm)
+        //   2. tryRunBuyerWorkflow → reschedule_visit workflow → rescheduleVisit tool → overwrites DB
+        //      with the LLM's stale params which may still hold the original visit time (6:30pm)
+        // Result: customer sees "rescheduled to 4pm" but DB stores 6:30pm. Agent confirmed wrong time.
+        let buyerWorkflowReply: string | null | undefined;
+        if (!visitCommit.committed) {
+          const { tryRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
+          buyerWorkflowReply = await tryRunBuyerWorkflow({
+            companyId,
+            leadId: lead.id,
+            messageText: msg.messageText,
+            propertyId: conversation.selectedPropertyId ?? undefined,
+          });
+        }
+
         if (buyerWorkflowReply?.trim()) {
           await prisma.message.create({
             data: {
@@ -1113,8 +1123,8 @@ export class WhatsAppService {
           });
           await this.sendMessage(customerPhone, buyerWorkflowReply, whatsappConfig!);
 
-          // Still send contextual quick-reply buttons so conversation stays interactive.
-          // Workflow reply covers the text; buttons keep the next step visible.
+          // Send contextual buttons after workflow reply — but never time-picker buttons
+          // when a reschedule/cancel action was just completed, to avoid confusing the user.
           await this.sendContextualQuickReplies(
             customerPhone,
             conversationState.stage,
@@ -1129,6 +1139,7 @@ export class WhatsAppService {
                     month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
                   })
                 : undefined,
+              recentAction: undefined,
             },
             whatsappConfig!,
           );
@@ -1490,6 +1501,10 @@ export class WhatsAppService {
         }
 
         // CHUNK 7: Stage-based quick-reply buttons (Meta native; GreenAPI numbered menu fallback)
+        // recentAction suppresses buttons when the AI reply itself was a reschedule/cancel completion
+        // to avoid showing time-picker choices right after the action is confirmed.
+        const recentAction: 'rescheduled' | 'cancelled' | undefined =
+          isVisitCancelOrRescheduleMessage(msg.messageText) && liveCtx.activeVisit ? undefined : undefined;
         if (
           aiResponse.newState?.stage &&
           aiResponse.newState.stage !== 'human_escalated' &&
@@ -1510,6 +1525,7 @@ export class WhatsAppService {
                     month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
                   })
                 : undefined,
+              recentAction,
             },
             whatsappConfig!,
           );
@@ -2476,21 +2492,50 @@ export class WhatsAppService {
       visitProperty?: string;
       /** Formatted visit time string for the button body. */
       visitTime?: string;
+      /**
+       * Set when an action was just completed in this turn (reschedule/cancel/confirm).
+       * Prevents showing follow-up choice buttons immediately after the action is done —
+       * that would confuse the customer and undo the sense of completion.
+       */
+      recentAction?: 'rescheduled' | 'cancelled' | 'confirmed';
     },
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
+    // After an action completes (reschedule / cancel / confirm), do NOT show any
+    // follow-up buttons. The action is done — showing new choices creates confusion.
+    if (context.recentAction) return;
+
     const pid = context.propertyId ?? '';
     const hasVisit = Boolean(context.hasActiveVisit);
+    const isConfirmed = context.visitStatus === 'confirmed';
 
     // ── Visit-management CTAs (overrides stage-based buttons) ─────────────────
-    // When the client already has a scheduled/confirmed visit, NEVER show
-    // 'Book Visit'. Instead offer Confirm / Reschedule / Call Agent so the
-    // conversation stays contextual and does not repeat the booking pitch.
-    if (hasVisit && ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation'].includes(stage)) {
+    // When the client already has an active visit, NEVER show 'Book Visit'.
+    // Includes visit_booking stage — time-picker slots must not appear when a visit exists.
+    const visitStages = ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation', 'visit_booking'];
+    if (hasVisit && visitStages.includes(stage)) {
       const visitBody = context.visitProperty
         ? `Your visit for *${context.visitProperty}*${context.visitTime ? ` on ${context.visitTime}` : ''} 🗓️`
         : 'You have an upcoming site visit 🗓️';
 
+      if (isConfirmed) {
+        // Visit already confirmed — skip the Confirm button, offer post-confirm actions.
+        await this.sendInteractiveButtons(
+          to,
+          visitBody,
+          [
+            { id: 'visit-reschedule', title: '📅 Change Time' },
+            { id: pid ? `more-info-${pid}` : 'more-info', title: '🏗️ Property Details' },
+            { id: 'call-me', title: '📞 Call Agent' },
+          ],
+          null,
+          null,
+          whatsappConfig,
+        ).catch(() => undefined);
+        return;
+      }
+
+      // Visit scheduled (not yet confirmed) — offer confirm / reschedule / call.
       await this.sendInteractiveButtons(
         to,
         visitBody,
@@ -2508,7 +2553,6 @@ export class WhatsAppService {
 
     // ── Stage-based CTAs (default path — no active visit) ────────────────────
     const STAGE_REPLIES: Partial<Record<string, { body: string; buttons: Array<{ id: string; title: string }> }>> = {
-      // rapport: greeting stage — guide them to share requirements or browse
       rapport: {
         body: 'What are you looking for? 🏡',
         buttons: [
@@ -2541,6 +2585,7 @@ export class WhatsAppService {
           { id: pid ? `location-${pid}` : 'more-info', title: '📍 Show Location' },
         ],
       },
+      // visit_booking: only shown when no active visit exists (guard above handles the hasVisit case)
       visit_booking: {
         body: 'Pick a time that works for you 🗓️',
         buttons: [

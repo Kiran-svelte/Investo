@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
+import logger from '../../../config/logger';
 import { DEFAULT_LIST_LIMIT, LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
@@ -144,10 +145,44 @@ export function createVisitTools(context: ToolContext): AgentTool[] {
       description: 'Reschedule a visit to a new date/time.',
       schema: z.object({ visitId: z.string().uuid(), newScheduledAt: z.string() }),
       func: async ({ visitId, newScheduledAt }) => {
-        const visit = await prisma.visit.findFirst({ where: { id: visitId, ...visitScope(context) }, select: { id: true, status: true } });
+        const visit = await prisma.visit.findFirst({
+          where: { id: visitId, ...visitScope(context) },
+          // Fetch scheduledAt (old time) so the agent notification shows before/after delta.
+          select: { id: true, status: true, scheduledAt: true, leadId: true, companyId: true },
+        });
         if (!visit) return 'Visit not found or access denied.';
         if (visit.status === 'completed' || visit.status === 'cancelled') return `Cannot reschedule a ${visit.status} visit.`;
-        const updated = await prisma.visit.update({ where: { id: visitId }, data: { scheduledAt: new Date(newScheduledAt), reminderSent: false }, include });
+        const oldScheduledAt = visit.scheduledAt;
+        const updated = await prisma.visit.update({
+          where: { id: visitId },
+          data: { scheduledAt: new Date(newScheduledAt), reminderSent: false },
+          include,
+        });
+        // Notify the assigned agent immediately — dashboard DB record + WhatsApp message.
+        // Fire-and-forget: a notification failure must never fail the reschedule itself.
+        void (async () => {
+          try {
+            const { notificationEngine } = await import('../../notification.engine');
+            const company = await prisma.company.findUnique({ where: { id: visit.companyId } });
+            const lead = visit.leadId
+              ? await prisma.lead.findUnique({ where: { id: visit.leadId }, select: { customerName: true, phone: true } })
+              : null;
+            if (company && lead) {
+              await notificationEngine.onVisitRescheduled(
+                updated,
+                oldScheduledAt,
+                new Date(newScheduledAt),
+                lead,
+                company,
+              );
+            }
+          } catch (err: unknown) {
+            logger.warn('rescheduleVisit: agent notification failed', {
+              visitId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
         return `Visit rescheduled.\n\n${formatVisit(updated)}`;
       },
     }),
