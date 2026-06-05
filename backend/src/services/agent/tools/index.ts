@@ -12,6 +12,7 @@ import { createNotificationTools } from './notification-tools';
 import { createPropertyTools } from './property-tools';
 import { createUserTools } from './user-tools';
 import { createVisitTools } from './visit-tools';
+import { createWorkflowTools } from './workflow-tools';
 
 function isAdminRole(role: string): boolean {
   return role === 'company_admin' || role === 'super_admin';
@@ -38,6 +39,7 @@ export function getToolsForRole(context: ToolContext): AgentTool[] {
 
   if (context.userRole === 'sales_agent' || isAdminRole(context.userRole) || isOperationsRole(context.userRole)) {
     tools.push(
+      ...createWorkflowTools(context),
       ...createVisitTools(context),
       ...createLeadTools(context),
       ...createConversationTools(context),

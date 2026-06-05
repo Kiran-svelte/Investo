@@ -6,6 +6,16 @@ import type { CompanyUserMatch } from '../inboundWhatsAppRouting.service';
 import { ToolContext } from './agent-state';
 
 import { isCopilotGreeting, normalizeCopilotInboundText } from '../../utils/copilotGreeting.util';
+import {
+  COPILOT_SHORTCUT_BUTTONS,
+  resolveCopilotInboundCommand,
+  shouldSendCopilotShortcutMenu,
+  type CopilotReplyKind,
+} from '../../utils/copilotShortcut.util';
+import {
+  claimStaffCopilotTurn,
+  releaseStaffCopilotTurn,
+} from '../inboundMessageGuard.service';
 
 /**
  * Builds a deterministic welcome/help message for the agent copilot.
@@ -41,11 +51,7 @@ async function sendStaffCopilotQuickActions(phone: string, companyId: string): P
       phone,
       companyId,
       'Tap a shortcut (or type your own command):',
-      [
-        { id: 'copilot-visits-today', title: 'Visits today' },
-        { id: 'copilot-new-leads', title: 'New leads today' },
-        { id: 'copilot-visits-tomorrow', title: 'Visits tomorrow' },
-      ],
+      COPILOT_SHORTCUT_BUTTONS.map(({ id, title }) => ({ id, title })),
       'Investo Copilot',
       'CRM shortcuts',
     );
@@ -79,12 +85,25 @@ async function sendWhatsAppResponse(phone: string, companyId: string, message: s
   await (whatsappService as any).sendMessage(phone, message, outboundConfig);
 }
 
-async function handleAgentMessage(user: CompanyUserMatch, messageText: string): Promise<string> {
-  const normalizedText = normalizeCopilotInboundText(messageText);
+type AgentMessageResult = {
+  text: string;
+  replyKind: CopilotReplyKind;
+};
+
+async function handleAgentMessage(
+  user: CompanyUserMatch,
+  messageText: string,
+  interactiveId?: string,
+): Promise<AgentMessageResult> {
+  const resolvedCommand = resolveCopilotInboundCommand({ interactiveId, messageText });
+  const normalizedText = normalizeCopilotInboundText(resolvedCommand);
 
   // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
   if (isCopilotGreeting(normalizedText)) {
-    return buildCopilotWelcomeMessage(user.userName, user.companyName);
+    return {
+      text: buildCopilotWelcomeMessage(user.userName, user.companyName),
+      replyKind: 'welcome',
+    };
   }
 
   const prisma = await getPrisma();
@@ -97,15 +116,24 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
   if (session) {
     const confirmation = await checkAndResolvePendingConfirmation(session.id, messageText);
     if (confirmation.hasPending && confirmation.isConfirmed) {
-      return executePendingAction(confirmation.pendingActionId!);
+      return {
+        text: await executePendingAction(confirmation.pendingActionId!),
+        replyKind: 'confirmation',
+      };
     }
     if (confirmation.hasPending && confirmation.isRejected) {
-      return 'Action cancelled.';
+      return { text: 'Action cancelled.', replyKind: 'confirmation' };
     }
     if (confirmation.hasPending) {
-      return `${confirmation.displayMessage}\n\nReply "yes" to confirm or "no" to cancel.`;
+      return {
+        text: `${confirmation.displayMessage}\n\nReply "yes" to confirm or "no" to cancel.`,
+        replyKind: 'confirmation',
+      };
     }
   }
+
+  const { getAgentSessionContext } = await import('../clientMemory.service');
+  const sessionCtx = await getAgentSessionContext(session?.id);
 
   const toolContext: ToolContext = {
     userId: user.userId,
@@ -113,10 +141,11 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     userRole: user.userRole,
     userName: user.userName,
     sessionId: session?.id,
+    staffPhone: user.phone,
+    companyName: user.companyName,
+    sessionLeadId: sessionCtx.lastLeadId,
+    sessionVisitId: sessionCtx.lastVisitId,
   };
-
-  const { getAgentSessionContext } = await import('../clientMemory.service');
-  const sessionCtx = await getAgentSessionContext(session?.id);
   const { getRecentAgentSessionMessages } = await import('./agent-session-messages.service');
   const { classifyAndRunWorkflow } = await import('../workflow/workflow-engine.service');
   const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } =
@@ -132,11 +161,11 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     if (session?.id) {
       await recordAgentCopilotExchange({
         sessionId: session.id,
-        inboundText: messageText,
+        inboundText: resolvedCommand || messageText,
         outboundText: crmReply,
       });
     }
-    return crmReply;
+    return { text: crmReply, replyKind: 'crm' };
   }
 
   const workflowReply = await classifyAndRunWorkflow({
@@ -152,11 +181,11 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     if (session?.id) {
       await recordAgentCopilotExchange({
         sessionId: session.id,
-        inboundText: messageText,
+        inboundText: resolvedCommand || messageText,
         outboundText: workflowReply,
       });
     }
-    return workflowReply;
+    return { text: workflowReply, replyKind: 'workflow' };
   }
 
   const intentReply = await classifyAndExecuteAgentIntent({
@@ -172,11 +201,11 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     if (session?.id) {
       await recordAgentCopilotExchange({
         sessionId: session.id,
-        inboundText: messageText,
+        inboundText: resolvedCommand || messageText,
         outboundText: intentReply,
       });
     }
-    return intentReply;
+    return { text: intentReply, replyKind: 'intent' };
   }
 
   const { buildClientMemoryContextForAgent, setAgentSessionClientContext } =
@@ -207,10 +236,14 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     .replace(/[\r\n]+/g, ' ')                           // collapse newlines
     .trim();
   if (isCopilotGreeting(aggressivelyNormalized) || aggressivelyNormalized.length === 0) {
-    return buildCopilotWelcomeMessage(user.userName, user.companyName);
+    return {
+      text: buildCopilotWelcomeMessage(user.userName, user.companyName),
+      replyKind: 'welcome',
+    };
   }
 
   let agentReply: string;
+  let replyKind: CopilotReplyKind = 'agent';
   try {
     agentReply = await invokeAgent({
       messageText: normalizedText,
@@ -218,6 +251,8 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
       toolContext,
       companyName: user.companyName,
       clientMemoryBlock: memory.block,
+      sessionLeadId: sessionCtx.lastLeadId,
+      sessionVisitId: sessionCtx.lastVisitId,
     });
   } catch (agentErr: unknown) {
     logger.error('invokeAgent failed', {
@@ -229,8 +264,10 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
     });
     if (fallback) {
       agentReply = fallback;
+      replyKind = 'crm';
     } else if (isCopilotGreeting(normalizedText)) {
       agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+      replyKind = 'welcome';
     } else {
       agentReply =
         `⚠️ I had trouble processing that request. Here are commands that always work:\n\n` +
@@ -241,6 +278,7 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
         `✅ *Quick actions*\n` +
         `• "confirm visit" • "mark lead [name] visited"\n\n` +
         `Or use the *Investo dashboard* for advanced operations.`;
+      replyKind = 'help_fallback';
     }
   }
 
@@ -250,16 +288,17 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
   const isLlmRefusal = /could\s+not\s+complete|unable\s+to\s+(retrieve|process)|try\s+a\s+shorter/i.test(agentReply);
   if (isLlmRefusal && aggressivelyNormalized.length < 30) {
     agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+    replyKind = 'welcome';
   }
 
   if (session?.id) {
     await recordAgentCopilotExchange({
       sessionId: session.id,
-      inboundText: messageText,
+      inboundText: resolvedCommand || messageText,
       outboundText: agentReply,
     });
   }
-  return agentReply;
+  return { text: agentReply, replyKind };
 }
 
 /**
@@ -269,14 +308,24 @@ export async function routeIfInternalUserForCompany(
   senderPhone: string,
   messageText: string,
   user: CompanyUserMatch,
+  interactiveId?: string,
 ): Promise<boolean> {
-  if (!config.agentAi?.enabled || !messageText.trim()) return false;
+  const resolvedText = resolveCopilotInboundCommand({ interactiveId, messageText });
+  if (!config.agentAi?.enabled || !resolvedText.trim()) return false;
+
+  const turnClaimed = await claimStaffCopilotTurn(user.companyId, user.userId);
+  if (!turnClaimed) {
+    return true;
+  }
+
+  const normalizedPhone = normalizeInboundWhatsAppPhone(senderPhone);
 
   try {
-    const normalizedPhone = normalizeInboundWhatsAppPhone(senderPhone);
-    const response = await handleAgentMessage(user, messageText);
+    const { text: response, replyKind } = await handleAgentMessage(user, messageText, interactiveId);
     await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
-    await sendStaffCopilotQuickActions(normalizedPhone, user.companyId);
+    if (shouldSendCopilotShortcutMenu(replyKind)) {
+      await sendStaffCopilotQuickActions(normalizedPhone, user.companyId);
+    }
     return true;
   } catch (error: any) {
     logger.error('Agent AI routing failed', {
@@ -285,11 +334,13 @@ export async function routeIfInternalUserForCompany(
       error: error?.message,
     });
     await sendWhatsAppResponse(
-      normalizeInboundWhatsAppPhone(senderPhone),
+      normalizedPhone,
       user.companyId,
-      'I hit an issue processing that request. Please try again.',
+      'That request did not go through. Try a shorter command like "visits today" or "new leads today", or use the Investo dashboard.',
     );
     return true;
+  } finally {
+    await releaseStaffCopilotTurn(user.companyId, user.userId);
   }
 }
 

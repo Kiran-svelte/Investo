@@ -113,6 +113,7 @@ export async function routeCompanyScopedInbound(params: {
   senderPhone: string;
   messageText: string;
   companyId: string;
+  interactiveId?: string;
 }): Promise<{ handled: boolean; route: InboundWhatsAppRoute }> {
   const normalizedPhone = normalizeInboundWhatsAppPhone(params.senderPhone);
   const companyUser = await findCompanyUserByPhone(normalizedPhone, params.companyId);
@@ -146,6 +147,7 @@ export async function routeCompanyScopedInbound(params: {
         normalizedPhone,
         params.messageText,
         companyUser,
+        params.interactiveId,
       );
       return {
         handled,

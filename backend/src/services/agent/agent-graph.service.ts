@@ -4,6 +4,7 @@ import { MAX_TOOL_CALLS_PER_MESSAGE } from '../../constants/agent-ai.constants';
 import { logAgentAction } from '../agent-action-log.service';
 import { ToolContext } from './agent-state';
 import { getCheckpointer } from './agent-memory.service';
+import { buildAgentPromptContext } from './agent-prompt-context.service';
 import { buildSystemPrompt } from './prompts/system-prompt';
 import { getToolsForRole } from './tools';
 import { formatDateIST, formatTimeIST } from './response-formatter.service';
@@ -22,6 +23,8 @@ export interface InvokeAgentParams {
   toolContext: ToolContext;
   companyName: string;
   clientMemoryBlock?: string;
+  sessionLeadId?: string | null;
+  sessionVisitId?: string | null;
 }
 
 function createModel(): any {
@@ -76,17 +79,40 @@ function extractAgentReply(messages: BaseMessageLike[]): string {
 }
 
 export async function invokeAgent(params: InvokeAgentParams): Promise<string> {
-  const tools = getToolsForRole(params.toolContext);
+  const toolContext: ToolContext = {
+    ...params.toolContext,
+    companyName: params.toolContext.companyName ?? params.companyName,
+    sessionLeadId: params.toolContext.sessionLeadId ?? params.sessionLeadId,
+    sessionVisitId: params.toolContext.sessionVisitId ?? params.sessionVisitId,
+  };
+  const tools = getToolsForRole(toolContext);
+  if (!tools.length) {
+    logger.error('Agent AI has no tools for role', {
+      userId: toolContext.userId,
+      userRole: toolContext.userRole,
+    });
+  }
+
   const model = createModel() as any;
   const modelWithTools = model.bindTools(tools);
   const now = new Date();
+  const promptContext = await buildAgentPromptContext({
+    toolContext,
+    sessionLeadId: params.sessionLeadId,
+    sessionVisitId: params.sessionVisitId,
+  });
   const systemPrompt = buildSystemPrompt({
-    userName: params.toolContext.userName,
+    userName: toolContext.userName,
     companyName: params.companyName,
-    userRole: params.toolContext.userRole,
+    userRole: toolContext.userRole,
     currentDateIST: formatDateIST(now),
     currentTimeIST: formatTimeIST(now),
+    conversationHistory: promptContext.conversationHistory,
+    upcomingVisits: promptContext.upcomingVisits,
+    leadStatus: promptContext.leadStatus,
+    recentErrors: promptContext.recentErrors,
     clientMemoryBlock: params.clientMemoryBlock,
+    availableTools: tools.map((tool) => tool.name),
   });
 
   async function agentNode(state: any) {

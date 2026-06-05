@@ -18,6 +18,11 @@ import { normalizeInboundWhatsAppPhone, phonesMatchLast10 } from '../utils/phone
 import {
   routeCompanyScopedInbound,
 } from './inboundWhatsAppRouting.service';
+import { claimInboundMessage } from './inboundMessageGuard.service';
+import {
+  shouldAttachContextualQuickReplies,
+  type QuickReplyRecentAction,
+} from '../utils/contextQuickReplies.util';
 
 import {
   parseVisitTimeInteractiveId,
@@ -693,6 +698,22 @@ export class WhatsAppService {
     const companyId = company.id;
     const customerPhone = normalizeInboundWhatsAppPhone(msg.customerPhone);
 
+    if (msg.messageId) {
+      const inboundClaimed = await claimInboundMessage(companyId, msg.messageId);
+      if (!inboundClaimed) {
+        logger.info('Skipping duplicate inbound WhatsApp message', {
+          whatsappMessageId: msg.messageId,
+          companyId,
+        });
+        return {
+          status: 'skipped',
+          reason: 'duplicate_message_id',
+          companyId,
+          propagation: notAttempted,
+        };
+      }
+    }
+
     if (
       msg.interactiveId &&
       (msg.interactiveId.startsWith('visit-approve-') || msg.interactiveId.startsWith('visit-decline-'))
@@ -731,6 +752,7 @@ export class WhatsAppService {
       senderPhone: customerPhone,
       messageText: msg.messageText,
       companyId,
+      interactiveId: msg.interactiveId,
     });
     if (staffRoute.handled) {
       logger.info('Inbound handled as company user (not prospect AI)', {
@@ -1095,13 +1117,17 @@ export class WhatsAppService {
           recentCustomerMessages,
         });
 
-        const { tryRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
-        const buyerWorkflowReply = await tryRunBuyerWorkflow({
-          companyId,
-          leadId: lead.id,
-          messageText: msg.messageText,
-          propertyId: conversation.selectedPropertyId ?? undefined,
-        });
+        // Only run buyer workflow when visit fast-path did not already mutate state.
+        let buyerWorkflowReply: string | null | undefined;
+        if (!visitCommit.committed) {
+          const { tryRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
+          buyerWorkflowReply = await tryRunBuyerWorkflow({
+            companyId,
+            leadId: lead.id,
+            messageText: msg.messageText,
+            propertyId: conversation.selectedPropertyId ?? undefined,
+          });
+        }
         if (buyerWorkflowReply?.trim()) {
           await prisma.message.create({
             data: {
@@ -1113,25 +1139,30 @@ export class WhatsAppService {
           });
           await this.sendMessage(customerPhone, buyerWorkflowReply, whatsappConfig!);
 
-          // Still send contextual quick-reply buttons so conversation stays interactive.
-          // Workflow reply covers the text; buttons keep the next step visible.
-          await this.sendContextualQuickReplies(
-            customerPhone,
-            conversationState.stage,
-            {
-              propertyId: conversationState.selectedPropertyId ?? conversation.selectedPropertyId,
-              hasActiveVisit: Boolean(liveCtx.activeVisit),
-              visitStatus: liveCtx.activeVisit?.status,
-              visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-              visitTime: liveCtx.activeVisit
-                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
-                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
-                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
-                  })
-                : undefined,
-            },
-            whatsappConfig!,
-          );
+          if (
+            shouldAttachContextualQuickReplies({
+              stage: conversationState.stage,
+              outboundText: buyerWorkflowReply,
+            })
+          ) {
+            await this.sendContextualQuickReplies(
+              customerPhone,
+              conversationState.stage,
+              {
+                propertyId: conversationState.selectedPropertyId ?? conversation.selectedPropertyId,
+                hasActiveVisit: Boolean(liveCtx.activeVisit),
+                visitStatus: liveCtx.activeVisit?.status,
+                visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+                visitTime: liveCtx.activeVisit
+                  ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
+                      timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+                      month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+                    })
+                  : undefined,
+              },
+              whatsappConfig!,
+            );
+          }
 
           return {
             status: 'processed',
@@ -1268,6 +1299,7 @@ export class WhatsAppService {
           neverSayNoCtx.promptBlock,
         );
         let outboundCandidate = aiResponse.text;
+        let visitMutationRecentAction: QuickReplyRecentAction | undefined;
         if (isVisitCancelOrRescheduleMessage(msg.messageText)) {
           const mutation = await applyVisitMutationFromChat({
             companyId,
@@ -1276,6 +1308,11 @@ export class WhatsAppService {
           });
           if (mutation.handled && mutation.reply) {
             outboundCandidate = mutation.reply;
+            if (mutation.mode === 'cancelled') {
+              visitMutationRecentAction = 'cancelled';
+            } else if (mutation.mode === 'rescheduled' && mutation.scheduledAt) {
+              visitMutationRecentAction = 'rescheduled';
+            }
           }
         }
 
@@ -1490,17 +1527,27 @@ export class WhatsAppService {
         }
 
         // CHUNK 7: Stage-based quick-reply buttons (Meta native; GreenAPI numbered menu fallback)
+        const sentPropertyFilters =
+          Boolean(
+            aiResponse.newState &&
+              this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction),
+          );
+        const recentAction: QuickReplyRecentAction | undefined = visitMutationRecentAction;
         if (
           aiResponse.newState?.stage &&
-          aiResponse.newState.stage !== 'human_escalated' &&
-          !this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction)
+          shouldAttachContextualQuickReplies({
+            stage: aiResponse.newState.stage,
+            outboundText,
+            nextAction: aiResponse.nextAction,
+            recentAction,
+            sentPropertyFilters,
+          })
         ) {
           await this.sendContextualQuickReplies(
             customerPhone,
             aiResponse.newState.stage,
             {
               propertyId: aiResponse.newState.selectedPropertyId ?? conversation.selectedPropertyId,
-              // Pass live visit context so buttons reflect real state
               hasActiveVisit: Boolean(liveCtx.activeVisit),
               visitStatus: liveCtx.activeVisit?.status,
               visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
@@ -1510,6 +1557,7 @@ export class WhatsAppService {
                     month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
                   })
                 : undefined,
+              recentAction,
             },
             whatsappConfig!,
           );
@@ -2476,20 +2524,39 @@ export class WhatsAppService {
       visitProperty?: string;
       /** Formatted visit time string for the button body. */
       visitTime?: string;
+      recentAction?: QuickReplyRecentAction;
     },
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
+    if (context.recentAction) return;
+
     const pid = context.propertyId ?? '';
     const hasVisit = Boolean(context.hasActiveVisit);
+    const isConfirmed = context.visitStatus === 'confirmed';
 
     // ── Visit-management CTAs (overrides stage-based buttons) ─────────────────
-    // When the client already has a scheduled/confirmed visit, NEVER show
-    // 'Book Visit'. Instead offer Confirm / Reschedule / Call Agent so the
-    // conversation stays contextual and does not repeat the booking pitch.
-    if (hasVisit && ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation'].includes(stage)) {
+    // When the client already has an active visit, NEVER show 'Book Visit'.
+    const visitStages = ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation', 'visit_booking'];
+    if (hasVisit && visitStages.includes(stage)) {
       const visitBody = context.visitProperty
         ? `Your visit for *${context.visitProperty}*${context.visitTime ? ` on ${context.visitTime}` : ''} 🗓️`
         : 'You have an upcoming site visit 🗓️';
+
+      if (isConfirmed) {
+        await this.sendInteractiveButtons(
+          to,
+          visitBody,
+          [
+            { id: 'visit-reschedule', title: '📅 Change Time' },
+            { id: pid ? `more-info-${pid}` : 'more-info', title: '🏗️ Property Details' },
+            { id: 'call-me', title: '📞 Call Agent' },
+          ],
+          null,
+          null,
+          whatsappConfig,
+        ).catch(() => undefined);
+        return;
+      }
 
       await this.sendInteractiveButtons(
         to,
@@ -3166,14 +3233,23 @@ export class WhatsAppService {
           month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
         });
         const visitPropName = (activeVisitForProperty.property as { name?: string })?.name ?? 'the property';
+        const visitAlreadyConfirmed = activeVisitForProperty.status === 'confirmed';
         await this.sendInteractiveButtons(
           customerPhone,
-          `You already have a visit for *${visitPropName}* on ${visitDate} 🗓️`,
-          [
-            { id: 'visit-confirm', title: '✅ Confirm Visit' },
-            { id: 'visit-reschedule', title: '📅 Reschedule' },
-            { id: 'call-me', title: '📞 Call Agent' },
-          ],
+          visitAlreadyConfirmed
+            ? `Your visit for *${visitPropName}* on ${visitDate} is confirmed ✅`
+            : `You already have a visit for *${visitPropName}* on ${visitDate} 🗓️`,
+          visitAlreadyConfirmed
+            ? [
+                { id: 'visit-reschedule', title: '📅 Change Time' },
+                { id: `more-info-${propertyId}`, title: '🏗️ Property Details' },
+                { id: 'call-me', title: '📞 Call Agent' },
+              ]
+            : [
+                { id: 'visit-confirm', title: '✅ Confirm Visit' },
+                { id: 'visit-reschedule', title: '📅 Reschedule' },
+                { id: 'call-me', title: '📞 Call Agent' },
+              ],
           null,
           null,
           whatsappConfig
@@ -4007,9 +4083,9 @@ export class WhatsAppService {
       return false;
     }
 
-    // Fire on rapport stage (first turn) so new users immediately see the type picker.
+    // Never fire on rapport — sendContextualQuickReplies already shows type options there.
     if (state.stage === 'rapport') {
-      return true;
+      return false;
     }
 
     // Fire on qualify stage as usual.

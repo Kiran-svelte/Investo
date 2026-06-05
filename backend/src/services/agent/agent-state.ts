@@ -6,6 +6,11 @@ export interface ToolContext {
   userRole: UserRole;
   userName: string;
   sessionId?: string;
+  /** Staff WhatsApp phone — used by workflow session context updates. */
+  staffPhone?: string;
+  companyName?: string;
+  sessionLeadId?: string | null;
+  sessionVisitId?: string | null;
 }
 
 export interface AgentState {
