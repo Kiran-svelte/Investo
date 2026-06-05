@@ -37,6 +37,11 @@ import {
   isVisitCancelOrRescheduleMessage,
   isVisitSchedulingMessage,
 } from './visitIntentFromMessage.service';
+import {
+  buildBuyerVisitStatusReply,
+  isBuyerVisitStatusQuery,
+} from './buyerVisitQuery.service';
+import { formatCustomerSalutation } from './customerMessageFastPath.service';
 import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
 
 import {
@@ -1355,6 +1360,59 @@ export class WhatsAppService {
           };
         }
 
+        // Deterministic visit-status replies — no LLM, no escalation (ai.md §3 & §5).
+        if (isBuyerVisitStatusQuery(msg.messageText)) {
+          const visitReply = await buildBuyerVisitStatusReply({
+            leadId: lead.id,
+            companyId,
+            companyName: company.name,
+          });
+
+          await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderType: 'ai',
+              content: visitReply,
+              status: 'sent',
+            },
+          });
+          await this.sendMessage(customerPhone, visitReply, whatsappConfig!);
+
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              stage: 'confirmation',
+              escalationReason: null,
+            },
+          });
+
+          await this.sendContextualQuickReplies(
+            customerPhone,
+            'confirmation',
+            {
+              propertyId: conversation.selectedPropertyId,
+              hasActiveVisit: Boolean(liveCtx.activeVisit),
+              visitStatus: liveCtx.activeVisit?.status,
+              visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+              visitTime: liveCtx.activeVisit
+                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+                  })
+                : undefined,
+            },
+            whatsappConfig!,
+          );
+
+          return {
+            status: 'processed',
+            companyId,
+            leadId: lead.id,
+            conversationId: conversation.id,
+            propagation,
+          };
+        }
+
         const aiSettings = await prisma.aiSetting.findUnique({
           where: { companyId },
         });
@@ -1706,12 +1764,22 @@ export class WhatsAppService {
         });
         // Build a context-aware fallback — never a generic "I'm having a little trouble"
         // that resets the conversation or ignores that the customer has an active visit.
-        const fallbackText = buildAiFallbackMessage({
-          customerName: lead.customerName,
-          activeVisitPropertyName: preFetchedActiveVisitName,
-          isVisitQuery: isVisitCancelOrRescheduleMessage(msg.messageText)
-            || /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
-        });
+        let fallbackText: string;
+        if (isBuyerVisitStatusQuery(msg.messageText)) {
+          fallbackText = await buildBuyerVisitStatusReply({
+            leadId: lead.id,
+            companyId,
+            companyName: company.name,
+          });
+        } else {
+          fallbackText = buildAiFallbackMessage({
+            customerName: lead.customerName,
+            activeVisitPropertyName: preFetchedActiveVisitName,
+            isVisitQuery: isVisitCancelOrRescheduleMessage(msg.messageText)
+              || isBuyerVisitStatusQuery(msg.messageText)
+              || /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
+          });
+        }
         try {
           await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
           await prisma.message.create({
@@ -4433,12 +4501,12 @@ function buildAiFallbackMessage(input: {
   activeVisitPropertyName: string | null;
   isVisitQuery: boolean;
 }): string {
-  const name = input.customerName ? ` ${input.customerName}` : '';
+  const salutation = formatCustomerSalutation(input.customerName);
 
   if (input.activeVisitPropertyName) {
     const prop = `*${input.activeVisitPropertyName}*`;
     return (
-      `I had a brief connection issue, but here's what I know${name}: ` +
+      `I had a brief connection issue, but here's what I know${salutation}: ` +
       `your visit to ${prop} is on record 🗓️\n\n` +
       `Reply *Confirm*, *Reschedule*, or *Cancel* and I'll handle it right away. ✅`
     );
@@ -4446,13 +4514,13 @@ function buildAiFallbackMessage(input: {
 
   if (input.isVisitQuery) {
     return (
-      `I ran into a brief issue fetching your visit details${name}. ` +
+      `I ran into a brief issue fetching your visit details${salutation}. ` +
       `Could you give me a moment and try again? I'll pull up your booking status right away. 🙏`
     );
   }
 
   return (
-    `I had a brief technical issue${name}. ` +
+    `I had a brief technical issue${salutation}. ` +
     `Please resend your message and I'll respond immediately — no need to start over! 🙏`
   );
 }

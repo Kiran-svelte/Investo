@@ -14,10 +14,15 @@ import {
 } from './conversationStateMachine';
 import {
   buildFastPathCustomerReply,
+  formatCustomerSalutation,
   isConversationAcknowledgmentMessage,
   resolveAdminLanguageCode,
   shouldSkipKnowledgeSearchForMessage,
 } from './customerMessageFastPath.service';
+import {
+  buildBuyerVisitStatusReply,
+  isBuyerVisitStatusQuery,
+} from './buyerVisitQuery.service';
 import {
   buildRealEstateAssistantPolicyPrompt,
   PERSONALITY_BLOCK,
@@ -168,6 +173,40 @@ export class AIService {
       action: nextAction.action,
       promptModifiers: nextAction.promptModifiers,
     });
+
+    // Deterministic visit-status replies — never LLM, never escalate (ai.md §3 & §5).
+    if (
+      isBuyerVisitStatusQuery(request.customerMessage)
+      && request.companyId
+      && request.lead?.id
+    ) {
+      const visitReply = await buildBuyerVisitStatusReply({
+        leadId: request.lead.id,
+        companyId: request.companyId,
+        companyName: request.companyName,
+      });
+      return {
+        text: visitReply,
+        detectedLanguage: resolveAdminLanguageCode(request.aiSettings),
+        newState: {
+          ...newState,
+          stage: newState.stage === 'human_escalated' ? 'confirmation' : newState.stage,
+          escalationReason: null,
+        },
+        nextAction: { action: 'continue', promptModifiers: ['Visit status listed from database.'] },
+      };
+    }
+
+    // Never keep customers stuck in human_escalated for normal messages.
+    if (newState.stage === 'human_escalated' && nextAction.action === 'escalate') {
+      newState.stage = 'rapport';
+      newState.escalationReason = null;
+      nextAction.action = 'continue';
+      nextAction.targetStage = undefined;
+      nextAction.promptModifiers = [
+        'Customer re-engaged after escalation. Continue naturally — do NOT say a specialist will assist.',
+      ];
+    }
 
     const fastPath = buildFastPathCustomerReply({
       customerMessage: request.customerMessage,
@@ -612,8 +651,35 @@ ${PERSONALITY_BLOCK}`;
    * - One clear CTA only.
    */
   private mockResponse(request: AIRequest): AIResponse {
-    const name = request.lead?.customerName ? ` ${request.lead.customerName}` : '';
+    const salutation = formatCustomerSalutation(request.lead?.customerName);
     const company = request.companyName || 'us';
+
+    // Priority 0: Visit-status query — answer from context even when LLM is down.
+    if (
+      isBuyerVisitStatusQuery(request.customerMessage)
+      && request.companyId
+      && request.lead?.id
+    ) {
+      // sync path only — caller should have handled async; use activeVisit snapshot if present.
+      if (request.activeVisit) {
+        const prop = request.activeVisit.propertyName ?? 'your property';
+        const when = request.activeVisit.scheduledAt.toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          weekday: 'long',
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true,
+        });
+        return {
+          text:
+            `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\n` +
+            `Reply *Confirm*, *Reschedule*, or *Cancel*.`,
+          detectedLanguage: 'en',
+        };
+      }
+    }
 
     // Priority 1: Visit-aware fallback — never ignore an active visit.
     if (request.activeVisit) {
@@ -637,7 +703,7 @@ ${PERSONALITY_BLOCK}`;
     if (historyLength >= 2) {
       return {
         text:
-          `Apologies${name}, I'm experiencing a brief technical issue. ` +
+          `Apologies${salutation}, I'm experiencing a brief technical issue. ` +
           `I'll respond to your query in a moment — please bear with me! 🙏`,
         detectedLanguage: 'en',
         extractedInfo: undefined,
@@ -647,7 +713,7 @@ ${PERSONALITY_BLOCK}`;
     // Priority 3: First contact only — minimal, non-robotic greeting.
     return {
       text:
-        `*Hey${name}!* 👋 Welcome to *${company}*.\n\n` +
+        `*Hey${salutation}!* 👋 Welcome to *${company}*.\n\n` +
         `What area are you exploring, and what's your budget range? ` +
         `I'll match you with the right properties right away. 🏡`,
       detectedLanguage: 'en',

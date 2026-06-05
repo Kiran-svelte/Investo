@@ -42,13 +42,11 @@ const VISIT_CANCEL_RESCHEDULE_HINT =
 const VISIT_MUTATION_SOFT_HINT =
   /\b(can'?t\s+make|won'?t\s+be\s+able|not\s+available)\b[\s\S]{0,60}\b(visit|appointment)\b|\b(visit|appointment)\b[\s\S]{0,40}\b(different|another)\s+(day|time|date)\b|\b(change|move|shift)\b[\s\S]{0,40}\b(time|slot|date)\b/i;
 
+import { isBuyerVisitStatusQuery } from './buyerVisitQuery.service';
+
 /** List/query phrasing — must never run cancel/reschedule mutation. */
 export function isVisitListQueryMessage(message: string): boolean {
-  const t = message.trim();
-  if (!t) return false;
-  return /\b(visits?\s+on|visits?\s+for|site\s+visits?\s+on|list\s+visits?|show\s+(my\s+)?visits?|get\s+(my\s+)?visits?|which\s+visits?)\b/i.test(
-    t,
-  );
+  return isBuyerVisitStatusQuery(message);
 }
 
 export function isVisitCancelOrRescheduleMessage(message: string): boolean {
