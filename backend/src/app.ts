@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import config from './config';
 import logger from './config/logger';
 import { requestLogger } from './middleware/requestLogger';
+import { sanitizeInput } from './middleware/sanitizeInput';
 import {
   userRateLimiter,
   companyRateLimiter,
@@ -25,6 +26,7 @@ import aiSettingsRoutes from './routes/ai-settings.routes';
 import conversionSettingsRoutes from './routes/conversion-settings.routes';
 import webhookRoutes from './routes/webhook.routes';
 import healthRoutes from './routes/health.routes';
+import metricsRoutes from './routes/metrics.routes';
 import readinessRoutes from './routes/readiness.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import notificationRoutes from './routes/notification.routes';
@@ -73,6 +75,7 @@ app.use(
 // Health check (no auth required)
 app.use('/api/health', healthRoutes);
 app.use('/api/readiness', readinessRoutes);
+app.use('/api/metrics', metricsRoutes);
 
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
@@ -83,6 +86,7 @@ app.use('/api/greenapi/webhook', webhookRateLimiter, whatsappAiRateLimiter, gree
 // Body parsing (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(sanitizeInput);
 
 // Global rate limiting (per user: 100 req/min)
 app.use('/api/', userRateLimiter);

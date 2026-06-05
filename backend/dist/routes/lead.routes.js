@@ -23,6 +23,7 @@ const leadAssignment_service_1 = require("../services/leadAssignment.service");
 const leadRouting_service_1 = require("../services/leadRouting.service");
 const leadMetadata_service_1 = require("../services/leadMetadata.service");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
+const leadGdpr_service_1 = require("../services/leadGdpr.service");
 const router = (0, express_1.Router)();
 function handleDeleteError(err, res) {
     if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
@@ -31,6 +32,15 @@ function handleDeleteError(err, res) {
     }
     const message = err instanceof Error ? err.message : 'Delete failed';
     logger_1.default.error('Delete failed', { error: message });
+    res.status(500).json({ error: message });
+}
+function handleGdprError(err, res, action) {
+    if (err instanceof leadGdpr_service_1.LeadGdprError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+    }
+    const message = err instanceof Error ? err.message : `${action} failed`;
+    logger_1.default.error(`Lead GDPR ${action} failed`, { error: message });
     res.status(500).json({ error: message });
 }
 function toIsoString(value) {
@@ -199,6 +209,39 @@ router.get('/', (0, rbac_1.authorize)('leads', 'read'), async (req, res) => {
     }
 });
 /**
+ * GET /api/leads/:id/data-export
+ * GDPR subject access export for a single lead (admin only).
+ */
+router.get('/:id/data-export', (0, rbac_1.hasRole)('company_admin', 'super_admin'), (0, rbac_1.authorize)('leads', 'read'), rateLimiter_1.exportRateLimiter, (0, audit_1.auditLog)('gdpr_export', 'leads'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const { id } = req.params;
+        const payload = await (0, leadGdpr_service_1.exportLeadPersonalData)(companyId, id);
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename=lead_${id}_gdpr_export.json`);
+        res.json(payload);
+    }
+    catch (err) {
+        handleGdprError(err, res, 'export');
+    }
+});
+/**
+ * DELETE /api/leads/:id/gdpr-erase
+ * Permanently erase lead personal data (admin only).
+ */
+router.delete('/:id/gdpr-erase', (0, rbac_1.hasRole)('company_admin', 'super_admin'), (0, rbac_1.authorize)('leads', 'delete'), (0, audit_1.auditLog)('gdpr_erase', 'leads'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const { id } = req.params;
+        await (0, leadGdpr_service_1.eraseLeadPersonalData)(companyId, id);
+        socket_service_1.socketService.emitToCompany(companyId, socket_service_1.SOCKET_EVENTS.LEAD_UPDATED, { deleted: id });
+        res.json({ message: 'Lead personal data erased permanently' });
+    }
+    catch (err) {
+        handleGdprError(err, res, 'erase');
+    }
+});
+/**
  * GET /api/leads/:id
  */
 router.get('/:id', (0, rbac_1.authorize)('leads', 'read'), async (req, res) => {
@@ -304,7 +347,7 @@ router.post('/', (0, rbac_1.authorize)('leads', 'create'), subscriptionEnforceme
  * PUT /api/leads/:id
  * Update lead fields (not status - use PATCH for that).
  */
-router.put('/:id', (0, rbac_1.authorize)('leads', 'update'), (0, audit_1.auditLog)('update', 'leads'), async (req, res) => {
+router.put('/:id', (0, rbac_1.authorize)('leads', 'update'), (0, validate_1.validate)(validation_1.updateLeadSchema), (0, audit_1.auditLog)('update', 'leads'), async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
         const { id } = req.params;

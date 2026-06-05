@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import type winston from 'winston';
 import logger, { createCorrelatedLogger } from '../config/logger';
 import { incrementOpsMetric, recordLatency } from '../services/opsMetrics.service';
+import { recordHttpRequestMetrics } from '../services/prometheusMetrics.service';
 
 const SLOW_REQUEST_MS = 500;
 
@@ -21,6 +22,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
     recordLatency(durationMs);
 
     const path = req.originalUrl.split('?')[0];
+    recordHttpRequestMetrics(req.method, path, res.statusCode, durationMs);
     const level = res.statusCode >= 500
       ? 'error'
       : res.statusCode >= 400 || durationMs >= SLOW_REQUEST_MS

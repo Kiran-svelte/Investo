@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { authorize } from '../middleware/rbac';
+import { authorize, hasRole } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
@@ -26,6 +26,11 @@ import {
   deleteLeadPermanently,
   ResourceDeleteError,
 } from '../services/resourceDelete.service';
+import {
+  eraseLeadPersonalData,
+  exportLeadPersonalData,
+  LeadGdprError,
+} from '../services/leadGdpr.service';
 
 const router = Router();
 
@@ -36,6 +41,16 @@ function handleDeleteError(err: unknown, res: Response): void {
   }
   const message = err instanceof Error ? err.message : 'Delete failed';
   logger.error('Delete failed', { error: message });
+  res.status(500).json({ error: message });
+}
+
+function handleGdprError(err: unknown, res: Response, action: string): void {
+  if (err instanceof LeadGdprError) {
+    res.status(err.statusCode).json({ error: err.message });
+    return;
+  }
+  const message = err instanceof Error ? err.message : `${action} failed`;
+  logger.error(`Lead GDPR ${action} failed`, { error: message });
   res.status(500).json({ error: message });
 }
 
@@ -237,6 +252,52 @@ router.get(
       res.status(500).json({ error: 'Failed to fetch leads' });
     }
   }
+);
+
+/**
+ * GET /api/leads/:id/data-export
+ * GDPR subject access export for a single lead (admin only).
+ */
+router.get(
+  '/:id/data-export',
+  hasRole('company_admin', 'super_admin'),
+  authorize('leads', 'read'),
+  exportRateLimiter,
+  auditLog('gdpr_export', 'leads'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { id } = req.params;
+      const payload = await exportLeadPersonalData(companyId, id);
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=lead_${id}_gdpr_export.json`);
+      res.json(payload);
+    } catch (err: unknown) {
+      handleGdprError(err, res, 'export');
+    }
+  },
+);
+
+/**
+ * DELETE /api/leads/:id/gdpr-erase
+ * Permanently erase lead personal data (admin only).
+ */
+router.delete(
+  '/:id/gdpr-erase',
+  hasRole('company_admin', 'super_admin'),
+  authorize('leads', 'delete'),
+  auditLog('gdpr_erase', 'leads'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { id } = req.params;
+      await eraseLeadPersonalData(companyId, id);
+      socketService.emitToCompany(companyId, SOCKET_EVENTS.LEAD_UPDATED, { deleted: id });
+      res.json({ message: 'Lead personal data erased permanently' });
+    } catch (err: unknown) {
+      handleGdprError(err, res, 'erase');
+    }
+  },
 );
 
 /**
