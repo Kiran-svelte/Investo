@@ -69,7 +69,7 @@
   "loading": {
     "workspace_title": "Investo",
     "workspace_message": "Loading workspace…",
-    "workspace_hint_cold": "First load after idle can take up to a minute while the server starts.",
+    "workspace_hint_cold": "Loading your workspace. This should only take a few seconds.",
     "session_message": "Restoring your session…",
     "route_default": "Preparing this page…",
     "route_features": "Loading your company features…",
@@ -79,7 +79,7 @@
     "button_loading": "Please wait…",
     "logout": "Signing out…",
     "still_loading_title": "Still loading?",
-    "still_loading_hint": "The server may be waking up. Try refresh, or continue setup.",
+    "still_loading_hint": "This is taking longer than expected. Try refreshing the page.",
     "refresh": "Refresh",
     "open_onboarding": "Open onboarding",
     "back_to_login": "Back to login",

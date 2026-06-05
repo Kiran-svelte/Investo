@@ -35,7 +35,7 @@ const LoginPage: React.FC = () => {
       navigate(getRoleHomePath(loggedInUser.role), { replace: true });
     } catch (err) {
       if (isTransientAuthError(err)) {
-        setError('The server is waking up. This can take up to a minute on first visit — please try again.');
+        setError('Unable to connect to the server. Please check your connection and try again.');
         return;
       }
       const axiosError = err as AxiosError<{ message?: string }>;

@@ -83,7 +83,7 @@ export const LoadingScreen: React.FC<{
             <p className="font-medium">{t('loading.still_loading_title', { defaultValue: 'Still loading?' })}</p>
             <p className="mt-1 text-xs text-amber-800">
               {t('loading.still_loading_hint', {
-                defaultValue: 'The server may be waking up. Try refresh, or continue setup.',
+                defaultValue: 'This is taking longer than expected. Try refreshing the page.',
               })}
             </p>
             <div className="mt-3 flex flex-wrap justify-center gap-2">
