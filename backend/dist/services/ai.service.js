@@ -52,6 +52,11 @@ class AIService {
             companyName: request.companyName,
             customerName: request.lead?.customerName,
             aiSettings: request.aiSettings,
+            conversationHistory: request.conversationHistory,
+            propertyNames: request.properties?.map((p) => p.name).filter(Boolean),
+            // Visit-aware greeting: if the client has an active visit, the fast path
+            // returns visit summary instead of the first-time-buyer welcome message.
+            upcomingVisit: request.activeVisit ?? null,
         });
         if (fastPath) {
             return {
@@ -61,7 +66,7 @@ class AIService {
                 nextAction,
             };
         }
-        const knowledgeChunks = request.companyId && !(0, customerMessageFastPath_service_1.shouldSkipKnowledgeSearchForMessage)(request.customerMessage)
+        const knowledgeChunks = request.companyId && !(0, customerMessageFastPath_service_1.shouldSkipKnowledgeSearchForMessage)(request.customerMessage, (request.conversationHistory ?? []).length)
             ? await (0, propertyKnowledge_service_1.searchPropertyKnowledge)(request.companyId, request.customerMessage, 8)
             : [];
         const knowledgeContext = (0, propertyKnowledge_service_1.formatKnowledgeContextForPrompt)(knowledgeChunks);
@@ -85,7 +90,7 @@ class AIService {
             }
         }
         // LANGUAGE BRAIN: Generate response with policy-guided prompt
-        const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction, knowledgeContext, clientMemoryContext);
+        const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction, knowledgeContext, clientMemoryContext, request.liveLeadContextBlock);
         const messages = this.buildMessages(request);
         const providers = this.getProviderOrder();
         let lastError = null;
@@ -95,11 +100,20 @@ class AIService {
             }
             try {
                 const response = await this.callProvider(provider, systemPrompt, messages);
-                // Update state with extracted info from LLM response
+                // Update state with extracted info from LLM response.
+                // Do NOT call processMessage() again here — it would double-increment messageCount,
+                // causing stage advancement thresholds to fire at half the expected turn count.
+                // Instead, directly apply the extracted lead preferences to the already-advanced state.
                 if (response.extractedInfo) {
-                    const { newState: finalState } = conversationStateMachine_1.conversationStateManager.processMessage(newState, '', // Empty message since we just extracted info
-                    response.extractedInfo);
-                    response.newState = finalState;
+                    const info = response.extractedInfo;
+                    const updatedCommitments = { ...newState.commitments };
+                    if (info.budget_min || info.budget_max)
+                        updatedCommitments.budgetConfirmed = true;
+                    if (info.location_preference)
+                        updatedCommitments.locationConfirmed = true;
+                    if (info.property_type)
+                        updatedCommitments.propertyTypeConfirmed = true;
+                    response.newState = { ...newState, commitments: updatedCommitments };
                 }
                 else {
                     response.newState = newState;
@@ -140,7 +154,7 @@ class AIService {
         const disclaimer = (0, legalDisclaimer_constants_1.resolveCustomerDisclaimer)(request.aiSettings);
         return `\n## DISCLAIMER (include once naturally at end)\n${disclaimer}`;
     }
-    buildGoalDirectedPrompt(request, state, nextAction, knowledgeContext = '', clientMemoryContext = '') {
+    buildGoalDirectedPrompt(request, state, nextAction, knowledgeContext = '', clientMemoryContext = '', liveLeadContextBlock = '') {
         const { aiSettings, companyName, properties, lead } = request;
         const stageConfig = (0, conversationStateMachine_1.getStageConfig)(state.stage);
         const tone = aiSettings.responseTone || 'friendly';
@@ -161,7 +175,7 @@ class AIService {
             state.commitments.visitSlotDiscussed ? '✅ Visit Discussed' : '❌ Visit Discussed',
         ].join(' | ');
         return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
-
+${liveLeadContextBlock ? `\n${liveLeadContextBlock}\n` : ''}
 ## YOUR MISSION
 You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.
 
@@ -193,7 +207,8 @@ ${(0, realEstateAssistantPrompt_constants_1.buildRealEstateAssistantPolicyPrompt
 7. ONE clear call-to-action per message.
 8. Keep responses under 200 words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
-9. ${state.stage === 'rapport' ? 'Be warm and curious' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
+9. ${state.stage === 'rapport' ? 'Ask ONE warm open question about what they are looking for (area, budget, property type). Do NOT list your services or say "Here is how I can help". Open with a personal question like "What area are you exploring?" or "Looking for something to move in soon, or a long-term investment?"' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
+10. NEVER list your capabilities. NEVER say "Here's how I can help:", "I can do:", or any numbered service menu. Respond to what they actually said.
 ${this.disclaimerPromptLine(request)}
 
 ## TONE: ${tone.toUpperCase()}
@@ -228,6 +243,12 @@ ${nextAction.action === 'escalate' ? this.operatorContactPromptBlock(aiSettings)
 
 ## RESPONSE FORMAT
 Respond with the WhatsApp message to send. Use *bold* for emphasis.
+
+⚠️ NEVER emit a numbered capability menu ("Here's how I can help: 1. Answer questions 2. Compare...")
+⚠️ NEVER start with "I'm here to assist you with" or "Here's what I can do" — that is robotic.
+✅ Instead: ask ONE warm question, or make ONE specific property observation relevant to their message.
+✅ Use emojis sparingly (1-2 per message) to match WhatsApp's natural tone: 🏡 💬 ✅ 🗓️
+
 End your response with:
 ###EXTRACT###
 {"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
@@ -330,13 +351,14 @@ ${this.disclaimerPromptLine(request)}
 - Never be pushy or aggressive
 - Always empathize with concerns before addressing them
 
-## CONVERSATION STRATEGY
-1. GREET warmly and ask how you can help
-2. DISCOVER needs: budget, preferred location, property type (apartment/villa/plot), bedrooms, timeline
-3. MATCH: Search the property database and present 2-3 best options
-4. PERSUADE: Highlight benefits, value, location advantages
-5. CLOSE: Get them to agree to a FREE, NO-COMMITMENT site visit
-6. Always end with a call-to-action
+## CONVERSATION APPROACH
+- Start with ONE warm, open question about what they're looking for (area, budget, type).
+- Discover needs naturally through conversation: budget, location, property type, timeline.
+- Match requirements to 2-3 best listings from AVAILABLE PROPERTIES.
+- Highlight value, location advantages, and unique benefits — no invented claims.
+- Guide them toward booking a *free, no-commitment site visit*.
+- Always end with ONE clear call-to-action.
+- NEVER open with a numbered list of what you can do. That reads like a robot.
 
 ## OBJECTION HANDLING
 - "Too expensive" → Show similar in lower range, explain long-term value, EMI options
@@ -478,36 +500,49 @@ Only include fields you are confident about. Use null for unknown fields.`;
         return new URL('chat/completions', normalizedBaseUrl).toString();
     }
     /**
-     * Smart mock response for testing without API keys.
-     * Generates contextual responses based on the customer message.
+     * Fallback response when ALL configured LLM providers fail (network, rate-limit, API key).
+     * This path must NEVER produce the generic onboarding greeting mid-conversation — that was
+     * the root cause of the "Hello! Welcome to Palm. How can I help you find your dream property?"
+     * message appearing after a reschedule action.
+     *
+     * Rules:
+     * - If customer has an active visit → acknowledge it; do not reset.
+     * - If conversation has prior history → continue naturally; do not greet again.
+     * - Never list capabilities. Never use numbered menus.
+     * - One clear CTA only.
      */
     mockResponse(request) {
-        const msg = request.customerMessage.toLowerCase();
-        const name = request.lead.customerName || 'there';
-        const properties = request.properties.filter((p) => p.status === 'available').slice(0, 3);
-        const company = request.companyName;
-        let text;
-        const isGreeting = /\b(hello|hey|namaste)\b/.test(msg) || /^hi\b/.test(msg) || msg === 'hi';
-        if (isGreeting && !msg.includes('budget') && !msg.includes('visit') && !msg.includes('schedule') && !msg.includes('price')) {
-            text = `*Namaste ${name}!* 🙏\n\nWelcome to ${company}! I'm your AI real estate assistant.\n\nI can help you find your dream property. Could you tell me:\n• Your *budget range*?\n• Preferred *location*?\n• Property type (apartment/villa/plot)?\n\nLet's find the perfect match for you! 🏡`;
+        const name = request.lead?.customerName ? ` ${request.lead.customerName}` : '';
+        const company = request.companyName || 'us';
+        // Priority 1: Visit-aware fallback — never ignore an active visit.
+        if (request.activeVisit) {
+            const { propertyName, status } = request.activeVisit;
+            const prop = propertyName ? `*${propertyName}*` : 'your property';
+            const statusLine = status === 'confirmed'
+                ? `Your visit to ${prop} is confirmed ✅`
+                : `You have an upcoming visit to ${prop} 🗓️`;
+            return {
+                text: `${statusLine}\n\nI'm having a brief connection issue but I'll be right back.\n\n` +
+                    `Reply *Confirm*, *Reschedule*, or *Call Agent* and I'll take care of it. 👍`,
+                detectedLanguage: 'en',
+                extractedInfo: undefined,
+            };
         }
-        else if (msg.includes('budget') || msg.includes('price') || msg.includes('lakh') || msg.includes('crore') || msg.includes('cost')) {
-            const propList = properties.map((p) => `🏠 *${p.name}* - ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)}`).join('\n');
-            text = `Great! Based on your interest, here are some options:\n\n${propList || 'We are updating our listings. Let me note your budget and get back to you!'}\n\nWould you like to *schedule a free site visit* for any of these? 📅`;
+        // Priority 2: Returning customer (has conversation history) — do not greet again.
+        const historyLength = (request.conversationHistory ?? []).length;
+        if (historyLength >= 2) {
+            return {
+                text: `Apologies${name}, I'm experiencing a brief technical issue. ` +
+                    `I'll respond to your query in a moment — please bear with me! 🙏`,
+                detectedLanguage: 'en',
+                extractedInfo: undefined,
+            };
         }
-        else if (msg.includes('visit') || msg.includes('see') || msg.includes('schedule') || msg.includes('appointment')) {
-            text = `Wonderful! 🎉 I'd love to arrange a *FREE site visit* for you.\n\nPlease share:\n• Your *preferred date* (weekday/weekend)\n• *Time slot* (morning/afternoon/evening)\n\nOur team will confirm and send you the location details. No commitment required! 😊`;
-        }
-        else if (msg.includes('location') || msg.includes('area') || msg.includes('where')) {
-            const locations = request.aiSettings?.operatingLocations || ['Major cities'];
-            text = `We have premium properties across: *${Array.isArray(locations) ? locations.join(', ') : locations}*\n\nWhich area interests you most? I can show you the best options there! 📍`;
-        }
-        else {
-            const propList = properties.slice(0, 2).map((p) => `🏠 *${p.name}* - ${p.locationArea} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)}`).join('\n');
-            text = `Thank you for your message, ${name}! 😊\n\nHere are some featured properties:\n${propList || 'Our listings are being updated.'}\n\nTell me your preferences (budget, location, type) and I'll find the *perfect match* for you! 🏡\n\nOr would you like to schedule a *free site visit*?`;
-        }
+        // Priority 3: First contact only — minimal, non-robotic greeting.
         return {
-            text,
+            text: `*Hey${name}!* 👋 Welcome to *${company}*.\n\n` +
+                `What area are you exploring, and what's your budget range? ` +
+                `I'll match you with the right properties right away. 🏡`,
             detectedLanguage: 'en',
             extractedInfo: undefined,
         };

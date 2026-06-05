@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -6,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createVisitTools = createVisitTools;
 const zod_1 = require("zod");
 const prisma_1 = __importDefault(require("../../../config/prisma"));
+const logger_1 = __importDefault(require("../../../config/logger"));
 const agent_tools_constants_1 = require("../../../constants/agent-tools.constants");
 const confirmation_service_1 = require("../confirmation.service");
 const format_helpers_1 = require("./format-helpers");
@@ -147,12 +181,41 @@ function createVisitTools(context) {
             description: 'Reschedule a visit to a new date/time.',
             schema: zod_1.z.object({ visitId: zod_1.z.string().uuid(), newScheduledAt: zod_1.z.string() }),
             func: async ({ visitId, newScheduledAt }) => {
-                const visit = await prisma_1.default.visit.findFirst({ where: { id: visitId, ...visitScope(context) }, select: { id: true, status: true } });
+                const visit = await prisma_1.default.visit.findFirst({
+                    where: { id: visitId, ...visitScope(context) },
+                    // Fetch scheduledAt (old time) so the agent notification shows before/after delta.
+                    select: { id: true, status: true, scheduledAt: true, leadId: true, companyId: true },
+                });
                 if (!visit)
                     return 'Visit not found or access denied.';
                 if (visit.status === 'completed' || visit.status === 'cancelled')
                     return `Cannot reschedule a ${visit.status} visit.`;
-                const updated = await prisma_1.default.visit.update({ where: { id: visitId }, data: { scheduledAt: new Date(newScheduledAt), reminderSent: false }, include });
+                const oldScheduledAt = visit.scheduledAt;
+                const updated = await prisma_1.default.visit.update({
+                    where: { id: visitId },
+                    data: { scheduledAt: new Date(newScheduledAt), reminderSent: false },
+                    include,
+                });
+                // Notify the assigned agent immediately — dashboard DB record + WhatsApp message.
+                // Fire-and-forget: a notification failure must never fail the reschedule itself.
+                void (async () => {
+                    try {
+                        const { notificationEngine } = await Promise.resolve().then(() => __importStar(require('../../notification.engine')));
+                        const company = await prisma_1.default.company.findUnique({ where: { id: visit.companyId } });
+                        const lead = visit.leadId
+                            ? await prisma_1.default.lead.findUnique({ where: { id: visit.leadId }, select: { customerName: true, phone: true } })
+                            : null;
+                        if (company && lead) {
+                            await notificationEngine.onVisitRescheduled(updated, oldScheduledAt, new Date(newScheduledAt), lead, company);
+                        }
+                    }
+                    catch (err) {
+                        logger_1.default.warn('rescheduleVisit: agent notification failed', {
+                            visitId,
+                            error: err instanceof Error ? err.message : String(err),
+                        });
+                    }
+                })();
                 return `Visit rescheduled.\n\n${formatVisit(updated)}`;
             },
         }),

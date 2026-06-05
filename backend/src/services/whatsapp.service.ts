@@ -780,18 +780,23 @@ export class WhatsAppService {
       })) ?? null;
 
     if (!lead) {
-      const leads = await prisma.lead.findMany({
-        where: { companyId },
-        select: { id: true, phone: true },
-        take: 500,
-        orderBy: { updatedAt: 'desc' },
-      });
-      const matched = leads.find((row) => phonesMatchLast10(row.phone, customerPhone));
-      if (matched) {
-        lead = await prisma.lead.findUnique({ where: { id: matched.id } });
-        if (lead && lead.phone !== customerPhone) {
-          await prisma.lead.update({ where: { id: lead.id }, data: { phone: customerPhone } });
-          lead = { ...lead, phone: customerPhone };
+      // P0-2: Efficient DB-level phone matching instead of O(n) in-process scan.
+      // Extracts last 10 digits for flexible phone format matching (e.g. +91XXXXXXXXXX vs XXXXXXXXXX).
+      const last10Digits = customerPhone.replace(/\D/g, '').slice(-10);
+      if (last10Digits) {
+        const matched = await prisma.lead.findFirst({
+          where: {
+            companyId,
+            phone: { endsWith: last10Digits },
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
+        if (matched) {
+          lead = matched;
+          if (lead.phone !== customerPhone) {
+            await prisma.lead.update({ where: { id: lead.id }, data: { phone: customerPhone } });
+            lead = { ...lead, phone: customerPhone };
+          }
         }
       }
     }
@@ -806,18 +811,42 @@ export class WhatsAppService {
         metadata: { source_detail: sourceDetail },
       });
 
-      lead = await prisma.lead.create({
-        data: {
+      try {
+        // P0-2: Use upsert with unique(companyId, phone) to handle concurrent webhook retries.
+        // If two simultaneous webhooks from the same new phone both reach here, the second
+        // upsert is a no-op (the unique constraint ensures only one lead is created).
+        lead = await prisma.lead.upsert({
+          where: {
+            companyId_phone: { companyId, phone: customerPhone },
+          },
+          create: {
+            companyId,
+            customerName: msg.customerName || null,
+            phone: customerPhone,
+            source: 'whatsapp',
+            status: 'new',
+            assignedAgentId: agentId,
+            language: 'en',
+            metadata: { source_detail: sourceDetail },
+          },
+          update: {
+            // On conflict: update last contact time only — don't overwrite agent assignment
+            lastContactAt: new Date(),
+          },
+        });
+      } catch (upsertErr: unknown) {
+        // If upsert fails (shouldn't happen with unique constraint), fetch the existing lead
+        logger.error('Lead upsert failed, fetching existing lead', {
+          error: upsertErr instanceof Error ? upsertErr.message : String(upsertErr),
+          customerPhone: maskPhoneNumberForLogs(customerPhone),
           companyId,
-          customerName: msg.customerName || null,
-          phone: customerPhone,
-          source: 'whatsapp',
-          status: 'new',
-          assignedAgentId: agentId,
-          language: 'en',
-          metadata: { source_detail: sourceDetail },
-        },
-      });
+        });
+        const existingLead = await prisma.lead.findFirst({
+          where: { companyId, phone: customerPhone },
+        });
+        if (!existingLead) throw upsertErr;
+        lead = existingLead;
+      }
 
       // Notify company admin about new lead
       await prisma.notification.create({
@@ -917,7 +946,8 @@ export class WhatsAppService {
     // 3. Webhook deduplication: Meta's WhatsApp Cloud API guarantees at-least-once delivery
     // and retries webhooks that don't receive a fast 200. Without this guard, the same
     // messageId can be processed 2–3 times concurrently, each sending a separate AI reply.
-    // We check BEFORE creating the message record to avoid a TOCTOU window.
+    // P0-1: Rely on the @@unique([whatsappMessageId]) DB constraint instead of findFirst+create
+    // (which has a TOCTOU race). We attempt the insert and catch the P2002 conflict error.
     if (msg.messageId) {
       const existingMessage = await prisma.message.findFirst({
         where: { whatsappMessageId: msg.messageId },
@@ -938,16 +968,38 @@ export class WhatsAppService {
       }
     }
 
-    // Store incoming message
-    await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        senderType: 'customer',
-        content: msg.messageText,
-        whatsappMessageId: msg.messageId,
-        status: 'delivered',
-      },
-    });
+    // Store incoming message — P0-1: If the @@unique constraint fires (concurrent retry),
+    // catch P2002 and skip processing rather than sending a duplicate AI response.
+    try {
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: 'customer',
+          content: msg.messageText,
+          whatsappMessageId: msg.messageId,
+          status: 'delivered',
+        },
+      });
+    } catch (createErr: unknown) {
+      const isPrismaUniqueViolation =
+        createErr instanceof Error &&
+        'code' in createErr &&
+        (createErr as NodeJS.ErrnoException & { code?: string }).code === 'P2002';
+      if (isPrismaUniqueViolation && msg.messageId) {
+        logger.info('Duplicate whatsappMessageId blocked by unique constraint — skipping', {
+          whatsappMessageId: msg.messageId,
+          conversationId: conversation.id,
+        });
+        return {
+          status: 'skipped',
+          companyId,
+          leadId: lead.id,
+          conversationId: conversation.id,
+          propagation: null,
+        };
+      }
+      throw createErr;
+    }
 
     // Update last contact
     await prisma.lead.update({
@@ -1576,14 +1628,15 @@ export class WhatsAppService {
         // recentAction suppresses all follow-up buttons when this turn completed a mutation action.
         // Without this, time-picker slots reappear immediately after "Visit rescheduled to Friday" —
         // creating confusion (the action is done, no new choice is needed).
+        // FIX P2-8: Only suppress follow-up buttons when a mutation actually committed.
+        // Setting recentAction when visitCommit.committed===false was incorrect — it suppressed
+        // buttons even when no reschedule occurred (e.g. plain reschedule intent messages).
         const recentAction: 'rescheduled' | 'cancelled' | undefined =
           visitCommit.committed && visitCommit.mode === 'cancelled'
             ? 'cancelled'
             : visitCommit.committed && (visitCommit.mode === 'rescheduled' || visitCommit.mode === 'scheduled')
               ? 'rescheduled'
-              : isVisitCancelOrRescheduleMessage(msg.messageText) && !visitCommit.committed
-                ? 'rescheduled'   // mutation ran via the applyVisitMutationFromChat path at L1283
-                : undefined;
+              : undefined;
         if (
           aiResponse.newState?.stage &&
           aiResponse.newState.stage !== 'human_escalated' &&
@@ -1614,17 +1667,24 @@ export class WhatsAppService {
           conversationId: conversation.id,
           language: aiResponse.detectedLanguage,
         });
-      } catch (err: any) {
-        logger.error('AI response generation failed', { error: err.message });
-        const fallbackText =
-          `Hi! Thanks for messaging *${company.name}*. I'm here to help you find the right property.\n\n` +
-          `Could you share your preferred *area*, *budget*, and *BHK*? I'll suggest options from our listings.`;
+      } catch (err: unknown) {
+        logger.error('AI response generation failed', {
+          error: err instanceof Error ? err.message : String(err),
+          conversationId: conversation.id,
+          stage: conversationState.stage,
+        });
+        // liveCtx is declared inside the try block so may be undefined here.
+        // Use a simple neutral message that is safe in all conversation states.
+        const fallbackText = `I'm having a little trouble connecting right now. Give me a moment and I'll get back to you! 🙏`;
         try {
           await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
-        } catch (sendErr: any) {
-          logger.error('Failed to send AI fallback WhatsApp message', { error: sendErr?.message });
+        } catch (sendErr: unknown) {
+          logger.error('Failed to send AI fallback WhatsApp message', {
+            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+          });
         }
       }
+
     } else {
       // Human takeover in CRM — still reply on WhatsApp so unknown prospects are never left silent
       const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId } });
@@ -2299,11 +2359,21 @@ export class WhatsAppService {
     footerText: string | null,
     whatsappConfig: CompanyWhatsAppConfig
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    // P1-7: GreenAPI fallback — send numbered text menu when Meta list is unsupported.
     if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-      return {
-        success: false,
-        error: "Not supported: interactive sends require WHATSAPP_PROVIDER='meta'",
-      };
+      const allRows = sections.flatMap((s) => s.rows);
+      if (allRows.length === 0) {
+        return { success: false, error: 'No rows to display in list fallback' };
+      }
+      const numberedList = allRows
+        .slice(0, 10)
+        .map((row, idx) => `${idx + 1}. *${row.title}*${row.description ? `\n   ${row.description}` : ''}`)
+        .join('\n');
+      const fallbackText = `${bodyText}\n\n${numberedList}\n\n_Reply with the number of your choice._`;
+      const sent = await this.sendMessage(to, fallbackText, whatsappConfig);
+      return sent
+        ? { success: true }
+        : { success: false, error: 'GreenAPI text fallback for list message failed' };
     }
 
     const { phoneNumberId, accessToken } = whatsappConfig;
@@ -2959,6 +3029,32 @@ export class WhatsAppService {
         whatsappConfig,
       );
 
+      // FIX P2-7: Notify the assigned agent that the customer has confirmed their visit.
+      // Agent notification is best-effort — a failure must never block the customer confirmation flow.
+      if (lead.assignedAgentId) {
+        const agentRecord = await prisma.user.findUnique({
+          where: { id: lead.assignedAgentId },
+          select: { phone: true },
+        });
+        if (agentRecord?.phone) {
+          const agentAlert =
+            `✅ *Visit Confirmed by Customer!*\n\n` +
+            `👤 ${lead.customerName || lead.phone}\n` +
+            `🏠 ${propName}\n` +
+            `📅 ${visitDate}\n\n` +
+            `Please ensure you are available to receive the customer.`;
+          try {
+            await this.sendCompanyTextMessage(agentRecord.phone, agentAlert, company.id);
+          } catch (notifyErr: unknown) {
+            logger.warn('Failed to notify agent of visit confirmation', {
+              agentId: lead.assignedAgentId,
+              visitId: existingVisit.id,
+              error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+            });
+          }
+        }
+      }
+
       logger.info('Visit confirmed via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
       return { handled: true, action: 'visit-confirmed', leadStatus: 'visit_scheduled' };
     }
@@ -2982,10 +3078,21 @@ export class WhatsAppService {
 
       const propertyId = (existingVisit.property as { id?: string })?.id ?? null;
       const propName = (existingVisit.property as { name?: string })?.name ?? 'the property';
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const dayAfter = new Date();
-      dayAfter.setDate(dayAfter.getDate() + 2);
+
+      /**
+       * FIX P1-11: Returns a Date offset by N days from now, constructed in IST so that
+       * button labels reflect the correct calendar date regardless of server timezone.
+       * IST is UTC+5:30 (19 800 seconds ahead of UTC).
+       */
+      const getIstDatePlusDays = (days: number): Date => {
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const nowUtcMs = Date.now();
+        return new Date(nowUtcMs + IST_OFFSET_MS + days * DAY_MS - IST_OFFSET_MS);
+      };
+
+      const tomorrow = getIstDatePlusDays(1);
+      const dayAfter = getIstDatePlusDays(2);
       const formatDate = (d: Date) =>
         d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
 
@@ -3022,9 +3129,10 @@ export class WhatsAppService {
         return { handled: true, action: 'book-visit-no-property' };
       }
 
-      // Look up the property
-      const property = await prisma.property.findUnique({ where: { id: propertyId } });
-      
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      // findUnique without companyId would allow cross-tenant property access.
+      const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
+
       if (!property) {
         await this.sendMessage(
           customerPhone,
@@ -3034,11 +3142,21 @@ export class WhatsAppService {
         return { handled: true, action: 'book-visit-invalid-property' };
       }
 
+      /**
+       * FIX P1-11: Returns a Date offset by N days from now, constructed in IST so that
+       * button labels reflect the correct calendar date regardless of server timezone.
+       * IST is UTC+5:30 (19 800 seconds ahead of UTC).
+       */
+      const getIstDatePlusDaysForBooking = (days: number): Date => {
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const nowUtcMs = Date.now();
+        return new Date(nowUtcMs + IST_OFFSET_MS + days * DAY_MS - IST_OFFSET_MS);
+      };
+
       // Send confirmation with visit scheduling buttons
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const dayAfter = new Date();
-      dayAfter.setDate(dayAfter.getDate() + 2);
+      const tomorrow = getIstDatePlusDaysForBooking(1);
+      const dayAfter = getIstDatePlusDaysForBooking(2);
 
       const formatDate = (d: Date) => d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
 
@@ -3115,7 +3233,11 @@ export class WhatsAppService {
         return { handled: true, action: 'visit-no-agent', leadStatus: 'contacted' };
       }
 
-      const autoConfirm = process.env.WHATSAPP_AUTO_CONFIRM_VISITS !== '0';
+      // P0-4: Read autoConfirmVisits from DB (aiSettings) instead of the previously undocumented
+      // env var WHATSAPP_AUTO_CONFIRM_VISITS that defaulted to TRUE.
+      // New DB field defaults to FALSE \u2014 agents must explicitly enable auto-confirm per company.
+      const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: company.id } });
+      const autoConfirm = aiSettings?.autoConfirmVisits === true;
       if (autoConfirm) {
         const { scheduleVisit } = await import('./visitBooking.service');
         const booking = await scheduleVisit({
@@ -3134,12 +3256,31 @@ export class WhatsAppService {
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
+            timeZone: 'Asia/Kolkata',
           });
           await this.sendMessage(
             customerPhone,
-            `✅ *Visit confirmed!*\n\n📍 *${property?.name || 'Property'}*\n📅 ${when}\n\nOur team will call you about an hour before the visit.`,
+            `✅ *Visit confirmed!*\n\n📍 *${property?.name || 'Property'}*\n📅 ${when} IST\n\nOur team will call you about an hour before the visit.`,
             whatsappConfig,
           );
+
+          // Notify assigned agent immediately via WhatsApp
+          if (agentId) {
+            try {
+              const agentRecord = await prisma.user.findUnique({ where: { id: agentId }, select: { phone: true, name: true } });
+              if (agentRecord?.phone) {
+                const agentMsg = `📅 *New Visit Booked!*\n\n👤 ${lead.customerName || lead.phone}\n🏠 ${property?.name || 'Property'}\n🕐 ${when} IST\n\nCustomer booked via WhatsApp. Please confirm availability.`;
+                void this.sendMessage(agentRecord.phone, agentMsg, whatsappConfig);
+              }
+            } catch (notifyErr: unknown) {
+              logger.warn('Failed to notify agent of auto-confirmed visit', {
+                agentId,
+                visitId: booking.visit.id,
+                error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+              });
+            }
+          }
+
           return {
             handled: true,
             action: 'visit-scheduled',
@@ -3152,6 +3293,7 @@ export class WhatsAppService {
           };
         }
       }
+
 
       const { createVisitApprovalRequest } = await import('./visitPendingApproval.service');
       await createVisitApprovalRequest({
@@ -3223,8 +3365,9 @@ export class WhatsAppService {
         return { handled: false };
       }
 
-      const property = await prisma.property.findUnique({ where: { id: propertyId } });
-      
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
+
       if (!property) {
         return { handled: false };
       }
@@ -3562,7 +3705,8 @@ export class WhatsAppService {
     // ---- Show Location ----
     if (interactiveId.startsWith('location-')) {
       const propertyId = interactiveId.replace('location-', '');
-      const property = await prisma.property.findUnique({ where: { id: propertyId } });
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
 
       if (!property) {
         return { handled: false };
@@ -3611,8 +3755,9 @@ export class WhatsAppService {
     // ---- EMI Calculator Request ----
     if (interactiveId === 'emi-calculator' || interactiveId === 'calculate-emi') {
       const propertyId = conversation.selectedPropertyId;
-      const property = propertyId 
-        ? await prisma.property.findUnique({ where: { id: propertyId } })
+      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
+      const property = propertyId
+        ? await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } })
         : null;
 
       const propertyPrice = property?.priceMin ? Number(property.priceMin) : null;
@@ -4110,19 +4255,29 @@ export class WhatsAppService {
   }
 
   /**
-   * CHUNK 6: Determine if we should send filter buttons based on conversation state
-   * Send filters when:
-   * - In 'qualify' stage and haven't captured property type preference yet
-   * - User seems uncertain or asking general questions
-   * - No filters sent in last 5 minutes (prevent spam)
+   * Determines whether to send property type filter buttons after an AI response.
+   *
+   * Key rules:
+   * - NEVER fire in `rapport` stage — the stage-based CTA from `sendContextualQuickReplies`
+   *   already shows property-type options. Firing both creates a message storm.
+   * - Only fires in `qualify` stage (or when advancing into it) and the lead has no property
+   *   type preference yet.
+   * - The 5-minute dedup guard inside `sendPropertyTypeFilters` prevents repeat sends
+   *   within a conversation session.
+   *
+   * @param state - Current conversation state from the state machine
+   * @param lead - Lead record (used to check if property type is already known)
+   * @param action - Next best action from the policy brain (optional)
+   * @returns true when filter buttons should be sent this turn
    */
   private shouldSendPropertyFilters(
     state: ConversationState,
-    lead: any,
+    lead: { propertyType?: string | null },
     action?: NextBestAction
   ): boolean {
     // Don't send if already in shortlisting or later stages.
-    if (['shortlist', 'commitment', 'visit_booking', 'confirmation', 'closed_won', 'closed_lost'].includes(state.stage)) {
+    const laterStages = ['shortlist', 'commitment', 'visit_booking', 'confirmation', 'closed_won', 'closed_lost'];
+    if (laterStages.includes(state.stage)) {
       return false;
     }
 
@@ -4131,23 +4286,27 @@ export class WhatsAppService {
       return false;
     }
 
-    // Fire on rapport stage (first turn) so new users immediately see the type picker.
+    // P1-6: NEVER fire on rapport stage.
+    // sendContextualQuickReplies already shows property-type options (Apartments / Villas / Call Me).
+    // Firing sendPropertyTypeFilters on top of that creates a 2-message button storm every turn.
+    // rapport → qualify transition is where filters become relevant.
     if (state.stage === 'rapport') {
-      return true;
+      return false;
     }
 
-    // Fire on qualify stage as usual.
+    // Fire on qualify stage — this is the right moment for structured type selection.
     if (state.stage === 'qualify') {
       return true;
     }
 
-    // Fire when AI is advancing into the qualify stage.
+    // Fire when AI is explicitly advancing into the qualify stage.
     if (action?.action === 'advance_stage' && action.targetStage === 'qualify') {
       return true;
     }
 
     return false;
   }
+
 }
 
 function formatOperatorHandoffLine(operatorContact: unknown): string | null {

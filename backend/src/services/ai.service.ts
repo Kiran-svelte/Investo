@@ -18,7 +18,10 @@ import {
   resolveAdminLanguageCode,
   shouldSkipKnowledgeSearchForMessage,
 } from './customerMessageFastPath.service';
-import { buildRealEstateAssistantPolicyPrompt } from '../constants/realEstateAssistantPrompt.constants';
+import {
+  buildRealEstateAssistantPolicyPrompt,
+  PERSONALITY_BLOCK,
+} from '../constants/realEstateAssistantPrompt.constants';
 import { fetchOpenAi, OPENAI_CHAT_URL } from './openaiStatus.service';
 import {
   formatKnowledgeContextForPrompt,
@@ -27,19 +30,70 @@ import {
 import {
   formatClientMemoryForPrompt,
   searchClientMemory,
-  syncLeadClientMemory,
 } from './clientMemory.service';
 import { stripInternalCustomerMeta } from './aiTransparency.service';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
 
+/** Minimum shape of a Message record needed by the AI service. */
+interface AiHistoryMessage {
+  senderType: string;
+  content: string;
+  createdAt?: Date | string;
+}
+
+/** Minimum shape of an AiSetting record the AI service reads. */
+interface AiSettingsInput {
+  responseTone?: string;
+  persuasionLevel?: number;
+  defaultLanguage?: string;
+  businessDescription?: string;
+  operatorContact?: unknown;
+  agentName?: string;
+  autoDetectLanguage?: boolean;
+  budgetStretchPct?: number;
+  offerFractional?: boolean;
+  offerRentToOwn?: boolean;
+  specialOffers?: unknown;
+  conversionRules?: unknown;
+  faqKnowledge?: unknown;
+}
+
+/** Minimum shape of a Lead record the AI service reads. */
+interface AiLeadInput {
+  id?: string;
+  customerName?: string | null;
+  phone?: string;
+  budgetMin?: { toNumber: () => number } | number | null;
+  budgetMax?: { toNumber: () => number } | number | null;
+  locationPreference?: string | null;
+  propertyType?: string | null;
+  language?: string | null;
+  status?: string;
+}
+
+/** Minimum shape of a Property record the AI service reads. */
+interface AiPropertyInput {
+  id?: string;
+  name?: string;
+  status?: string;
+  locationArea?: string;
+  locationCity?: string;
+  priceMin?: { toNumber: () => number } | number;
+  priceMax?: { toNumber: () => number } | number;
+  bedrooms?: number;
+  propertyType?: string;
+  amenities?: string | string[] | unknown;
+  brochureUrl?: string | null;
+}
+
 interface AIRequest {
   companyId?: string;
   customerMessage: string;
-  conversationHistory: any[];
-  lead: any;
-  properties: any[];
-  aiSettings: any;
+  conversationHistory: AiHistoryMessage[];
+  lead: AiLeadInput;
+  properties: AiPropertyInput[];
+  aiSettings: AiSettingsInput;
   companyName: string;
   conversationState?: ConversationState;
   /** Grounded never-say-no block from conversionEngine.service */
@@ -147,7 +201,9 @@ export class AIService {
     let clientMemoryContext = '';
     if (request.companyId && request.lead?.id) {
       try {
-        await syncLeadClientMemory(request.lead.id);
+        // syncLeadClientMemory is already fired-and-forgotten in whatsapp.service.ts:958
+        // before generateResponse() is called. Calling it again here added ~200ms of
+        // unnecessary latency on every hot-path turn. Removed per P1-13.
         const clientChunks = await searchClientMemory({
           companyId: request.companyId,
           query: request.customerMessage,
@@ -252,13 +308,19 @@ export class AIService {
     const stageConfig = getStageConfig(state.stage);
     const tone = aiSettings.responseTone || 'friendly';
     
-    // Build property context
+    // Build property context — filter to available only, limit to 10 to avoid huge prompts
     const propertyList = properties
-      .filter((p: any) => p.status === 'available')
+      .filter((p) => p.status === 'available')
       .slice(0, 10)
-      .map((p: any) => {
-        const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
+      .map((p) => {
+        let amenityList: string[] = [];
+        if (Array.isArray(p.amenities)) {
+          amenityList = p.amenities as string[];
+        } else if (typeof p.amenities === 'string' && p.amenities) {
+          try { amenityList = JSON.parse(p.amenities) as string[]; } catch { amenityList = []; }
+        }
+        const amenityStr = amenityList.slice(0, 5).join(', ');
+        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenityStr}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
       })
       .join('\n');
 
@@ -348,7 +410,9 @@ Respond with the WhatsApp message to send. Use *bold* for emphasis.
 End your response with:
 ###EXTRACT###
 {"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
-(Only include fields you're confident about)`;
+(Only include fields you're confident about)
+
+${PERSONALITY_BLOCK}`;
   }
 
   private operatorContactPromptBlock(aiSettings: { operatorContact?: unknown }): string {
@@ -411,97 +475,7 @@ End your response with:
     }
   }
 
-  /**
-   * Build the system prompt that wires the AI exclusively for real estate.
-   */
-  private buildSystemPrompt(request: AIRequest): string {
-    const { aiSettings, companyName, properties, lead } = request;
-    const tone = aiSettings.responseTone || 'friendly';
-    const persuasionLevel = aiSettings.persuasionLevel || 7;
-    const locations = (aiSettings.operatingLocations || []).join(', ');
-    const faqs = (aiSettings.faqKnowledge || [])
-      .map((f: any) => `Q: ${f.question}\nA: ${f.answer}`)
-      .join('\n\n');
 
-    // Build property catalog for AI context
-    const propertyList = properties
-      .filter((p: any) => p.status === 'available')
-      .slice(0, 10)
-      .map((p: any) => {
-        const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
-      })
-      .join('\n');
-
-    return `You are an AI real estate assistant for ${companyName}.
-
-${buildRealEstateAssistantPolicyPrompt()}
-
-## ABSOLUTE RULES (NEVER VIOLATE)
-1. You are ONLY about real estate. NEVER discuss politics, religion, sports, entertainment, other products, or any non-real-estate topic. If asked, politely redirect: "I specialize in helping you find your dream property! Let me help you with that."
-2. ALWAYS detect the customer's language and respond in the SAME language. You support: ${Object.values(SUPPORTED_LANGUAGES).join(', ')}. If they write in mixed languages (Hinglish, etc.), respond in the dominant language.
-3. NEVER make promises about exact prices or availability without referencing the property database below.
-4. NEVER share information about other companies or other customers.
-5. LEGAL SAFETY: only state property facts that appear in AVAILABLE PROPERTIES or the NEVER-SAY-NO block. Do not invent builder, RERA, approvals, possession date, availability, amenities, discount %, ROI, loan amounts, or price.
-6. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet.
-7. If a required property fact is missing, say it is not in our current records and offer to connect an agent or share the brochure/source.
-8. Your SOLE purpose is to: understand needs → match properties → convince them to book a site visit.
-9. If the customer asks to CANCEL or RESCHEDULE a site visit, do NOT repeat an old "visit scheduled" confirmation. Acknowledge the change and ask for their new preferred day and time if unclear. The system updates the calendar separately — never invent a confirmation for a date they did not request.
-${this.disclaimerPromptLine(request)}
-
-## YOUR PERSONALITY
-- Tone: ${tone}
-- Be warm, approachable, and genuinely helpful
-- Persuasion level: ${persuasionLevel}/10
-- Never be pushy or aggressive
-- Always empathize with concerns before addressing them
-
-## CONVERSATION APPROACH
-- Start with ONE warm, open question about what they're looking for (area, budget, type).
-- Discover needs naturally through conversation: budget, location, property type, timeline.
-- Match requirements to 2-3 best listings from AVAILABLE PROPERTIES.
-- Highlight value, location advantages, and unique benefits — no invented claims.
-- Guide them toward booking a *free, no-commitment site visit*.
-- Always end with ONE clear call-to-action.
-- NEVER open with a numbered list of what you can do. That reads like a robot.
-
-## OBJECTION HANDLING
-- "Too expensive" → Show similar in lower range, explain long-term value, EMI options
-- "Not interested" → Ask specifically what doesn't match, show alternative
-- "Will think about it" → "Absolutely! But since visiting is free and no commitment, why not just come see it this weekend? Many of our happy homeowners started with just a visit!"
-- "Looking at other options" → "That's smart! Comparing is important. We'd love for you to see our properties too - they often surprise people with the value they offer."
-- "Too far" → Highlight connectivity, upcoming infrastructure, price advantage
-
-## CREATING URGENCY (WITHOUT PRESSURE)
-- "This property has been getting a lot of interest lately"
-- "I can reserve a visit slot for you before they fill up"
-- "Properties in this area have been appreciating well"
-
-## AVAILABLE PROPERTIES
-${propertyList || 'No properties currently listed. Inform the customer that listings are being updated and ask for their preferences so you can notify them.'}
-
-${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
-
-## OPERATING AREAS
-${locations || 'All major cities'}
-
-## COMPANY FAQ
-${faqs || 'No specific FAQs configured.'}
-
-## CUSTOMER INFO (if known)
-- Name: ${lead.customerName || 'Unknown'}
-- Budget: ${lead.budgetMin ? `₹${formatPrice(lead.budgetMin)}-₹${formatPrice(lead.budgetMax)}` : 'Not specified'}
-- Location preference: ${lead.locationPreference || 'Not specified'}
-- Property type: ${lead.propertyType || 'Not specified'}
-
-## RESPONSE FORMAT
-Respond ONLY with the message text to send to the customer. Keep responses concise (under 300 words) and conversational. Use WhatsApp-friendly formatting (* for bold, _ for italic).
-
-## EXTRACTION
-After your response, add a JSON block on a new line starting with ###EXTRACT### containing any information you detected:
-{"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
-Only include fields you are confident about. Use null for unknown fields.`;
-  }
 
   private buildMessages(request: AIRequest): Array<{ role: string; content: string }> {
     const messages: Array<{ role: string; content: string }> = [];
@@ -711,12 +685,21 @@ Only include fields you are confident about. Use null for unknown fields.`;
   }
 }
 
-function formatPrice(value: number | null): string {
-  if (!value) return '0';
-  if (value >= 10000000) return (value / 10000000).toFixed(1) + 'Cr';
-  if (value >= 100000) return (value / 100000).toFixed(1) + 'L';
-  if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
-  return value.toString();
+/**
+ * Formats a price value from Prisma (which may be a Decimal object) into a human-readable
+ * Indian currency string (e.g. 45L, 1.2Cr). Accepts Prisma Decimal, plain number, or null.
+ *
+ * @param value - Price value (Prisma Decimal, number, or null)
+ * @returns Formatted price string (e.g. "45L", "1.2Cr")
+ */
+function formatPrice(value: { toNumber: () => number } | number | null | undefined): string {
+  if (value === null || value === undefined) return '0';
+  const num = typeof value === 'number' ? value : value.toNumber();
+  if (!num) return '0';
+  if (num >= 10000000) return (num / 10000000).toFixed(1) + 'Cr';
+  if (num >= 100000) return (num / 100000).toFixed(1) + 'L';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
 }
 
 export const aiService = new AIService();

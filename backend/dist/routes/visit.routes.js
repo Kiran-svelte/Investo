@@ -276,7 +276,7 @@ router.patch('/:id/status', (0, rbac_1.authorize)('visits', 'update'), (0, valid
  * PUT /api/visits/:id
  * Reschedule a visit (change time/agent).
  */
-router.put('/:id', (0, rbac_1.authorize)('visits', 'update'), (0, audit_1.auditLog)('reschedule', 'visits'), async (req, res) => {
+router.put('/:id', (0, rbac_1.authorize)('visits', 'update'), (0, validate_1.validate)(validation_1.rescheduleVisitSchema), (0, audit_1.auditLog)('reschedule', 'visits'), async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
         const { id } = req.params;

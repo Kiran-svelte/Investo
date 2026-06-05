@@ -328,13 +328,9 @@ router.put('/profile', auth_1.authenticate, (0, validate_1.validate)(validation_
  * POST /api/auth/change-password
  * Change password (required for users with mustChangePassword=true)
  */
-router.post('/change-password', auth_1.authenticate, async (req, res) => {
+router.post('/change-password', auth_1.authenticate, (0, validate_1.validate)(validation_1.changePasswordSchema), async (req, res) => {
     try {
         const { current_password, new_password } = req.body;
-        if (!new_password || new_password.length < 8) {
-            res.status(400).json({ message: 'New password must be at least 8 characters' });
-            return;
-        }
         const user = await prisma_1.default.user.findUnique({
             where: { id: req.user.id },
             select: { passwordHash: true, mustChangePassword: true },
@@ -377,13 +373,9 @@ router.post('/change-password', auth_1.authenticate, async (req, res) => {
  * POST /api/auth/forgot-password
  * Request password reset email
  */
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', (0, validate_1.validate)(validation_1.forgotPasswordSchema), async (req, res) => {
     try {
         const { email } = req.body;
-        if (!email) {
-            res.status(400).json({ message: 'Email is required' });
-            return;
-        }
         const normalizedEmail = (0, auth_service_2.normalizeAuthEmail)(email);
         // Find user (don't reveal if email exists)
         const user = await prisma_1.default.user.findUnique({
@@ -454,17 +446,9 @@ router.post('/forgot-password', async (req, res) => {
  * POST /api/auth/reset-password
  * Reset password using token
  */
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', (0, validate_1.validate)(validation_1.resetPasswordSchema), async (req, res) => {
     try {
         const { token, email, new_password } = req.body;
-        if (!token || !email || !new_password) {
-            res.status(400).json({ message: 'Token, email, and new password are required' });
-            return;
-        }
-        if (new_password.length < 8) {
-            res.status(400).json({ message: 'Password must be at least 8 characters' });
-            return;
-        }
         const normalizedEmail = (0, auth_service_2.normalizeAuthEmail)(email);
         // Find user
         const user = await prisma_1.default.user.findUnique({

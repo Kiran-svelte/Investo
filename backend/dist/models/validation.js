@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateStaffProfileSchema = exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.propertyImportReplaceUnitsSchema = exports.propertyImportSpreadsheetImportSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
+exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.changePasswordSchema = exports.updateStaffProfileSchema = exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.rescheduleVisitSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.propertyImportReplaceUnitsSchema = exports.propertyImportSpreadsheetImportSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadSchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
 exports.normalizeIndianPhoneNumber = normalizeIndianPhoneNumber;
 exports.isIndianE164Phone = isIndianE164Phone;
 exports.whatsappPhoneLookupVariants = whatsappPhoneLookupVariants;
@@ -149,6 +149,22 @@ exports.updateLeadStatusSchema = zod_1.z.object({
     /** Company admin may jump to any status (manual correction). */
     force: zod_1.z.boolean().optional(),
 });
+/** Partial update schema for PUT /api/leads/:id — all fields optional but typed. */
+exports.updateLeadSchema = zod_1.z.object({
+    customer_name: zod_1.z.string().trim().max(255).optional().nullable(),
+    email: zod_1.z.string().email('Invalid email').optional().nullable(),
+    budget_min: zod_1.z.number().nonnegative().optional().nullable(),
+    budget_max: zod_1.z.number().nonnegative().optional().nullable(),
+    location_preference: zod_1.z.string().trim().max(255).optional().nullable(),
+    property_type: zod_1.z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']).optional().nullable(),
+    assigned_agent_id: zod_1.z.string().uuid().optional().nullable(),
+    notes: zod_1.z.string().trim().max(5000).optional().nullable(),
+    language: zod_1.z.string().trim().max(5).optional().nullable(),
+    tags: zod_1.z.array(zod_1.z.string().trim().max(50)).max(20).optional(),
+    lead_score: zod_1.z.string().trim().max(20).optional().nullable(),
+    source_detail: zod_1.z.string().trim().max(500).optional().nullable(),
+    lost_reason: zod_1.z.string().trim().max(1000).optional().nullable(),
+});
 exports.createPropertySchema = zod_1.z.object({
     project_id: zod_1.z.string().uuid().optional().nullable(),
     name: zod_1.z.string().min(1).max(255),
@@ -238,6 +254,13 @@ exports.createVisitSchema = zod_1.z.object({
 exports.updateVisitStatusSchema = zod_1.z.object({
     status: zod_1.z.enum(exports.VISIT_STATUSES),
 });
+/** Schema for PUT /api/visits/:id — reschedule a visit. All fields optional but typed. */
+exports.rescheduleVisitSchema = zod_1.z.object({
+    scheduled_at: zod_1.z.string().datetime({ message: 'scheduled_at must be an ISO 8601 datetime string' }).optional(),
+    agent_id: zod_1.z.string().uuid('agent_id must be a valid UUID').optional(),
+    notes: zod_1.z.string().trim().max(2000).optional().nullable(),
+    property_id: zod_1.z.string().uuid('property_id must be a valid UUID').optional().nullable(),
+});
 exports.createUserSchema = zod_1.z.object({
     name: zod_1.z.string().min(1).max(255),
     email: emailSchema,
@@ -301,3 +324,18 @@ function isValidTransition(transitions, from, to) {
     const allowed = transitions[from];
     return allowed ? allowed.includes(to) : false;
 }
+/** Schema for POST /api/auth/change-password */
+exports.changePasswordSchema = zod_1.z.object({
+    current_password: zod_1.z.string().optional(),
+    new_password: zod_1.z.string().min(8, 'Password must be at least 8 characters').max(128),
+});
+/** Schema for POST /api/auth/forgot-password */
+exports.forgotPasswordSchema = zod_1.z.object({
+    email: emailSchema,
+});
+/** Schema for POST /api/auth/reset-password */
+exports.resetPasswordSchema = zod_1.z.object({
+    token: zod_1.z.string().trim().min(1, 'Token is required'),
+    email: emailSchema,
+    new_password: zod_1.z.string().min(8, 'Password must be at least 8 characters').max(128),
+});
