@@ -295,7 +295,7 @@ export async function alertCompanyAdminsCronFailure(
   await notifyAdminsByRole(cronName, error, { role: 'company_admin', companyId: { in: companyIds } });
 }
 
-/** Mark visits as no-show 30 minutes after scheduled time; notify assigned agents. */
+/** Mark visits as no-show 30 minutes after scheduled time; ask agents YES/NO attendance. */
 async function detectAndMarkNoShows(): Promise<CronRunResult> {
   const affected = trackCompanyIds();
   const cutoff = new Date(Date.now() - NO_SHOW_GRACE_MS);
@@ -319,16 +319,134 @@ async function detectAndMarkNoShows(): Promise<CronRunResult> {
       result: `Marked no_show for ${visit.lead?.customerName ?? 'visit'}`,
     });
     if (!visit.agent.phone) continue;
+    // Find or create an AgentSession for the assigned agent so we can store a PendingAction.
+    // This enables the staff copilot to pick up the agent's YES/NO reply.
+    const session = await prisma.agentSession.upsert({
+      where: { userId_phone: { userId: visit.agentId, phone: visit.agent.phone } },
+      create: {
+        userId: visit.agentId,
+        companyId: visit.companyId,
+        phone: visit.agent.phone,
+        threadId: `agent-${visit.agentId}`,
+        status: 'active',
+        lastActiveAt: new Date(),
+      },
+      update: { lastActiveAt: new Date() },
+    });
+    // Create a pending attendance-check action (expires in 12 hours).
+    await prisma.pendingAction.create({
+      data: {
+        sessionId: session.id,
+        actionType: 'attendance_check',
+        actionParams: {
+          visitId: visit.id,
+          leadId: visit.leadId,
+          companyId: visit.companyId,
+          customerName: visit.lead?.customerName ?? 'Customer',
+          customerPhone: visit.lead?.phone ?? '',
+          propertyName: visit.property?.name ?? 'Property',
+        },
+        displayMessage: `Did ${visit.lead?.customerName ?? 'the customer'} show up?`,
+        expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
+      },
+    });
     await sendNotification(
       visit.agent.phone,
       visit.companyId,
       [
-        `*Visit Marked No-Show*`,
-        `${visit.lead?.customerName ?? 'Unknown'} — ${visit.property?.name ?? 'TBD'}`,
+        `*Attendance Check Required*`,
+        `Visit: ${visit.lead?.customerName ?? 'Unknown'} \u2014 ${visit.property?.name ?? 'TBD'}`,
         `Scheduled: ${formatDateIST(visit.scheduledAt)} ${formatTimeIST(visit.scheduledAt)}`,
-        'Reply to reschedule or update the lead.',
+        ``,
+        `Did the customer show up?`,
+        `Reply *YES* if they came \u2705`,
+        `Reply *NO* if they didn\u2019t \u274C`,
       ].join('\n'),
     );
+  }
+  return affected.result();
+}
+
+/**
+ * EOD attendance check at 7:00 PM IST \u2014 for all visits scheduled today that are still
+ * in scheduled/confirmed status 30+ min past their time (catches visits missed by the
+ * 30-min rolling no-show check due to restart/race conditions).
+ */
+async function sendEodAttendanceChecks(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
+  const [start, end] = istDayBounds();
+  const cutoff = new Date(Date.now() - NO_SHOW_GRACE_MS);
+  const visits = await prisma.visit.findMany({
+    where: {
+      scheduledAt: { gte: start, lte: cutoff },
+      status: { in: ['scheduled', 'confirmed'] },
+    },
+    include: { agent: true, lead: true, property: true },
+  });
+  for (const visit of visits) {
+    affected.add(visit.companyId);
+    if (!visit.agent.phone) continue;
+    // Check if we already sent an attendance check for this visit.
+    const existingAction = await prisma.pendingAction.findFirst({
+      where: {
+        actionType: 'attendance_check',
+        status: 'awaiting',
+        actionParams: { path: ['visitId'], equals: visit.id },
+      },
+      select: { id: true },
+    });
+    if (existingAction) continue; // Already asked
+    const session = await prisma.agentSession.upsert({
+      where: { userId_phone: { userId: visit.agentId, phone: visit.agent.phone } },
+      create: {
+        userId: visit.agentId,
+        companyId: visit.companyId,
+        phone: visit.agent.phone,
+        threadId: `agent-${visit.agentId}`,
+        status: 'active',
+        lastActiveAt: new Date(),
+      },
+      update: { lastActiveAt: new Date() },
+    });
+    await prisma.pendingAction.create({
+      data: {
+        sessionId: session.id,
+        actionType: 'attendance_check',
+        actionParams: {
+          visitId: visit.id,
+          leadId: visit.leadId,
+          companyId: visit.companyId,
+          customerName: visit.lead?.customerName ?? 'Customer',
+          customerPhone: visit.lead?.phone ?? '',
+          propertyName: visit.property?.name ?? 'Property',
+        },
+        displayMessage: `Did ${visit.lead?.customerName ?? 'the customer'} show up?`,
+        expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
+      },
+    });
+    await sendNotification(
+      visit.agent.phone,
+      visit.companyId,
+      [
+        `\uD83C\uDF07 *End-of-Day Attendance Check*`,
+        ``,
+        `Visit: *${visit.lead?.customerName ?? 'Unknown'}*`,
+        `Property: ${visit.property?.name ?? 'TBD'}`,
+        `Time: ${formatTimeIST(visit.scheduledAt)}`,
+        ``,
+        `Did they show up today?`,
+        `Reply *YES* \u2705 or *NO* \u274C`,
+      ].join('\n'),
+    );
+    void logAgentAction({
+      companyId: visit.companyId,
+      triggeredBy: 'cron',
+      action: 'sendEodAttendanceChecks',
+      resourceType: 'visit',
+      resourceId: visit.id,
+      status: 'success',
+      result: 'EOD attendance check sent',
+    });
   }
   return affected.result();
 }
@@ -564,6 +682,8 @@ export function startCronScheduler(): void {
     cron.schedule(CRON_SCHEDULES.VISIT_COMPLETED_NUDGE, wrap('sendVisitCompletedNudge', sendVisitCompletedNudge)),
     cron.schedule(CRON_SCHEDULES.MONTHLY_ADMIN_REPORT, wrap('sendMonthlyAdminReport', sendMonthlyAdminReport)),
     cron.schedule(CRON_SCHEDULES.ACTION_LOG_PURGE, wrap('purgeActionLog', purgeActionLogCron)),
+    // EOD attendance check — 7:00 PM IST = 13:30 UTC. Asks agents YES/NO for unresolved visits.
+    cron.schedule(CRON_SCHEDULES.EOD_ATTENDANCE_CHECK, wrap('eodAttendanceChecks', sendEodAttendanceChecks)),
   );
   logger.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }

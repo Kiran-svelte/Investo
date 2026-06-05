@@ -100,6 +100,14 @@ async function handleAgentMessage(user: CompanyUserMatch, messageText: string): 
       return executePendingAction(confirmation.pendingActionId!);
     }
     if (confirmation.hasPending && confirmation.isRejected) {
+      // Attendance check NO: mark no_show + invite customer to reschedule.
+      if (confirmation.actionType === 'attendance_check') {
+        const { handleAttendanceCheckRejected } = await import('./confirmation.service');
+        return handleAttendanceCheckRejected(
+          user.companyId,
+          confirmation.actionParams ?? {},
+        );
+      }
       return 'Action cancelled.';
     }
     if (confirmation.hasPending) {

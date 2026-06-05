@@ -126,6 +126,8 @@ export async function executePendingAction(pendingActionId: string): Promise<str
   const companyId = pending.session.companyId;
 
   switch (pending.actionType) {
+    case 'attendance_check':
+      return attendanceCheckYes(companyId, params);
     case 'deleteLead':
       return deleteLead(companyId, params);
     case 'cancelVisit':
@@ -142,6 +144,105 @@ export async function executePendingAction(pendingActionId: string): Promise<str
       logger.warn('Unsupported pending action confirmed', { actionType: pending.actionType });
       return `Unsupported action: ${pending.actionType}`;
   }
+}
+
+/**
+ * Handles NO reply on an attendance_check pending action.
+ * Marks the visit as no_show and sends the customer an invitation to reschedule.
+ * Called by agent-router when the agent's reply is rejected (NO).
+ *
+ * @param companyId - Company scope for authorization.
+ * @param params - ActionParams from the PendingAction record.
+ * @returns Confirmation message for the agent.
+ */
+export async function handleAttendanceCheckRejected(
+  companyId: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const visitId = getString(params, 'visitId');
+  const customerPhone = getString(params, 'customerPhone');
+  const customerName = getString(params, 'customerName') ?? 'Customer';
+  const propertyName = getString(params, 'propertyName') ?? 'your property';
+
+  if (visitId) {
+    await db.visit.update({
+      where: { id: visitId },
+      data: { status: 'no_show' },
+    });
+    logger.info('Attendance check: visit marked no_show via agent NO reply', { visitId, companyId });
+  }
+
+  if (customerPhone) {
+    const rescheduleMsg = [
+      `Hi ${customerName}! \uD83D\uDC4B`,
+      ``,
+      `We missed you at *${propertyName}* today. Hope all is well!`,
+      ``,
+      `Would you like to reschedule your visit? Just reply with a preferred date and time \uD83D\uDCC5`,
+      `(e.g. "this Saturday 11am")`,
+    ].join('\n');
+    try {
+      const { whatsappService } = await import('../whatsapp.service');
+      await whatsappService.sendCompanyTextMessage(customerPhone, rescheduleMsg, companyId);
+      logger.info('Sent reschedule invitation to customer after no-show', { customerPhone, companyId });
+    } catch (err: unknown) {
+      logger.warn('Failed to send reschedule invitation to customer', {
+        customerPhone,
+        companyId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return [
+    `\u274C Marked as no-show.`,
+    customerPhone
+      ? `\nA reschedule invitation has been sent to ${customerName}.`
+      : '',
+  ].join('');
+}
+
+/**
+ * Handles YES reply on an attendance_check pending action.
+ * Marks the visit as completed and updates lead status to visited.
+ *
+ * @param companyId - Company scope for authorization.
+ * @param params - ActionParams from the PendingAction record.
+ * @returns Confirmation message for the agent.
+ */
+async function attendanceCheckYes(
+  companyId: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const visitId = getString(params, 'visitId');
+  const leadId = getString(params, 'leadId');
+  const customerName = getString(params, 'customerName') ?? 'Customer';
+  const propertyName = getString(params, 'propertyName') ?? 'Property';
+
+  if (visitId) {
+    await db.visit.update({
+      where: { id: visitId },
+      data: { status: 'completed' },
+    });
+    logger.info('Attendance check: visit marked completed via agent YES reply', { visitId, companyId });
+  }
+
+  if (leadId) {
+    await db.lead.update({
+      where: { id: leadId },
+      data: { status: 'visited' },
+    });
+    logger.info('Lead status updated to visited after attendance confirmation', { leadId, companyId });
+  }
+
+  return [
+    `\u2705 *Attendance confirmed!*`,
+    ``,
+    `Visit with *${customerName}* at *${propertyName}* marked as *completed*.`,
+    `Lead status updated to *Visited*.`,
+    ``,
+    `To log notes or next steps, type "update lead ${customerName}".`,
+  ].join('\n');
 }
 
 async function deleteLead(companyId: string, params: Record<string, unknown>): Promise<string> {

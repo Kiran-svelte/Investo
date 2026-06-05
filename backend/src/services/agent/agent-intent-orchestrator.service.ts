@@ -489,6 +489,7 @@ Disambiguation rules (apply in order, use the FIRST matching rule):
 - "bulk reassign visits" / "move all visits" => bulk_reassign_visits.
 - "delete lead" / "remove lead" => delete_lead.
 - "update lead details" / "change lead phone" (not status) => update_lead.
+- "bulk forward [message] to [numbers]" / "forward this to [phone]" / "send this to [numbers]" => bulk_forward (parameters: message = text to forward, phones = list of numbers).
 - For CRM actions, set toolName to the exact matching handler name from the available list.
 - Never invent a toolName that is not in the available list.
 - Partial parameters OK (leadName, status, visitId, propertyName, agentName).
@@ -671,6 +672,10 @@ export async function executeAgentIntent(
       if (mutation.handled && mutation.reply) return mutation.reply;
     }
 
+    if (intent === 'bulk_forward') {
+      return executeBulkForward(context, parameters, options?.messageText ?? '');
+    }
+
     const actionTools = options?.actionTools ?? getActionToolsForContext(context);
     const toolName = extracted.toolName ?? getIntentDefaultTool(intent, actionTools);
     const tool = findTool(actionTools, toolName);
@@ -742,7 +747,7 @@ function shouldRunIntentOrchestrator(messageText: string): boolean {
   }
 
   if (
-    /\b(update|set|mark|change|move|status|note|assign|brochure|schedule|reschedule|cancel|confirm|list|show|get|find|search|create|add|send|takeover|release|read|calculate|transfer|deactivate|complete|snooze|postpone)\b/i.test(
+    /\b(update|set|mark|change|move|status|note|assign|brochure|schedule|reschedule|cancel|confirm|list|show|get|find|search|create|add|send|takeover|release|read|calculate|transfer|deactivate|complete|snooze|postpone|forward|bulk)\b/i.test(
       text,
     )
   ) {
@@ -844,6 +849,116 @@ export async function classifyAndExecuteAgentIntent(
     });
     return null;
   }
+}
+
+/** Maximum recipients per single bulk_forward request to prevent abuse. */
+const MAX_BULK_FORWARD_RECIPIENTS = 20;
+
+/**
+ * Extracts the message body and recipient phone numbers from a bulk_forward staff command.
+ * Handles patterns like:
+ *   "Bulk forward [message] to 6363062930 and 9019655080"
+ *   "Forward this to 9876543210, 8765432109"
+ *
+ * @param rawMessage - The full staff WhatsApp message text.
+ * @param parameters - LLM-extracted intent parameters (may have message/phones).
+ * @returns Parsed phones and message body.
+ */
+function parseBulkForwardRequest(
+  rawMessage: string,
+  parameters: IntentParameters,
+): { phones: string[]; messageBody: string } {
+  // Extract all 10+ digit phone numbers from the raw message.
+  const phoneMatches = rawMessage.match(/(?:\+?91[-\s]?)?[6-9]\d{9}/g) ?? [];
+  const phones = [...new Set(phoneMatches.map((p) => p.replace(/[-\s]/g, '')))];
+
+  // Extract message body: everything between quotes OR after "forward" keyword.
+  let messageBody = typeof parameters.message === 'string' ? parameters.message.trim() : '';
+  if (!messageBody) {
+    // Try to extract quoted content
+    const quotedMatch = rawMessage.match(/["']([^"']+)["']/);
+    if (quotedMatch) {
+      messageBody = quotedMatch[1].trim();
+    } else {
+      // Fall back: strip the command prefix and phone numbers to get message body
+      const withoutPhones = rawMessage.replace(/(?:\+?91[-\s]?)?[6-9]\d{9}/g, '').replace(/,\s*/g, ' ');
+      const bodyMatch = withoutPhones.match(/(?:forward|send)\s+(?:this\s+)?(?:exact\s+)?(?:message\s+)?(.+?)(?:\s+to\s+|\s*$)/i);
+      messageBody = bodyMatch ? bodyMatch[1].trim() : withoutPhones.replace(/\b(bulk|forward|send|to)\b/gi, '').trim();
+    }
+  }
+
+  return { phones, messageBody };
+}
+
+/**
+ * Executes a bulk_forward intent: sends a message to multiple phone numbers.
+ * Capped at MAX_BULK_FORWARD_RECIPIENTS per request. Never sends to empty message.
+ *
+ * @param context - Tool context with companyId and userId for authorization.
+ * @param parameters - LLM-extracted intent parameters.
+ * @param rawMessage - Original staff message for phone/body extraction.
+ * @returns WhatsApp-formatted summary of sends and failures.
+ */
+async function executeBulkForward(
+  context: ToolContext,
+  parameters: IntentParameters,
+  rawMessage: string,
+): Promise<string> {
+  const { phones, messageBody } = parseBulkForwardRequest(rawMessage, parameters);
+
+  if (!messageBody) {
+    return 'Please specify the message to forward.\n\nExample: _"Forward \\"Tomorrow is holiday\\" to 9876543210 and 9019655080"_';
+  }
+
+  if (phones.length === 0) {
+    return 'No valid phone numbers found. Please include 10-digit mobile numbers in your message.\n\nExample: _"Forward \\"Tomorrow is holiday\\" to 9876543210 and 9019655080"_';
+  }
+
+  const cappedPhones = phones.slice(0, MAX_BULK_FORWARD_RECIPIENTS);
+  const { whatsappService } = await import('../whatsapp.service');
+  const sent: string[] = [];
+  const failed: string[] = [];
+
+  for (const phone of cappedPhones) {
+    try {
+      await (whatsappService as any).sendCompanyTextMessage(phone, messageBody, context.companyId);
+      sent.push(phone);
+    } catch (err: unknown) {
+      logger.warn('Bulk forward send failed', {
+        phone,
+        companyId: context.companyId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      failed.push(phone);
+    }
+  }
+
+  void logAgentAction({
+    companyId: context.companyId,
+    triggeredBy: 'agent_tool',
+    action: 'intent_bulk_forward',
+    actorId: context.userId,
+    actorRole: context.userRole,
+    inputs: { recipients: cappedPhones.length, preview: messageBody.slice(0, 100) },
+    result: `sent:${sent.length} failed:${failed.length}`,
+    status: failed.length === cappedPhones.length ? 'failed' : 'success',
+  });
+
+  const summary = [
+    `📤 *Bulk Forward Complete*`,
+    ``,
+    `Message: _"${messageBody.slice(0, 80)}${messageBody.length > 80 ? '…' : ''}"_`,
+    ``,
+    sent.length ? `✅ Sent to (${sent.length}): ${sent.join(', ')}` : null,
+    failed.length ? `❌ Failed (${failed.length}): ${failed.join(', ')}` : null,
+    phones.length > MAX_BULK_FORWARD_RECIPIENTS
+      ? `⚠️ Only first ${MAX_BULK_FORWARD_RECIPIENTS} recipients processed (cap limit).`
+      : null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n');
+
+  return summary;
 }
 
 export async function recordAgentCopilotExchange(input: {

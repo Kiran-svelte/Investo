@@ -914,7 +914,31 @@ export class WhatsAppService {
       proposedVisitTime: conversation.proposedVisitTime || null,
     };
 
-    // 3. Store incoming message
+    // 3. Webhook deduplication: Meta's WhatsApp Cloud API guarantees at-least-once delivery
+    // and retries webhooks that don't receive a fast 200. Without this guard, the same
+    // messageId can be processed 2–3 times concurrently, each sending a separate AI reply.
+    // We check BEFORE creating the message record to avoid a TOCTOU window.
+    if (msg.messageId) {
+      const existingMessage = await prisma.message.findFirst({
+        where: { whatsappMessageId: msg.messageId },
+        select: { id: true },
+      });
+      if (existingMessage) {
+        logger.info('Skipping duplicate webhook message', {
+          whatsappMessageId: msg.messageId,
+          existingMessageId: existingMessage.id,
+        });
+        return {
+          status: 'skipped',
+          companyId,
+          leadId: lead.id,
+          conversationId: conversation?.id,
+          propagation: null,
+        };
+      }
+    }
+
+    // Store incoming message
     await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -1307,15 +1331,21 @@ export class WhatsAppService {
           neverSayNoCtx.promptBlock,
         );
         let outboundCandidate = aiResponse.text;
-        if (isVisitCancelOrRescheduleMessage(msg.messageText)) {
-          const mutation = await applyVisitMutationFromChat({
-            companyId,
-            leadId: lead.id,
-            message: msg.messageText,
-          });
-          if (mutation.handled && mutation.reply) {
-            outboundCandidate = mutation.reply;
-          }
+
+        // If the customer asked to reschedule/cancel but the fast-path visitCommit path
+        // did NOT handle it (visitCommit.committed=false — no recognisable new time),
+        // override the LLM output with a targeted ask. This prevents the LLM from
+        // responding with a generic onboarding prompt ("Could you share your area...").
+        if (
+          !visitCommit.committed &&
+          isVisitCancelOrRescheduleMessage(msg.messageText) &&
+          liveCtx.activeVisit
+        ) {
+          const { formatDateIST } = await import('./agent/tools/format-helpers');
+          outboundCandidate =
+            `I found your visit for *${liveCtx.activeVisit.propertyName ?? 'your property'}* ` +
+            `on ${formatDateIST(new Date(liveCtx.activeVisit.scheduledAt))}. ` +
+            `What date and time should we move it to? (e.g. "this Saturday 11am") \ud83d\udcc5`;
         }
 
         const guarded = enforceNeverSayNoResponse({
@@ -1340,10 +1370,17 @@ export class WhatsAppService {
           companyName: company.name,
         });
         let outboundText = polished.text;
+        // Empty-outbound fallback: use a context-aware message instead of the generic
+        // onboarding prompt ("Please share your area, budget...") which resets context mid-conversation.
         if (!outboundText.trim()) {
-          outboundText =
-            `Thanks for messaging *${company.name}*! I'm your property assistant.\n\n` +
-            `Please share your *area*, *budget*, and *property type* so I can help.`;
+          if (liveCtx.activeVisit) {
+            // Customer has an active visit — acknowledge without resetting context
+            outboundText = `I'm looking into your visit details, one moment\u2026 \uD83D\uDD0D`;
+          } else if (isVisitCancelOrRescheduleMessage(msg.messageText)) {
+            outboundText = `I couldn't find an upcoming visit to change. Would you like to book a new visit? \uD83D\uDCC5`;
+          } else {
+            outboundText = `Sorry, I had a brief issue. Could you repeat that? \uD83D\uDE4F`;
+          }
         }
 
         const { deliverBrochuresForAiTurn } = await import('./brochureDelivery.service');
@@ -1439,6 +1476,25 @@ export class WhatsAppService {
                 },
               },
             });
+
+            // Also notify the agent via WhatsApp immediately — a DB notification alone
+            // is invisible until the agent opens the dashboard. Agents need real-time awareness.
+            const agentRecord = await prisma.user.findUnique({
+              where: { id: lead.assignedAgentId },
+              select: { phone: true, name: true },
+            });
+            if (agentRecord?.phone) {
+              const escalationAlert = [
+                `🚨 *Escalation Alert — Action Required*`,
+                ``,
+                `Customer: *${lead.customerName ?? lead.phone}*`,
+                `Phone: ${lead.phone}`,
+                `Reason: ${newState.escalationReason ?? 'Customer requested human agent'}`,
+                ``,
+                `Reply to this number or call the customer directly.`,
+              ].join('\n');
+              void this.sendCompanyTextMessage(agentRecord.phone, escalationAlert, companyId);
+            }
           }
 
           // Operator contact is embedded directly in the LLM response via the
