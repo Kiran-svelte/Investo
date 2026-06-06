@@ -426,7 +426,29 @@ const config = {
   },
 
   agentAi: {
-    enabled: process.env.AGENT_AI_ENABLED !== 'false',
+    /**
+     * Backward-compatible copilot switch.
+     * AGENT_AI_ENABLED=false now disables only LLM features unless
+     * AGENT_AI_COPILOT_ENABLED=false is also set.
+     */
+    enabled: process.env.AGENT_AI_COPILOT_ENABLED !== 'false',
+    /**
+     * LLM-specific switch — disables AI model calls only.
+     * When false, deterministic CRM + regex workflow paths still run.
+     * Env: AGENT_AI_LLM_ENABLED (default: follows legacy AGENT_AI_ENABLED)
+     * Ops note: set AGENT_AI_LLM_ENABLED=false for zero-UI hardening without
+     * breaking "visits today" and other deterministic staff commands.
+     */
+    llmEnabled:
+      process.env.AGENT_AI_LLM_ENABLED !== undefined
+        ? process.env.AGENT_AI_LLM_ENABLED !== 'false'
+        : process.env.AGENT_AI_ENABLED !== 'false',
+    /**
+     * Copilot-specific switch — disables the WhatsApp copilot entirely.
+     * When false, staff get a static "use the dashboard" notice.
+     * Env: AGENT_AI_COPILOT_ENABLED (default: true)
+     */
+    copilotEnabled: process.env.AGENT_AI_COPILOT_ENABLED !== 'false',
     provider: (process.env.AGENT_AI_PROVIDER || 'openai').toLowerCase(),
     model: process.env.AGENT_AI_MODEL || 'gpt-4o',
     maxToolCalls: parseInt(process.env.AGENT_AI_MAX_TOOL_CALLS || '10', 10),

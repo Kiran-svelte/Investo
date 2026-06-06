@@ -133,12 +133,17 @@ export async function routeCompanyScopedInbound(params: {
       };
     }
 
-    if (!config.agentAi?.enabled || !params.messageText.trim()) {
-      await sendWhatsAppResponse(
-        normalizedPhone,
-        companyUser.companyId,
-        'Agent copilot is temporarily unavailable. Please use the Investo dashboard.',
-      );
+    const copilotActive =
+      config.agentAi?.enabled !== false && config.agentAi?.copilotEnabled !== false;
+
+    if (!copilotActive || !params.messageText.trim()) {
+      if (!copilotActive) {
+        await sendWhatsAppResponse(
+          normalizedPhone,
+          companyUser.companyId,
+          'Agent copilot is temporarily unavailable. Please use the Investo dashboard.',
+        );
+      }
       return { handled: true, route: { kind: 'agent_copilot', userId: companyUser.userId, companyId: companyUser.companyId } };
     }
 

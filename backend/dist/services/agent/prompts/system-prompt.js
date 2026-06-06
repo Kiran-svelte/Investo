@@ -1,10 +1,34 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildSystemPrompt = buildSystemPrompt;
+function formatConversationHistory(history) {
+    if (!history?.length)
+        return '';
+    const lines = history.slice(-5).map((m) => `${m.role}: ${m.content.slice(0, 120)}`);
+    return `## Recent copilot turns\n${lines.join('\n')}`;
+}
+function formatUpcomingVisits(visits) {
+    if (!visits?.length)
+        return '';
+    const lines = visits.slice(0, 3).map((v) => `- ${v.projectName} on ${v.date} ${v.time} (${v.status})`);
+    return `## Upcoming visits\n${lines.join('\n')}`;
+}
 function buildSystemPrompt(params) {
     const roleLine = params.userRole === 'sales_agent'
         ? 'You help this sales agent manage their own leads, visits, and client conversations.'
         : 'You help this admin manage company operations, team performance, leads, visits, and settings.';
+    const contextBlocks = [
+        formatConversationHistory(params.conversationHistory),
+        formatUpcomingVisits(params.upcomingVisits),
+        params.leadStatus?.id && params.leadStatus.id !== 'none'
+            ? `## Active lead\nStatus: ${params.leadStatus.status}${params.leadStatus.interestedProject ? ` | Project: ${params.leadStatus.interestedProject}` : ''}${params.leadStatus.budgetRange ? ` | Budget: ${params.leadStatus.budgetRange}` : ''}`
+            : '',
+        params.workflowExecutionGuide ? `## Workflows\n${params.workflowExecutionGuide}` : '',
+        params.availableTools?.length
+            ? `## Tools available\n${params.availableTools.slice(0, 20).join(', ')}`
+            : '',
+        params.clientMemoryBlock ?? '',
+    ].filter(Boolean);
     return [
         'You are Investo AI Assistant, a WhatsApp-based CRM copilot for real estate teams.',
         `User: ${params.userName}`,
@@ -24,7 +48,7 @@ function buildSystemPrompt(params) {
         '- Respect tool access and company boundaries.',
         '- For destructive actions, use tools that create a pending confirmation and tell the user to reply yes or no.',
         '- Keep simple replies under 5 lines.',
-        params.clientMemoryBlock ? `\n${params.clientMemoryBlock}` : '',
+        ...contextBlocks,
     ]
         .filter(Boolean)
         .join('\n');

@@ -9,7 +9,9 @@ const logger_1 = __importDefault(require("../../config/logger"));
 const agent_ai_constants_1 = require("../../constants/agent-ai.constants");
 const agent_action_log_service_1 = require("../agent-action-log.service");
 const agent_memory_service_1 = require("./agent-memory.service");
+const agent_prompt_context_service_1 = require("./agent-prompt-context.service");
 const system_prompt_1 = require("./prompts/system-prompt");
+const workflow_catalog_util_1 = require("../workflow/workflow-catalog.util");
 const tools_1 = require("./tools");
 const response_formatter_service_1 = require("./response-formatter.service");
 const { AIMessage, HumanMessage, SystemMessage } = require('@langchain/core/messages');
@@ -67,17 +69,40 @@ function extractAgentReply(messages) {
     return '';
 }
 async function invokeAgent(params) {
-    const tools = (0, tools_1.getToolsForRole)(params.toolContext);
+    const toolContext = {
+        ...params.toolContext,
+        companyName: params.toolContext.companyName ?? params.companyName,
+        sessionLeadId: params.toolContext.sessionLeadId ?? params.sessionLeadId,
+        sessionVisitId: params.toolContext.sessionVisitId ?? params.sessionVisitId,
+    };
+    const tools = (0, tools_1.getToolsForRole)(toolContext);
+    if (!tools.length) {
+        logger_1.default.error('Agent AI has no tools for role', {
+            userId: toolContext.userId,
+            userRole: toolContext.userRole,
+        });
+    }
     const model = createModel();
     const modelWithTools = model.bindTools(tools);
     const now = new Date();
+    const promptContext = await (0, agent_prompt_context_service_1.buildAgentPromptContext)({
+        toolContext,
+        sessionLeadId: params.sessionLeadId,
+        sessionVisitId: params.sessionVisitId,
+    });
     const systemPrompt = (0, system_prompt_1.buildSystemPrompt)({
-        userName: params.toolContext.userName,
+        userName: toolContext.userName,
         companyName: params.companyName,
-        userRole: params.toolContext.userRole,
+        userRole: toolContext.userRole,
         currentDateIST: (0, response_formatter_service_1.formatDateIST)(now),
         currentTimeIST: (0, response_formatter_service_1.formatTimeIST)(now),
+        conversationHistory: promptContext.conversationHistory,
+        upcomingVisits: promptContext.upcomingVisits,
+        leadStatus: promptContext.leadStatus,
+        recentErrors: promptContext.recentErrors,
         clientMemoryBlock: params.clientMemoryBlock,
+        availableTools: tools.map((tool) => tool.name),
+        workflowExecutionGuide: (0, workflow_catalog_util_1.buildWorkflowExecutionGuideForPrompt)(),
     });
     async function agentNode(state) {
         const messages = [

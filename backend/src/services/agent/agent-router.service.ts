@@ -202,16 +202,20 @@ async function handleAgentMessage(
     return { text: workflowReply, replyKind: 'workflow' };
   }
 
-  const intentReply = await classifyAndExecuteAgentIntent({
-    toolContext,
-    messageText: normalizedText,
-    recentMessages,
-    companyName: user.companyName,
-    sessionLeadId: sessionCtx.lastLeadId,
-    sessionVisitId: sessionCtx.lastVisitId,
-    staffPhone: user.phone,
-    inboundMessageId,
-  });
+  const llmActive = config.agentAi?.enabled !== false && config.agentAi?.llmEnabled !== false;
+
+  const intentReply = llmActive
+    ? await classifyAndExecuteAgentIntent({
+        toolContext,
+        messageText: normalizedText,
+        recentMessages,
+        companyName: user.companyName,
+        sessionLeadId: sessionCtx.lastLeadId,
+        sessionVisitId: sessionCtx.lastVisitId,
+        staffPhone: user.phone,
+        inboundMessageId,
+      })
+    : null;
   if (intentReply !== null && intentReply !== undefined) {
     if (session?.id) {
       await recordAgentCopilotExchange({
@@ -255,6 +259,34 @@ async function handleAgentMessage(
       text: buildCopilotWelcomeMessage(user.userName, user.companyName),
       replyKind: 'welcome',
     };
+  }
+
+  if (!llmActive) {
+    const deterministicFallback = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
+      sessionLeadId: sessionCtx.lastLeadId,
+    });
+    const helpText =
+      deterministicFallback
+      || `📋 *Investo Copilot* (deterministic mode)\n\n` +
+        `LLM is off — these commands still work:\n` +
+        `• "visits today" • "new leads today"\n` +
+        `• "get lead [name]" • "confirm visit"\n\n` +
+        `Or use the *Investo dashboard* for advanced operations.`;
+    if (session?.id) {
+      await recordAgentCopilotExchange({
+        sessionId: session.id,
+        inboundText: resolvedCommand || messageText,
+        outboundText: helpText,
+      });
+      if (sessionCtx.lastLeadId) {
+        const { patchLeadMemory } = await import('../lead-memory.service');
+        void patchLeadMemory(sessionCtx.lastLeadId, {
+          lastIntent: 'staff_copilot_deterministic',
+          conversationSummary: `${normalizedText.slice(0, 80)} → deterministic reply`,
+        }).catch(() => undefined);
+      }
+    }
+    return { text: helpText, replyKind: deterministicFallback ? 'crm' : 'help_fallback' };
   }
 
   let agentReply: string;
@@ -312,6 +344,13 @@ async function handleAgentMessage(
       inboundText: resolvedCommand || messageText,
       outboundText: agentReply,
     });
+    if (sessionCtx.lastLeadId) {
+      const { patchLeadMemory } = await import('../lead-memory.service');
+      void patchLeadMemory(sessionCtx.lastLeadId, {
+        lastIntent: replyKind,
+        conversationSummary: `${normalizedText.slice(0, 80)} → ${agentReply.slice(0, 120)}`,
+      }).catch(() => undefined);
+    }
   }
   return { text: agentReply, replyKind };
 }
@@ -327,7 +366,9 @@ export async function routeIfInternalUserForCompany(
   inboundMessageId?: string,
 ): Promise<boolean> {
   const resolvedText = resolveCopilotInboundCommand({ interactiveId, messageText });
-  if (!config.agentAi?.enabled || !resolvedText.trim()) return false;
+  const copilotActive =
+    config.agentAi?.enabled !== false && config.agentAi?.copilotEnabled !== false;
+  if (!copilotActive || !resolvedText.trim()) return false;
 
   const fingerprintClaimed = await claimStaffInboundFingerprint(
     user.companyId,

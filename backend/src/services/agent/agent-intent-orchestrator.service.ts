@@ -795,7 +795,11 @@ export async function classifyAndExecuteAgentIntent(
   // Do NOT gate on openAiKeyProblem() here — the LLM caller (defaultLlmCaller)
   // already has a full Claude → Kimi fallback chain. Blocking here kills the
   // entire intent pipeline even when Claude/Kimi are healthy.
-  if (!config.agentAi?.enabled || !shouldRunIntentOrchestrator(params.messageText)) {
+  if (
+    !config.agentAi?.enabled
+    || config.agentAi?.llmEnabled === false
+    || !shouldRunIntentOrchestrator(params.messageText)
+  ) {
     return null;
   }
 

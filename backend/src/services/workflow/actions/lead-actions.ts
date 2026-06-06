@@ -97,6 +97,7 @@ export async function sendWelcome(ctx: ActionContext) {
 }
 
 export async function notifyAgent(ctx: ActionContext) {
+  if (ctx.run.channel === 'buyer') return skip();
   const leadId = requireLeadId(ctx);
   const agentId = ctx.state.agentId ?? ctx.params.agentId;
   if (!leadId || !agentId) return skip();
@@ -167,6 +168,11 @@ export async function syncLeadMemory(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);
   if (!leadId) return skip();
   void syncLeadClientMemory(leadId);
+  const { patchLeadMemory } = await import('../../lead-memory.service');
+  void patchLeadMemory(leadId, {
+    lastIntent: ctx.run.messageText?.slice(0, 60) || 'workflow',
+    conversationSummary: `Workflow turn: ${ctx.run.messageText?.slice(0, 120) ?? ''}`,
+  }).catch(() => undefined);
   return skip();
 }
 

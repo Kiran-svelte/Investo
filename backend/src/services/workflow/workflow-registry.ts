@@ -36,7 +36,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
       { action: 'createLead' },
       { action: 'assignAgent', optional: true },
       { action: 'sendWelcome', optional: true },
-      { action: 'notifyAgent', optional: true },
+      { action: 'notifyAgent', optional: true, channel: 'staff' },
     ],
   },
   {
@@ -102,7 +102,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     steps: [
       { action: 'resolveVisit' },
       { action: 'cancelVisit' },
-      { action: 'notifyAgent', optional: true },
+      { action: 'notifyAgent', optional: true, channel: 'staff' },
       { action: 'scheduleFollowUp', optional: true },
     ],
   },

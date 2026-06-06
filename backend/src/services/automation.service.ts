@@ -86,6 +86,11 @@ export class AutomationService {
       setInterval(() => this.processConversationTimeouts(), 60 * 60 * 1000)
     );
 
+    // Workflow reconciliation — alert on partial saga failures
+    this.intervalIds.push(
+      setInterval(() => this.reconcileWorkflowRuns(), 60 * 60 * 1000)
+    );
+
     this.startWorker();
 
     // Run immediately on startup
@@ -754,6 +759,48 @@ export class AutomationService {
       status: 'success',
       result: 'Conversation closed after 24h inactivity',
     });
+  }
+
+  /** Hourly sweep for workflow runs stuck in needs_reconciliation. */
+  async reconcileWorkflowRuns(): Promise<void> {
+    try {
+      const stale = await prisma.workflowRunRecord.findMany({
+        where: {
+          status: { in: ['needs_reconciliation', 'completed_with_errors'] },
+          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        },
+        take: 50,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          companyId: true,
+          workflowId: true,
+          failedStep: true,
+          channel: true,
+        },
+      });
+
+      if (!stale.length) return;
+
+      for (const run of stale) {
+        void logAgentAction({
+          companyId: run.companyId,
+          triggeredBy: 'automation',
+          action: 'workflow_reconciliation_alert',
+          resourceType: 'workflow_run',
+          resourceId: run.id,
+          inputs: { workflowId: run.workflowId, failedStep: run.failedStep, channel: run.channel },
+          status: 'failed',
+          result: `Workflow ${run.workflowId} needs manual reconciliation (step: ${run.failedStep ?? 'unknown'})`,
+        });
+      }
+
+      logger.warn('Workflow reconciliation sweep', { count: stale.length });
+    } catch (err: unknown) {
+      logger.error('reconcileWorkflowRuns failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
 

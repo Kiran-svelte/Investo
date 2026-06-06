@@ -44,6 +44,8 @@ const logger_1 = __importDefault(require("../../config/logger"));
 const maskPhoneNumberForLogs_1 = require("../../utils/maskPhoneNumberForLogs");
 const phoneMatch_1 = require("../../utils/phoneMatch");
 const copilotGreeting_util_1 = require("../../utils/copilotGreeting.util");
+const copilotShortcut_util_1 = require("../../utils/copilotShortcut.util");
+const inboundMessageGuard_service_1 = require("../inboundMessageGuard.service");
 /**
  * Builds a deterministic welcome/help message for the agent copilot.
  * Shown whenever a staff user sends a greeting or "help" command.
@@ -67,14 +69,10 @@ async function getPrisma() {
     const module = await Promise.resolve().then(() => __importStar(require('../../config/prisma')));
     return module.default;
 }
-async function sendStaffCopilotQuickActions(phone, companyId) {
+async function sendStaffCopilotQuickActions(phone, companyId, buttons) {
     try {
         const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp.service')));
-        await whatsappService.sendCompanyInteractiveButtons(phone, companyId, 'Tap a shortcut (or type your own command):', [
-            { id: 'copilot-visits-today', title: 'Visits today' },
-            { id: 'copilot-new-leads', title: 'New leads today' },
-            { id: 'copilot-visits-tomorrow', title: 'Visits tomorrow' },
-        ], 'Investo Copilot', 'CRM shortcuts');
+        await whatsappService.sendCompanyInteractiveButtons(phone, companyId, 'Tap a shortcut (or type your own command):', buttons, 'Investo Copilot', 'CRM shortcuts');
     }
     catch (err) {
         logger_1.default.debug('Staff copilot quick actions skipped', {
@@ -103,11 +101,15 @@ async function sendWhatsAppResponse(phone, companyId, message) {
     };
     await whatsappService.sendMessage(phone, message, outboundConfig);
 }
-async function handleAgentMessage(user, messageText) {
-    const normalizedText = (0, copilotGreeting_util_1.normalizeCopilotInboundText)(messageText);
+async function handleAgentMessage(user, messageText, interactiveId, inboundMessageId) {
+    const resolvedCommand = (0, copilotShortcut_util_1.resolveCopilotInboundCommand)({ interactiveId, messageText });
+    const normalizedText = (0, copilotGreeting_util_1.normalizeCopilotInboundText)(resolvedCommand);
     // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
     if ((0, copilotGreeting_util_1.isCopilotGreeting)(normalizedText)) {
-        return buildCopilotWelcomeMessage(user.userName, user.companyName);
+        return {
+            text: buildCopilotWelcomeMessage(user.userName, user.companyName),
+            replyKind: 'welcome',
+        };
     }
     const prisma = await getPrisma();
     const { getOrCreateThreadId } = await Promise.resolve().then(() => __importStar(require('./agent-memory.service')));
@@ -118,29 +120,39 @@ async function handleAgentMessage(user, messageText) {
     if (session) {
         const confirmation = await checkAndResolvePendingConfirmation(session.id, messageText);
         if (confirmation.hasPending && confirmation.isConfirmed) {
-            return executePendingAction(confirmation.pendingActionId);
+            return {
+                text: await executePendingAction(confirmation.pendingActionId),
+                replyKind: 'confirmation',
+            };
         }
         if (confirmation.hasPending && confirmation.isRejected) {
-            // Attendance check NO: mark no_show + invite customer to reschedule.
             if (confirmation.actionType === 'attendance_check') {
                 const { handleAttendanceCheckRejected } = await Promise.resolve().then(() => __importStar(require('./confirmation.service')));
-                return handleAttendanceCheckRejected(user.companyId, confirmation.actionParams ?? {});
+                const text = await handleAttendanceCheckRejected(user.companyId, confirmation.actionParams ?? {});
+                return { text, replyKind: 'confirmation' };
             }
-            return 'Action cancelled.';
+            return { text: 'Action cancelled.', replyKind: 'confirmation' };
         }
         if (confirmation.hasPending) {
-            return `${confirmation.displayMessage}\n\nReply "yes" to confirm or "no" to cancel.`;
+            return {
+                text: `${confirmation.displayMessage}\n\nReply "yes" to confirm or "no" to cancel.`,
+                replyKind: 'confirmation',
+            };
         }
     }
+    const { getAgentSessionContext } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
+    const sessionCtx = await getAgentSessionContext(session?.id);
     const toolContext = {
         userId: user.userId,
         companyId: user.companyId,
         userRole: user.userRole,
         userName: user.userName,
         sessionId: session?.id,
+        staffPhone: user.phone,
+        companyName: user.companyName,
+        sessionLeadId: sessionCtx.lastLeadId,
+        sessionVisitId: sessionCtx.lastVisitId,
     };
-    const { getAgentSessionContext } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
-    const sessionCtx = await getAgentSessionContext(session?.id);
     const { getRecentAgentSessionMessages } = await Promise.resolve().then(() => __importStar(require('./agent-session-messages.service')));
     const { classifyAndRunWorkflow } = await Promise.resolve().then(() => __importStar(require('../workflow/workflow-engine.service')));
     const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
@@ -154,11 +166,11 @@ async function handleAgentMessage(user, messageText) {
         if (session?.id) {
             await recordAgentCopilotExchange({
                 sessionId: session.id,
-                inboundText: messageText,
+                inboundText: resolvedCommand || messageText,
                 outboundText: crmReply,
             });
         }
-        return crmReply;
+        return { text: crmReply, replyKind: 'crm' };
     }
     const workflowReply = await classifyAndRunWorkflow({
         toolContext,
@@ -169,34 +181,38 @@ async function handleAgentMessage(user, messageText) {
         sessionVisitId: sessionCtx.lastVisitId,
         staffPhone: user.phone,
     });
-    if (workflowReply) {
+    if (workflowReply !== null && workflowReply !== undefined) {
         if (session?.id) {
             await recordAgentCopilotExchange({
                 sessionId: session.id,
-                inboundText: messageText,
+                inboundText: resolvedCommand || messageText,
                 outboundText: workflowReply,
             });
         }
-        return workflowReply;
+        return { text: workflowReply, replyKind: 'workflow' };
     }
-    const intentReply = await classifyAndExecuteAgentIntent({
-        toolContext,
-        messageText: normalizedText,
-        recentMessages,
-        companyName: user.companyName,
-        sessionLeadId: sessionCtx.lastLeadId,
-        sessionVisitId: sessionCtx.lastVisitId,
-        staffPhone: user.phone,
-    });
-    if (intentReply) {
+    const llmActive = config_1.default.agentAi?.enabled !== false && config_1.default.agentAi?.llmEnabled !== false;
+    const intentReply = llmActive
+        ? await classifyAndExecuteAgentIntent({
+            toolContext,
+            messageText: normalizedText,
+            recentMessages,
+            companyName: user.companyName,
+            sessionLeadId: sessionCtx.lastLeadId,
+            sessionVisitId: sessionCtx.lastVisitId,
+            staffPhone: user.phone,
+            inboundMessageId,
+        })
+        : null;
+    if (intentReply !== null && intentReply !== undefined) {
         if (session?.id) {
             await recordAgentCopilotExchange({
                 sessionId: session.id,
-                inboundText: messageText,
+                inboundText: resolvedCommand || messageText,
                 outboundText: intentReply,
             });
         }
-        return intentReply;
+        return { text: intentReply, replyKind: 'intent' };
     }
     const { buildClientMemoryContextForAgent, setAgentSessionClientContext } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
     const memory = await buildClientMemoryContextForAgent({
@@ -224,9 +240,39 @@ async function handleAgentMessage(user, messageText) {
         .replace(/[\r\n]+/g, ' ') // collapse newlines
         .trim();
     if ((0, copilotGreeting_util_1.isCopilotGreeting)(aggressivelyNormalized) || aggressivelyNormalized.length === 0) {
-        return buildCopilotWelcomeMessage(user.userName, user.companyName);
+        return {
+            text: buildCopilotWelcomeMessage(user.userName, user.companyName),
+            replyKind: 'welcome',
+        };
+    }
+    if (!llmActive) {
+        const deterministicFallback = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
+            sessionLeadId: sessionCtx.lastLeadId,
+        });
+        const helpText = deterministicFallback
+            || `📋 *Investo Copilot* (deterministic mode)\n\n` +
+                `LLM is off — these commands still work:\n` +
+                `• "visits today" • "new leads today"\n` +
+                `• "get lead [name]" • "confirm visit"\n\n` +
+                `Or use the *Investo dashboard* for advanced operations.`;
+        if (session?.id) {
+            await recordAgentCopilotExchange({
+                sessionId: session.id,
+                inboundText: resolvedCommand || messageText,
+                outboundText: helpText,
+            });
+            if (sessionCtx.lastLeadId) {
+                const { patchLeadMemory } = await Promise.resolve().then(() => __importStar(require('../lead-memory.service')));
+                void patchLeadMemory(sessionCtx.lastLeadId, {
+                    lastIntent: 'staff_copilot_deterministic',
+                    conversationSummary: `${normalizedText.slice(0, 80)} → deterministic reply`,
+                }).catch(() => undefined);
+            }
+        }
+        return { text: helpText, replyKind: deterministicFallback ? 'crm' : 'help_fallback' };
     }
     let agentReply;
+    let replyKind = 'agent';
     try {
         agentReply = await invokeAgent({
             messageText: normalizedText,
@@ -234,6 +280,8 @@ async function handleAgentMessage(user, messageText) {
             toolContext,
             companyName: user.companyName,
             clientMemoryBlock: memory.block,
+            sessionLeadId: sessionCtx.lastLeadId,
+            sessionVisitId: sessionCtx.lastVisitId,
         });
     }
     catch (agentErr) {
@@ -246,9 +294,11 @@ async function handleAgentMessage(user, messageText) {
         });
         if (fallback) {
             agentReply = fallback;
+            replyKind = 'crm';
         }
         else if ((0, copilotGreeting_util_1.isCopilotGreeting)(normalizedText)) {
             agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+            replyKind = 'welcome';
         }
         else {
             agentReply =
@@ -260,6 +310,7 @@ async function handleAgentMessage(user, messageText) {
                     `✅ *Quick actions*\n` +
                     `• "confirm visit" • "mark lead [name] visited"\n\n` +
                     `Or use the *Investo dashboard* for advanced operations.`;
+            replyKind = 'help_fallback';
         }
     }
     // Post-LLM safety filter: if the LLM generated a vague refusal or "I couldn't
@@ -268,27 +319,50 @@ async function handleAgentMessage(user, messageText) {
     const isLlmRefusal = /could\s+not\s+complete|unable\s+to\s+(retrieve|process)|try\s+a\s+shorter/i.test(agentReply);
     if (isLlmRefusal && aggressivelyNormalized.length < 30) {
         agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+        replyKind = 'welcome';
     }
     if (session?.id) {
         await recordAgentCopilotExchange({
             sessionId: session.id,
-            inboundText: messageText,
+            inboundText: resolvedCommand || messageText,
             outboundText: agentReply,
         });
+        if (sessionCtx.lastLeadId) {
+            const { patchLeadMemory } = await Promise.resolve().then(() => __importStar(require('../lead-memory.service')));
+            void patchLeadMemory(sessionCtx.lastLeadId, {
+                lastIntent: replyKind,
+                conversationSummary: `${normalizedText.slice(0, 80)} → ${agentReply.slice(0, 120)}`,
+            }).catch(() => undefined);
+        }
     }
-    return agentReply;
+    return { text: agentReply, replyKind };
 }
 /**
  * Agent copilot for a known company user (caller must verify company membership).
  */
-async function routeIfInternalUserForCompany(senderPhone, messageText, user) {
-    if (!config_1.default.agentAi?.enabled || !messageText.trim())
+async function routeIfInternalUserForCompany(senderPhone, messageText, user, interactiveId, inboundMessageId) {
+    const resolvedText = (0, copilotShortcut_util_1.resolveCopilotInboundCommand)({ interactiveId, messageText });
+    const copilotActive = config_1.default.agentAi?.enabled !== false && config_1.default.agentAi?.copilotEnabled !== false;
+    if (!copilotActive || !resolvedText.trim())
         return false;
+    const fingerprintClaimed = await (0, inboundMessageGuard_service_1.claimStaffInboundFingerprint)(user.companyId, user.userId, resolvedText);
+    if (!fingerprintClaimed) {
+        return true;
+    }
+    const turnClaimed = await (0, inboundMessageGuard_service_1.claimStaffCopilotTurn)(user.companyId, user.userId);
+    if (!turnClaimed) {
+        return true;
+    }
+    const normalizedPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone);
     try {
-        const normalizedPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone);
-        const response = await handleAgentMessage(user, messageText);
-        await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
-        await sendStaffCopilotQuickActions(normalizedPhone, user.companyId);
+        const { text: response, replyKind } = await handleAgentMessage(user, messageText, interactiveId, inboundMessageId);
+        if (await (0, inboundMessageGuard_service_1.claimStaffCopilotOutboundReply)(user.companyId, inboundMessageId)) {
+            await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
+        }
+        const quickActions = (0, copilotShortcut_util_1.resolveStaffCopilotQuickActions)({ replyKind, outboundText: response });
+        if (quickActions?.length) {
+            await sendStaffCopilotQuickActions(normalizedPhone, user.companyId, quickActions);
+        }
         return true;
     }
     catch (error) {
@@ -297,8 +371,13 @@ async function routeIfInternalUserForCompany(senderPhone, messageText, user) {
             userId: user.userId,
             error: error?.message,
         });
-        await sendWhatsAppResponse((0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone), user.companyId, 'I hit an issue processing that request. Please try again.');
+        if (await (0, inboundMessageGuard_service_1.claimStaffCopilotOutboundReply)(user.companyId, inboundMessageId)) {
+            await sendWhatsAppResponse(normalizedPhone, user.companyId, 'That request did not go through. Try a shorter command like "visits today" or "new leads today", or use the Investo dashboard.');
+        }
         return true;
+    }
+    finally {
+        await (0, inboundMessageGuard_service_1.releaseStaffCopilotTurn)(user.companyId, user.userId);
     }
 }
 /**

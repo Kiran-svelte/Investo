@@ -39,7 +39,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createVisitTools = createVisitTools;
 const zod_1 = require("zod");
 const prisma_1 = __importDefault(require("../../../config/prisma"));
-const logger_1 = __importDefault(require("../../../config/logger"));
 const agent_tools_constants_1 = require("../../../constants/agent-tools.constants");
 const confirmation_service_1 = require("../confirmation.service");
 const format_helpers_1 = require("./format-helpers");
@@ -141,6 +140,7 @@ function createVisitTools(context) {
                 if (agent_tools_constants_1.LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE.has(lead.status)) {
                     await prisma_1.default.lead.update({ where: { id: leadId }, data: { status: 'visit_scheduled' } });
                 }
+                void Promise.resolve().then(() => __importStar(require('../../visitNotificationBridge.service'))).then(({ notifyVisitScheduledFromTool }) => notifyVisitScheduledFromTool(visit.id));
                 return `Visit scheduled.\n\n${formatVisit(visit)}`;
             },
         }),
@@ -156,6 +156,7 @@ function createVisitTools(context) {
                     return 'Cannot complete a cancelled visit.';
                 const updated = await prisma_1.default.visit.update({ where: { id: visitId }, data: { status: 'completed', notes: notes ?? undefined }, include });
                 await prisma_1.default.lead.update({ where: { id: visit.leadId }, data: { status: 'visited', lastContactAt: new Date() } });
+                void Promise.resolve().then(() => __importStar(require('../../visitNotificationBridge.service'))).then(({ notifyVisitStatusChangeFromTool }) => notifyVisitStatusChangeFromTool(visitId, visit.status, 'completed'));
                 return `Visit completed.\n\n${formatVisit(updated)}`;
             },
         }),
@@ -183,39 +184,15 @@ function createVisitTools(context) {
             func: async ({ visitId, newScheduledAt }) => {
                 const visit = await prisma_1.default.visit.findFirst({
                     where: { id: visitId, ...visitScope(context) },
-                    // Fetch scheduledAt (old time) so the agent notification shows before/after delta.
-                    select: { id: true, status: true, scheduledAt: true, leadId: true, companyId: true },
+                    select: { id: true, status: true, scheduledAt: true },
                 });
                 if (!visit)
                     return 'Visit not found or access denied.';
                 if (visit.status === 'completed' || visit.status === 'cancelled')
                     return `Cannot reschedule a ${visit.status} visit.`;
-                const oldScheduledAt = visit.scheduledAt;
-                const updated = await prisma_1.default.visit.update({
-                    where: { id: visitId },
-                    data: { scheduledAt: new Date(newScheduledAt), reminderSent: false },
-                    include,
-                });
-                // Notify the assigned agent immediately — dashboard DB record + WhatsApp message.
-                // Fire-and-forget: a notification failure must never fail the reschedule itself.
-                void (async () => {
-                    try {
-                        const { notificationEngine } = await Promise.resolve().then(() => __importStar(require('../../notification.engine')));
-                        const company = await prisma_1.default.company.findUnique({ where: { id: visit.companyId } });
-                        const lead = visit.leadId
-                            ? await prisma_1.default.lead.findUnique({ where: { id: visit.leadId }, select: { customerName: true, phone: true } })
-                            : null;
-                        if (company && lead) {
-                            await notificationEngine.onVisitRescheduled(updated, oldScheduledAt, new Date(newScheduledAt), lead, company);
-                        }
-                    }
-                    catch (err) {
-                        logger_1.default.warn('rescheduleVisit: agent notification failed', {
-                            visitId,
-                            error: err instanceof Error ? err.message : String(err),
-                        });
-                    }
-                })();
+                const oldTime = visit.scheduledAt;
+                const updated = await prisma_1.default.visit.update({ where: { id: visitId }, data: { scheduledAt: new Date(newScheduledAt), reminderSent: false }, include });
+                void Promise.resolve().then(() => __importStar(require('../../visitNotificationBridge.service'))).then(({ notifyVisitRescheduledFromTool }) => notifyVisitRescheduledFromTool(visitId, oldTime));
                 return `Visit rescheduled.\n\n${formatVisit(updated)}`;
             },
         }),

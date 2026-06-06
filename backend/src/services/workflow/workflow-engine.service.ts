@@ -1,12 +1,25 @@
+import { v4 as uuidv4 } from 'uuid';
 import config from '../../config';
 import logger from '../../config/logger';
+import prisma from '../../config/prisma';
+import { cacheGet, cacheSet } from '../../config/redis';
 import { incrementOpsMetric } from '../opsMetrics.service';
 import {
   BUYER_WORKFLOW_IDS,
+  CLARIFICATION_BAND,
+  MUTATION_CONFIDENCE_THRESHOLD,
+  MUTATION_WORKFLOW_IDS,
   WORKFLOW_CONFIDENCE_THRESHOLD,
+  WORKFLOW_IDEMPOTENCY_TTL_SECONDS,
   WORKFLOW_LLM_TEMPERATURE,
+  type MutationWorkflowId,
   type WorkflowId,
 } from '../../constants/workflow.constants';
+import {
+  buildPartialFailureReply,
+  isMutationAction,
+  runCompensators,
+} from './workflow-compensator.service';
 import type { AgentIntent } from '../../constants/agent-intent.constants';
 import { fetchOpenAi, OPENAI_CHAT_URL, openAiKeyProblem } from '../openaiStatus.service';
 import { setAgentSessionClientContext } from '../clientMemory.service';
@@ -197,8 +210,237 @@ function normalizeWorkflowParameters(params: WorkflowParams, messageText: string
   return normalized;
 }
 
+const MUTATION_WORKFLOW_SET = new Set<string>(MUTATION_WORKFLOW_IDS);
+const WORKFLOW_IDEM_REDIS_PREFIX = 'workflow-idem:';
+
+export function buildWorkflowIdempotencyKey(
+  workflowId: WorkflowId,
+  params: WorkflowParams,
+  companyId: string,
+): string | null {
+  const scheduledAt = params.scheduledAt ?? params.newScheduledAt;
+  let scheduledIso: string | null = null;
+  if (scheduledAt) {
+    const parsed = new Date(scheduledAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      scheduledIso = parsed.toISOString();
+    }
+  }
+
+  switch (workflowId) {
+    case 'schedule_visit':
+      if (!params.leadId || !scheduledIso) return null;
+      return `schedule_visit:${companyId}:${params.leadId}:${scheduledIso}`;
+    case 'reschedule_visit':
+      if (!params.visitId || !scheduledIso) return null;
+      return `reschedule_visit:${companyId}:${params.visitId}:${scheduledIso}`;
+    case 'cancel_visit':
+      if (!params.visitId) return null;
+      return `cancel_visit:${companyId}:${params.visitId}`;
+    default:
+      return null;
+  }
+}
+
+export interface WorkflowIdempotencyClaim {
+  claimed: boolean;
+  cachedReply?: string;
+  key?: string;
+}
+
+/** Redis + DB claim before runWorkflow loop. */
+export async function claimWorkflowExecution(
+  key: string,
+  companyId: string,
+  workflowId: WorkflowId,
+): Promise<WorkflowIdempotencyClaim> {
+  const redisKey = `${WORKFLOW_IDEM_REDIS_PREFIX}${companyId}:${key}`;
+  const cached = await cacheGet<string>(redisKey);
+  if (cached) {
+    incrementOpsMetric('workflow_idempotency_hits');
+    return { claimed: false, cachedReply: cached, key };
+  }
+
+  const model = (prisma as any).workflowIdempotencyKey;
+  if (!model?.findUnique || !model?.create) {
+    return { claimed: true, key };
+  }
+
+  const existing = await model.findUnique({
+    where: { companyId_key: { companyId, key } },
+    select: { resultReply: true, expiresAt: true, status: true },
+  });
+  if (existing && existing.expiresAt > new Date() && existing.status === 'completed' && existing.resultReply) {
+    await cacheSet(redisKey, existing.resultReply, WORKFLOW_IDEMPOTENCY_TTL_SECONDS);
+    incrementOpsMetric('workflow_idempotency_hits');
+    return { claimed: false, cachedReply: existing.resultReply, key };
+  }
+  if (existing && existing.expiresAt > new Date() && existing.status === 'running') {
+    incrementOpsMetric('workflow_idempotency_hits');
+    return {
+      claimed: false,
+      cachedReply: 'That workflow is already being processed. I will send the confirmed result shortly.',
+      key,
+    };
+  }
+
+  const expiresAt = new Date(Date.now() + WORKFLOW_IDEMPOTENCY_TTL_SECONDS * 1000);
+  try {
+    await model.create({
+      data: { companyId, key, workflowId, status: 'running', expiresAt },
+    });
+    return { claimed: true, key };
+  } catch (err: unknown) {
+    const retry = await model.findUnique({
+      where: { companyId_key: { companyId, key } },
+      select: { resultReply: true, expiresAt: true, status: true },
+    });
+    if (retry?.resultReply && retry.expiresAt > new Date()) {
+      return { claimed: false, cachedReply: retry.resultReply, key };
+    }
+    if (retry?.status === 'running' && retry.expiresAt > new Date()) {
+      return {
+        claimed: false,
+        cachedReply: 'That workflow is already being processed. I will send the confirmed result shortly.',
+        key,
+      };
+    }
+    logger.warn('Workflow idempotency claim failed — proceeding without dedup', {
+      companyId,
+      key,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { claimed: true, key };
+  }
+}
+
+async function persistWorkflowIdempotencyResult(
+  companyId: string,
+  key: string | undefined,
+  reply: string,
+): Promise<void> {
+  if (!key) return;
+  const redisKey = `${WORKFLOW_IDEM_REDIS_PREFIX}${companyId}:${key}`;
+  await cacheSet(redisKey, reply, WORKFLOW_IDEMPOTENCY_TTL_SECONDS);
+  const model = (prisma as any).workflowIdempotencyKey;
+  if (!model?.updateMany) return;
+  await model.updateMany({
+    where: { companyId, key },
+    data: { resultReply: reply, status: 'completed' },
+  }).catch(() => undefined);
+}
+
+async function clearWorkflowIdempotencyClaim(companyId: string, key: string | undefined): Promise<void> {
+  if (!key) return;
+  const model = (prisma as any).workflowIdempotencyKey;
+  if (!model?.deleteMany) return;
+  await model.deleteMany({ where: { companyId, key } }).catch(() => undefined);
+}
+
+function stepMatchesChannel(step: { channel?: 'buyer' | 'staff' }, runChannel: 'buyer' | 'staff'): boolean {
+  if (!step.channel) return true;
+  return step.channel === runChannel;
+}
+
+function buildClarificationReply(workflowId: MutationWorkflowId): string {
+  if (workflowId === 'schedule_visit' || workflowId === 'reschedule_visit') {
+    return (
+      'I want to make sure I get this right — would you like to:\n' +
+      '1️⃣ *Book a new visit*\n' +
+      '2️⃣ *Change an existing visit*\n\n' +
+      'Reply with 1 or 2, or describe what you need.'
+    );
+  }
+  if (workflowId === 'cancel_visit') {
+    return 'Should I cancel your *upcoming visit*? Reply *yes* to confirm or describe which visit.';
+  }
+  return 'Could you clarify what you would like me to do with your visit?';
+}
+
+async function storePendingClarification(
+  leadId: string | undefined,
+  workflowId: WorkflowId,
+  parameters: WorkflowParams,
+): Promise<void> {
+  if (!leadId) return;
+  const conversation = await prisma.conversation.findFirst({
+    where: { leadId, status: { not: 'closed' } },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, commitments: true },
+  });
+  if (!conversation) return;
+  const commitments = (conversation.commitments as Record<string, unknown>) ?? {};
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      commitments: {
+        ...commitments,
+        pendingClarification: {
+          workflowId,
+          parameters: parameters as object,
+          createdAt: new Date().toISOString(),
+        },
+      } as object,
+    },
+  }).catch(() => undefined);
+}
+
+export async function resolvePendingClarification(
+  leadId: string,
+  messageText: string,
+): Promise<{ workflowId: WorkflowId; parameters: WorkflowParams } | null> {
+  const conversation = await prisma.conversation.findFirst({
+    where: { leadId, status: { not: 'closed' } },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, commitments: true },
+  });
+  if (!conversation) return null;
+  const commitments = conversation.commitments as Record<string, unknown> | null;
+  const pending = commitments?.pendingClarification as {
+    workflowId?: WorkflowId;
+    parameters?: WorkflowParams;
+  } | undefined;
+  if (!pending?.workflowId) return null;
+
+  const text = messageText.trim().toLowerCase();
+  let workflowId = pending.workflowId;
+  const parameters = { ...(pending.parameters ?? {}) };
+
+  if (/^1\b|new\s+visit|book\s+new/i.test(text)) {
+    workflowId = 'schedule_visit';
+  } else if (/^2\b|change|reschedule|move|push/i.test(text)) {
+    workflowId = 'reschedule_visit';
+  } else if (/^yes\b|confirm|cancel/i.test(text) && pending.workflowId === 'cancel_visit') {
+    workflowId = 'cancel_visit';
+  } else if (text.length < 4) {
+    return null;
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      commitments: { ...commitments, pendingClarification: null },
+    },
+  }).catch(() => undefined);
+
+  return { workflowId, parameters };
+}
+
+function evaluateMutationConfidence(
+  workflowId: WorkflowId,
+  confidence: number,
+): 'execute' | 'clarify' | 'fallthrough' {
+  if (!MUTATION_WORKFLOW_SET.has(workflowId)) {
+    return confidence >= WORKFLOW_CONFIDENCE_THRESHOLD ? 'execute' : 'fallthrough';
+  }
+  if (confidence >= MUTATION_CONFIDENCE_THRESHOLD) return 'execute';
+  if (confidence >= CLARIFICATION_BAND.low && confidence < CLARIFICATION_BAND.high) return 'clarify';
+  return 'fallthrough';
+}
+
 /**
  * Execute ordered workflow steps. Stops on first failure or `stop: true`.
+ * Wraps idempotency claim, saga step tracking, and compensators.
  */
 export async function runWorkflow(
   workflowId: WorkflowId,
@@ -219,6 +461,36 @@ export async function runWorkflow(
     sessionVisitId: run.sessionVisitId,
   });
 
+  const companyId = run.toolContext.companyId;
+  const idemKey = buildWorkflowIdempotencyKey(workflowId, enriched, companyId);
+  if (idemKey) {
+    const claim = await claimWorkflowExecution(idemKey, companyId, workflowId);
+    if (!claim.claimed && claim.cachedReply) {
+      return { ok: true, reply: claim.cachedReply, workflowId, idempotencyHit: true };
+    }
+  }
+
+  const workflowRunId = uuidv4();
+  run.workflowRunId = workflowRunId;
+  const runChannel: 'buyer' | 'staff' = run.channel ?? 'staff';
+  const stateSnapshot: Record<string, unknown> = {};
+
+  const runRecordModel = (prisma as any).workflowRunRecord;
+  if (runRecordModel?.create) {
+    await runRecordModel.create({
+      data: {
+        id: workflowRunId,
+        companyId,
+        workflowId,
+        channel: runChannel,
+        idempotencyKey: idemKey,
+        status: 'running',
+        stateSnapshot: {},
+        stepsJson: [],
+      },
+    }).catch(() => undefined);
+  }
+
   const state: WorkflowState = {
     leadId: enriched.leadId,
     visitId: enriched.visitId,
@@ -230,8 +502,11 @@ export async function runWorkflow(
   const messages: string[] = [];
   const completedSteps: string[] = [];
   const executedActions = new Set<string>();
+  const stepsLog: Array<{ action: string; status: string; errorMessage?: string }> = [];
 
   for (const step of definition.steps) {
+    if (!stepMatchesChannel(step, runChannel)) continue;
+
     if (executedActions.has(step.action)) {
       logger.warn('Workflow action dedup: skipping duplicate step in same run', {
         workflowId,
@@ -241,9 +516,25 @@ export async function runWorkflow(
     }
     executedActions.add(step.action);
 
+    if (isMutationAction(step.action)) {
+      if (state.leadId && !stateSnapshot.oldLeadStatus) {
+        const lead = await prisma.lead.findUnique({
+          where: { id: state.leadId },
+          select: { status: true },
+        });
+        if (lead) stateSnapshot.oldLeadStatus = lead.status;
+      }
+      if (step.action === 'bookVisit') {
+        stateSnapshot.priorVisitId = state.visitId;
+      }
+    }
+
     const handler = WORKFLOW_ACTION_HANDLERS[step.action];
     if (!handler) {
       if (step.optional) continue;
+      stepsLog.push({ action: step.action, status: 'failed', errorMessage: 'handler not configured' });
+      await finalizeWorkflowRun(workflowRunId, 'failed', stepsLog, step.action);
+      await clearWorkflowIdempotencyClaim(companyId, idemKey ?? undefined);
       return {
         ok: false,
         reply: `Workflow "${workflowId}" failed at step "${step.action}": handler not configured.`,
@@ -256,17 +547,47 @@ export async function runWorkflow(
     const result = await handler({ run, params: enriched, state });
     if (result.data) Object.assign(state, result.data);
     if (typeof result.data?.leadId === 'string') enriched.leadId = result.data.leadId;
-    if (typeof result.data?.visitId === 'string') enriched.visitId = result.data.visitId;
+    if (typeof result.data?.visitId === 'string') {
+      if (step.action === 'bookVisit' && !stateSnapshot.createdVisitId) {
+        stateSnapshot.createdVisitId = result.data.visitId;
+      }
+      enriched.visitId = result.data.visitId;
+    }
 
     if (!result.ok) {
-      if (step.optional) continue;
+      if (step.optional) {
+        stepsLog.push({ action: step.action, status: 'skipped', errorMessage: result.message });
+        continue;
+      }
       const detail = result.message ?? 'Could not complete that request.';
-      logger.warn('Workflow step failed', {
-        workflowId,
-        step: step.action,
-        completedSteps,
-        detail,
-      });
+      stepsLog.push({ action: step.action, status: 'failed', errorMessage: detail });
+      logger.warn('Workflow step failed', { workflowId, step: step.action, completedSteps, detail });
+
+      const hadMutations = completedSteps.some(isMutationAction);
+      if (hadMutations) {
+        await runCompensators({
+          workflowRunId,
+          failedStep: step.action,
+          completedSteps,
+          state,
+          stateSnapshot,
+          companyId,
+        });
+        const label = definition.label;
+        await finalizeWorkflowRun(workflowRunId, 'needs_reconciliation', stepsLog, step.action, stateSnapshot);
+        await clearWorkflowIdempotencyClaim(companyId, idemKey ?? undefined);
+        return {
+          ok: false,
+          reply: buildPartialFailureReply(label, step.action),
+          workflowId,
+          failedStep: step.action,
+          completedSteps,
+          needsReconciliation: true,
+        };
+      }
+
+      await finalizeWorkflowRun(workflowRunId, 'failed', stepsLog, step.action);
+      await clearWorkflowIdempotencyClaim(companyId, idemKey ?? undefined);
       return {
         ok: false,
         reply: `Workflow "${workflowId}" failed at step "${step.action}": ${detail}`,
@@ -277,6 +598,7 @@ export async function runWorkflow(
     }
 
     completedSteps.push(step.action);
+    stepsLog.push({ action: step.action, status: 'completed' });
     if (result.message) messages.push(result.message);
     if (result.stop) break;
   }
@@ -290,13 +612,39 @@ export async function runWorkflow(
     }).catch(() => undefined);
   }
 
+  await finalizeWorkflowRun(workflowRunId, 'completed', stepsLog, undefined, stateSnapshot);
+
   if (!messages.length) {
-    return { ok: true, reply: null, workflowId };
+    return { ok: true, reply: null, workflowId, completedSteps };
   }
 
   const reply = messages.length === 1 ? messages[0] : messages.join('\n\n');
+  if (idemKey) {
+    await persistWorkflowIdempotencyResult(companyId, idemKey, reply);
+  }
   incrementOpsMetric('workflow_runs');
   return { ok: true, reply, workflowId, completedSteps };
+}
+
+async function finalizeWorkflowRun(
+  workflowRunId: string,
+  status: 'running' | 'completed' | 'failed' | 'completed_with_errors' | 'needs_reconciliation',
+  stepsJson: Array<{ action: string; status: string; errorMessage?: string }>,
+  failedStep?: string,
+  stateSnapshot?: Record<string, unknown>,
+): Promise<void> {
+  const model = (prisma as any).workflowRunRecord;
+  if (!model?.update) return;
+  await model.update({
+    where: { id: workflowRunId },
+    data: {
+      status,
+      stepsJson,
+      failedStep: failedStep ?? null,
+      stateSnapshot: (stateSnapshot ?? {}) as object,
+      completedAt: status === 'completed' ? new Date() : undefined,
+    },
+  }).catch(() => undefined);
 }
 
 /**
@@ -406,17 +754,21 @@ function shouldClassifyWorkflow(messageText: string): boolean {
   return true;
 }
 
+function isCopilotActive(): boolean {
+  return Boolean(config.agentAi?.enabled && config.agentAi?.copilotEnabled !== false);
+}
+
+function isLlmActive(): boolean {
+  return Boolean(config.agentAi?.enabled && config.agentAi?.llmEnabled !== false);
+}
+
 export async function classifyAndRunWorkflow(
   run: WorkflowRunContext,
   deps?: { llm?: WorkflowLlmCaller },
 ): Promise<string | null> {
-  // Do NOT gate on openAiKeyProblem() here — defaultWorkflowLlm has its own
-  // OpenAI → Claude → Kimi fallback chain. Blocking here kills classification
-  // even when Claude/Kimi are healthy.
-  if (!config.agentAi?.enabled || !shouldClassifyWorkflow(run.messageText)) {
+  if (!isCopilotActive() || !shouldClassifyWorkflow(run.messageText)) {
     return null;
   }
-
 
   try {
     const { tryResolveVisitListReply, wantsVisitOnSpecificDate } = await import('../agent/agent-crm-query.service');
@@ -435,6 +787,10 @@ export async function classifyAndRunWorkflow(
       }
     }
 
+    if (!isLlmActive()) {
+      return null;
+    }
+
     const classified = await classifyWorkflowMessage(
       {
         messageText: run.messageText,
@@ -446,12 +802,24 @@ export async function classifyAndRunWorkflow(
       deps?.llm,
     );
 
-    if (classified.workflowId === 'unknown' || classified.confidence < WORKFLOW_CONFIDENCE_THRESHOLD) {
+    if (classified.workflowId === 'unknown') {
       return null;
     }
 
-    const mutationWorkflows = new Set(['reschedule_visit', 'schedule_visit', 'cancel_visit']);
-    if (mutationWorkflows.has(classified.workflowId) && isVisitDateListQuery) {
+    const confidenceAction = evaluateMutationConfidence(classified.workflowId, classified.confidence);
+    if (confidenceAction === 'fallthrough') {
+      return null;
+    }
+    if (confidenceAction === 'clarify') {
+      await storePendingClarification(
+        classified.parameters.leadId ?? run.sessionLeadId ?? undefined,
+        classified.workflowId,
+        classified.parameters,
+      );
+      return buildClarificationReply(classified.workflowId as MutationWorkflowId);
+    }
+
+    if (MUTATION_WORKFLOW_SET.has(classified.workflowId) && isVisitDateListQuery) {
       const listReply = await tryResolveVisitListReply(run.toolContext, run.messageText);
       if (listReply) return listReply;
       return null;
@@ -531,10 +899,15 @@ export async function tryRunBuyerWorkflow(input: {
   messageText: string;
   propertyId?: string;
   companyName?: string;
+  sessionVisitId?: string | null;
 }): Promise<string | null> {
   const text = input.messageText.toLowerCase();
   let workflowId: WorkflowId | null = null;
-  if (/\b(brochure|pdf|details|share)\b/.test(text)) workflowId = 'brochure_request';
+  if (/\b(cancel|call\s+off)\b.*\b(visit|appointment)\b/.test(text)) workflowId = 'cancel_visit';
+  else if (/\b(reschedule|move|push|change)\b.*\b(visit|appointment|slot)\b/.test(text)) workflowId = 'reschedule_visit';
+  else if (/\b(book|schedule)\b.*\b(visit|appointment|site\s+visit)\b/.test(text)) workflowId = 'schedule_visit';
+  else if (/\b(site\s+visit|property\s+visit)\b/.test(text)) workflowId = 'schedule_visit';
+  else if (/\b(brochure|pdf|details|share)\b/.test(text)) workflowId = 'brochure_request';
   else if (/\b(price|cost|how much|rate)\b/.test(text)) workflowId = 'price_inquiry';
   else if (/\b(available|availability|units left|in stock)\b/.test(text)) workflowId = 'availability_check';
   else if (/\b(amenit|pool|gym|clubhouse)\b/.test(text)) workflowId = 'amenities_question';
@@ -542,11 +915,14 @@ export async function tryRunBuyerWorkflow(input: {
   if (!workflowId) return null;
   if (workflowId === 'escalate_to_human' && !input.leadId) return null;
 
-  const result = await runWorkflow(workflowId, buildBuyerWorkflowRun(input), {
+  const params: WorkflowParams = {
     leadId: input.leadId,
     propertyId: input.propertyId,
+    visitId: input.sessionVisitId ?? undefined,
     message: input.messageText,
-  });
+  };
+
+  const result = await runWorkflow(workflowId, buildBuyerWorkflowRun(input), params);
 
   if (!result.ok || !result.reply?.trim()) return null;
   return formatBuyerWorkflowReply(workflowId, result.reply);
@@ -596,7 +972,20 @@ export async function classifyAndRunBuyerWorkflow(
 
   const run = buildBuyerWorkflowRun(input);
 
-  if (!config.agentAi?.enabled) {
+  const pending = await resolvePendingClarification(input.leadId, input.messageText);
+  if (pending && isBuyerWorkflowId(pending.workflowId)) {
+    const params: WorkflowParams = {
+      ...pending.parameters,
+      leadId: pending.parameters.leadId ?? input.leadId,
+      propertyId: pending.parameters.propertyId ?? input.propertyId,
+      visitId: pending.parameters.visitId ?? input.sessionVisitId ?? undefined,
+      message: input.messageText,
+    };
+    const result = await runWorkflow(pending.workflowId, run, params);
+    if (result.reply?.trim()) return formatBuyerWorkflowReply(pending.workflowId, result.reply);
+  }
+
+  if (!isCopilotActive() || !isLlmActive()) {
     return tryRunBuyerWorkflow(input);
   }
 
@@ -612,18 +1001,24 @@ export async function classifyAndRunBuyerWorkflow(
       deps?.llm,
     );
 
-    if (
-      classified.workflowId === 'unknown'
-      || classified.confidence < WORKFLOW_CONFIDENCE_THRESHOLD
-      || !isBuyerWorkflowId(classified.workflowId)
-    ) {
+    if (classified.workflowId === 'unknown' || !isBuyerWorkflowId(classified.workflowId)) {
       return tryRunBuyerWorkflow(input);
+    }
+
+    const confidenceAction = evaluateMutationConfidence(classified.workflowId, classified.confidence);
+    if (confidenceAction === 'fallthrough') {
+      return tryRunBuyerWorkflow(input);
+    }
+    if (confidenceAction === 'clarify') {
+      await storePendingClarification(input.leadId, classified.workflowId, classified.parameters);
+      return buildClarificationReply(classified.workflowId as MutationWorkflowId);
     }
 
     const params: WorkflowParams = {
       ...classified.parameters,
       leadId: classified.parameters.leadId ?? input.leadId,
       propertyId: classified.parameters.propertyId ?? input.propertyId,
+      visitId: classified.parameters.visitId ?? input.sessionVisitId ?? undefined,
       message: input.messageText,
     };
 

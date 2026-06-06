@@ -1,0 +1,236 @@
+/**
+ * @file workflow-compensator.service.ts
+ * @description Compensating saga actions for workflow partial failures (Gap 1).
+ *
+ * When a workflow step fails after a mutation has already been committed,
+ * compensators here reverse those mutations so the system stays consistent
+ * without silent orphan records.
+ *
+ * Strategy (ai-implementation-plan.md Option C + limited A for visit mutations):
+ *  - Compensators run in REVERSE order of completed mutation steps.
+ *  - Compensator failures mark the run as `needs_reconciliation` for manual review.
+ *  - All compensation actions are logged to `agent_action_logs` for audit.
+ */
+
+import prisma from '../../config/prisma';
+import logger from '../../config/logger';
+import { logAgentAction } from '../agent-action-log.service';
+import type { WorkflowState } from './workflow.types';
+
+/** DB writes that need compensation on downstream failure. cancelVisitSlot is preparatory only. */
+const MUTATION_ACTIONS = new Set([
+  'bookVisit',
+  'cancelVisit',
+  'updateLeadStatus',
+  'updateLeadStatusVisitScheduled',
+  'updateLeadStatusVisited',
+]);
+
+/**
+ * Returns true when an action name corresponds to a DB mutation.
+ * Used to decide which completed steps need compensation on failure.
+ *
+ * @param action - Workflow action name (e.g. 'bookVisit').
+ */
+export function isMutationAction(action: string): boolean {
+  return MUTATION_ACTIONS.has(action);
+}
+
+/**
+ * Cancels a visit that was created during a failed workflow run.
+ * Scoped to `companyId` as a safety guard against cross-tenant mutations.
+ * No-op if the visit is already cancelled.
+ *
+ * @param visitId - ID of the visit to cancel.
+ * @param companyId - Tenant scope for cross-tenant safety.
+ * @returns true if cancelled or already cancelled, false on unexpected DB error.
+ * @throws Never — all errors are caught and logged.
+ */
+export async function compensateBookVisit(visitId: string, companyId?: string): Promise<boolean> {
+  try {
+    const whereClause: Record<string, unknown> = { id: visitId };
+    if (companyId) whereClause['companyId'] = companyId;
+
+    const visit = await prisma.visit.findFirst({
+      where: whereClause as any,
+      select: { status: true },
+    });
+    if (!visit || visit.status === 'cancelled') return true;
+
+    await prisma.visit.update({
+      where: { id: visitId },
+      data: { status: 'cancelled', updatedAt: new Date() },
+    });
+    logger.info('Compensator: visit cancelled', { visitId, companyId });
+    return true;
+  } catch (err: unknown) {
+    logger.error('Compensator: compensateBookVisit failed', {
+      visitId,
+      companyId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/**
+ * Reverts a lead status to the value captured before the workflow mutation.
+ * If no snapshot exists, returns false without touching the lead.
+ *
+ * @param leadId - ID of the lead to revert.
+ * @param previousStatus - Pre-mutation status from stateSnapshot.oldLeadStatus.
+ * @param companyId - Tenant scope for safety.
+ * @returns true if reverted, false if no snapshot or DB error.
+ * @throws Never — all errors are caught and logged.
+ */
+export async function compensateUpdateLeadStatus(
+  leadId: string,
+  previousStatus: string | undefined,
+  companyId?: string,
+): Promise<boolean> {
+  if (!previousStatus) {
+    logger.warn('Compensator: no previousStatus snapshot; cannot revert lead status', {
+      leadId,
+      companyId,
+    });
+    return false;
+  }
+  try {
+    await prisma.lead.update({
+      where: { id: leadId },
+      // TODO(agent): verify — status cast required; Prisma enum does not accept plain string in generic paths
+      data: { status: previousStatus as any, updatedAt: new Date() },
+    });
+    logger.info('Compensator: lead status reverted', { leadId, companyId, revertedTo: previousStatus });
+    return true;
+  } catch (err: unknown) {
+    logger.error('Compensator: compensateUpdateLeadStatus failed', {
+      leadId,
+      companyId,
+      previousStatus,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/**
+ * Marks a WorkflowRunRecord as `needs_reconciliation`.
+ * Called when compensators themselves fail — alerts on-call via the nightly reconciliation cron.
+ *
+ * @param workflowRunId - UUID of the run record to flag.
+ * @throws Never — errors are only logged.
+ */
+export async function markRunNeedsReconciliation(workflowRunId: string): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE workflow_run_records
+       SET status = 'needs_reconciliation', updated_at = now()
+       WHERE id = $1::uuid`,
+      workflowRunId,
+    );
+    logger.warn('WorkflowRun flagged needs_reconciliation', { workflowRunId });
+  } catch (err: unknown) {
+    logger.error('markRunNeedsReconciliation DB write failed', {
+      workflowRunId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+export interface CompensatorInput {
+  workflowRunId: string;
+  failedStep: string;
+  completedSteps: string[];
+  state: WorkflowState;
+  stateSnapshot: Record<string, unknown>;
+  companyId: string;
+}
+
+/**
+ * Main compensator orchestrator: called by `runWorkflow` on non-optional step failure.
+ * Runs compensators in reverse order of completed mutation steps.
+ * Flags run as `needs_reconciliation` if any compensator fails.
+ *
+ * @param input - Context including snapshot, completed steps, and state from the failed run.
+ * @returns true if all compensators succeeded, false if any failed.
+ * @throws Never — all errors are caught and logged.
+ */
+export async function runCompensators(input: CompensatorInput): Promise<boolean> {
+  const { completedSteps, state, stateSnapshot, companyId } = input;
+  let allOk = true;
+
+  const reversed = [...completedSteps].reverse();
+  for (const action of reversed) {
+    if (!isMutationAction(action)) continue;
+
+    if (action === 'bookVisit' && typeof state.visitId === 'string') {
+      const createdInRun = stateSnapshot.createdVisitId === state.visitId;
+      if (createdInRun) {
+        const ok = await compensateBookVisit(state.visitId, companyId);
+        allOk = ok && allOk;
+        if (ok) {
+          void logAgentAction({
+            companyId,
+            triggeredBy: 'inbound_message',
+            action: 'compensate_book_visit',
+            resourceType: 'visit',
+            resourceId: state.visitId,
+            inputs: { workflowRunId: input.workflowRunId },
+            status: 'success',
+          });
+        }
+      }
+    }
+
+    if (
+      (action === 'updateLeadStatus' || action === 'updateLeadStatusVisitScheduled')
+      && typeof state.leadId === 'string'
+    ) {
+      const prevStatus = stateSnapshot.oldLeadStatus as string | undefined;
+      const ok = await compensateUpdateLeadStatus(state.leadId, prevStatus, companyId);
+      allOk = ok && allOk;
+      if (ok) {
+        void logAgentAction({
+          companyId,
+          triggeredBy: 'inbound_message',
+          action: 'compensate_update_lead_status',
+          resourceType: 'lead',
+          resourceId: state.leadId,
+          inputs: { workflowRunId: input.workflowRunId, revertedTo: prevStatus },
+          status: 'success',
+        });
+      }
+    }
+  }
+
+  const finalStatus = allOk ? 'failed' : 'needs_reconciliation';
+  await prisma.$executeRawUnsafe(
+    `UPDATE workflow_run_records
+     SET status = $1, completed_at = now(), updated_at = now()
+     WHERE id = $2::uuid`,
+    finalStatus,
+    input.workflowRunId,
+  ).catch(() => undefined);
+
+  if (!allOk) {
+    await markRunNeedsReconciliation(input.workflowRunId);
+  }
+
+  return allOk;
+}
+
+/**
+ * Builds a user-facing partial-failure reply for staff copilot.
+ * Never exposes internal step names to the end user.
+ *
+ * @param workflowLabel - Human-readable workflow label (e.g. "Schedule Visit").
+ * @param _failedStep - Internal action name for logging only (not shown to user).
+ */
+export function buildPartialFailureReply(workflowLabel: string, _failedStep: string): string {
+  return (
+    `⚠️ *${workflowLabel}* partially completed.\n\n` +
+    `The visit/lead record was saved but the follow-up step did not finish. ` +
+    `Our team has been notified — you can retry or check the dashboard.`
+  );
+}

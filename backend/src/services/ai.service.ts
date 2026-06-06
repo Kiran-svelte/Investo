@@ -113,11 +113,14 @@ interface AIRequest {
    * Contains current visit status, scheduled time, property, and agent info.
    */
   liveLeadContextBlock?: string;
+  /** Rolling conversation + lead memory context (~400 tokens). */
+  conversationContextBlock?: string;
   /**
    * The lead's current active (scheduled/confirmed) visit, if any.
    * Passed to the fast-path so greetings are visit-aware.
    */
   activeVisit?: import('./liveLeadContext.service').ActiveVisitContext | null;
+  conversationId?: string;
 }
 
 interface AIResponse {
@@ -238,11 +241,37 @@ export class AIService {
     const knowledgeContext = formatKnowledgeContextForPrompt(knowledgeChunks);
 
     let clientMemoryContext = '';
+    let leadMemoryBlock = '';
+    let conversationContextBlock = request.conversationContextBlock ?? '';
+
     if (request.companyId && request.lead?.id) {
       try {
-        // syncLeadClientMemory is already fired-and-forgotten in whatsapp.service.ts:958
-        // before generateResponse() is called. Calling it again here added ~200ms of
-        // unnecessary latency on every hot-path turn. Removed per P1-13.
+        const { buildPromptMemoryBlock } = await import('./lead-memory.service');
+        leadMemoryBlock = await buildPromptMemoryBlock(request.lead.id);
+      } catch (err: unknown) {
+        logger.warn('Lead memory block failed', {
+          leadId: request.lead.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      if (!conversationContextBlock && request.conversationId) {
+        try {
+          const { buildConversationContextBlock } = await import('./conversation-summary.service');
+          conversationContextBlock = await buildConversationContextBlock(
+            request.conversationId,
+            request.lead.id,
+            request.companyId,
+          );
+        } catch (err: unknown) {
+          logger.warn('Conversation context block failed', {
+            leadId: request.lead.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      try {
         const clientChunks = await searchClientMemory({
           companyId: request.companyId,
           query: request.customerMessage,
@@ -261,13 +290,17 @@ export class AIService {
       }
     }
 
+    const mergedMemoryContext = [leadMemoryBlock, conversationContextBlock, clientMemoryContext]
+      .filter(Boolean)
+      .join('\n\n');
+
     // LANGUAGE BRAIN: Generate response with policy-guided prompt
     const systemPrompt = this.buildGoalDirectedPrompt(
       request,
       newState,
       nextAction,
       knowledgeContext,
-      clientMemoryContext,
+      mergedMemoryContext,
       request.liveLeadContextBlock,
     );
     const messages = this.buildMessages(request);

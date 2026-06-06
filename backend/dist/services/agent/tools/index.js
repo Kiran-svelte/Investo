@@ -13,6 +13,7 @@ const notification_tools_1 = require("./notification-tools");
 const property_tools_1 = require("./property-tools");
 const user_tools_1 = require("./user-tools");
 const visit_tools_1 = require("./visit-tools");
+const workflow_tools_1 = require("./workflow-tools");
 function isAdminRole(role) {
     return role === 'company_admin' || role === 'super_admin';
 }
@@ -34,7 +35,7 @@ function getToolsForRole(context) {
         ...(0, brochure_tools_1.createBrochureTools)(context),
     ];
     if (context.userRole === 'sales_agent' || isAdminRole(context.userRole) || isOperationsRole(context.userRole)) {
-        tools.push(...(0, visit_tools_1.createVisitTools)(context), ...(0, lead_tools_1.createLeadTools)(context), ...(0, conversation_tools_1.createConversationTools)(context), ...(0, calendar_tools_1.createCalendarTools)(context), ...(0, analytics_tools_1.createAnalyticsTools)(context));
+        tools.push(...(0, workflow_tools_1.createWorkflowTools)(context), ...(0, visit_tools_1.createVisitTools)(context), ...(0, lead_tools_1.createLeadTools)(context), ...(0, conversation_tools_1.createConversationTools)(context), ...(0, calendar_tools_1.createCalendarTools)(context), ...(0, analytics_tools_1.createAnalyticsTools)(context));
     }
     if (isAdminRole(context.userRole)) {
         tools.push(...(0, user_tools_1.createUserTools)(context), ...(0, admin_tools_1.createAdminTools)(context), ...(0, admin_log_tools_1.createAdminLogTools)(context));

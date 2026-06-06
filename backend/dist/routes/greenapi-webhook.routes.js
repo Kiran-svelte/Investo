@@ -41,7 +41,6 @@ const crypto_1 = __importDefault(require("crypto"));
 const express_1 = __importStar(require("express"));
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
-const deduplication_service_1 = require("../services/deduplication.service");
 const whatsapp_service_1 = require("../services/whatsapp.service");
 const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
 const router = (0, express_1.Router)();
@@ -103,7 +102,7 @@ router.post('/:companyId?', express_1.default.json({ limit: '1mb' }), async (req
         }
     }
     // Respond quickly; process async to avoid webhook retries.
-    res.status(200).json({ status: 'received' });
+    res.sendStatus(200);
     processGreenApiWebhook(req.body, providedToken, companyIdHint)
         .then((summary) => {
         logger_1.default.info('GreenAPI webhook processing summary', { summary: redactGreenApiSummaryForLogs(summary) });
@@ -284,15 +283,6 @@ async function processGreenApiWebhook(body, webhookTokenHint, companyIdHint) {
             continue;
         }
         const phoneNumberId = msg.instanceId;
-        const dedupKey = `greenapi:${phoneNumberId}:${msg.messageId}`;
-        const isClaimed = await deduplication_service_1.deduplicationService.claimMessageProcessing(dedupKey);
-        if (!isClaimed) {
-            outcome.status = 'duplicate';
-            outcome.reason = 'duplicate_message_id';
-            summary.duplicate += 1;
-            summary.outcomes.push(outcome);
-            continue;
-        }
         try {
             const companyResolution = await whatsapp_service_1.whatsappService.getCompanyByPhoneNumberId(phoneNumberId, 'greenapi', companyIdHint, webhookTokenHint, msg.customerPhone);
             if (!companyResolution) {
@@ -319,20 +309,30 @@ async function processGreenApiWebhook(body, webhookTokenHint, companyIdHint) {
                 summary.processed += 1;
             }
             else if (result.status === 'skipped') {
-                outcome.status = 'skipped';
-                outcome.reason = result.reason || 'service_skipped';
-                summary.skipped += 1;
+                const duplicateReasons = new Set([
+                    'duplicate_message_id',
+                    'duplicate_customer_fingerprint',
+                    'concurrent_customer_processing',
+                ]);
+                if (duplicateReasons.has(result.reason || '')) {
+                    outcome.status = 'duplicate';
+                    outcome.reason = result.reason || 'duplicate_message_id';
+                    summary.duplicate += 1;
+                }
+                else {
+                    outcome.status = 'skipped';
+                    outcome.reason = result.reason || 'service_skipped';
+                    summary.skipped += 1;
+                }
             }
             else {
                 outcome.status = 'failed';
                 outcome.reason = result.reason || 'service_failed';
                 summary.failed += 1;
-                await deduplication_service_1.deduplicationService.release(dedupKey);
             }
             summary.outcomes.push(outcome);
         }
         catch (err) {
-            await deduplication_service_1.deduplicationService.release(dedupKey);
             outcome.status = 'failed';
             outcome.reason = 'exception';
             outcome.error = err.message;

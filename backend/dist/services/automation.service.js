@@ -86,6 +86,8 @@ class AutomationService {
         this.intervalIds = [];
         this.workerIntervalId = null;
         this.workerRunning = false;
+        /** Per-recipient locks — prevents duplicate outbound automation if worker overlaps. */
+        this.recipientLocks = new Set();
     }
     /**
      * Start all scheduled jobs.
@@ -99,6 +101,8 @@ class AutomationService {
         this.intervalIds.push(setInterval(() => this.processFollowUps(), 60 * 60 * 1000));
         // Conversation timeout (24h inactivity) - check every hour
         this.intervalIds.push(setInterval(() => this.processConversationTimeouts(), 60 * 60 * 1000));
+        // Workflow reconciliation — alert on partial saga failures
+        this.intervalIds.push(setInterval(() => this.reconcileWorkflowRuns(), 60 * 60 * 1000));
         this.startWorker();
         // Run immediately on startup
         this.processVisitReminders();
@@ -218,24 +222,10 @@ class AutomationService {
             const customerName = visit.lead?.customerName;
             const propertyName = visit.property?.name;
             const locationArea = visit.property?.locationArea;
-            // Multi-language reminder templates
-            const messages = {
-                en: {
-                    '24h': `Hi ${customerName || 'there'}! 👋\n\nReminder: Your property visit is scheduled for *tomorrow*.\n\n📅 ${dateStr}\n⏰ ${timeStr}\n📍 ${propertyName || 'Property'}, ${locationArea || ''}\n\nReply YES to confirm or RESCHEDULE to change the time.`,
-                    '1h': `Hi ${customerName || 'there'}! ⏰\n\nYour property visit is in *1 hour*!\n\n📍 ${propertyName || 'Property'}, ${locationArea || ''}\n⏰ ${timeStr}\n\nSee you soon!`,
-                },
-                hi: {
-                    '24h': `नमस्ते ${customerName || ''}! 👋\n\nयाद दिलाना: आपकी प्रॉपर्टी विजिट *कल* के लिए है।\n\n📅 ${dateStr}\n⏰ ${timeStr}\n📍 ${propertyName || 'प्रॉपर्टी'}, ${locationArea || ''}\n\nपुष्टि के लिए YES और समय बदलने के लिए RESCHEDULE लिखें।`,
-                    '1h': `नमस्ते ${customerName || ''}! ⏰\n\nआपकी प्रॉपर्टी विजिट *1 घंटे* में है!\n\n📍 ${propertyName || 'प्रॉपर्टी'}, ${locationArea || ''}\n⏰ ${timeStr}\n\nजल्द मिलते हैं!`,
-                },
-                kn: {
-                    '24h': `ಹಲೋ ${customerName || ''}! 👋\n\nಜ್ಞಾಪನೆ: ನಿಮ್ಮ ಆಸ್ತಿ ಭೇಟಿ *ನಾಳೆ* ಇದೆ.\n\n📅 ${dateStr}\n⏰ ${timeStr}\n📍 ${propertyName || 'ಆಸ್ತಿ'}, ${locationArea || ''}\n\nದೃಢೀಕರಿಸಲು YES ಅಥವಾ ಸಮಯ ಬದಲಾಯಿಸಲು RESCHEDULE ಎಂದು ಬರೆಯಿರಿ.`,
-                    '1h': `ಹಲೋ ${customerName || ''}! ⏰\n\nನಿಮ್ಮ ಆಸ್ತಿ ಭೇಟಿ *1 ಗಂಟೆ* ಯಲ್ಲಿದೆ!\n\n📍 ${propertyName || 'ಆಸ್ತಿ'}, ${locationArea || ''}\n⏰ ${timeStr}\n\nಶೀಘ್ರದಲ್ಲಿ ಭೇಟಿಯಾಗೋಣ!`,
-                },
-            };
-            const lang = visit.lead?.language || 'en';
-            const msgTemplates = messages[lang] || messages.en;
-            const message = msgTemplates[timing];
+            const visitLabel = [propertyName || 'Property', locationArea || ''].filter(Boolean).join(', ');
+            const message = timing === '24h'
+                ? `Hi ${customerName || 'there'}!\n\nReminder: Your property visit is scheduled for tomorrow.\n\nDate: ${dateStr}\nTime: ${timeStr}\nProperty: ${visitLabel}\n\nReply YES to confirm or RESCHEDULE to change the time.`
+                : `Hi ${customerName || 'there'}!\n\nYour property visit is in 1 hour.\n\nProperty: ${visitLabel}\nTime: ${timeStr}\n\nSee you soon.`;
             const customerPhone = visit.lead?.phone;
             if (!customerPhone) {
                 logger_1.default.debug('Visit reminder skipped because customer phone is missing', { visitId: visit.id, timing });
@@ -409,35 +399,13 @@ class AutomationService {
         const name = lead.customerName || 'there';
         const area = lead.locationPreference || 'your preferred area';
         const templates = {
-            '48h_no_activity': {
-                en: `Hi ${name}! 👋\n\nWe noticed you were looking at properties with us. Have you found what you're looking for?\n\nReply YES for fresh recommendations!`,
-                hi: `नमस्ते ${name}! 👋\n\nक्या आपको अपनी पसंद की प्रॉपर्टी मिल गई? नए विकल्पों के लिए YES लिखें!`,
-                kn: `ನಮಸ್ಕಾರ ${name}! 👋\n\nನಿಮಗೆ ಬೇಕಾದ ಆಸ್ತಿ ಸಿಕ್ಕಿತೇ? ಹೊಸ ಆಯ್ಕೆಗಳಿಗೆ YES ಎಂದು ಕಳುಹಿಸಿ!`,
-            },
-            '3d_reengage': {
-                en: `Hi ${name}! Still exploring? I have new options that may fit your criteria in ${area}. Reply YES to see your top 3 matches.`,
-                hi: `नमस्ते ${name}! ${area} में आपके मापदंड पर 3 नए विकल्प हैं। देखने के लिए YES लिखें।`,
-                kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ನಿಮಗೆ ಹೊಂದುವ 3 ಹೊಸ ಆಯ್ಕೆಗಳಿವೆ. ನೋಡಲು YES ಎಂದು ಕಳುಹಿಸಿ.`,
-            },
-            '7d_urgency': {
-                en: `Hi ${name}! Quick update: demand in ${area} has been strong. If you're still interested, I can hold a visit slot this week. Reply VISIT to book.`,
-                hi: `नमस्ते ${name}! ${area} में मांग अच्छी है। इस हफ्ते साइट विज़िट के लिए VISIT लिखें।`,
-                kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ಬೇಡಿಕೆ ಹೆಚ್ಚಿದೆ. ಈ ವಾರ ಸೈಟ್ ವಿಸಿಟ್‌ಗೆ VISIT ಎಂದು ಕಳುಹಿಸಿ.`,
-            },
-            '30d_reengage': {
-                en: `Hi ${name}! It's been a while. The market in ${area} has moved — want a quick update on what's available now? Reply YES and I'll share.`,
-                hi: `नमस्ते ${name}! ${area} में नई लिस्टिंग्स हैं। अपडेट के लिए YES लिखें।`,
-                kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ಹೊಸ ಲಿಸ್ಟಿಂಗ್‌ಗಳಿವೆ. ಅಪ್‌ಡೇಟ್‌ಗೆ YES ಎಂದು ಕಳುಹಿಸಿ.`,
-            },
-            visit_post_feedback: {
-                en: `Hi ${name}! 👋\n\nHow was your site visit yesterday? Reply with your feedback — loved it, need more options, or want to negotiate.`,
-                hi: `नमस्ते ${name}! 👋\n\nकल की साइट विज़िट कैसी रही? अपना फीडबैक भेजें — पसंद आया, और विकल्प चाहिए, या बातचीत करनी है।`,
-                kn: `ನಮಸ್ಕಾರ ${name}! 👋\n\nನಿನ್ನೆ ಸೈಟ್ ವಿಸಿಟ್ ಹೇಗಿತ್ತು? ಪ್ರತಿಕ್ರಿಯೆ ಕಳುಹಿಸಿ — ಇಷ್ಟವಾಯಿತು, ಇನ್ನೂ ಆಯ್ಕೆಗಳು ಬೇಕು, ಅಥವಾ ಚರ್ಚೆ ಮಾಡಬೇಕು.`,
-            },
+            '48h_no_activity': `Hi ${name}!\n\nWe noticed you were looking at properties with us. Have you found what you need?\n\nReply YES for fresh recommendations.`,
+            '3d_reengage': `Hi ${name}! Still exploring? I have new options that may fit your criteria in ${area}. Reply YES to see your top 3 matches.`,
+            '7d_urgency': `Hi ${name}! Quick update: demand in ${area} has been strong. If you're still interested, I can hold a visit slot this week. Reply VISIT to book.`,
+            '30d_reengage': `Hi ${name}! It's been a while. Want a quick update on what is available now in ${area}? Reply YES and I will share it.`,
+            visit_post_feedback: `Hi ${name}!\n\nHow was your site visit yesterday? Reply with your feedback: loved it, need more options, or want to negotiate.`,
         };
-        const lang = lead.language || 'en';
-        const bucket = templates[reason] || templates['48h_no_activity'];
-        return bucket[lang] || bucket.en;
+        return templates[reason] || templates['48h_no_activity'];
     }
     async sendFollowUpMessage(lead, reason) {
         try {
@@ -599,6 +567,19 @@ class AutomationService {
                 logger_1.default.warn('Unknown automation job type received', { type });
         }
     }
+    async withRecipientLock(key, fn) {
+        if (this.recipientLocks.has(key)) {
+            logger_1.default.debug('Automation recipient lock: skipping overlapping job', { key });
+            return undefined;
+        }
+        this.recipientLocks.add(key);
+        try {
+            return await fn();
+        }
+        finally {
+            this.recipientLocks.delete(key);
+        }
+    }
     async executeVisitReminder(visitId, timing) {
         const visit = await prisma_1.default.visit.findUnique({
             where: { id: visitId },
@@ -612,7 +593,9 @@ class AutomationService {
             logger_1.default.warn('Visit reminder skipped because visit no longer exists', { visitId, timing });
             return;
         }
-        await this.sendVisitReminder(visit, timing);
+        const phone = visit.lead?.phone;
+        const lockKey = phone ? `visit-reminder:${phone}:${timing}` : `visit-reminder:${visitId}:${timing}`;
+        await this.withRecipientLock(lockKey, () => this.sendVisitReminder(visit, timing));
     }
     async executeAgentNotification(visitId) {
         const visit = await prisma_1.default.visit.findUnique({
@@ -641,15 +624,18 @@ class AutomationService {
         if (lead.status === 'closed_lost' || lead.status === 'closed_won') {
             return;
         }
-        const openConversation = await prisma_1.default.conversation.findFirst({
-            where: { leadId, status: { not: 'closed' } },
-            select: { id: true },
+        const lockKey = `follow-up:${lead.phone || leadId}:${reason}`;
+        await this.withRecipientLock(lockKey, async () => {
+            const openConversation = await prisma_1.default.conversation.findFirst({
+                where: { leadId, status: { not: 'closed' } },
+                select: { id: true },
+            });
+            if (!openConversation && reason !== 'visit_post_feedback') {
+                logger_1.default.debug('Follow-up skipped — no active conversation', { leadId, reason });
+                return;
+            }
+            await this.sendFollowUpMessage(lead, reason);
         });
-        if (!openConversation && reason !== 'visit_post_feedback') {
-            logger_1.default.debug('Follow-up skipped — no active conversation', { leadId, reason });
-            return;
-        }
-        await this.sendFollowUpMessage(lead, reason);
     }
     async executeNegotiationReminder(leadId) {
         const lead = await prisma_1.default.lead.findUnique({
@@ -708,6 +694,46 @@ class AutomationService {
             status: 'success',
             result: 'Conversation closed after 24h inactivity',
         });
+    }
+    /** Hourly sweep for workflow runs stuck in needs_reconciliation. */
+    async reconcileWorkflowRuns() {
+        try {
+            const stale = await prisma_1.default.workflowRunRecord.findMany({
+                where: {
+                    status: { in: ['needs_reconciliation', 'completed_with_errors'] },
+                    createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+                },
+                take: 50,
+                orderBy: { createdAt: 'desc' },
+                select: {
+                    id: true,
+                    companyId: true,
+                    workflowId: true,
+                    failedStep: true,
+                    channel: true,
+                },
+            });
+            if (!stale.length)
+                return;
+            for (const run of stale) {
+                void (0, agent_action_log_service_1.logAgentAction)({
+                    companyId: run.companyId,
+                    triggeredBy: 'automation',
+                    action: 'workflow_reconciliation_alert',
+                    resourceType: 'workflow_run',
+                    resourceId: run.id,
+                    inputs: { workflowId: run.workflowId, failedStep: run.failedStep, channel: run.channel },
+                    status: 'failed',
+                    result: `Workflow ${run.workflowId} needs manual reconciliation (step: ${run.failedStep ?? 'unknown'})`,
+                });
+            }
+            logger_1.default.warn('Workflow reconciliation sweep', { count: stale.length });
+        }
+        catch (err) {
+            logger_1.default.error('reconcileWorkflowRuns failed', {
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
 }
 exports.AutomationService = AutomationService;

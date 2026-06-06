@@ -9,6 +9,8 @@ export type WorkflowActionName = string;
 export interface WorkflowStepDef {
   action: WorkflowActionName;
   optional?: boolean;
+  /** When set, step runs only on matching channel. */
+  channel?: 'buyer' | 'staff';
 }
 
 export interface WorkflowDefinition {
@@ -53,6 +55,8 @@ export interface WorkflowRunContext {
   staffPhone?: string;
   /** Buyer/customer channel — skips staff-only tools where applicable */
   channel?: 'staff' | 'buyer';
+  /** Set by runWorkflow after idempotency claim. */
+  workflowRunId?: string;
 }
 
 export interface WorkflowState {
@@ -65,6 +69,8 @@ export interface WorkflowState {
   lastMessage?: string;
   oldStatus?: string;
   newStatus?: string;
+  /** Pre-mutation visit id captured for compensators. */
+  priorVisitId?: string;
 }
 
 export interface ActionResult {
@@ -82,6 +88,10 @@ export interface WorkflowRunResult {
   failedStep?: string;
   /** Steps that completed before failure or full run. */
   completedSteps?: string[];
+  /** True when saga marked needs_reconciliation after partial mutation. */
+  needsReconciliation?: boolean;
+  /** Idempotency cache hit — no handlers re-run. */
+  idempotencyHit?: boolean;
 }
 
 export interface IntentWorkflowMapping {

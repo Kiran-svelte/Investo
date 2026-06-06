@@ -644,6 +644,49 @@ async function runConfirmationCleanup(): Promise<CronRunResult> {
   return {};
 }
 
+/**
+ * Reconciliation cron: finds workflow_run_records stuck in `needs_reconciliation`
+ * for more than 1 hour and alerts company admins + logs for on-call triage.
+ * Idempotent — safe to re-run. Does not modify any data.
+ *
+ * @returns CronRunResult with affected company IDs.
+ */
+async function reconcileWorkflowRuns(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
+  const threshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+
+  const stuckRuns = await prisma.$queryRawUnsafe<Array<{ id: string; company_id: string; workflow_id: string; created_at: Date }>>(
+    `SELECT id, company_id, workflow_id, created_at
+     FROM workflow_run_records
+     WHERE status = 'needs_reconciliation'
+       AND created_at < $1::timestamptz
+     LIMIT 50`,
+    threshold,
+  );
+
+  if (!stuckRuns.length) return {};
+
+  for (const run of stuckRuns) {
+    affected.add(run.company_id);
+    void logAgentAction({
+      companyId: run.company_id,
+      triggeredBy: 'cron',
+      action: 'workflow_needs_reconciliation',
+      resourceType: 'workflow_run',
+      resourceId: run.id,
+      status: 'failed',
+      result: `WorkflowRun ${run.workflow_id} stuck in needs_reconciliation since ${run.created_at.toISOString()}`,
+    });
+  }
+
+  logger.warn('Workflow reconciliation: stuck runs detected', {
+    count: stuckRuns.length,
+    workflowIds: [...new Set(stuckRuns.map((r) => r.workflow_id))],
+  });
+
+  return affected.result();
+}
+
 function wrap(name: string, handler: () => Promise<CronRunResult>): () => void {
   return () => {
     void (async () => {
@@ -684,6 +727,8 @@ export function startCronScheduler(): void {
     cron.schedule(CRON_SCHEDULES.ACTION_LOG_PURGE, wrap('purgeActionLog', purgeActionLogCron)),
     // EOD attendance check — 7:00 PM IST = 13:30 UTC. Asks agents YES/NO for unresolved visits.
     cron.schedule(CRON_SCHEDULES.EOD_ATTENDANCE_CHECK, wrap('eodAttendanceChecks', sendEodAttendanceChecks)),
+    // Workflow saga reconciliation — nightly 2:30 AM IST. Alerts on needs_reconciliation runs.
+    cron.schedule(CRON_SCHEDULES.WORKFLOW_RECONCILIATION_CHECK, wrap('reconcileWorkflowRuns', reconcileWorkflowRuns)),
   );
   logger.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }

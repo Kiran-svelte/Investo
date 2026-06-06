@@ -60,6 +60,10 @@ services:
         value: gpt-4o
       - key: AGENT_AI_ENABLED
         value: true
+      - key: AGENT_AI_LLM_ENABLED
+        value: true
+      - key: AGENT_AI_COPILOT_ENABLED
+        value: true
       - key: AGENT_AI_PROVIDER
         value: openai
       - key: AGENT_AI_MODEL

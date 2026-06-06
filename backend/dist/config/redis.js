@@ -19,14 +19,15 @@ const memCache = new Map();
 function getRedis() {
     if (redis)
         return redis;
-    if (!index_1.default.redis.url || !index_1.default.redis.token) {
+    const redisConfig = index_1.default.redis ?? { url: '', token: '' };
+    if (!redisConfig.url || !redisConfig.token) {
         logger_1.default.warn('Upstash Redis not configured — using in-memory cache');
         return null;
     }
     try {
         redis = new redis_1.Redis({
-            url: index_1.default.redis.url,
-            token: index_1.default.redis.token,
+            url: redisConfig.url,
+            token: redisConfig.token,
         });
         logger_1.default.info('Upstash Redis client initialized');
         return redis;

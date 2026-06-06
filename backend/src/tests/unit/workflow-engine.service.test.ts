@@ -7,8 +7,16 @@ const mockPrisma = {
   notification: { create: jest.fn() },
   user: { findFirst: jest.fn(), findMany: jest.fn() },
   property: { findFirst: jest.fn() },
-  visit: { findFirst: jest.fn() },
-  conversation: { findFirst: jest.fn() },
+  visit: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+  conversation: { findFirst: jest.fn(), update: jest.fn() },
+  workflowRunRecord: { create: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) },
+  workflowIdempotencyKey: {
+    findUnique: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockResolvedValue({}),
+    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+  },
+  $executeRawUnsafe: jest.fn().mockResolvedValue(1),
 };
 
 jest.mock('../../config/prisma', () => ({
@@ -19,7 +27,7 @@ jest.mock('../../config/prisma', () => ({
 jest.mock('../../config', () => ({
   __esModule: true,
   default: {
-    agentAi: { enabled: true, model: 'gpt-4o' },
+    agentAi: { enabled: true, llmEnabled: true, copilotEnabled: true, model: 'gpt-4o' },
     ai: { openaiApiKey: 'sk-test', openaiModel: 'gpt-4o' },
   },
 }));
@@ -49,6 +57,16 @@ jest.mock('../../services/notification.engine', () => ({
 jest.mock('../../services/clientMemory.service', () => ({
   setAgentSessionClientContext: jest.fn().mockResolvedValue(undefined),
   syncLeadClientMemory: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../config/redis', () => ({
+  cacheGet: jest.fn().mockResolvedValue(null),
+  cacheSet: jest.fn().mockResolvedValue(undefined),
+  cacheIncr: jest.fn().mockResolvedValue(1),
+}));
+
+jest.mock('../../services/lead-memory.service', () => ({
+  patchLeadMemory: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/agent/tools', () => ({
@@ -268,7 +286,7 @@ describe('workflow-engine.service', () => {
     expect((reply?.match(/Price:/g) ?? [])).toHaveLength(1);
   });
 
-  it('does not run staff visit mutation tools from the buyer workflow classifier', async () => {
+  it('runs buyer schedule_visit workflow via channel-aware bookVisit', async () => {
     const scheduleTool = {
       name: 'scheduleVisit',
       schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
@@ -294,8 +312,8 @@ describe('workflow-engine.service', () => {
       { llm },
     );
 
-    expect(reply).toBeNull();
-    expect(scheduleTool.func).not.toHaveBeenCalled();
+    expect(reply).toContain('Visit scheduled');
+    expect(scheduleTool.func).toHaveBeenCalled();
   });
 
   it('uses a customer-safe escalation reply for buyer fallback', async () => {

@@ -1299,7 +1299,31 @@ export class WhatsAppService {
         // Only run buyer workflow when visit fast-path did not already mutate state.
         // Running both causes a double-write race (fast-path saves correct time, workflow overwrites with stale params).
         let buyerWorkflowReply: string | null | undefined;
-        if (!visitCommit.committed) {
+        if (!visitCommit.committed && visitCommit.workflowSuggestion) {
+          const { runWorkflow } = await import('./workflow/workflow-engine.service');
+          const wfResult = await runWorkflow(
+            visitCommit.workflowSuggestion.workflowId,
+            {
+              toolContext: {
+                userId: 'system',
+                companyId,
+                userRole: 'company_admin',
+                userName: 'System',
+              },
+              messageText: msg.messageText,
+              recentMessages: [],
+              companyName: company.name,
+              sessionLeadId: lead.id,
+              sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
+              channel: 'buyer',
+            },
+            visitCommit.workflowSuggestion.parameters,
+          );
+          if (wfResult.reply?.trim()) {
+            buyerWorkflowReply = wfResult.reply;
+          }
+        }
+        if (!visitCommit.committed && !buyerWorkflowReply) {
           const { classifyAndRunBuyerWorkflow } = await import('./workflow/workflow-engine.service');
           buyerWorkflowReply = await classifyAndRunBuyerWorkflow({
             companyId,
@@ -1511,6 +1535,13 @@ export class WhatsAppService {
           history.filter((m) => m.senderType === 'customer').length + 1;
 
 
+        const { buildConversationContextBlock } = await import('./conversation-summary.service');
+        const conversationContextBlock = await buildConversationContextBlock(
+          conversation.id,
+          lead.id,
+          companyId,
+        );
+
         const aiResponse = await Promise.race([
           aiService.generateResponse({
             companyId,
@@ -1525,9 +1556,9 @@ export class WhatsAppService {
             neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
             neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
             customerMessageCount,
-            // Inject real-time context so LLM knows about booked visits
+            conversationId: conversation.id,
+            conversationContextBlock,
             liveLeadContextBlock: liveCtx.promptBlock || undefined,
-            // Pass active visit for visit-aware fast-path greeting
             activeVisit: liveCtx.activeVisit,
           }),
           new Promise<never>((_, reject) => {

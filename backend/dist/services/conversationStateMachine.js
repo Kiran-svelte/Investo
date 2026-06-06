@@ -200,8 +200,24 @@ const OBJECTION_PLAYBOOKS = {
     },
 };
 // ─── Intent Classification ─────────────────────────────────────────────
+/**
+ * Classifies the customer's message into one of six intents.
+ * Used by the Policy Brain to decide the next best action.
+ *
+ * @param message - Raw customer message text.
+ * @param currentStage - Current conversation stage.
+ * @param context - Runtime state (consecutive objections count).
+ * @returns Classified intent with optional objection type and confidence score.
+ */
 function classifyMessageIntent(message, currentStage, context) {
     const lowerMessage = message.toLowerCase();
+    // GUARD: Visit-status / booking-query messages must be on_path or adjacent, never escalation.
+    // "Any visits booked for me?" is an informational query — NOT a commitment or escalation.
+    // Without this guard, "booked" triggers the commitment pattern (book ⊂ booked) below.
+    const isVisitStatusQuery = /\b(any\s+visits?|visits?\s+(booked|scheduled|for\s+me|today|this\s+week)|(do\s+i|have\s+i).*(visit|booking)|show\s+my\s+visits?|what\s+visits?|check\s+(my\s+)?visit)\b/i.test(lowerMessage);
+    if (isVisitStatusQuery) {
+        return { intent: 'adjacent', confidence: 0.8 };
+    }
     // Check for escalation request
     if (lowerMessage.includes('talk to human') ||
         lowerMessage.includes('real person') ||
@@ -213,11 +229,14 @@ function classifyMessageIntent(message, currentStage, context) {
         || /\bother agent\b.*\b(cheaper|discount)\b/i.test(lowerMessage)) {
         return { intent: 'escalation_request', confidence: 0.95 };
     }
-    // Check for commitment signals
+    // Check for commitment signals.
+    // IMPORTANT: Use \b word boundaries to prevent "booked"/"schedule a meeting" from
+    // false-positively matching "book" or "schedule" standalone tokens.
     const commitmentPatterns = [
-        /yes|ok|sure|fine|alright|let'?s do it|i'?m interested|book|schedule|when can/i,
-        /this weekend|tomorrow|saturday|sunday|morning|afternoon|evening/i,
-        /i'?ll come|we'?ll visit|can visit/i,
+        /\b(yes|ok|sure|fine|alright|let'?s\s+do\s+it|i'?m\s+interested)\b/i,
+        /\b(book|schedule|when\s+can)\b(?!\s*ed\b)/i, // exclude "booked" past-tense
+        /\b(this\s+weekend|tomorrow|saturday|sunday|morning|afternoon|evening)\b/i,
+        /\bi'?ll\s+come\b|\bwe'?ll\s+visit\b|\bcan\s+visit\b/i,
     ];
     for (const pattern of commitmentPatterns) {
         if (pattern.test(message)) {
@@ -261,6 +280,7 @@ function classifyMessageIntent(message, currentStage, context) {
     const adjacentPatterns = [
         /tell me more|what about|how is|which is better/i,
         /amenities|facilities|parking|gym|pool|school|hospital/i,
+        /\bvisit|booking|appointment|scheduled\b/i, // visit-related queries = adjacent not commitment
     ];
     for (const pattern of adjacentPatterns) {
         if (pattern.test(message)) {

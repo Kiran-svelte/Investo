@@ -9,6 +9,21 @@ import { fail, failToolResult, ok, requireLeadId, requireVisitId, runNamedTool, 
 export async function resolveVisit(ctx: ActionContext) {
   const visitId = ctx.state.visitId ?? ctx.params.visitId ?? ctx.run.sessionVisitId;
   if (!visitId) {
+    if (ctx.run.channel === 'buyer' && ctx.run.sessionVisitId) {
+      const visit = await prisma.visit.findFirst({
+        where: {
+          id: ctx.run.sessionVisitId,
+          companyId: ctx.run.toolContext.companyId,
+          leadId: ctx.run.sessionLeadId ?? undefined,
+        },
+        select: { id: true, leadId: true, status: true },
+      });
+      if (visit) {
+        ctx.state.visitId = visit.id;
+        if (visit.leadId) ctx.state.leadId = visit.leadId;
+        return ok(undefined, { visitId: visit.id, leadId: visit.leadId });
+      }
+    }
     if (ctx.run.channel === 'staff' && ctx.run.messageText) {
       const { isVisitListQueryMessage } = await import('../../visitIntentFromMessage.service');
       if (isVisitListQueryMessage(ctx.run.messageText)) {
@@ -48,6 +63,9 @@ export async function resolveVisit(ctx: ActionContext) {
 }
 
 export async function bookVisit(ctx: ActionContext) {
+  if (!ctx.state.priorVisitId && ctx.state.visitId) {
+    ctx.state.priorVisitId = ctx.state.visitId;
+  }
   const visitId = requireVisitId(ctx);
   const scheduledAt = ctx.params.newScheduledAt ?? ctx.params.scheduledAt;
   if (visitId && !scheduledAt) {
@@ -192,6 +210,15 @@ export async function rescheduleReminders(ctx: ActionContext) {
 export async function cancelVisit(ctx: ActionContext) {
   const visitId = requireVisitId(ctx);
   if (!visitId) return fail('Which visit should I cancel?');
+
+  const existing = await prisma.visit.findFirst({
+    where: { id: visitId, companyId: ctx.run.toolContext.companyId },
+    select: { status: true },
+  });
+  if (existing?.status === 'cancelled') {
+    return ok('That visit is already cancelled.');
+  }
+
   const result = await runNamedTool(ctx.run.toolContext, 'cancelVisit', {
     visitId,
     reason: ctx.params.note,

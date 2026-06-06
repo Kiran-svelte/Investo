@@ -260,10 +260,12 @@ async function cancelVisit(companyId, params) {
         return 'Visit not found or access denied.';
     if (visit.status === 'completed')
         return 'Cannot cancel a completed visit.';
+    const oldStatus = visit.status;
     await db.visit.update({
         where: { id: visitId },
         data: { status: 'cancelled', notes: getString(params, 'reason') ?? 'Cancelled by Agent AI' },
     });
+    void Promise.resolve().then(() => __importStar(require('../visitNotificationBridge.service'))).then(({ notifyVisitStatusChangeFromTool }) => notifyVisitStatusChangeFromTool(visitId, oldStatus, 'cancelled'));
     return `Cancelled visit for ${visit.lead?.customerName ?? 'Unknown'}.`;
 }
 async function closeLeadLost(companyId, params) {

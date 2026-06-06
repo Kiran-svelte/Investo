@@ -62,6 +62,8 @@ model Company {
   agentSessions            AgentSession[]
   agentActionLogs          AgentActionLog[]
   inboundWhatsappDedups    InboundWhatsappDedup[]
+  workflowRunRecords       WorkflowRunRecord[]
+  workflowIdempotencyKeys  WorkflowIdempotencyKey[]
 
   @@map("companies")
 }
@@ -224,6 +226,9 @@ model Lead {
   reEngagementCount   Int          @default(0) @map("re_engagement_count")
   /// Extensible CRM fields: lead_score (hot|warm|cold), tags[], source_detail, lost_reason
   metadata            Json         @default("{}")
+  /// Centralized AI memory blob — last known intent, projects discussed, budget,
+  /// conversation summary, and open questions. Written by leadMemory.service.ts.
+  leadMemory          Json?        @map("lead_memory")
 
   company         Company       @relation(fields: [companyId], references: [id])
   assignedAgent   User?         @relation("AgentLeads", fields: [assignedAgentId], references: [id])
@@ -925,6 +930,63 @@ enum PropertyImportUnitStatus {
   ready
   published
   failed
+}
+
+enum WorkflowRunStatus {
+  running
+  completed
+  failed
+  completed_with_errors
+  needs_reconciliation
+}
+
+// ─── Workflow Run Records (saga tracking + step-level idempotency) ───
+/// Tracks each workflow execution start-to-finish for observability and
+/// compensating saga rollback. One record per workflow invocation.
+model WorkflowRunRecord {
+  id              String              @id @default(uuid()) @db.Uuid
+  companyId       String              @map("company_id") @db.Uuid
+  workflowId      String              @map("workflow_id") @db.VarChar(60)
+  channel         String              @db.VarChar(20)
+  /// Idempotency key that claimed this run (links to WorkflowIdempotencyKey).
+  idempotencyKey  String?             @map("idempotency_key") @db.VarChar(255)
+  status          WorkflowRunStatus   @default(running)
+  /// JSON snapshot of leadId, visitId, oldStatus captured before mutations.
+  stateSnapshot   Json                @default("{}") @map("state_snapshot")
+  /// JSON array of {action, status, errorMessage} for each executed step.
+  stepsJson       Json                @default("[]") @map("steps_json")
+  failedStep      String?             @map("failed_step") @db.VarChar(80)
+  completedAt     DateTime?           @map("completed_at")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([companyId, workflowId, createdAt])
+  @@index([idempotencyKey])
+  @@map("workflow_run_records")
+}
+
+/// Intent-level idempotency keys for workflow executions.
+/// Prevents double-booking from two devices or duplicate WhatsApp retries.
+model WorkflowIdempotencyKey {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  /// Deterministic key: {workflowId}:{companyId}:{leadId/visitId}:{scheduledAtISO}
+  key         String   @db.VarChar(255)
+  workflowId  String   @map("workflow_id") @db.VarChar(60)
+  /// Cached reply to return on duplicate claim (avoids re-running the LLM).
+  resultReply String?  @map("result_reply") @db.Text
+  status      String   @default("completed") @db.VarChar(20)
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@index([companyId, expiresAt])
+  @@map("workflow_idempotency_keys")
 }
 
 // ─── Agent Action Log (AI transparency + audit trail) ────────────────

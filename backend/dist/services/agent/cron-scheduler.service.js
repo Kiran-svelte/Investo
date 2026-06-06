@@ -625,6 +625,41 @@ async function runConfirmationCleanup() {
     await (0, confirmation_service_1.cleanupExpiredConfirmations)();
     return {};
 }
+/**
+ * Reconciliation cron: finds workflow_run_records stuck in `needs_reconciliation`
+ * for more than 1 hour and alerts company admins + logs for on-call triage.
+ * Idempotent — safe to re-run. Does not modify any data.
+ *
+ * @returns CronRunResult with affected company IDs.
+ */
+async function reconcileWorkflowRuns() {
+    const affected = trackCompanyIds();
+    const threshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+    const stuckRuns = await prisma_1.default.$queryRawUnsafe(`SELECT id, company_id, workflow_id, created_at
+     FROM workflow_run_records
+     WHERE status = 'needs_reconciliation'
+       AND created_at < $1::timestamptz
+     LIMIT 50`, threshold);
+    if (!stuckRuns.length)
+        return {};
+    for (const run of stuckRuns) {
+        affected.add(run.company_id);
+        void (0, agent_action_log_service_1.logAgentAction)({
+            companyId: run.company_id,
+            triggeredBy: 'cron',
+            action: 'workflow_needs_reconciliation',
+            resourceType: 'workflow_run',
+            resourceId: run.id,
+            status: 'failed',
+            result: `WorkflowRun ${run.workflow_id} stuck in needs_reconciliation since ${run.created_at.toISOString()}`,
+        });
+    }
+    logger_1.default.warn('Workflow reconciliation: stuck runs detected', {
+        count: stuckRuns.length,
+        workflowIds: [...new Set(stuckRuns.map((r) => r.workflow_id))],
+    });
+    return affected.result();
+}
 function wrap(name, handler) {
     return () => {
         void (async () => {
@@ -651,7 +686,9 @@ function startCronScheduler() {
         return;
     tasks.push(node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.MORNING_BRIEFING, wrap('morningBriefing', sendMorningBriefings)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.OWNER_DAILY_SUMMARY, wrap('ownerDailySummary', sendOwnerDailySummaries)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.END_OF_DAY_SUMMARY, wrap('endOfDaySummary', sendEndOfDaySummaries)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.VISIT_REMINDER_CHECK, wrap('visitReminder', sendVisitReminders)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.FOLLOW_UP_ALERT, wrap('followUpAlert', sendFollowUpAlerts)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.STALE_LEAD_ALERT, wrap('staleLeadAlert', sendStaleLeadAlerts)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.WEEKLY_ADMIN_REPORT, wrap('weeklyAdminReport', sendWeeklyAdminReports)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.EXPIRED_CONFIRMATION_CLEANUP, wrap('confirmationCleanup', runConfirmationCleanup)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.NO_SHOW_CHECK, wrap('detectAndMarkNoShows', detectAndMarkNoShows)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.HOT_LEAD_SLA_CHECK, wrap('sendHotLeadSlaAlerts', sendHotLeadSlaAlerts)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.AGENT_WEEKLY_PIPELINE, wrap('sendAgentWeeklyPipelineReport', sendAgentWeeklyPipelineReport)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.VISIT_COMPLETED_NUDGE, wrap('sendVisitCompletedNudge', sendVisitCompletedNudge)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.MONTHLY_ADMIN_REPORT, wrap('sendMonthlyAdminReport', sendMonthlyAdminReport)), node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.ACTION_LOG_PURGE, wrap('purgeActionLog', purgeActionLogCron)), 
     // EOD attendance check — 7:00 PM IST = 13:30 UTC. Asks agents YES/NO for unresolved visits.
-    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.EOD_ATTENDANCE_CHECK, wrap('eodAttendanceChecks', sendEodAttendanceChecks)));
+    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.EOD_ATTENDANCE_CHECK, wrap('eodAttendanceChecks', sendEodAttendanceChecks)), 
+    // Workflow saga reconciliation — nightly 2:30 AM IST. Alerts on needs_reconciliation runs.
+    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.WORKFLOW_RECONCILIATION_CHECK, wrap('reconcileWorkflowRuns', reconcileWorkflowRuns)));
     logger_1.default.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }
 function stopCronScheduler() {

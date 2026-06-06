@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -9,6 +42,7 @@ const logger_1 = __importDefault(require("../config/logger"));
 const legalDisclaimer_constants_1 = require("../constants/legalDisclaimer.constants");
 const conversationStateMachine_1 = require("./conversationStateMachine");
 const customerMessageFastPath_service_1 = require("./customerMessageFastPath.service");
+const buyerVisitQuery_service_1 = require("./buyerVisitQuery.service");
 const realEstateAssistantPrompt_constants_1 = require("../constants/realEstateAssistantPrompt.constants");
 const openaiStatus_service_1 = require("./openaiStatus.service");
 const propertyKnowledge_service_1 = require("./propertyKnowledge.service");
@@ -47,6 +81,36 @@ class AIService {
             action: nextAction.action,
             promptModifiers: nextAction.promptModifiers,
         });
+        // Deterministic visit-status replies — never LLM, never escalate (ai.md §3 & §5).
+        if ((0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(request.customerMessage)
+            && request.companyId
+            && request.lead?.id) {
+            const visitReply = await (0, buyerVisitQuery_service_1.buildBuyerVisitStatusReply)({
+                leadId: request.lead.id,
+                companyId: request.companyId,
+                companyName: request.companyName,
+            });
+            return {
+                text: visitReply,
+                detectedLanguage: (0, customerMessageFastPath_service_1.resolveAdminLanguageCode)(request.aiSettings),
+                newState: {
+                    ...newState,
+                    stage: newState.stage === 'human_escalated' ? 'confirmation' : newState.stage,
+                    escalationReason: null,
+                },
+                nextAction: { action: 'continue', promptModifiers: ['Visit status listed from database.'] },
+            };
+        }
+        // Never keep customers stuck in human_escalated for normal messages.
+        if (newState.stage === 'human_escalated' && nextAction.action === 'escalate') {
+            newState.stage = 'rapport';
+            newState.escalationReason = null;
+            nextAction.action = 'continue';
+            nextAction.targetStage = undefined;
+            nextAction.promptModifiers = [
+                'Customer re-engaged after escalation. Continue naturally — do NOT say a specialist will assist.',
+            ];
+        }
         const fastPath = (0, customerMessageFastPath_service_1.buildFastPathCustomerReply)({
             customerMessage: request.customerMessage,
             companyName: request.companyName,
@@ -71,9 +135,32 @@ class AIService {
             : [];
         const knowledgeContext = (0, propertyKnowledge_service_1.formatKnowledgeContextForPrompt)(knowledgeChunks);
         let clientMemoryContext = '';
+        let leadMemoryBlock = '';
+        let conversationContextBlock = request.conversationContextBlock ?? '';
         if (request.companyId && request.lead?.id) {
             try {
-                await (0, clientMemory_service_1.syncLeadClientMemory)(request.lead.id);
+                const { buildPromptMemoryBlock } = await Promise.resolve().then(() => __importStar(require('./lead-memory.service')));
+                leadMemoryBlock = await buildPromptMemoryBlock(request.lead.id);
+            }
+            catch (err) {
+                logger_1.default.warn('Lead memory block failed', {
+                    leadId: request.lead.id,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
+            if (!conversationContextBlock && request.conversationId) {
+                try {
+                    const { buildConversationContextBlock } = await Promise.resolve().then(() => __importStar(require('./conversation-summary.service')));
+                    conversationContextBlock = await buildConversationContextBlock(request.conversationId, request.lead.id, request.companyId);
+                }
+                catch (err) {
+                    logger_1.default.warn('Conversation context block failed', {
+                        leadId: request.lead.id,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
+            try {
                 const clientChunks = await (0, clientMemory_service_1.searchClientMemory)({
                     companyId: request.companyId,
                     query: request.customerMessage,
@@ -89,8 +176,11 @@ class AIService {
                 });
             }
         }
+        const mergedMemoryContext = [leadMemoryBlock, conversationContextBlock, clientMemoryContext]
+            .filter(Boolean)
+            .join('\n\n');
         // LANGUAGE BRAIN: Generate response with policy-guided prompt
-        const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction, knowledgeContext, clientMemoryContext, request.liveLeadContextBlock);
+        const systemPrompt = this.buildGoalDirectedPrompt(request, newState, nextAction, knowledgeContext, mergedMemoryContext, request.liveLeadContextBlock);
         const messages = this.buildMessages(request);
         const providers = this.getProviderOrder();
         let lastError = null;
@@ -158,13 +248,25 @@ class AIService {
         const { aiSettings, companyName, properties, lead } = request;
         const stageConfig = (0, conversationStateMachine_1.getStageConfig)(state.stage);
         const tone = aiSettings.responseTone || 'friendly';
-        // Build property context
+        // Build property context — filter to available only, limit to 10 to avoid huge prompts
         const propertyList = properties
             .filter((p) => p.status === 'available')
             .slice(0, 10)
             .map((p) => {
-            const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${(amenities || []).slice(0, 5).join(', ')}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
+            let amenityList = [];
+            if (Array.isArray(p.amenities)) {
+                amenityList = p.amenities;
+            }
+            else if (typeof p.amenities === 'string' && p.amenities) {
+                try {
+                    amenityList = JSON.parse(p.amenities);
+                }
+                catch {
+                    amenityList = [];
+                }
+            }
+            const amenityStr = amenityList.slice(0, 5).join(', ');
+            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenityStr}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
         })
             .join('\n');
         // Build commitment status
@@ -252,7 +354,9 @@ Respond with the WhatsApp message to send. Use *bold* for emphasis.
 End your response with:
 ###EXTRACT###
 {"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
-(Only include fields you're confident about)`;
+(Only include fields you're confident about)
+
+${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
     }
     operatorContactPromptBlock(aiSettings) {
         const raw = aiSettings?.operatorContact;
@@ -307,95 +411,6 @@ End your response with:
             default:
                 throw new Error(`Unsupported AI provider: ${provider}`);
         }
-    }
-    /**
-     * Build the system prompt that wires the AI exclusively for real estate.
-     */
-    buildSystemPrompt(request) {
-        const { aiSettings, companyName, properties, lead } = request;
-        const tone = aiSettings.responseTone || 'friendly';
-        const persuasionLevel = aiSettings.persuasionLevel || 7;
-        const locations = (aiSettings.operatingLocations || []).join(', ');
-        const faqs = (aiSettings.faqKnowledge || [])
-            .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
-            .join('\n\n');
-        // Build property catalog for AI context
-        const propertyList = properties
-            .filter((p) => p.status === 'available')
-            .slice(0, 10)
-            .map((p) => {
-            const amenities = typeof p.amenities === 'string' ? JSON.parse(p.amenities) : (p.amenities || []);
-            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenities.join(', ')} | RERA: ${p.reraNumber || 'N/A'}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
-        })
-            .join('\n');
-        return `You are an AI real estate assistant for ${companyName}.
-
-${(0, realEstateAssistantPrompt_constants_1.buildRealEstateAssistantPolicyPrompt)()}
-
-## ABSOLUTE RULES (NEVER VIOLATE)
-1. You are ONLY about real estate. NEVER discuss politics, religion, sports, entertainment, other products, or any non-real-estate topic. If asked, politely redirect: "I specialize in helping you find your dream property! Let me help you with that."
-2. ALWAYS detect the customer's language and respond in the SAME language. You support: ${Object.values(SUPPORTED_LANGUAGES).join(', ')}. If they write in mixed languages (Hinglish, etc.), respond in the dominant language.
-3. NEVER make promises about exact prices or availability without referencing the property database below.
-4. NEVER share information about other companies or other customers.
-5. LEGAL SAFETY: only state property facts that appear in AVAILABLE PROPERTIES or the NEVER-SAY-NO block. Do not invent builder, RERA, approvals, possession date, availability, amenities, discount %, ROI, loan amounts, or price.
-6. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet.
-7. If a required property fact is missing, say it is not in our current records and offer to connect an agent or share the brochure/source.
-8. Your SOLE purpose is to: understand needs → match properties → convince them to book a site visit.
-9. If the customer asks to CANCEL or RESCHEDULE a site visit, do NOT repeat an old "visit scheduled" confirmation. Acknowledge the change and ask for their new preferred day and time if unclear. The system updates the calendar separately — never invent a confirmation for a date they did not request.
-${this.disclaimerPromptLine(request)}
-
-## YOUR PERSONALITY
-- Tone: ${tone}
-- Be warm, approachable, and genuinely helpful
-- Persuasion level: ${persuasionLevel}/10
-- Never be pushy or aggressive
-- Always empathize with concerns before addressing them
-
-## CONVERSATION APPROACH
-- Start with ONE warm, open question about what they're looking for (area, budget, type).
-- Discover needs naturally through conversation: budget, location, property type, timeline.
-- Match requirements to 2-3 best listings from AVAILABLE PROPERTIES.
-- Highlight value, location advantages, and unique benefits — no invented claims.
-- Guide them toward booking a *free, no-commitment site visit*.
-- Always end with ONE clear call-to-action.
-- NEVER open with a numbered list of what you can do. That reads like a robot.
-
-## OBJECTION HANDLING
-- "Too expensive" → Show similar in lower range, explain long-term value, EMI options
-- "Not interested" → Ask specifically what doesn't match, show alternative
-- "Will think about it" → "Absolutely! But since visiting is free and no commitment, why not just come see it this weekend? Many of our happy homeowners started with just a visit!"
-- "Looking at other options" → "That's smart! Comparing is important. We'd love for you to see our properties too - they often surprise people with the value they offer."
-- "Too far" → Highlight connectivity, upcoming infrastructure, price advantage
-
-## CREATING URGENCY (WITHOUT PRESSURE)
-- "This property has been getting a lot of interest lately"
-- "I can reserve a visit slot for you before they fill up"
-- "Properties in this area have been appreciating well"
-
-## AVAILABLE PROPERTIES
-${propertyList || 'No properties currently listed. Inform the customer that listings are being updated and ask for their preferences so you can notify them.'}
-
-${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
-
-## OPERATING AREAS
-${locations || 'All major cities'}
-
-## COMPANY FAQ
-${faqs || 'No specific FAQs configured.'}
-
-## CUSTOMER INFO (if known)
-- Name: ${lead.customerName || 'Unknown'}
-- Budget: ${lead.budgetMin ? `₹${formatPrice(lead.budgetMin)}-₹${formatPrice(lead.budgetMax)}` : 'Not specified'}
-- Location preference: ${lead.locationPreference || 'Not specified'}
-- Property type: ${lead.propertyType || 'Not specified'}
-
-## RESPONSE FORMAT
-Respond ONLY with the message text to send to the customer. Keep responses concise (under 300 words) and conversational. Use WhatsApp-friendly formatting (* for bold, _ for italic).
-
-## EXTRACTION
-After your response, add a JSON block on a new line starting with ###EXTRACT### containing any information you detected:
-{"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
-Only include fields you are confident about. Use null for unknown fields.`;
     }
     buildMessages(request) {
         const messages = [];
@@ -512,8 +527,31 @@ Only include fields you are confident about. Use null for unknown fields.`;
      * - One clear CTA only.
      */
     mockResponse(request) {
-        const name = request.lead?.customerName ? ` ${request.lead.customerName}` : '';
+        const salutation = (0, customerMessageFastPath_service_1.formatCustomerSalutation)(request.lead?.customerName);
         const company = request.companyName || 'us';
+        // Priority 0: Visit-status query — answer from context even when LLM is down.
+        if ((0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(request.customerMessage)
+            && request.companyId
+            && request.lead?.id) {
+            // sync path only — caller should have handled async; use activeVisit snapshot if present.
+            if (request.activeVisit) {
+                const prop = request.activeVisit.propertyName ?? 'your property';
+                const when = request.activeVisit.scheduledAt.toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
+                });
+                return {
+                    text: `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\n` +
+                        `Reply *Confirm*, *Reschedule*, or *Cancel*.`,
+                    detectedLanguage: 'en',
+                };
+            }
+        }
         // Priority 1: Visit-aware fallback — never ignore an active visit.
         if (request.activeVisit) {
             const { propertyName, status } = request.activeVisit;
@@ -532,7 +570,7 @@ Only include fields you are confident about. Use null for unknown fields.`;
         const historyLength = (request.conversationHistory ?? []).length;
         if (historyLength >= 2) {
             return {
-                text: `Apologies${name}, I'm experiencing a brief technical issue. ` +
+                text: `Apologies${salutation}, I'm experiencing a brief technical issue. ` +
                     `I'll respond to your query in a moment — please bear with me! 🙏`,
                 detectedLanguage: 'en',
                 extractedInfo: undefined,
@@ -540,7 +578,7 @@ Only include fields you are confident about. Use null for unknown fields.`;
         }
         // Priority 3: First contact only — minimal, non-robotic greeting.
         return {
-            text: `*Hey${name}!* 👋 Welcome to *${company}*.\n\n` +
+            text: `*Hey${salutation}!* 👋 Welcome to *${company}*.\n\n` +
                 `What area are you exploring, and what's your budget range? ` +
                 `I'll match you with the right properties right away. 🏡`,
             detectedLanguage: 'en',
@@ -581,15 +619,25 @@ Only include fields you are confident about. Use null for unknown fields.`;
     }
 }
 exports.AIService = AIService;
+/**
+ * Formats a price value from Prisma (which may be a Decimal object) into a human-readable
+ * Indian currency string (e.g. 45L, 1.2Cr). Accepts Prisma Decimal, plain number, or null.
+ *
+ * @param value - Price value (Prisma Decimal, number, or null)
+ * @returns Formatted price string (e.g. "45L", "1.2Cr")
+ */
 function formatPrice(value) {
-    if (!value)
+    if (value === null || value === undefined)
         return '0';
-    if (value >= 10000000)
-        return (value / 10000000).toFixed(1) + 'Cr';
-    if (value >= 100000)
-        return (value / 100000).toFixed(1) + 'L';
-    if (value >= 1000)
-        return (value / 1000).toFixed(1) + 'K';
-    return value.toString();
+    const num = typeof value === 'number' ? value : value.toNumber();
+    if (!num)
+        return '0';
+    if (num >= 10000000)
+        return (num / 10000000).toFixed(1) + 'Cr';
+    if (num >= 100000)
+        return (num / 100000).toFixed(1) + 'L';
+    if (num >= 1000)
+        return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
 }
 exports.aiService = new AIService();

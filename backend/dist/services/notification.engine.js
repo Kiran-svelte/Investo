@@ -342,6 +342,22 @@ class NotificationEngine {
             message: `Visit with ${lead?.customerName || lead?.phone} is now ${newStatus}`,
             data: { visitId: visit.id, oldStatus, newStatus },
         });
+        const customerName = lead?.customerName || lead?.phone || 'Customer';
+        const propertyName = visit.property?.name ?? 'Property';
+        const agentRecord = await prisma_1.default.user.findUnique({
+            where: { id: visit.agentId },
+            select: { phone: true },
+        });
+        if (agentRecord?.phone && ['confirmed', 'completed', 'cancelled'].includes(newStatus)) {
+            const statusEmoji = newStatus === 'confirmed' ? '✅' : newStatus === 'completed' ? '🏁' : '❌';
+            const agentMsg = [
+                `${statusEmoji} *Visit ${newStatus.charAt(0).toUpperCase() + newStatus.slice(1)}*`,
+                `Customer: *${customerName}*`,
+                `Property: *${propertyName}*`,
+                `When: *${timeStr}*`,
+            ].join('\n');
+            void sendWhatsAppToUser(agentRecord.phone, visit.companyId, agentMsg);
+        }
         // Send WhatsApp to customer
         if (lead?.phone) {
             const whatsappConfig = getCompanyWhatsAppConfig(company);

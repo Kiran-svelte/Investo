@@ -83,6 +83,13 @@ export const CRON_SCHEDULES = {
   /** EOD attendance check — 7:00 PM IST = 13:30 UTC Mon-Sat.
    *  Asks agents "Did the customer show up?" (YES/NO) for unresolved today-visits. */
   EOD_ATTENDANCE_CHECK: '30 13 * * 1-6',
+  /**
+   * Workflow saga reconciliation check — 2:30 AM IST = 21:00 UTC nightly.
+   * Alerts super_admin and logs every `needs_reconciliation` workflow run
+   * that has not been manually resolved within 24 hours.
+   * Owner: on-call team. Runbook: docs/runbooks/workflow-reconciliation.md
+   */
+  WORKFLOW_RECONCILIATION_CHECK: '0 21 * * *',
 } as const;
 
 // ─── Emoji Maps ─────────────────────────────────────────────────────

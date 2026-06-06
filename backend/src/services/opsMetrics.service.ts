@@ -5,6 +5,7 @@ const COUNTERS = [
   'webhook_inbound',
   'ai_replies',
   'workflow_runs',
+  'workflow_idempotency_hits',
   'whatsapp_outbound',
   'errors_5xx',
   'rate_limited',

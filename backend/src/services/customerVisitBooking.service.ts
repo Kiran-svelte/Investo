@@ -11,6 +11,8 @@ import {
 import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
 import { scheduleVisit } from './visitBooking.service';
 import { createVisitApprovalRequest } from './visitPendingApproval.service';
+import type { WorkflowId } from '../constants/workflow.constants';
+import type { WorkflowParams } from './workflow/workflow.types';
 
 export interface CommitCustomerVisitInput {
   companyId: string;
@@ -39,6 +41,8 @@ export interface CommitCustomerVisitResult {
   visitId?: string;
   customerReply?: string;
   leadStatus?: 'visit_scheduled' | 'contacted';
+  /** When set, caller should run workflow instead of inline DB writes. */
+  workflowSuggestion?: { workflowId: WorkflowId; parameters: WorkflowParams };
 }
 
 /**
@@ -186,6 +190,35 @@ export async function tryCommitCustomerVisitBooking(
     input;
 
   if (isVisitCancelOrRescheduleMessage(customerMessage)) {
+    const activeVisit = await prisma.visit.findFirst({
+      where: {
+        companyId,
+        leadId: lead.id,
+        status: { in: ['scheduled', 'confirmed'] },
+        scheduledAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      select: { id: true },
+    });
+    if (activeVisit && process.env.BUYER_VISIT_WORKFLOW_ENABLED !== '0') {
+      const workflowId: WorkflowId = /\b(cancel|call\s+off)\b/i.test(customerMessage)
+        ? 'cancel_visit'
+        : 'reschedule_visit';
+      const scheduledAt = parseVisitDateTimeFromMessage(customerMessage);
+      return {
+        committed: false,
+        workflowSuggestion: {
+          workflowId,
+          parameters: {
+            leadId: lead.id,
+            visitId: activeVisit.id,
+            newScheduledAt: scheduledAt?.toISOString(),
+            scheduledAt: scheduledAt?.toISOString(),
+            message: customerMessage,
+          },
+        },
+      };
+    }
     return tryCustomerVisitCancelReschedule(input);
   }
 
@@ -309,6 +342,21 @@ export async function tryCommitCustomerVisitBooking(
   });
 
   const autoConfirm = process.env.WHATSAPP_AUTO_CONFIRM_VISITS !== '0';
+
+  if (autoConfirm && process.env.BUYER_VISIT_WORKFLOW_ENABLED !== '0') {
+    return {
+      committed: false,
+      workflowSuggestion: {
+        workflowId: 'schedule_visit',
+        parameters: {
+          leadId: lead.id,
+          propertyId,
+          scheduledAt: scheduledAt.toISOString(),
+          message: customerMessage,
+        },
+      },
+    };
+  }
 
   if (autoConfirm) {
     const booking = await scheduleVisit({
