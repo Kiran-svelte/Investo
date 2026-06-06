@@ -61,6 +61,8 @@ export class AutomationService {
   private intervalIds: NodeJS.Timeout[] = [];
   private workerIntervalId: NodeJS.Timeout | null = null;
   private workerRunning = false;
+  /** Per-recipient locks — prevents duplicate outbound automation if worker overlaps. */
+  private readonly recipientLocks = new Set<string>();
 
   /**
    * Start all scheduled jobs.
@@ -219,26 +221,10 @@ export class AutomationService {
       const customerName = visit.lead?.customerName;
       const propertyName = visit.property?.name;
       const locationArea = visit.property?.locationArea;
-
-      // Multi-language reminder templates
-      const messages: Record<string, Record<string, string>> = {
-        en: {
-          '24h': `Hi ${customerName || 'there'}! 👋\n\nReminder: Your property visit is scheduled for *tomorrow*.\n\n📅 ${dateStr}\n⏰ ${timeStr}\n📍 ${propertyName || 'Property'}, ${locationArea || ''}\n\nReply YES to confirm or RESCHEDULE to change the time.`,
-          '1h': `Hi ${customerName || 'there'}! ⏰\n\nYour property visit is in *1 hour*!\n\n📍 ${propertyName || 'Property'}, ${locationArea || ''}\n⏰ ${timeStr}\n\nSee you soon!`,
-        },
-        hi: {
-          '24h': `नमस्ते ${customerName || ''}! 👋\n\nयाद दिलाना: आपकी प्रॉपर्टी विजिट *कल* के लिए है।\n\n📅 ${dateStr}\n⏰ ${timeStr}\n📍 ${propertyName || 'प्रॉपर्टी'}, ${locationArea || ''}\n\nपुष्टि के लिए YES और समय बदलने के लिए RESCHEDULE लिखें।`,
-          '1h': `नमस्ते ${customerName || ''}! ⏰\n\nआपकी प्रॉपर्टी विजिट *1 घंटे* में है!\n\n📍 ${propertyName || 'प्रॉपर्टी'}, ${locationArea || ''}\n⏰ ${timeStr}\n\nजल्द मिलते हैं!`,
-        },
-        kn: {
-          '24h': `ಹಲೋ ${customerName || ''}! 👋\n\nಜ್ಞಾಪನೆ: ನಿಮ್ಮ ಆಸ್ತಿ ಭೇಟಿ *ನಾಳೆ* ಇದೆ.\n\n📅 ${dateStr}\n⏰ ${timeStr}\n📍 ${propertyName || 'ಆಸ್ತಿ'}, ${locationArea || ''}\n\nದೃಢೀಕರಿಸಲು YES ಅಥವಾ ಸಮಯ ಬದಲಾಯಿಸಲು RESCHEDULE ಎಂದು ಬರೆಯಿರಿ.`,
-          '1h': `ಹಲೋ ${customerName || ''}! ⏰\n\nನಿಮ್ಮ ಆಸ್ತಿ ಭೇಟಿ *1 ಗಂಟೆ* ಯಲ್ಲಿದೆ!\n\n📍 ${propertyName || 'ಆಸ್ತಿ'}, ${locationArea || ''}\n⏰ ${timeStr}\n\nಶೀಘ್ರದಲ್ಲಿ ಭೇಟಿಯಾಗೋಣ!`,
-        },
-      };
-
-      const lang = visit.lead?.language || 'en';
-      const msgTemplates = messages[lang] || messages.en;
-      const message = msgTemplates[timing];
+      const visitLabel = [propertyName || 'Property', locationArea || ''].filter(Boolean).join(', ');
+      const message = timing === '24h'
+        ? `Hi ${customerName || 'there'}!\n\nReminder: Your property visit is scheduled for tomorrow.\n\nDate: ${dateStr}\nTime: ${timeStr}\nProperty: ${visitLabel}\n\nReply YES to confirm or RESCHEDULE to change the time.`
+        : `Hi ${customerName || 'there'}!\n\nYour property visit is in 1 hour.\n\nProperty: ${visitLabel}\nTime: ${timeStr}\n\nSee you soon.`;
 
       const customerPhone = visit.lead?.phone;
 
@@ -428,36 +414,14 @@ export class AutomationService {
   private nurtureMessage(lead: any, reason: string): string {
     const name = lead.customerName || 'there';
     const area = lead.locationPreference || 'your preferred area';
-    const templates: Record<string, Record<string, string>> = {
-      '48h_no_activity': {
-        en: `Hi ${name}! 👋\n\nWe noticed you were looking at properties with us. Have you found what you're looking for?\n\nReply YES for fresh recommendations!`,
-        hi: `नमस्ते ${name}! 👋\n\nक्या आपको अपनी पसंद की प्रॉपर्टी मिल गई? नए विकल्पों के लिए YES लिखें!`,
-        kn: `ನಮಸ್ಕಾರ ${name}! 👋\n\nನಿಮಗೆ ಬೇಕಾದ ಆಸ್ತಿ ಸಿಕ್ಕಿತೇ? ಹೊಸ ಆಯ್ಕೆಗಳಿಗೆ YES ಎಂದು ಕಳುಹಿಸಿ!`,
-      },
-      '3d_reengage': {
-        en: `Hi ${name}! Still exploring? I have new options that may fit your criteria in ${area}. Reply YES to see your top 3 matches.`,
-        hi: `नमस्ते ${name}! ${area} में आपके मापदंड पर 3 नए विकल्प हैं। देखने के लिए YES लिखें।`,
-        kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ನಿಮಗೆ ಹೊಂದುವ 3 ಹೊಸ ಆಯ್ಕೆಗಳಿವೆ. ನೋಡಲು YES ಎಂದು ಕಳುಹಿಸಿ.`,
-      },
-      '7d_urgency': {
-        en: `Hi ${name}! Quick update: demand in ${area} has been strong. If you're still interested, I can hold a visit slot this week. Reply VISIT to book.`,
-        hi: `नमस्ते ${name}! ${area} में मांग अच्छी है। इस हफ्ते साइट विज़िट के लिए VISIT लिखें।`,
-        kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ಬೇಡಿಕೆ ಹೆಚ್ಚಿದೆ. ಈ ವಾರ ಸೈಟ್ ವಿಸಿಟ್‌ಗೆ VISIT ಎಂದು ಕಳುಹಿಸಿ.`,
-      },
-      '30d_reengage': {
-        en: `Hi ${name}! It's been a while. The market in ${area} has moved — want a quick update on what's available now? Reply YES and I'll share.`,
-        hi: `नमस्ते ${name}! ${area} में नई लिस्टिंग्स हैं। अपडेट के लिए YES लिखें।`,
-        kn: `ನಮಸ್ಕಾರ ${name}! ${area} ನಲ್ಲಿ ಹೊಸ ಲಿಸ್ಟಿಂಗ್‌ಗಳಿವೆ. ಅಪ್‌ಡೇಟ್‌ಗೆ YES ಎಂದು ಕಳುಹಿಸಿ.`,
-      },
-      visit_post_feedback: {
-        en: `Hi ${name}! 👋\n\nHow was your site visit yesterday? Reply with your feedback — loved it, need more options, or want to negotiate.`,
-        hi: `नमस्ते ${name}! 👋\n\nकल की साइट विज़िट कैसी रही? अपना फीडबैक भेजें — पसंद आया, और विकल्प चाहिए, या बातचीत करनी है।`,
-        kn: `ನಮಸ್ಕಾರ ${name}! 👋\n\nನಿನ್ನೆ ಸೈಟ್ ವಿಸಿಟ್ ಹೇಗಿತ್ತು? ಪ್ರತಿಕ್ರಿಯೆ ಕಳುಹಿಸಿ — ಇಷ್ಟವಾಯಿತು, ಇನ್ನೂ ಆಯ್ಕೆಗಳು ಬೇಕು, ಅಥವಾ ಚರ್ಚೆ ಮಾಡಬೇಕು.`,
-      },
+    const templates: Record<string, string> = {
+      '48h_no_activity': `Hi ${name}!\n\nWe noticed you were looking at properties with us. Have you found what you need?\n\nReply YES for fresh recommendations.`,
+      '3d_reengage': `Hi ${name}! Still exploring? I have new options that may fit your criteria in ${area}. Reply YES to see your top 3 matches.`,
+      '7d_urgency': `Hi ${name}! Quick update: demand in ${area} has been strong. If you're still interested, I can hold a visit slot this week. Reply VISIT to book.`,
+      '30d_reengage': `Hi ${name}! It's been a while. Want a quick update on what is available now in ${area}? Reply YES and I will share it.`,
+      visit_post_feedback: `Hi ${name}!\n\nHow was your site visit yesterday? Reply with your feedback: loved it, need more options, or want to negotiate.`,
     };
-    const lang = lead.language || 'en';
-  const bucket = templates[reason] || templates['48h_no_activity'];
-    return bucket[lang] || bucket.en;
+    return templates[reason] || templates['48h_no_activity'];
   }
 
   private async sendFollowUpMessage(lead: any, reason: string): Promise<void> {
@@ -644,6 +608,19 @@ export class AutomationService {
     }
   }
 
+  private async withRecipientLock<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
+    if (this.recipientLocks.has(key)) {
+      logger.debug('Automation recipient lock: skipping overlapping job', { key });
+      return undefined;
+    }
+    this.recipientLocks.add(key);
+    try {
+      return await fn();
+    } finally {
+      this.recipientLocks.delete(key);
+    }
+  }
+
   private async executeVisitReminder(visitId: string, timing: '24h' | '1h'): Promise<void> {
     const visit = await prisma.visit.findUnique({
       where: { id: visitId },
@@ -659,7 +636,9 @@ export class AutomationService {
       return;
     }
 
-    await this.sendVisitReminder(visit, timing);
+    const phone = visit.lead?.phone;
+    const lockKey = phone ? `visit-reminder:${phone}:${timing}` : `visit-reminder:${visitId}:${timing}`;
+    await this.withRecipientLock(lockKey, () => this.sendVisitReminder(visit, timing));
   }
 
   private async executeAgentNotification(visitId: string): Promise<void> {
@@ -695,16 +674,18 @@ export class AutomationService {
       return;
     }
 
-    const openConversation = await prisma.conversation.findFirst({
-      where: { leadId, status: { not: 'closed' } },
-      select: { id: true },
+    const lockKey = `follow-up:${lead.phone || leadId}:${reason}`;
+    await this.withRecipientLock(lockKey, async () => {
+      const openConversation = await prisma.conversation.findFirst({
+        where: { leadId, status: { not: 'closed' } },
+        select: { id: true },
+      });
+      if (!openConversation && reason !== 'visit_post_feedback') {
+        logger.debug('Follow-up skipped — no active conversation', { leadId, reason });
+        return;
+      }
+      await this.sendFollowUpMessage(lead, reason);
     });
-    if (!openConversation && reason !== 'visit_post_feedback') {
-      logger.debug('Follow-up skipped — no active conversation', { leadId, reason });
-      return;
-    }
-
-    await this.sendFollowUpMessage(lead, reason);
   }
 
   private async executeNegotiationReminder(leadId: string): Promise<void> {

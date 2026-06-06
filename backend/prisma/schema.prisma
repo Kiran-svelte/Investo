@@ -59,8 +59,9 @@ model Company {
   propertyImportMedia  PropertyImportMedia[]
   propertyImportJobs   PropertyImportJob[]
   propertyImportMediaBlobs PropertyImportMediaBlob[]
-  agentSessions     AgentSession[]
-  agentActionLogs   AgentActionLog[]
+  agentSessions            AgentSession[]
+  agentActionLogs          AgentActionLog[]
+  inboundWhatsappDedups    InboundWhatsappDedup[]
 
   @@map("companies")
 }
@@ -307,6 +308,21 @@ model Message {
   /// Handles Meta's at-least-once delivery guarantees (webhook retries).
   @@unique([whatsappMessageId])
   @@map("messages")
+}
+
+/// Cross-instance idempotency for inbound WhatsApp webhooks (Meta retries, dual providers).
+model InboundWhatsappDedup {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  whatsappMessageId String   @map("whatsapp_message_id") @db.VarChar(255)
+  senderPhone       String?  @map("sender_phone") @db.VarChar(32)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, whatsappMessageId])
+  @@index([companyId, createdAt])
+  @@map("inbound_whatsapp_dedup")
 }
 
 // ─── Property Projects (group listings + imports) ───────────────────

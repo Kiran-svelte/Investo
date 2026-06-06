@@ -9,6 +9,7 @@ const mockPrisma = {
     findFirst: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
+    upsert: jest.fn(),
     update: jest.fn(),
     groupBy: jest.fn(),
   },
@@ -20,6 +21,10 @@ const mockPrisma = {
   message: {
     create: jest.fn(),
     findMany: jest.fn(),
+    findFirst: jest.fn(),
+  },
+  inboundWhatsappDedup: {
+    create: jest.fn().mockResolvedValue({ id: 'dedup-1' }),
   },
   notification: {
     create: jest.fn(),
@@ -88,6 +93,20 @@ jest.mock('../../services/inboundWhatsAppRouting.service', () => ({
     handled: false,
     route: { kind: 'customer' },
   }),
+}));
+
+jest.mock('../../services/whatsappPresence.service', () => ({
+  __esModule: true,
+  simulateHumanReplyPacing: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/inboundMessageGuard.service', () => ({
+  __esModule: true,
+  claimInboundMessageFull: jest.fn().mockResolvedValue(true),
+  claimCustomerInboundFingerprint: jest.fn().mockResolvedValue(true),
+  claimCustomerProcessingTurn: jest.fn().mockResolvedValue(true),
+  releaseCustomerProcessingTurn: jest.fn().mockResolvedValue(undefined),
+  claimOutboundAiReply: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('../../services/neverSayNoEngine.service', () => ({
@@ -184,6 +203,13 @@ describe('WhatsAppService inbound operational behavior', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    for (const model of Object.values(mockPrisma)) {
+      for (const value of Object.values(model as Record<string, unknown>)) {
+        if (jest.isMockFunction(value)) {
+          value.mockReset();
+        }
+      }
+    }
     service = new WhatsAppService();
     jest.spyOn(service, 'sendMessage').mockResolvedValue(true);
 
@@ -192,7 +218,9 @@ describe('WhatsAppService inbound operational behavior', () => {
     mockPrisma.lead.findFirst.mockResolvedValue(lead);
     mockPrisma.conversation.findFirst.mockResolvedValue(conversation);
     mockPrisma.message.create.mockResolvedValue({ id: 'message-1' });
+    mockPrisma.message.findFirst.mockResolvedValue(null);
     mockPrisma.message.findMany.mockResolvedValue([]);
+    mockPrisma.lead.upsert.mockResolvedValue(lead);
     mockPrisma.lead.update.mockResolvedValue({ id: lead.id });
     mockPrisma.notification.create.mockResolvedValue({ id: 'notif-1' });
     mockPrisma.user.findMany.mockResolvedValue([]);
@@ -335,7 +363,7 @@ describe('WhatsAppService inbound operational behavior', () => {
   it('auto-creates lead and routes strangers (non-staff phones) to prospect flow', async () => {
     mockPrisma.lead.findFirst.mockResolvedValue(null);
     mockPrisma.lead.findMany.mockResolvedValue([]);
-    mockPrisma.lead.create.mockResolvedValue({
+    mockPrisma.lead.upsert.mockResolvedValue({
       id: 'lead-new',
       companyId: 'company-1',
       phone: '+918888888888',
@@ -387,9 +415,9 @@ describe('WhatsAppService inbound operational behavior', () => {
       messageId: 'wamid-new-1',
     });
 
-    expect(mockPrisma.lead.create).toHaveBeenCalledWith(
+    expect(mockPrisma.lead.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
+        create: expect.objectContaining({
           phone: '+918888888888',
           source: 'whatsapp',
         }),

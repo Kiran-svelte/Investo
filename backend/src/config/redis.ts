@@ -10,14 +10,15 @@ const memCache = new Map<string, { value: unknown; expiresAt: number }>();
 
 export function getRedis(): Redis | null {
   if (redis) return redis;
-  if (!config.redis.url || !config.redis.token) {
+  const redisConfig = config.redis ?? { url: '', token: '' };
+  if (!redisConfig.url || !redisConfig.token) {
     logger.warn('Upstash Redis not configured — using in-memory cache');
     return null;
   }
   try {
     redis = new Redis({
-      url: config.redis.url,
-      token: config.redis.token,
+      url: redisConfig.url,
+      token: redisConfig.token,
     });
     logger.info('Upstash Redis client initialized');
     return redis;

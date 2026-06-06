@@ -75,6 +75,7 @@ export interface ClassifyAndExecuteParams {
   sessionLeadId?: string | null;
   sessionVisitId?: string | null;
   staffPhone?: string;
+  inboundMessageId?: string;
 }
 
 type LlmCaller = (system: string, user: string) => Promise<string>;
@@ -575,11 +576,28 @@ export async function executeAgentIntent(
   extracted: ExtractIntentResult,
   recentMessages: AgentSessionMessage[],
   sessionLeadId?: string | null,
-  options?: { messageText?: string; staffPhone?: string; sessionVisitId?: string | null; actionTools?: AgentActionTool[] },
+  options?: {
+    messageText?: string;
+    staffPhone?: string;
+    sessionVisitId?: string | null;
+    actionTools?: AgentActionTool[];
+    inboundMessageId?: string;
+  },
 ): Promise<string | null> {
   const { intent, parameters } = extracted;
 
   if (intent === 'unknown' || DETERMINISTIC_DELEGATE_INTENTS.has(intent)) {
+    return null;
+  }
+
+  const { claimAgentActionOnce } = await import('../inboundMessageGuard.service');
+  const actionClaimed = await claimAgentActionOnce(
+    context.companyId,
+    context.userId,
+    options?.inboundMessageId,
+    `${intent}:${JSON.stringify(parameters)}`,
+  );
+  if (!actionClaimed) {
     return null;
   }
 
@@ -836,6 +854,7 @@ export async function classifyAndExecuteAgentIntent(
       params.recentMessages,
       params.sessionLeadId,
       {
+        inboundMessageId: params.inboundMessageId,
         messageText: params.messageText,
         staffPhone: params.staffPhone,
         sessionVisitId: params.sessionVisitId,

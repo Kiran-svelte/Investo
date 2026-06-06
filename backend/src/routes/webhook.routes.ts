@@ -6,7 +6,6 @@ import { whatsappService } from '../services/whatsapp.service';
 import { sendToLangGraph } from '../services/langgraphAdapter.service';
 import { runEnterpriseAgent } from '../services/enterpriseAgentBridge';
 import { whatsappIpWhitelist } from '../middleware/whatsappSecurity';
-import { deduplicationService } from '../services/deduplication.service';
 import { whatsappHealthService } from '../services/whatsappHealth.service';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 
@@ -78,8 +77,8 @@ router.post(
     return;
   }
 
-  // Must respond quickly to satisfy Meta retry behavior.
-  res.status(200).json({ status: 'received' });
+  // Must respond quickly to satisfy Meta retry behavior (before any async work).
+  res.sendStatus(200);
 
   processWebhook(req.body)
     .then((summary) => {
@@ -306,18 +305,6 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
           continue;
         }
 
-        const dedupKey = `meta:${phoneNumberId}:${messageId}`;
-
-        const isClaimed = await deduplicationService.claimMessageProcessing(dedupKey);
-        if (!isClaimed) {
-          outcome.status = 'duplicate';
-          outcome.reason = 'duplicate_message_id';
-          summary.duplicate += 1;
-          summary.outcomes.push(outcome);
-          logger.info('Duplicate message ignored', { messageId });
-          continue;
-        }
-
         const customerName = contact?.profile?.name || '';
         const { messageText, normalizedType } = extracted;
 
@@ -416,20 +403,29 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
             outcome.reason = 'message_processed';
             summary.processed += 1;
           } else if (processingResult.status === 'skipped') {
-            outcome.status = 'skipped';
-            outcome.reason = processingResult.reason || 'service_skipped';
-            summary.skipped += 1;
+            const duplicateReasons = new Set([
+              'duplicate_message_id',
+              'duplicate_customer_fingerprint',
+              'concurrent_customer_processing',
+            ]);
+            if (duplicateReasons.has(processingResult.reason || '')) {
+              outcome.status = 'duplicate';
+              outcome.reason = processingResult.reason || 'duplicate_message_id';
+              summary.duplicate += 1;
+            } else {
+              outcome.status = 'skipped';
+              outcome.reason = processingResult.reason || 'service_skipped';
+              summary.skipped += 1;
+            }
           } else {
             outcome.status = 'failed';
             outcome.reason = processingResult.reason || 'service_failed';
             summary.failed += 1;
-            await deduplicationService.release(dedupKey);
           }
 
           summary.outcomes.push(outcome);
           logger.info('=== MESSAGE HANDLED SUCCESSFULLY ===', { messageId });
         } catch (err: any) {
-          await deduplicationService.release(dedupKey);
           outcome.status = 'failed';
           outcome.reason = 'exception';
           outcome.error = err.message;

@@ -239,10 +239,14 @@ describe('Webhook reliability (Chunk 1)', () => {
   });
 
   test('short-circuits duplicate inbound message deterministically', async () => {
-    const { app, logger, dedup, whatsappService } = createTestApp({
+    const { app, logger, whatsappService } = createTestApp({
       env: 'production',
       appSecret: 'prod-secret',
-      claimResult: false,
+    });
+    whatsappService.handleIncomingMessage.mockResolvedValue({
+      status: 'skipped',
+      reason: 'duplicate_message_id',
+      propagation: { status: 'not_attempted' },
     });
 
     const payload = buildPayload();
@@ -255,8 +259,7 @@ describe('Webhook reliability (Chunk 1)', () => {
 
     await flushAsyncWork();
 
-    expect(dedup.claimMessageProcessing).toHaveBeenCalledWith('meta:pnid-1:wamid-1');
-    expect(whatsappService.handleIncomingMessage).not.toHaveBeenCalled();
+    expect(whatsappService.handleIncomingMessage).toHaveBeenCalledTimes(1);
 
     const summaryCall = logger.info.mock.calls.find(([message]) => message === 'Webhook processing summary');
     expect(summaryCall).toBeDefined();
@@ -433,8 +436,8 @@ describe('Webhook reliability (Chunk 1)', () => {
     expectNoRawPhoneInLoggerMetadata(logger);
   });
 
-  test('releases dedup claim when downstream processing fails', async () => {
-    const { app, dedup, logger } = createTestApp({
+  test('records failed status when downstream processing fails (dedup not released — idempotent)', async () => {
+    const { app, logger } = createTestApp({
       env: 'production',
       appSecret: 'prod-secret',
       serviceStatus: 'failed',
@@ -450,8 +453,6 @@ describe('Webhook reliability (Chunk 1)', () => {
     expect(response.status).toBe(200);
 
     await flushAsyncWork();
-
-    expect(dedup.release).toHaveBeenCalledWith('meta:pnid-1:wamid-1');
 
     const summaryCall = logger.info.mock.calls.find(([message]) => message === 'Webhook processing summary');
     expect(summaryCall?.[1]?.summary?.outcomes?.[0]?.status).toBe('failed');

@@ -63,6 +63,7 @@ describe('applyVisitMutationFromChat', () => {
     expect(result.mode).toBe('rescheduled');
     expect(result.reply).toMatch(/Visit rescheduled/i);
     expect(result.reply).toMatch(/Sunset Heights/i);
+    expect(result.reply).not.toMatch(/[ðàâ]/);
     expect(mockPrisma.visit.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'visit-1' },

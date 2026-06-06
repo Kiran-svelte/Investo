@@ -8,6 +8,7 @@ const mockPrisma = {
   user: { findFirst: jest.fn(), findMany: jest.fn() },
   property: { findFirst: jest.fn() },
   visit: { findFirst: jest.fn() },
+  conversation: { findFirst: jest.fn() },
 };
 
 jest.mock('../../config/prisma', () => ({
@@ -38,6 +39,13 @@ jest.mock('../../services/agent-action-log.service', () => ({
   logAgentAction: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../../services/notification.engine', () => ({
+  notificationEngine: {
+    notify: jest.fn().mockResolvedValue(undefined),
+    onLeadStatusChange: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
 jest.mock('../../services/clientMemory.service', () => ({
   setAgentSessionClientContext: jest.fn().mockResolvedValue(undefined),
   syncLeadClientMemory: jest.fn().mockResolvedValue(undefined),
@@ -58,8 +66,10 @@ jest.mock('../../services/agent/lead-status-actions', () => ({
 import { WORKFLOW_DEFINITIONS, allWorkflowIds } from '../../services/workflow/workflow-registry';
 import {
   classifyAndRunWorkflow,
+  classifyAndRunBuyerWorkflow,
   classifyWorkflowMessage,
   runWorkflow,
+  tryRunBuyerWorkflow,
 } from '../../services/workflow/workflow-engine.service';
 import { resolveLeadForIntent } from '../../services/agent/agent-lead-resolution.service';
 import { updateLeadStatusById } from '../../services/agent/lead-status-actions';
@@ -212,5 +222,101 @@ describe('workflow-engine.service', () => {
     expect(llm).toHaveBeenCalledTimes(1);
     expect(updateLeadStatusById).toHaveBeenCalledWith(ctx, kannadaLeadId, 'contacted');
     expect(reply).toContain('contacted');
+  });
+
+  it('formats buyer inquiry workflow replies without duplicate or internal tool details', async () => {
+    const toolReply = [
+      '*Matches for Kannada Media*',
+      '*Skyline Heights* (apartment)',
+      'Type: apartment | Status: available',
+      'Price: From INR 75,00,000',
+      'Location: Indiranagar, Bengaluru',
+      'ID: 11111111-1111-4111-8111-111111111111',
+      'Match score: 0.89',
+    ].join('\n');
+
+    (getToolsForRole as jest.Mock).mockReturnValue([
+      {
+        name: 'searchPropertiesForLead',
+        schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
+        func: jest.fn().mockResolvedValue(toolReply),
+      },
+    ]);
+
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'price_inquiry',
+        confidence: 0.9,
+        parameters: {},
+      }),
+    );
+
+    const reply = await classifyAndRunBuyerWorkflow(
+      {
+        companyId: 'company-1',
+        leadId: kannadaLeadId,
+        messageText: 'what is the price',
+        companyName: 'Demo Realty',
+      },
+      { llm },
+    );
+
+    expect(reply).toContain('Here are the matching options I found:');
+    expect(reply).toContain('Price: From INR 75,00,000');
+    expect(reply).not.toContain('ID:');
+    expect(reply).not.toContain('Match score:');
+    expect((reply?.match(/Price:/g) ?? [])).toHaveLength(1);
+  });
+
+  it('does not run staff visit mutation tools from the buyer workflow classifier', async () => {
+    const scheduleTool = {
+      name: 'scheduleVisit',
+      schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
+      func: jest.fn().mockResolvedValue('Visit scheduled by staff tool'),
+    };
+    (getToolsForRole as jest.Mock).mockReturnValue([scheduleTool]);
+
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'schedule_visit',
+        confidence: 0.94,
+        parameters: { scheduledAt: '2026-06-06T13:00:00+05:30' },
+      }),
+    );
+
+    const reply = await classifyAndRunBuyerWorkflow(
+      {
+        companyId: 'company-1',
+        leadId: kannadaLeadId,
+        messageText: 'book site visit tomorrow 1pm',
+        companyName: 'Demo Realty',
+      },
+      { llm },
+    );
+
+    expect(reply).toBeNull();
+    expect(scheduleTool.func).not.toHaveBeenCalled();
+  });
+
+  it('uses a customer-safe escalation reply for buyer fallback', async () => {
+    mockPrisma.lead.findFirst.mockResolvedValue({
+      id: kannadaLeadId,
+      customerName: 'Kannada Media',
+      status: 'contacted',
+      assignedAgentId: 'agent-1',
+    });
+    mockPrisma.user.findMany.mockResolvedValue([]);
+    (getToolsForRole as jest.Mock).mockReturnValue([]);
+
+    const reply = await tryRunBuyerWorkflow({
+      companyId: 'company-1',
+      leadId: kannadaLeadId,
+      messageText: 'please call me, I want to talk to an agent',
+      companyName: 'Demo Realty',
+    });
+
+    expect(reply).toContain('human specialist');
+    expect(reply).not.toContain('Urgent alert created');
+    expect(reply).not.toContain('agents notified');
   });
 });

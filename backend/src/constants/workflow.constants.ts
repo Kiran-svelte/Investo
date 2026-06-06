@@ -28,9 +28,6 @@ export const BUYER_WORKFLOW_IDS = [
   'price_inquiry',
   'availability_check',
   'amenities_question',
-  'schedule_visit',
-  'reschedule_visit',
-  'cancel_visit',
   'escalate_to_human',
 ] as const;
 

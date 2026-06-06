@@ -1,152 +1,41 @@
 import { UserRole } from '@prisma/client';
 
-export interface BuildSystemPromptParams {
-  userName: string;
-  companyName: string;
-  userRole: UserRole;
-  currentDateIST: string;
-  currentTimeIST: string;
-  conversationHistory: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp?: string;
-  }>;
-  upcomingVisits: Array<{
-    id: string;
-    projectName: string;
-    date: string;
-    time: string;
-    status: string;
-  }>;
-  leadStatus: {
-    id: string;
-    status: string;
-    lastInteraction: string;
-    interestedProject?: string;
-    budgetRange?: string;
-  };
-  recentErrors: Array<{
-    userMessage: string;
-    aiResponse: string;
-    timestamp: string;
-  }>;
-  clientMemoryBlock?: string;
-  /** Tool names bound to the model for this role — keeps the agent aware of callable actions. */
-  availableTools?: string[];
-  /** All 15 workflows + direct-tool routing + 4-step execution contract. */
-  workflowExecutionGuide?: string;
-}
-
-export function buildSystemPrompt(params: BuildSystemPromptParams): string {
-  const {
-    userName,
-    companyName,
-    userRole,
-    currentDateIST,
-    currentTimeIST,
-    conversationHistory,
-    upcomingVisits,
-    leadStatus,
-    recentErrors,
-    clientMemoryBlock,
-    availableTools = [],
-    workflowExecutionGuide = '',
-  } = params;
-
-  const roleLine = userRole === 'sales_agent'
-    ? 'You help this sales agent manage their own leads, visits, and client conversations.'
-    : 'You help this admin manage company operations, team performance, leads, visits, and settings.';
-
-  const contextSections: string[] = [];
-
-  if (upcomingVisits.length > 0) {
-    contextSections.push(
-      '📅 CURRENT UPCOMING VISITS (for this lead/agent):',
-      ...upcomingVisits.map((v) => `- ${v.projectName}: ${v.date} at ${v.time} (${v.status})`),
-      '',
-    );
-  } else {
-    contextSections.push('📅 Upcoming visits: None scheduled', '');
+  interface BuildSystemPromptParams {
+    userName: string;
+    companyName: string;
+    userRole: UserRole;
+    currentDateIST: string;
+    currentTimeIST: string;
+    clientMemoryBlock?: string;
   }
-
-  contextSections.push(
-    '👤 CURRENT LEAD STATUS:',
-    `- Status: ${leadStatus.status}`,
-    `- Last interaction: ${leadStatus.lastInteraction}`,
-    leadStatus.interestedProject ? `- Interested in: ${leadStatus.interestedProject}` : '',
-    leadStatus.budgetRange ? `- Budget: ${leadStatus.budgetRange}` : '',
-    '',
-  );
-
-  if (conversationHistory.length > 0) {
-    const recentHistory = conversationHistory.slice(-10);
-    contextSections.push(
-      '💬 RECENT CONVERSATION HISTORY (last few messages):',
-      ...recentHistory.map((msg) => `${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`),
+  
+  export function buildSystemPrompt(params: BuildSystemPromptParams): string {
+    const roleLine = params.userRole === 'sales_agent'
+      ? 'You help this sales agent manage their own leads, visits, and client conversations.'
+      : 'You help this admin manage company operations, team performance, leads, visits, and settings.';
+  
+    return [
+      'You are Investo AI Assistant, a WhatsApp-based CRM copilot for real estate teams.',
+      `User: ${params.userName}`,
+      `Company: ${params.companyName}`,
+      `Role: ${params.userRole}`,
+      `Current IST date/time: ${params.currentDateIST}, ${params.currentTimeIST}`,
+      roleLine,
       '',
-    );
+      'Rules:',
+      '- Respond in the user language when clear; otherwise use concise English.',
+      '- Format for WhatsApp using short lines, *bold* labels, and numbered lists when useful.',
+      '- Never expose internal implementation details. IDs may be shown only when needed to disambiguate records.',
+      '- MANDATORY: For visits, leads, calendar, or "new leads today" you MUST call the matching tool before answering. Never say "unable to retrieve" or "no leads" without a tool result.',
+      '- Visits today → listVisitsToday. Visits tomorrow / "for tomorrow" → listVisitsTomorrow or listVisitsByDateRange with tomorrow\'s date.',
+      '- New leads today → listLeadsAddedToday (not listLeads without a date).',
+      '- Use tools for all CRM facts and mutations. Do not invent records.',
+      '- Respect tool access and company boundaries.',
+      '- For destructive actions, use tools that create a pending confirmation and tell the user to reply yes or no.',
+      '- Keep simple replies under 5 lines.',
+      params.clientMemoryBlock ? `\n${params.clientMemoryBlock}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
-
-  if (recentErrors.length > 0) {
-    const lastError = recentErrors[recentErrors.length - 1];
-    contextSections.push(
-      '⚠️ RECENT ISSUE:',
-      `User asked: "${lastError.userMessage}"`,
-      `You responded: "${lastError.aiResponse}"`,
-      'Try a different approach or ask clarifying questions this time.',
-      '',
-    );
-  }
-
-  const toolLine = availableTools.length
-    ? `Available tools for your role: ${availableTools.join(', ')}`
-    : '';
-
-  return [
-    'You are Investo AI Assistant, a WhatsApp-based CRM copilot for real estate teams.',
-    `User: ${userName}`,
-    `Company: ${companyName}`,
-    `Role: ${userRole}`,
-    `Current IST date/time: ${currentDateIST}, ${currentTimeIST}`,
-    roleLine,
-    '',
-    '=== CURRENT CONTEXT (USE THIS) ===',
-    ...contextSections,
-    '=== END CONTEXT ===',
-    '',
-    'RULES:',
-    '1. RESPOND IN USER\'S LANGUAGE: Use same language as user (Hindi/English/Kannada mix is fine).',
-    '2. FORMAT FOR WHATSAPP: Use short lines, *bold* labels, emojis for visual hierarchy.',
-    '3. NEVER EXPOSE INTERNAL DETAILS: Don\'t mention tool names, APIs, or system internals.',
-    '4. USE TOOLS FOR FACTS: For leads, visits, properties, or updates, call the appropriate tool. Do not invent data.',
-    '',
-    '5. CONTEXT AWARENESS (CRITICAL):',
-    '   - If user asks "when is my visit?" → Check upcoming visits list above → Respond with details',
-    '   - If user asks to book a visit → First check if they already have a visit at that time',
-    '   - If user says "reschedule" → Reference existing visit from upcoming visits list',
-    '   - If you failed before (see "RECENT ISSUE" section) → Try a different approach or ask clarifying question',
-    '',
-    '6. TOOL + WORKFLOW ROUTING:',
-    '   - Follow the EXECUTION CONTRACT and workflow catalog below exactly.',
-    '   - Read-only → direct tool. Multi-step mutation → runWorkflow with exact workflow id.',
-    '   - Call listWorkflows when unsure; never guess workflow ids.',
-    toolLine,
-    '',
-    workflowExecutionGuide,
-    '',
-    '7. WHEN YOU DON\'T KNOW:',
-    '   - Don\'t say "I hit an issue" or "I couldn\'t complete that"',
-    '   - Instead: "I don\'t have that information. Could you provide more details?"',
-    upcomingVisits.length > 0
-      ? `   - Or: "I see you have ${upcomingVisits.length} upcoming visit(s). Which one would you like to discuss?"`
-      : '   - Or: "Could you share the lead name or visit date so I can look it up?"',
-    '',
-    '8. DESTRUCTIVE ACTIONS: Require confirmation. Say "Please reply YES to confirm cancellation."',
-    '',
-    '9. KEEP RESPONSES CONCISE: Max 5-7 lines for simple replies, use buttons for complex choices.',
-    '',
-    clientMemoryBlock ? clientMemoryBlock : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
+  

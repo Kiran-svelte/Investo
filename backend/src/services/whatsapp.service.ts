@@ -20,8 +20,10 @@ import {
   routeCompanyScopedInbound,
 } from './inboundWhatsAppRouting.service';
 import {
-  claimInboundMessage,
+  claimInboundMessageFull,
   claimCustomerInboundFingerprint,
+  claimCustomerProcessingTurn,
+  releaseCustomerProcessingTurn,
   claimOutboundAiReply,
 } from './inboundMessageGuard.service';
 import {
@@ -735,7 +737,11 @@ export class WhatsAppService {
     const customerPhone = normalizeInboundWhatsAppPhone(msg.customerPhone);
 
     if (msg.messageId) {
-      const inboundClaimed = await claimInboundMessage(companyId, msg.messageId);
+      const inboundClaimed = await claimInboundMessageFull(
+        companyId,
+        msg.messageId,
+        customerPhone,
+      );
       if (!inboundClaimed) {
         logger.info('Skipping duplicate inbound WhatsApp message', {
           whatsappMessageId: msg.messageId,
@@ -789,6 +795,7 @@ export class WhatsAppService {
       messageText: msg.messageText,
       companyId,
       interactiveId: msg.interactiveId,
+      inboundMessageId: msg.messageId,
     });
     if (staffRoute.handled) {
       logger.info('Inbound handled as company user (not prospect AI)', {
@@ -820,6 +827,17 @@ export class WhatsAppService {
       };
     }
 
+    const customerTurnClaimed = await claimCustomerProcessingTurn(companyId, customerPhone);
+    if (!customerTurnClaimed) {
+      return {
+        status: 'skipped',
+        reason: 'concurrent_customer_processing',
+        companyId,
+        propagation: notAttempted,
+      };
+    }
+
+    try {
     // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
     let lead =
       (await prisma.lead.findFirst({
@@ -1074,7 +1092,9 @@ export class WhatsAppService {
           status: 'sent',
         },
       });
-      await this.sendMessage(customerPhone, WRONG_ACK_MESSAGE, whatsappConfig!);
+      if (await claimOutboundAiReply(companyId, msg.messageId)) {
+        await this.sendMessage(customerPhone, WRONG_ACK_MESSAGE, whatsappConfig!);
+      }
       void logAgentAction({
         companyId,
         triggeredBy: 'inbound_message',
@@ -1347,7 +1367,9 @@ export class WhatsAppService {
               status: 'sent',
             },
           });
-          await this.sendMessage(customerPhone, visitCommit.customerReply, whatsappConfig!);
+          if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            await this.sendMessage(customerPhone, visitCommit.customerReply, whatsappConfig!);
+          }
 
           if (visitCommit.scheduledAt) {
             await prisma.conversation.update({
@@ -1421,7 +1443,9 @@ export class WhatsAppService {
               status: 'sent',
             },
           });
-          await this.sendMessage(customerPhone, visitReply, whatsappConfig!);
+          if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            await this.sendMessage(customerPhone, visitReply, whatsappConfig!);
+          }
 
           await prisma.conversation.update({
             where: { id: conversation.id },
@@ -1845,15 +1869,17 @@ export class WhatsAppService {
           });
         }
         try {
-          await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
-          await prisma.message.create({
-            data: {
-              conversationId: conversation.id,
-              senderType: 'ai',
-              content: fallbackText,
-              status: 'sent',
-            },
-          });
+          if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
+            await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                senderType: 'ai',
+                content: fallbackText,
+                status: 'sent',
+              },
+            });
+          }
         } catch (sendErr: unknown) {
           logger.error('Failed to send AI fallback WhatsApp message', {
             error: sendErr instanceof Error ? sendErr.message : String(sendErr),
@@ -1880,7 +1906,9 @@ export class WhatsAppService {
       });
 
       try {
-        await this.sendMessage(customerPhone, handoffText, whatsappConfig!);
+        if (await claimOutboundAiReply(companyId, msg.messageId)) {
+          await this.sendMessage(customerPhone, handoffText, whatsappConfig!);
+        }
       } catch (sendErr: any) {
         logger.error('Failed to send handoff WhatsApp message to prospect', {
           error: sendErr?.message,
@@ -1914,6 +1942,9 @@ export class WhatsAppService {
       conversationId: conversation.id,
       propagation,
     };
+    } finally {
+      await releaseCustomerProcessingTurn(companyId, customerPhone);
+    }
   }
 
   /**

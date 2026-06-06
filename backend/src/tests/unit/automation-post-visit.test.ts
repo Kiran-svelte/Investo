@@ -6,9 +6,9 @@ jest.mock('../../config/prisma', () => ({
   __esModule: true,
   default: {
     lead: { findUnique: jest.fn(), update: jest.fn() },
-    visit: { findUnique: jest.fn() },
+    visit: { findUnique: jest.fn(), update: jest.fn() },
     notification: { create: jest.fn() },
-    conversation: { findUnique: jest.fn(), update: jest.fn() },
+    conversation: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     message: { create: jest.fn() },
     $queryRaw: jest.fn(),
   },
@@ -21,6 +21,7 @@ jest.mock('../../services/whatsapp.service', () => ({
 }));
 
 import prisma from '../../config/prisma';
+import { whatsappService } from '../../services/whatsapp.service';
 import { automationQueueService } from '../../services/automationQueue.service';
 import { automationService } from '../../services/automation.service';
 
@@ -56,6 +57,7 @@ describe('automation post-visit follow-up', () => {
       },
     });
     (prisma.lead.update as jest.Mock).mockResolvedValue({});
+    (prisma.conversation.findFirst as jest.Mock).mockResolvedValue({ id: 'conv-1' });
 
     await automationQueueService.processDueJobs(async (job) => {
       processed.push(job.type);
@@ -63,5 +65,39 @@ describe('automation post-visit follow-up', () => {
     });
 
     expect(processed).toEqual(['visit_post_follow_up']);
+    const sentMessage = (whatsappService.sendMessage as jest.Mock).mock.calls[0]?.[1] as string;
+    expect(sentMessage).toContain('How was your site visit yesterday?');
+    expect(sentMessage).not.toMatch(/[ðàâ]/);
+  });
+
+  test('visit reminder message is customer-readable and not mojibake', async () => {
+    (prisma.visit.findUnique as jest.Mock).mockResolvedValue({
+      id: 'visit-1',
+      companyId: 'company-1',
+      scheduledAt: new Date('2026-04-09T10:00:00.000Z'),
+      lead: {
+        customerName: 'Asha',
+        phone: '+919876543210',
+        language: 'en',
+      },
+      property: {
+        name: 'Sunset Heights',
+        locationArea: 'Indiranagar',
+      },
+      company: {
+        whatsappPhone: '+911',
+        settings: {
+          whatsapp: { provider: 'greenapi', greenapi: { idInstance: '1', apiTokenInstance: 't' } },
+        },
+      },
+    });
+    (prisma.visit.update as jest.Mock).mockResolvedValue({});
+
+    await (automationService as any).executeQueuedJob('visit_reminder_24h', { visitId: 'visit-1' });
+
+    const sentMessage = (whatsappService.sendMessage as jest.Mock).mock.calls[0]?.[1] as string;
+    expect(sentMessage).toContain('Reminder: Your property visit is scheduled for tomorrow.');
+    expect(sentMessage).toContain('Property: Sunset Heights, Indiranagar');
+    expect(sentMessage).not.toMatch(/[ðàâ]/);
   });
 });

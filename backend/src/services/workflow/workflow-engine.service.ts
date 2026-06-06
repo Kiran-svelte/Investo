@@ -229,8 +229,18 @@ export async function runWorkflow(
 
   const messages: string[] = [];
   const completedSteps: string[] = [];
+  const executedActions = new Set<string>();
 
   for (const step of definition.steps) {
+    if (executedActions.has(step.action)) {
+      logger.warn('Workflow action dedup: skipping duplicate step in same run', {
+        workflowId,
+        action: step.action,
+      });
+      continue;
+    }
+    executedActions.add(step.action);
+
     const handler = WORKFLOW_ACTION_HANDLERS[step.action];
     if (!handler) {
       if (step.optional) continue;
@@ -471,6 +481,49 @@ function isBuyerWorkflowId(id: WorkflowId | 'unknown'): id is WorkflowId {
   return id !== 'unknown' && BUYER_WORKFLOW_SET.has(id);
 }
 
+function formatBuyerWorkflowReply(workflowId: WorkflowId, reply: string): string {
+  if (workflowId === 'escalate_to_human') {
+    return (
+      "I've alerted our team and moved this chat to a human specialist.\n\n" +
+      'Someone from the team will call or message you shortly.'
+    );
+  }
+
+  const cleanedLines = reply
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^ID:\s*/i.test(trimmed)) return false;
+      if (/^Match score:\s*/i.test(trimmed)) return false;
+      if (/^Visits:\s*/i.test(trimmed)) return false;
+      if (/^Brochure PDF:\s*/i.test(trimmed)) return false;
+      if (/^Brochure:\s*/i.test(trimmed)) return false;
+      return true;
+    })
+    .map((line) => {
+      const trimmed = line.trim();
+      if (/^\*Catalog matches \(grounded\)\*$/i.test(trimmed)) {
+        return 'Here are the matching options I found:';
+      }
+      if (/^\*Matches for .+\*$/i.test(trimmed)) {
+        return 'Here are the matching options I found:';
+      }
+      if (/^No matching published properties in catalog/i.test(trimmed)) {
+        return "I couldn't find an exact matching property in our catalog.";
+      }
+      return line;
+    });
+
+  const text = cleanedLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return text || reply.trim();
+}
+
 /** Regex fallback when LLM classifier is unavailable or low-confidence. */
 export async function tryRunBuyerWorkflow(input: {
   companyId: string;
@@ -485,7 +538,9 @@ export async function tryRunBuyerWorkflow(input: {
   else if (/\b(price|cost|how much|rate)\b/.test(text)) workflowId = 'price_inquiry';
   else if (/\b(available|availability|units left|in stock)\b/.test(text)) workflowId = 'availability_check';
   else if (/\b(amenit|pool|gym|clubhouse)\b/.test(text)) workflowId = 'amenities_question';
+  else if (/\b(talk\s+to|speak\s+to|human|agent|call\s+me|callback|call\s+back)\b/.test(text)) workflowId = 'escalate_to_human';
   if (!workflowId) return null;
+  if (workflowId === 'escalate_to_human' && !input.leadId) return null;
 
   const result = await runWorkflow(workflowId, buildBuyerWorkflowRun(input), {
     leadId: input.leadId,
@@ -494,7 +549,7 @@ export async function tryRunBuyerWorkflow(input: {
   });
 
   if (!result.ok || !result.reply?.trim()) return null;
-  return result.reply;
+  return formatBuyerWorkflowReply(workflowId, result.reply);
 }
 
 function buildBuyerWorkflowRun(input: {
@@ -577,10 +632,10 @@ export async function classifyAndRunBuyerWorkflow(
 
     if (!result.ok) {
       if (!result.reply?.trim()) return null;
-      return result.reply.trim();
+      return formatBuyerWorkflowReply(classified.workflowId, result.reply);
     }
 
-    if (result.reply?.trim()) return result.reply.trim();
+    if (result.reply?.trim()) return formatBuyerWorkflowReply(classified.workflowId, result.reply);
     return null;
   } catch (err: unknown) {
     logger.warn('Buyer workflow orchestrator skipped', {

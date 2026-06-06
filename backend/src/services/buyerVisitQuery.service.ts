@@ -1,5 +1,5 @@
 /**
- * Deterministic buyer visit-status replies — no LLM required.
+ * Deterministic buyer visit-status replies, no LLM required.
  * Matches ai.md: "When is my visit?", "Any visits booked for me?", etc.
  */
 
@@ -24,18 +24,6 @@ export function isBuyerVisitStatusQuery(message: string): boolean {
   return BUYER_VISIT_STATUS_PATTERN.test(t);
 }
 
-function statusEmoji(status: string): string {
-  const map: Record<string, string> = {
-    scheduled: '📅',
-    confirmed: '✅',
-    completed: '✔️',
-    cancelled: '❌',
-    no_show: '⚠️',
-    rescheduled: '🔄',
-  };
-  return map[status] ?? '📋';
-}
-
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
     scheduled: 'Scheduled',
@@ -50,7 +38,7 @@ function statusLabel(status: string): string {
 
 /**
  * Builds a structured WhatsApp reply listing the lead's visits from the database.
- * Never throws — returns a helpful message even when the query fails.
+ * Never throws; returns a helpful message even when the query fails.
  */
 export async function buildBuyerVisitStatusReply(input: {
   leadId: string;
@@ -100,7 +88,7 @@ export async function buildBuyerVisitStatusReply(input: {
     const prop = last.property?.name ?? 'your property';
     const when = formatVisitWhen(last.scheduledAt);
     return (
-      `Your most recent visit was to *${prop}* (${when}) — status: *${statusLabel(last.status)}* ${statusEmoji(last.status)}\n\n` +
+      `Your most recent visit was to *${prop}* (${when}) - status: *${statusLabel(last.status)}*\n\n` +
       `You don't have an upcoming visit scheduled. Would you like to *book a new site visit*?`
     );
   }
@@ -110,25 +98,25 @@ export async function buildBuyerVisitStatusReply(input: {
     const prop = v.property?.name ?? 'Property TBD';
     const when = formatVisitWhen(v.scheduledAt);
     const agentLine = v.agent?.name
-      ? `\n👤 Agent: *${v.agent.name}*${v.agent.phone ? ` (${v.agent.phone})` : ''}`
+      ? `\nAgent: *${v.agent.name}*${v.agent.phone ? ` (${v.agent.phone})` : ''}`
       : '';
 
     return [
-      `🏠 *YOUR VISIT*`,
+      `*YOUR VISIT*`,
       '',
-      `📍 *${prop}*`,
-      `📅 ${when}`,
-      `${statusEmoji(v.status)} Status: *${statusLabel(v.status)}*${agentLine}`,
+      `Property: *${prop}*`,
+      `Date: ${when}`,
+      `Status: *${statusLabel(v.status)}*${agentLine}`,
       '',
       `Would you like to:`,
-      `✅ Confirm  |  📅 Reschedule  |  ❌ Cancel`,
+      `Confirm | Reschedule | Cancel`,
     ].join('\n');
   }
 
   const lines = upcoming.map((v, i) => {
     const prop = v.property?.name ?? 'Property TBD';
     const when = formatVisitWhen(v.scheduledAt);
-    return `${i + 1}. ${statusEmoji(v.status)} *${prop}* — ${when} (${statusLabel(v.status)})`;
+    return `${i + 1}. *${prop}* - ${when} (${statusLabel(v.status)})`;
   });
 
   return [

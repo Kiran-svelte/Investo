@@ -272,11 +272,9 @@ describe('Green-API webhook route', () => {
       .send(buildIncomingTextPayload());
 
     expect(response.status).toBe(200);
-    expect(response.body.status).toBe('received');
 
     await flushAsyncWork();
 
-    expect(dedup.claimMessageProcessing).toHaveBeenCalledWith('greenapi:110:green-msg-1');
     expect(whatsappService.getCompanyByPhoneNumberId).toHaveBeenCalledWith('110', 'greenapi', '', 'token-1');
     expect(whatsappService.handleIncomingMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -311,7 +309,6 @@ describe('Green-API webhook route', () => {
     expect(response.body.code).toBe('greenapi_company_not_found');
 
     await flushAsyncWork();
-    expect(dedup.claimMessageProcessing).not.toHaveBeenCalled();
     expect(whatsappService.handleIncomingMessage).not.toHaveBeenCalled();
   });
 
@@ -378,11 +375,15 @@ describe('Green-API webhook route', () => {
     expectLoggerNotToLeakRawValues(logger, ['+14155552671', '14155552671']);
   });
 
-  test('short-circuits duplicate messages when deduplication rejects claim', async () => {
-    const { app, dedup, whatsappService, authHeader, logger } = createTestApp({
+  test('short-circuits duplicate messages when service reports duplicate_message_id', async () => {
+    const { app, whatsappService, authHeader, logger } = createTestApp({
       env: 'development',
       webhookToken: 'token-1',
-      claimResult: false,
+    });
+    whatsappService.handleIncomingMessage.mockResolvedValue({
+      status: 'skipped',
+      reason: 'duplicate_message_id',
+      propagation: { status: 'not_attempted' },
     });
 
     const response = await request(app)
@@ -394,8 +395,7 @@ describe('Green-API webhook route', () => {
 
     await flushAsyncWork();
 
-    expect(dedup.claimMessageProcessing).toHaveBeenCalledWith('greenapi:110:green-dup-1');
-    expect(whatsappService.handleIncomingMessage).not.toHaveBeenCalled();
+    expect(whatsappService.handleIncomingMessage).toHaveBeenCalledTimes(1);
 
     expectLoggerNotToLeakRawValues(logger, ['+919999999999', '919999999999']);
   });

@@ -14,6 +14,8 @@ import {
 import {
   claimStaffCopilotTurn,
   releaseStaffCopilotTurn,
+  claimStaffInboundFingerprint,
+  claimStaffCopilotOutboundReply,
 } from '../inboundMessageGuard.service';
 
 /**
@@ -97,6 +99,7 @@ async function handleAgentMessage(
   user: CompanyUserMatch,
   messageText: string,
   interactiveId?: string,
+  inboundMessageId?: string,
 ): Promise<AgentMessageResult> {
   const resolvedCommand = resolveCopilotInboundCommand({ interactiveId, messageText });
   const normalizedText = normalizeCopilotInboundText(resolvedCommand);
@@ -207,6 +210,7 @@ async function handleAgentMessage(
     sessionLeadId: sessionCtx.lastLeadId,
     sessionVisitId: sessionCtx.lastVisitId,
     staffPhone: user.phone,
+    inboundMessageId,
   });
   if (intentReply !== null && intentReply !== undefined) {
     if (session?.id) {
@@ -320,9 +324,19 @@ export async function routeIfInternalUserForCompany(
   messageText: string,
   user: CompanyUserMatch,
   interactiveId?: string,
+  inboundMessageId?: string,
 ): Promise<boolean> {
   const resolvedText = resolveCopilotInboundCommand({ interactiveId, messageText });
   if (!config.agentAi?.enabled || !resolvedText.trim()) return false;
+
+  const fingerprintClaimed = await claimStaffInboundFingerprint(
+    user.companyId,
+    user.userId,
+    resolvedText,
+  );
+  if (!fingerprintClaimed) {
+    return true;
+  }
 
   const turnClaimed = await claimStaffCopilotTurn(user.companyId, user.userId);
   if (!turnClaimed) {
@@ -332,8 +346,15 @@ export async function routeIfInternalUserForCompany(
   const normalizedPhone = normalizeInboundWhatsAppPhone(senderPhone);
 
   try {
-    const { text: response, replyKind } = await handleAgentMessage(user, messageText, interactiveId);
-    await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
+    const { text: response, replyKind } = await handleAgentMessage(
+      user,
+      messageText,
+      interactiveId,
+      inboundMessageId,
+    );
+    if (await claimStaffCopilotOutboundReply(user.companyId, inboundMessageId)) {
+      await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
+    }
     const quickActions = resolveStaffCopilotQuickActions({ replyKind, outboundText: response });
     if (quickActions?.length) {
       await sendStaffCopilotQuickActions(normalizedPhone, user.companyId, quickActions);
@@ -345,11 +366,13 @@ export async function routeIfInternalUserForCompany(
       userId: user.userId,
       error: error?.message,
     });
-    await sendWhatsAppResponse(
-      normalizedPhone,
-      user.companyId,
-      'That request did not go through. Try a shorter command like "visits today" or "new leads today", or use the Investo dashboard.',
-    );
+    if (await claimStaffCopilotOutboundReply(user.companyId, inboundMessageId)) {
+      await sendWhatsAppResponse(
+        normalizedPhone,
+        user.companyId,
+        'That request did not go through. Try a shorter command like "visits today" or "new leads today", or use the Investo dashboard.',
+      );
+    }
     return true;
   } finally {
     await releaseStaffCopilotTurn(user.companyId, user.userId);

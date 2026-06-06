@@ -48,7 +48,7 @@ function formatAgentMutationReply(
 ): string {
   const when = formatDateIST(scheduledAt);
   if (mode === 'cancelled') {
-    return `Visit cancelled.\n\n${customerName ?? 'Customer'} — ${propertyName}\n${when}`;
+    return `Visit cancelled.\n\n${customerName ?? 'Customer'} - ${propertyName}\n${when}`;
   }
   return `Visit rescheduled.\n\n${propertyName}\n${when}`;
 }
@@ -74,13 +74,12 @@ function formatCustomerVisitConfirmation(
   }
   const title = prefix === 'rescheduled' ? 'Visit rescheduled' : 'Visit scheduled';
   return (
-    `✅ *${title}*\n\n` +
-    `📍 *${propertyName}*\n` +
-    `📅 ${when}\n\n` +
+    `*${title}*\n\n` +
+    `Property: *${propertyName}*\n` +
+    `Date: ${when}\n\n` +
     `Our team will confirm details before the visit. See you then!`
   );
 }
-
 /**
  * Find the visit the user intends to mutate (cancel or reschedule).
  *

@@ -4,7 +4,8 @@ const mockPrisma = {
   company: { findMany: jest.fn(), findUnique: jest.fn() },
   lead: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), groupBy: jest.fn() },
   conversation: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
-  message: { create: jest.fn(), findMany: jest.fn() },
+  message: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
+  inboundWhatsappDedup: { create: jest.fn() },
   notification: { create: jest.fn() },
   aiSetting: { findUnique: jest.fn() },
   property: { findMany: jest.fn(), findUnique: jest.fn() },
@@ -201,6 +202,8 @@ describe('WhatsAppService AI response processing', () => {
     mockPrisma.aiSetting.findUnique.mockResolvedValue({ responseTone: 'friendly' });
     mockPrisma.user.findMany.mockResolvedValue([]);
     mockPrisma.property.findMany.mockResolvedValue([]);
+    mockPrisma.message.findFirst.mockResolvedValue(null);
+    mockPrisma.inboundWhatsappDedup.create.mockResolvedValue({ id: 'dedup-1' });
     mockPrisma.message.create.mockResolvedValue({ id: 'message-1' });
     mockPrisma.lead.update.mockResolvedValue({ id: 'lead-1' });
     mockPrisma.conversation.update.mockResolvedValue({ id: 'conv-1' });

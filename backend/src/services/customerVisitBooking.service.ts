@@ -23,7 +23,7 @@ export interface CommitCustomerVisitInput {
   conversation: {
     id: string;
     selectedPropertyId: string | null;
-    /** May be stale — always refreshed from DB before use. */
+    /** May be stale; always refreshed from DB before use. */
     proposedVisitTime: Date | null;
     recommendedPropertyIds?: unknown;
   };
@@ -55,7 +55,7 @@ async function refreshProposedVisitTime(conversationId: string): Promise<Date | 
 }
 
 /**
- * Returns true when the conversation has a confirmed visit slot — i.e. the
+ * Returns true when the conversation has a confirmed visit slot, i.e. the
  * stage is 'confirmation' OR commitments.visitSlotConfirmed is set.
  * Used to guard against short confirmations ("okay", "yes") re-triggering a
  * booking after a reschedule has already been committed.
@@ -132,13 +132,12 @@ function formatVisitConfirmation(
     timeZone: 'Asia/Kolkata',
   });
   return (
-    `✅ *Visit scheduled*\n\n` +
-    `📍 *${propertyName}*\n` +
-    `📅 ${when}\n\n` +
+    `*Visit scheduled*\n\n` +
+    `Property: *${propertyName}*\n` +
+    `Date: ${when}\n\n` +
     `Our specialist${agentName ? ` *${agentName}*` : ''} will call you about an hour before the visit to confirm. See you then!`
   );
 }
-
 /**
  * Handles customer cancel / reschedule requests (buyer WhatsApp).
  */
@@ -199,7 +198,7 @@ export async function tryCommitCustomerVisitBooking(
   if (isShortVisitConfirmation(customerMessage)) {
     const alreadyConfirmed = await isVisitAlreadyConfirmed(conversation.id);
     if (alreadyConfirmed) {
-      logger.info('Short confirmation skipped — visit already confirmed, not re-booking', {
+      logger.info('Short confirmation skipped; visit already confirmed, not re-booking', {
         conversationId: conversation.id,
         message: customerMessage,
       });
@@ -207,7 +206,7 @@ export async function tryCommitCustomerVisitBooking(
     }
   }
 
-  // Always load fresh proposedVisitTime from DB — the conversation object passed
+  // Always load fresh proposedVisitTime from DB; the conversation object passed
   // by the caller may be stale from before a reschedule committed.
   const freshProposedVisitTime = await refreshProposedVisitTime(conversation.id);
 
@@ -247,12 +246,12 @@ export async function tryCommitCustomerVisitBooking(
       : 0;
 
     if (proposedNew && timeDiffFromProposed > 60_000) {
-      // Customer wants a different time — route to reschedule.
+      // Customer wants a different time; route to reschedule.
       const mutation = await applyVisitMutationFromChat({
         companyId,
         message: customerMessage,
         leadId: lead.id,
-        // Customer initiated this reschedule via WhatsApp — suppress duplicate notification.
+        // Customer initiated this reschedule via WhatsApp; suppress duplicate notification.
         suppressCustomerNotification: true,
       });
       if (mutation.handled && mutation.reply) {
@@ -267,7 +266,7 @@ export async function tryCommitCustomerVisitBooking(
       }
     }
 
-    // Dedupe: resolved time matches the existing visit (within 5 min) — skip silently.
+    // Dedupe: resolved time matches the existing visit (within 5 min); skip silently.
     const resolvedDiff = Math.abs(scheduledAt.getTime() - existing.scheduledAt.getTime());
     if (resolvedDiff <= DEDUPE_WINDOW_MS) {
       logger.info('Visit dedupe: resolved time matches existing visit, skipping re-booking', {
@@ -354,7 +353,7 @@ export async function tryCommitCustomerVisitBooking(
         mode: 'pending_approval',
         scheduledAt,
         customerReply:
-          `Thanks! That time may overlap with another visit — I've sent the slot to our specialist for quick confirmation. You'll get a WhatsApp update shortly.`,
+          `Thanks! That time may overlap with another visit. I've sent the slot to our specialist for quick confirmation. You'll get a WhatsApp update shortly.`,
         leadStatus: 'contacted',
       };
     }

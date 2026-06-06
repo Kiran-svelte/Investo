@@ -8,7 +8,7 @@ export async function fetchPropertyPrice(ctx: ActionContext) {
     });
     if (result.ok === false) return failToolResult(result);
     ctx.state.lastMessage = result.text;
-    return ok(result.text);
+    return skip();
   }
   const leadId = requireLeadId(ctx);
   if (leadId) {
@@ -18,7 +18,7 @@ export async function fetchPropertyPrice(ctx: ActionContext) {
     });
     if (result.ok) {
       ctx.state.lastMessage = result.text;
-      return ok(result.text);
+      return skip();
     }
   }
   const catalog = await runNamedTool(ctx.run.toolContext, 'searchCatalogByCustomerMessage', {
@@ -26,7 +26,7 @@ export async function fetchPropertyPrice(ctx: ActionContext) {
   });
   if (catalog.ok === false) return failToolResult(catalog);
   ctx.state.lastMessage = catalog.text;
-  return ok(catalog.text);
+  return skip();
 }
 
 export async function respondPrice(ctx: ActionContext) {
@@ -40,7 +40,7 @@ export async function checkInventory(ctx: ActionContext) {
   });
   if (result.ok === false) return failToolResult(result);
   ctx.state.lastMessage = result.text;
-  return ok(result.text);
+  return skip();
 }
 
 export async function respondAvailability(ctx: ActionContext) {
