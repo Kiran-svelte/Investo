@@ -2,6 +2,7 @@ import prisma from '../../../config/prisma';
 import logger from '../../../config/logger';
 import { logAgentAction } from '../../agent-action-log.service';
 import { applyVisitMutationFromChat } from '../../visitMutationFromChat.service';
+import { scheduleVisit } from '../../visitBooking.service';
 import { buildVisitScopeFilter } from '../../agent/tools/format-helpers';
 import type { ActionContext } from './action-helpers';
 import { fail, failToolResult, ok, requireLeadId, requireVisitId, runNamedTool, skip, mergeStateFromToolOutput } from './action-helpers';
@@ -23,6 +24,27 @@ export async function resolveVisit(ctx: ActionContext) {
         if (visit.leadId) ctx.state.leadId = visit.leadId;
         return ok(undefined, { visitId: visit.id, leadId: visit.leadId });
       }
+    }
+    if (ctx.run.channel === 'buyer') {
+      const leadId = requireLeadId(ctx) ?? ctx.run.sessionLeadId;
+      if (leadId) {
+        const activeVisit = await prisma.visit.findFirst({
+          where: {
+            companyId: ctx.run.toolContext.companyId,
+            leadId,
+            status: { in: ['scheduled', 'confirmed'] },
+            scheduledAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+          },
+          orderBy: { scheduledAt: 'asc' },
+          select: { id: true, leadId: true, status: true },
+        });
+        if (activeVisit) {
+          ctx.state.visitId = activeVisit.id;
+          ctx.state.leadId = activeVisit.leadId;
+          return ok(undefined, { visitId: activeVisit.id, leadId: activeVisit.leadId });
+        }
+      }
+      return fail("I couldn't find an upcoming site visit to update.");
     }
     if (ctx.run.channel === 'staff' && ctx.run.messageText) {
       const { isVisitListQueryMessage } = await import('../../visitIntentFromMessage.service');
@@ -309,5 +331,3 @@ export async function touchAnalytics(ctx: ActionContext) {
   });
   return ok('Outcome recorded.');
 }
-
-
