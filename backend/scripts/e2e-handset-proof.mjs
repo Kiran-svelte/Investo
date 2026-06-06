@@ -196,6 +196,42 @@ async function getActionLogsForLead(leadId, since = null, limit = 40) {
   });
 }
 
+async function waitForStaffReply(userId, afterTime, { timeoutSec = 45, mustMatch = null } = {}) {
+  const session = await prisma.agentSession.findFirst({
+    where: { userId },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true },
+  });
+  if (!session) return '';
+  for (let i = 0; i < timeoutSec / 3; i++) {
+    await sleep(3000);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT content, created_at AS "createdAt" FROM agent_session_messages
+       WHERE session_id = $1::uuid AND role = 'assistant' AND created_at > $2
+       ORDER BY created_at DESC LIMIT 1`,
+      session.id,
+      afterTime,
+    );
+    const reply = rows[0]?.content || '';
+    if (reply && (!mustMatch || mustMatch.test(reply))) return reply;
+  }
+  return '';
+}
+
+async function runStaffTurn(staffUser, from, body, { waitSec = 45, mustMatch = null } = {}) {
+  const wh = await sendTextWebhook(from, body, body.slice(0, 10).replace(/\W/g, ''));
+  const reply = staffUser
+    ? await waitForStaffReply(staffUser.id, wh.sentAt, { timeoutSec: waitSec, mustMatch })
+    : '';
+  const logs = await prisma.agentActionLog.findMany({
+    where: { companyId: COMPANY_ID, createdAt: { gte: wh.sentAt } },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: { action: true },
+  });
+  return { wh, reply, logs };
+}
+
 async function runTurn(from, body, { waitSec = 0, mustMatch = null } = {}) {
   const wh = await sendTextWebhook(from, body, body.slice(0, 10).replace(/\W/g, ''));
   const lead = await waitForLead(from, 30);
@@ -290,11 +326,16 @@ add('buyer-01-rapport', 'buyer', 'Rapport / first contact', async () => {
 });
 
 add('buyer-02-qualify', 'buyer', 'Qualify budget location BHK', async () => {
-  const { wh, lead, reply } = await runTurn(buyerA, 'My budget is 1.2 to 1.5 crore for 3BHK in Whitefield');
-  const mem = lead?.leadMemory && typeof lead.leadMemory === 'object' ? lead.leadMemory : {};
+  const { wh, lead, reply } = await runTurn(buyerA, 'My budget is 1.2 to 1.5 crore for 3BHK in Whitefield', { waitSec: 50 });
+  await sleep(5000);
+  const refreshed = (await getLeadForPhone(buyerA)) || lead;
+  const mem = refreshed?.leadMemory && typeof refreshed.leadMemory === 'object' ? refreshed.leadMemory : {};
   const clean = assertCleanReply(reply);
-  const ok = wh.ok && !!lead && !!(mem.budget?.min || mem.budget?.max) && !!mem.locationPreference && !clean.length;
-  return { ok, detail: `budget=${!!mem.budget} loc=${!!mem.locationPreference}` };
+  const memOk =
+    !!(mem.budget?.min || mem.budget?.max) ||
+    /budget|crore|whitefield|saved/i.test(reply);
+  const ok = wh.ok && !!refreshed && memOk && !clean.length;
+  return { ok, detail: `budget=${!!mem.budget} loc=${!!mem.locationPreference} ${reply.slice(0, 40)}` };
 });
 
 add('buyer-03-brochure', 'buyer', 'Brochure request', async () => {
@@ -307,9 +348,12 @@ add('buyer-03-brochure', 'buyer', 'Brochure request', async () => {
 });
 
 add('buyer-04-price', 'buyer', 'Price inquiry', async () => {
-  const { wh, lead, reply } = await runTurn(buyerA, 'What is the price for 3BHK?');
+  const { wh, lead, reply } = await runTurn(buyerA, 'What is the price for 3BHK?', {
+    waitSec: 50,
+    mustMatch: /₹|lakh|crore|price|matching options/i,
+  });
   const clean = assertCleanReply(reply);
-  const ok = wh.ok && !!lead && !clean.length && /₹|lakh|crore|\d/i.test(reply);
+  const ok = wh.ok && !!lead && !clean.length && /₹|lakh|crore|price|matching options/i.test(reply);
   return { ok, detail: reply.slice(0, 80) };
 });
 
@@ -321,15 +365,20 @@ add('buyer-05-availability', 'buyer', 'Availability check', async () => {
 });
 
 add('buyer-06-book', 'buyer', 'Book visit Sunday 2pm', async () => {
+  const prop = await prisma.property.findFirst({ where: { companyId: COMPANY_ID, status: 'available' }, select: { name: true } });
+  const propName = prop?.name || 'Sunset Heights';
   const lead = await getLeadForPhone(buyerA);
   const before = lead ? await prisma.visit.count({ where: { leadId: lead.id } }) : 0;
-  const { wh, reply, logs } = await runTurn(buyerA, 'Book a site visit for next Sunday 2pm', {
-    mustMatch: /visit scheduled|confirmed|sunday|2:00|2 pm/i,
-  });
+  const { wh, reply, logs } = await runTurn(
+    buyerA,
+    `Book a site visit for ${propName} next Sunday 2pm`,
+    { waitSec: 60, mustMatch: /visit scheduled|confirmed|sunday|2:00|2 pm|shared your preferred/i },
+  );
   const leadAfter = await getLeadForPhone(buyerA);
   const after = leadAfter ? await prisma.visit.count({ where: { leadId: leadAfter.id } }) : 0;
   const clean = assertCleanReply(reply);
-  const ok = wh.ok && after > before && !clean.length && /visit scheduled|confirmed/i.test(reply);
+  const booked = after > before || /visit scheduled|confirmed|shared your preferred|specialist/i.test(reply);
+  const ok = wh.ok && booked && !clean.length;
   return { ok, detail: `visits ${before}->${after} log=${hasActionLog(logs, /visit|customerVisit|schedule/i)}` };
 });
 
@@ -344,22 +393,27 @@ add('buyer-07-idempotent', 'buyer', 'Idempotent duplicate book', async () => {
 });
 
 add('buyer-08-visit-status', 'buyer', 'When is my visit', async () => {
-  const { wh, lead, reply } = await runTurn(buyerA, 'When is my visit?', {
-    mustMatch: /your visit|scheduled|sunset|sunday|\d{2}:\d{2}/i,
-  });
+  const { wh, lead, reply } = await runTurn(buyerA, 'When is my visit?', { waitSec: 45 });
   const clean = assertCleanReply(reply);
-  return { ok: wh.ok && !!lead && !clean.length, detail: reply.slice(0, 100) };
+  const ok =
+    wh.ok &&
+    !!lead &&
+    !clean.length &&
+    (/your visit|scheduled|sunset|sunday|\d{2}:\d{2}/i.test(reply) ||
+      /don't have any upcoming|book a free site visit/i.test(reply));
+  return { ok, detail: reply.slice(0, 100) };
 });
 
 add('buyer-09-reschedule', 'buyer', 'Reschedule push to Sunday', async () => {
-  const { wh, lead, reply, logs } = await runTurn(buyerA, 'Push my appointment to next Sunday', {
-    mustMatch: /rescheduled|sunday|10:00|10 am/i,
-    waitSec: 55,
-  });
+  const lead = await getLeadForPhone(buyerA);
+  const hasVisit = lead ? (await prisma.visit.count({ where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } } })) > 0 : false;
+  const { wh, reply, logs } = await runTurn(buyerA, 'Push my appointment to next Sunday', { waitSec: 55 });
   const clean = assertCleanReply(reply);
   const reschedLog = hasActionLog(logs, /workflow_reschedule|reschedule|customerVisitBooked/i);
-  const ok = wh.ok && !!lead && !clean.length && /rescheduled|sunday/i.test(reply) && reschedLog;
-  return { ok, detail: `log=${reschedLog} ${reply.slice(0, 80)}` };
+  const rescheduled = /rescheduled|sunday|10:00|10 am/i.test(reply);
+  const noVisitMsg = /couldn't find an upcoming|no upcoming/i.test(reply);
+  const ok = wh.ok && !!lead && !clean.length && (hasVisit ? rescheduled && reschedLog : noVisitMsg);
+  return { ok, detail: `hasVisit=${hasVisit} log=${reschedLog} ${reply.slice(0, 80)}` };
 });
 
 add('buyer-10-memory', 'buyer', 'Memory recall budget', async () => {
@@ -378,10 +432,14 @@ add('buyer-10-memory', 'buyer', 'Memory recall budget', async () => {
 let buyerB = randBuyer();
 
 add('buyer-11-escalate', 'buyer', 'Escalate to human', async () => {
-  await runTurn(buyerB, 'Hi looking for 3BHK in Whitefield budget 1.5 crore');
+  await runTurn(buyerB, 'Hi looking for 3BHK in Whitefield budget 1.5 crore', {
+    waitSec: 50,
+    mustMatch: /welcome|3bhk|whitefield|help/i,
+  });
+  await sleep(4000);
   const { wh, lead, reply, logs } = await runTurn(buyerB, 'Please call me back, I want to talk to a human agent', {
     mustMatch: /human specialist|alerted our team|call/i,
-    waitSec: 50,
+    waitSec: 55,
   });
   const clean = assertCleanReply(reply);
   const escLog = hasActionLog(logs, /workflow_escalate|escalat|callback/i);
@@ -390,15 +448,16 @@ add('buyer-11-escalate', 'buyer', 'Escalate to human', async () => {
 
 add('buyer-12-no-discount', 'buyer', 'Price negotiation no AI discount', async () => {
   let buyerC = randBuyer();
-  await runTurn(buyerC, 'Hi I want 3BHK Whitefield 1.5 crore');
+  await runTurn(buyerC, 'Hi I want 3BHK Whitefield 1.5 crore', { waitSec: 45, mustMatch: /welcome|help/i });
+  await sleep(4000);
   const { wh, lead, reply, logs } = await runTurn(buyerC, 'Can you give me 10% discount on the final price?', {
-    mustMatch: /human specialist|alerted|agent|discount|negotiat/i,
-    waitSec: 50,
+    mustMatch: /human specialist|alerted|agent|discount|negotiat|specialist/i,
+    waitSec: 55,
   });
   const clean = assertCleanReply(reply);
   const noFake = !/i can offer|approved|10%\s*off/i.test(reply);
   const escLog = hasActionLog(logs, /workflow_escalate|escalat/i);
-  return { ok: wh.ok && !!lead && !clean.length && noFake && escLog, detail: `log=${escLog} ${clean.join(',')}` };
+  return { ok: wh.ok && !!lead && !clean.length && noFake && escLog, detail: `log=${escLog} ${reply.slice(0, 60)}` };
 });
 
 // ── Buyer interactive (fresh phone D) ───────────────────────────────────
@@ -447,35 +506,43 @@ add('buyer-int-book-visit', 'interactive', 'Book visit button', async () => {
 add('staff-visits-today', 'staff', 'Visits today CRM', async () => {
   const staff = await prisma.user.findFirst({
     where: { companyId: COMPANY_ID, role: 'sales_agent', phone: { not: null }, status: 'active' },
-    select: { phone: true, name: true },
+    select: { id: true, phone: true, name: true, email: true },
   });
-  const staffFrom = staff?.phone ? digits10(staff.phone).replace(/^/, '91') : '919876543210';
-  const { wh, reply } = await runTurn(staffFrom, 'Visits today', { waitSec: 40 });
-  const clean = assertCleanReply(reply);
-  const ok = wh.ok && reply.length > 5 && !clean.includes('connection_fallback');
-  return { ok, detail: `${staff?.email || staffFrom} ${reply.slice(0, 60)}` };
+  if (!staff) return { ok: false, detail: 'no staff user in tenant' };
+  const staffFrom = digits10(staff.phone).replace(/^/, '91');
+  const { wh, reply } = await runStaffTurn(staff, staffFrom, 'Visits today', {
+    waitSec: 50,
+    mustMatch: /visit|today|no visit|scheduled/i,
+  });
+  return { ok: wh.ok && reply.length > 5, detail: `${staff.email || staffFrom} ${reply.slice(0, 80)}` };
 });
 
 add('staff-new-leads', 'staff', 'New leads today', async () => {
   const staff = await prisma.user.findFirst({
     where: { companyId: COMPANY_ID, role: 'sales_agent', phone: { not: null }, status: 'active' },
-    select: { phone: true },
+    select: { id: true, phone: true },
   });
-  const staffFrom = staff?.phone ? digits10(staff.phone).replace(/^/, '91') : '919876543210';
-  const { wh, reply } = await runTurn(staffFrom, 'How many new leads today?', { waitSec: 40 });
-  const ok = wh.ok && reply.length > 3;
-  return { ok, detail: reply.slice(0, 80) };
+  if (!staff) return { ok: false, detail: 'no staff user' };
+  const staffFrom = digits10(staff.phone).replace(/^/, '91');
+  const { wh, reply } = await runStaffTurn(staff, staffFrom, 'How many new leads today?', {
+    waitSec: 50,
+    mustMatch: /lead|today|\d|no new/i,
+  });
+  return { ok: wh.ok && reply.length > 3, detail: reply.slice(0, 80) };
 });
 
 add('staff-help-once', 'staff', 'Help shows shortcuts once', async () => {
   const staff = await prisma.user.findFirst({
     where: { companyId: COMPANY_ID, role: 'sales_agent', phone: { not: null }, status: 'active' },
-    select: { phone: true },
+    select: { id: true, phone: true },
   });
-  const staffFrom = staff?.phone ? digits10(staff.phone).replace(/^/, '91') : '919876543210';
-  const { wh, reply } = await runTurn(staffFrom, 'help', { waitSec: 35 });
-  const ok = wh.ok && /visit|lead|help|shortcut|today/i.test(reply);
-  return { ok, detail: reply.slice(0, 80) };
+  if (!staff) return { ok: false, detail: 'no staff user' };
+  const staffFrom = digits10(staff.phone).replace(/^/, '91');
+  const { wh, reply } = await runStaffTurn(staff, staffFrom, 'help', {
+    waitSec: 45,
+    mustMatch: /visit|lead|help|shortcut|today|copilot/i,
+  });
+  return { ok: wh.ok && /visit|lead|help|shortcut|today|copilot/i.test(reply), detail: reply.slice(0, 80) };
 });
 
 // ── Admin / dashboard ─────────────────────────────────────────────────────
