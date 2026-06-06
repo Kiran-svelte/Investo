@@ -18,8 +18,10 @@ jest.mock('../../config/prisma', () => ({
 jest.mock('../../config', () => ({
   __esModule: true,
   default: {
-    agentAi: { enabled: true, model: 'gpt-4o' },
-    whatsapp: { phoneNumberId: '', accessToken: '', verifyToken: '' },
+    config: {
+      agentAi: { enabled: true, llmEnabled: true, copilotEnabled: true, model: 'gpt-4o' },
+      whatsapp: { phoneNumberId: '', accessToken: '', verifyToken: '' },
+    },
   },
 }));
 
@@ -52,6 +54,11 @@ jest.mock('../../services/clientMemory.service', () => ({
   getAgentSessionContext: jest.fn(),
   buildClientMemoryContextForAgent: jest.fn(),
   setAgentSessionClientContext: jest.fn(),
+  syncLeadClientMemory: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/lead-memory.service', () => ({
+  patchLeadMemory: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../services/agent/agent-session-messages.service', () => ({
@@ -60,6 +67,13 @@ jest.mock('../../services/agent/agent-session-messages.service', () => ({
 
 jest.mock('../../services/agent/agent-crm-query.service', () => ({
   tryDeterministicAgentCrmReply: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../../services/inboundMessageGuard.service', () => ({
+  claimStaffInboundFingerprint: jest.fn().mockResolvedValue(true),
+  claimStaffCopilotTurn: jest.fn().mockResolvedValue(true),
+  releaseStaffCopilotTurn: jest.fn().mockResolvedValue(undefined),
+  claimStaffCopilotOutboundReply: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('../../services/workflow/workflow-engine.service', () => ({

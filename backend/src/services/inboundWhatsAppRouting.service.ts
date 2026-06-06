@@ -4,11 +4,17 @@ import logger from '../config/logger';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { normalizeInboundWhatsAppPhone, phoneLast10 } from '../utils/phoneMatch';
 
+/**
+ * Roles that are routed to the agent copilot pipeline.
+ * Includes `viewer` — the copilot pipeline itself enforces read-only mode
+ * for viewer (no mutations, no memory writes; only CRM queries and greetings).
+ */
 const AGENT_COPILOT_ROLES: ReadonlySet<UserRole> = new Set([
   'super_admin',
   'company_admin',
   'sales_agent',
   'operations',
+  'viewer',
 ]);
 
 export type InboundWhatsAppRoute =
@@ -107,7 +113,8 @@ async function sendWhatsAppResponse(phone: string, companyId: string, message: s
  * Route inbound WhatsApp for a resolved company.
  * - Strangers → customer AI (caller runs handleIncomingMessage)
  * - Staff (agent roles) → Agent AI copilot
- * - Staff (viewer, etc.) → short staff notice, no customer AI
+ * - Staff (viewer) → read-only copilot (queries only, no writes)
+ * - Other staff roles without copilot access → short staff notice
  */
 export async function routeCompanyScopedInbound(params: {
   senderPhone: string;

@@ -20,28 +20,36 @@ export const WORKFLOW_IDS = [
 export type WorkflowId = (typeof WORKFLOW_IDS)[number];
 
 /**
- * Global LLM confidence floor. Classification below this is discarded.
+ * Global LLM confidence floor for query workflows (price, brochure, availability).
+ * Classification below this is discarded and falls through to the language brain.
  * Must never be raised above MUTATION_CONFIDENCE_THRESHOLD.
+ * Target: §2.3 A+ spec — queries ≥ 0.65.
  */
-export const WORKFLOW_CONFIDENCE_THRESHOLD = 0.62;
+export const WORKFLOW_CONFIDENCE_THRESHOLD = 0.65;
 
 /**
  * Minimum confidence to execute a mutation workflow (write to DB + send WhatsApp).
  * Higher than WORKFLOW_CONFIDENCE_THRESHOLD to guard against booking the wrong visit.
+ * Target: §2.3 A+ spec — mutations ≥ 0.80.
  */
-export const MUTATION_CONFIDENCE_THRESHOLD = 0.75;
+export const MUTATION_CONFIDENCE_THRESHOLD = 0.80;
 
 /**
  * Confidence band [low, high) in which we ask a clarification question instead
  * of executing a mutation workflow. Below low → fall through. Above high → execute.
+ * Target: §2.3 A+ spec — clarification band 0.70–0.80.
  */
 export const CLARIFICATION_BAND: Readonly<{ low: number; high: number }> = {
-  low: 0.65,
-  high: 0.75,
+  low: 0.70,
+  high: 0.80,
 };
 
-/** LLM temperature for workflow classification — kept low for determinism. */
-export const WORKFLOW_LLM_TEMPERATURE = 0.05;
+/**
+ * LLM temperature for workflow classification.
+ * Must be 0.0 for maximum determinism — prevents non-deterministic routing.
+ * Target: §2.3 A+ spec — temp = 0.0.
+ */
+export const WORKFLOW_LLM_TEMPERATURE = 0.0;
 
 /**
  * Workflows that mutate DB state (visit/lead writes).

@@ -20,6 +20,7 @@ import {
   isMutationAction,
   runCompensators,
 } from './workflow-compensator.service';
+import { logAgentAction } from '../agent-action-log.service';
 import type { AgentIntent } from '../../constants/agent-intent.constants';
 import { fetchOpenAi, OPENAI_CHAT_URL, openAiKeyProblem } from '../openaiStatus.service';
 import { setAgentSessionClientContext } from '../clientMemory.service';
@@ -816,13 +817,31 @@ export async function classifyAndRunWorkflow(
         classified.workflowId,
         classified.parameters,
       );
+      // G5: Log clarification event for transparency in /dashboard/ai-action-logs.
+      void logAgentAction({
+        companyId: run.toolContext.companyId,
+        triggeredBy: 'inbound_message',
+        action: 'workflow_clarification',
+        actorId: run.toolContext.userId,
+        actorRole: run.toolContext.userRole,
+        resourceType: 'lead',
+        resourceId: classified.parameters.leadId ?? run.sessionLeadId ?? null,
+        inputs: {
+          workflowId: classified.workflowId,
+          confidence: classified.confidence,
+          parameters: classified.parameters,
+          channel: 'staff',
+        },
+        status: 'success',
+        result: 'Clarification requested',
+      });
       return buildClarificationReply(classified.workflowId as MutationWorkflowId);
     }
 
     if (MUTATION_WORKFLOW_SET.has(classified.workflowId) && isVisitDateListQuery) {
       const listReply = await tryResolveVisitListReply(run.toolContext, run.messageText);
       if (listReply) return listReply;
-      return null;
+      // No visits on that date — continue to book/reschedule via workflow (do not return null).
     }
 
     const result = await runWorkflow(classified.workflowId, run, classified.parameters);
@@ -1061,6 +1080,22 @@ export async function classifyAndRunBuyerWorkflow(
     }
     if (confidenceAction === 'clarify') {
       await storePendingClarification(input.leadId, classified.workflowId, classified.parameters);
+      // G5: Log clarification event for transparency in /dashboard/ai-action-logs.
+      void logAgentAction({
+        companyId: input.companyId,
+        triggeredBy: 'inbound_message',
+        action: 'workflow_clarification',
+        resourceType: 'lead',
+        resourceId: input.leadId,
+        inputs: {
+          workflowId: classified.workflowId,
+          confidence: classified.confidence,
+          parameters: classified.parameters,
+          channel: 'buyer',
+        },
+        status: 'success',
+        result: 'Clarification requested',
+      });
       return buildClarificationReply(classified.workflowId as MutationWorkflowId);
     }
 

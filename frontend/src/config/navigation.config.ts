@@ -21,6 +21,7 @@ export type NavRouteKey =
   | 'analytics'
   | 'ai_settings'
   | 'ai_action_logs'
+  | 'copilot'
   | 'companies'
   | 'emi_calculator'
   | 'audit_logs'
@@ -57,6 +58,7 @@ export const NAV_ITEM_GROUP: Record<NavRouteKey, NavGroupKey> = {
   analytics: 'intelligence',
   ai_settings: 'intelligence',
   ai_action_logs: 'intelligence',
+  copilot: 'intelligence',
   emi_calculator: 'admin',
   notifications: 'admin',
   settings: 'admin',
@@ -133,6 +135,13 @@ export const NAV_ITEMS: NavItemSpec[] = [
     roles: ['company_admin', 'super_admin'],
     featureKey: 'ai_bot',
     labelFallback: 'AI Action Logs',
+  },
+  {
+    key: 'copilot',
+    path: dashboardPath('/copilot'),
+    roles: ['company_admin', 'sales_agent', 'operations', 'super_admin', 'viewer'],
+    featureKey: 'ai_bot',
+    labelFallback: 'Copilot',
   },
   {
     key: 'companies',
@@ -212,6 +221,7 @@ export function resolveDashboardPath(pathname: string): string {
     'analytics',
     'ai-settings',
     'ai-action-logs',
+    'copilot',
     'settings',
     'notifications',
     'companies',

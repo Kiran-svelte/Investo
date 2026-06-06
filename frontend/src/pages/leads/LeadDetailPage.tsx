@@ -7,7 +7,7 @@ import api from '../../services/api';
 import {
   ArrowLeft, Phone, Mail, MapPin, Building2, IndianRupee,
   User, Calendar, Clock, Edit3, Save, X, Loader2,
-  AlertTriangle, MessageSquare, CheckCircle, Trash2,
+  AlertTriangle, MessageSquare, CheckCircle, Trash2, Bot,
 } from 'lucide-react';
 import { deleteLead } from '../../services/resourceDelete';
 import LeadStatusBadge from '../../components/leads/LeadStatusBadge';
@@ -34,6 +34,7 @@ interface LeadDetail {
   last_contact_at: string | null;
   timeline: TimelineEntry[];
   conversation_id: string | null;
+  lead_memory: Record<string, unknown> | null;
 }
 
 interface TimelineEntry {
@@ -92,6 +93,7 @@ function normalizeLeadDetail(raw: any): LeadDetail {
       created_at: String(entry?.created_at ?? entry?.createdAt ?? ''),
     })),
     conversation_id: raw?.conversation_id ?? raw?.conversationId ?? null,
+    lead_memory: raw?.lead_memory ?? raw?.leadMemory ?? null,
   };
 }
 
@@ -425,8 +427,23 @@ const LeadDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Timeline */}
+        {/* Sidebar: AI memory + timeline */}
         <div className="space-y-6">
+          <div className="investo-card-pad">
+            <div className="mb-4 flex items-center gap-2">
+              <Bot className="h-5 w-5 text-brand-600" />
+              <h2 className="text-lg font-semibold">What AI Knows</h2>
+            </div>
+            {lead.lead_memory && Object.keys(lead.lead_memory).length > 0 ? (
+              <pre className="max-h-64 overflow-auto rounded-lg bg-surface-subtle p-3 text-xs text-ink-secondary">
+                {JSON.stringify(lead.lead_memory, null, 2)}
+              </pre>
+            ) : (
+              <p className="text-sm text-ink-faint text-center py-4">
+                No AI memory recorded yet — memory builds as the buyer chats on WhatsApp.
+              </p>
+            )}
+          </div>
           <div className="investo-card-pad">
             <h2 className="text-lg font-semibold mb-4">Activity Timeline</h2>
             {(!lead.timeline || lead.timeline.length === 0) ? (

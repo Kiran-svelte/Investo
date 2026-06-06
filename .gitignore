@@ -23,6 +23,8 @@ docs/plan/adhoc/
 .env
 .env.*
 !.env.example
+scripts/.railway-prod-vars.json
+scripts/handset-matrix-db-results.json
 
 # Temporary/debug scripts
 _tmp_*

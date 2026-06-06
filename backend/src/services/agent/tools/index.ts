@@ -30,6 +30,15 @@ function isOperationsRole(role: string): boolean {
  * @returns Flat array of agent tools scoped to the caller's role.
  */
 export function getToolsForRole(context: ToolContext): AgentTool[] {
+  if (context.userRole === 'viewer') {
+    return [
+      ...createPropertyTools(context),
+      ...createAnalyticsTools(context),
+      ...createCalendarTools(context),
+      ...createEmiTools(context),
+    ];
+  }
+
   const tools: AgentTool[] = [
     ...createPropertyTools(context),
     ...createNotificationTools(context),

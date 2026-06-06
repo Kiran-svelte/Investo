@@ -27,7 +27,7 @@ describe('navigation.config', () => {
   it('company_admin sees full tenant nav', () => {
     const items = getVisibleNavItems('company_admin', allFeatures);
     expect(items.map((i) => i.key)).toEqual(
-      expect.arrayContaining(['dashboard', 'leads', 'agents', 'ai_settings', 'ai_action_logs', 'emi_calculator']),
+      expect.arrayContaining(['dashboard', 'leads', 'agents', 'ai_settings', 'ai_action_logs', 'copilot', 'emi_calculator']),
     );
     // Billing is disabled in this version — must NOT appear in the sidebar
     expect(items.some((i) => (i.key as string) === 'billing')).toBe(false);

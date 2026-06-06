@@ -45,6 +45,7 @@ import propertyImportBulkRoutes from './routes/property-import-bulk.routes';
 import financeRoutes from './routes/finance.routes';
 import { isAllowedCorsOrigin } from './config';
 import greenApiWebhookRoutes from './routes/greenapi-webhook.routes';
+import copilotRoutes from './routes/copilot.routes';
 
 const app = express();
 
@@ -119,6 +120,7 @@ app.use('/api/features', companyRateLimiter, featureRoutes);
 app.use('/api/onboarding', companyRateLimiter, onboardingRoutes);
 app.use('/api/audit', companyRateLimiter, auditRoutes);
 app.use('/api/agent-action-logs', companyRateLimiter, agentActionLogRoutes);
+app.use('/api/copilot', companyRateLimiter, companyAiRateLimiter, copilotRoutes);
 app.use('/api/error-logs', companyRateLimiter, errorLogRoutes);
 app.use('/api/assignment-settings', companyRateLimiter, assignmentSettingsRoutes);
 app.use('/api', financeRoutes);

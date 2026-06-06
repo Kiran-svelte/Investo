@@ -90,6 +90,15 @@ export const CRON_SCHEDULES = {
    * Owner: on-call team. Runbook: docs/runbooks/workflow-reconciliation.md
    */
   WORKFLOW_RECONCILIATION_CHECK: '0 21 * * *',
+  /**
+   * Nightly conversation summary — 2:10 AM IST = 20:40 UTC.
+   * Patches lead_memory.conversationSummary for leads active in the last 24 h
+   * so the buyer AI never loses long-thread continuity.
+   * Capped at 200 leads per run; idempotent.
+   * TTL: no fixed TTL — summary is overwritten on each run.
+   * Owner: G13 in AI_MASTER_REALITY_AND_A_PLUS_PLAN.md
+   */
+  NIGHTLY_CONVERSATION_SUMMARY: '40 20 * * *',
 } as const;
 
 // ─── Emoji Maps ─────────────────────────────────────────────────────

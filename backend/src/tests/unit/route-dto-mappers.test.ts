@@ -50,6 +50,7 @@ describe('route DTO mappers', () => {
       lost_reason: null,
       source_detail: null,
       tags: [],
+      lead_memory: null,
     });
   });
 

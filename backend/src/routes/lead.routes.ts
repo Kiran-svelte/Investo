@@ -138,6 +138,7 @@ export function mapLeadToSnakeCaseDTO(lead: any) {
     updated_at: toIsoString(lead.updatedAt),
     last_contact_at: toIsoString(lead.lastContactAt),
     conversation_id: lead.conversations?.[0]?.id || null,
+    lead_memory: lead.leadMemory ?? null,
   };
 }
 

@@ -47,6 +47,12 @@ jest.mock('../../services/agent-action-log.service', () => ({
   logAgentAction: jest.fn().mockResolvedValue(undefined),
 }));
 
+const mockRunCompensators = jest.fn().mockResolvedValue(true);
+jest.mock('../../services/workflow/workflow-compensator.service', () => ({
+  ...jest.requireActual('../../services/workflow/workflow-compensator.service'),
+  runCompensators: (...args: unknown[]) => mockRunCompensators(...args),
+}));
+
 jest.mock('../../services/notification.engine', () => ({
   notificationEngine: {
     notify: jest.fn().mockResolvedValue(undefined),
@@ -99,6 +105,8 @@ import { updateLeadStatusById } from '../../services/agent/lead-status-actions';
 import { getToolsForRole } from '../../services/agent/tools';
 import { scheduleVisit } from '../../services/visitBooking.service';
 import { cacheGet } from '../../config/redis';
+import { logAgentAction } from '../../services/agent-action-log.service';
+import { WORKFLOW_ACTION_HANDLERS } from '../../services/workflow/actions/index';
 import type { ToolContext } from '../../services/agent/agent-state';
 
 const propertyId = '11111111-1111-4111-8111-111111111111';
@@ -116,6 +124,7 @@ const kannadaLeadId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 describe('workflow-engine.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRunCompensators.mockResolvedValue(true);
     (getToolsForRole as jest.Mock).mockReturnValue([]);
   });
 
@@ -428,5 +437,116 @@ describe('workflow-engine.service', () => {
     expect(reply).toContain('human specialist');
     expect(reply).not.toContain('Urgent alert created');
     expect(reply).not.toContain('agents notified');
+  });
+
+  it('logs workflow_clarification for staff mutation in clarification band (0.65–0.75)', async () => {
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'cancel_visit',
+        confidence: 0.71,
+        parameters: { visitId: 'visit-1' },
+      }),
+    );
+
+    const reply = await classifyAndRunWorkflow(
+      {
+        toolContext: ctx,
+        messageText: 'not sure if I should cancel the visit',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+        sessionLeadId: kannadaLeadId,
+        staffPhone: '+919999999999',
+      },
+      { llm },
+    );
+
+    expect(reply).toMatch(/cancel|confirm|clarif/i);
+    expect(logAgentAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'workflow_clarification',
+        inputs: expect.objectContaining({
+          workflowId: 'cancel_visit',
+          confidence: 0.71,
+          channel: 'staff',
+        }),
+      }),
+    );
+  });
+
+  it('logs workflow_clarification for buyer mutation in clarification band (0.65–0.75)', async () => {
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'cancel_visit',
+        confidence: 0.71,
+        parameters: { visitId: 'visit-1' },
+      }),
+    );
+
+    const reply = await classifyAndRunBuyerWorkflow(
+      {
+        companyId: 'company-1',
+        leadId: kannadaLeadId,
+        messageText: 'maybe cancel my visit',
+        companyName: 'Demo Realty',
+      },
+      { llm },
+    );
+
+    expect(reply).toMatch(/cancel|confirm|clarif/i);
+    expect(logAgentAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'workflow_clarification',
+        inputs: expect.objectContaining({
+          workflowId: 'cancel_visit',
+          confidence: 0.71,
+          channel: 'buyer',
+        }),
+      }),
+    );
+  });
+
+  it('runs compensators when a required step fails after mutation (send/confirm path)', async () => {
+    jest.spyOn(WORKFLOW_ACTION_HANDLERS, 'logLeadHistory').mockResolvedValueOnce({
+      ok: false,
+      message: 'WhatsApp send failed',
+    });
+    // resolveLeadForIntent must return a lead for update_status to reach the mutation step
+    (resolveLeadForIntent as jest.Mock).mockResolvedValue({
+      leadId: kannadaLeadId,
+      customerName: 'Kannada Media',
+    });
+    // updateLeadStatusById succeeds (the logLeadHistory step is what fails)
+    (updateLeadStatusById as jest.Mock).mockResolvedValue({
+      handled: true,
+      reply: 'Status updated to visited.',
+      leadId: kannadaLeadId,
+    });
+    mockPrisma.lead.findFirst.mockResolvedValue({
+      id: kannadaLeadId,
+      customerName: 'Kannada Media',
+      status: 'contacted',
+      assignedAgentId: 'agent-1',
+    });
+    mockPrisma.lead.findUnique.mockResolvedValue({ status: 'contacted' });
+
+    const result = await runWorkflow(
+      'update_status',
+      {
+        toolContext: ctx,
+        messageText: 'Update lead status to visited',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+      },
+      { leadId: kannadaLeadId, status: 'visited' },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.needsReconciliation).toBe(true);
+    expect(mockRunCompensators).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failedStep: 'logLeadHistory',
+        completedSteps: expect.arrayContaining(['updateLeadStatus']),
+      }),
+    );
   });
 });

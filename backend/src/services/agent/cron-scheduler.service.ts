@@ -639,6 +639,85 @@ async function purgeActionLogCron(): Promise<CronRunResult> {
   return {};
 }
 
+/**
+ * G13 — Nightly conversation summary cron.
+ *
+ * For each lead that had WhatsApp activity in the last 24 hours, extract the
+ * most recent messages (up to 10) and patch `lead_memory.conversationSummary`
+ * with a compact plain-text digest. This preserves long-thread continuity for
+ * the buyer AI so it never needs to ask the same questions again.
+ *
+ * Design:
+ *   - Idempotent: processing the same lead twice overwrites with identical text.
+ *   - Capped at 200 leads per run to prevent memory spikes on large tenants.
+ *   - Never touches leads with no recent activity (no wasted DB writes).
+ *   - All errors are caught per-lead; one bad lead does not abort the batch.
+ *
+ * @returns CronRunResult with affected company IDs.
+ */
+async function refreshNightlyConversationSummaries(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  // Find leads with recent inbound messages — these are the ones whose
+  // conversationSummary is most likely to be stale.
+  const activeLeads = await prisma.lead.findMany({
+    where: {
+      conversations: {
+        some: {
+          messages: {
+            some: { createdAt: { gte: since }, senderType: 'customer' },
+          },
+        },
+      },
+    },
+    select: { id: true, companyId: true, customerName: true },
+    take: 200,
+  });
+
+  logger.info('refreshNightlyConversationSummaries started', { leadCount: activeLeads.length });
+
+  const { patchLeadMemory } = await import('../lead-memory.service');
+
+  for (const lead of activeLeads) {
+    try {
+      // Fetch the latest messages for this lead from the most recent conversation.
+      const recentMessages = await prisma.message.findMany({
+        where: { conversation: { leadId: lead.id } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { content: true, senderType: true, createdAt: true },
+      });
+
+      if (!recentMessages.length) continue;
+
+      const summaryLines = recentMessages
+        .reverse()
+        .map((m) => {
+          const role = m.senderType === 'customer' ? 'Buyer' : m.senderType === 'ai' ? 'AI' : 'Agent';
+          return `${role}: ${m.content.slice(0, 100)}`;
+        });
+
+      const summary = summaryLines.join(' | ').slice(0, 400);
+
+      await patchLeadMemory(lead.id, { conversationSummary: summary });
+      affected.add(lead.companyId);
+    } catch (leadErr: unknown) {
+      logger.warn('refreshNightlyConversationSummaries: lead failed', {
+        leadId: lead.id,
+        error: leadErr instanceof Error ? leadErr.message : String(leadErr),
+      });
+    }
+  }
+
+  logger.info('refreshNightlyConversationSummaries completed', {
+    processed: activeLeads.length,
+    affectedCompanies: [...new Set(activeLeads.map((l) => l.companyId))].length,
+  });
+
+  return affected.result();
+}
+
 async function runConfirmationCleanup(): Promise<CronRunResult> {
   await cleanupExpiredConfirmations();
   return {};
@@ -729,6 +808,8 @@ export function startCronScheduler(): void {
     cron.schedule(CRON_SCHEDULES.EOD_ATTENDANCE_CHECK, wrap('eodAttendanceChecks', sendEodAttendanceChecks)),
     // Workflow saga reconciliation — nightly 2:30 AM IST. Alerts on needs_reconciliation runs.
     cron.schedule(CRON_SCHEDULES.WORKFLOW_RECONCILIATION_CHECK, wrap('reconcileWorkflowRuns', reconcileWorkflowRuns)),
+    // G13: Nightly conversation summary — 2:10 AM IST. Patches lead_memory.conversationSummary.
+    cron.schedule(CRON_SCHEDULES.NIGHTLY_CONVERSATION_SUMMARY, wrap('refreshNightlyConversationSummaries', refreshNightlyConversationSummaries)),
   );
   logger.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }

@@ -58,6 +58,7 @@ const NAV_ICONS: Record<NavRouteKey, LucideIcon> = {
   audit_logs: ClipboardList,
   error_logs: AlertTriangle,
   ai_action_logs: Bot,
+  copilot: BrainCircuit,
   notifications: Bell,
   settings: Settings,
 };

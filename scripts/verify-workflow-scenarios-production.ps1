@@ -1,7 +1,7 @@
-# Production proof: workflow engine + intent stack on investo-backend-v2.onrender.com
+# Production proof: workflow engine + intent stack on Railway (authoritative prod)
 # Does NOT print secrets. Requires admin login credentials in env or defaults from prod-e2e-verify.ps1
 param(
-  [string]$Base = 'https://investo-backend-v2.onrender.com',
+  [string]$Base = 'https://investo-backend-production.up.railway.app',
   [string]$Email = 'admin@investo.in',
   [string]$Password = 'admin@123',
   [string]$GeekyCompanyId = 'e12e7540-8218-4b25-b427-ff8b800df116',

@@ -1,5 +1,6 @@
 const mockGetLeadMemory = jest.fn();
 const mockPatchLeadMemory = jest.fn();
+const mockSyncLeadClientMemory = jest.fn();
 
 jest.mock('../../config/logger', () => ({
   __esModule: true,
@@ -9,6 +10,10 @@ jest.mock('../../config/logger', () => ({
 jest.mock('../../services/lead-memory.service', () => ({
   getLeadMemory: (...args: unknown[]) => mockGetLeadMemory(...args),
   patchLeadMemory: (...args: unknown[]) => mockPatchLeadMemory(...args),
+}));
+
+jest.mock('../../services/clientMemory.service', () => ({
+  syncLeadClientMemory: (...args: unknown[]) => mockSyncLeadClientMemory(...args),
 }));
 
 import {
@@ -22,6 +27,7 @@ describe('buyer-memory-extract.service', () => {
     jest.clearAllMocks();
     mockGetLeadMemory.mockResolvedValue({ version: 1, updatedAt: new Date().toISOString() });
     mockPatchLeadMemory.mockResolvedValue(undefined);
+    mockSyncLeadClientMemory.mockResolvedValue(undefined);
   });
 
   it('extracts projectsDiscussed from brochure outbound text', () => {
@@ -106,5 +112,6 @@ describe('buyer-memory-extract.service', () => {
         ],
       }),
     );
+    expect(mockSyncLeadClientMemory).toHaveBeenCalledWith('lead-1');
   });
 });

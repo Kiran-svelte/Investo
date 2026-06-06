@@ -32,6 +32,7 @@ import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage';
 import CompaniesPage from './pages/companies/CompaniesPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
 import AIActionLogsPage from './pages/ai-action-logs/AIActionLogsPage';
+import CopilotPage from './pages/copilot/CopilotPage';
 import ErrorLogsPage from './pages/error-logs/ErrorLogsPage';
 import ProfilePage from './pages/profile/ProfilePage';
 import { useCompanyFeatures } from './context/CompanyFeaturesContext';
@@ -432,6 +433,11 @@ const App: React.FC = () => {
                       <Route path="ai-action-logs" element={<AIActionLogsPage />} />
                     </Route>
                   </Route>
+                  <Route element={<RoleRoute path="/copilot" />}>
+                    <Route element={<FeatureRoute featureKey="ai_bot" />}>
+                      <Route path="copilot" element={<CopilotPage />} />
+                    </Route>
+                  </Route>
                   <Route element={<RoleRoute path="/emi-calculator" />}>
                     <Route path="emi-calculator" element={<EmiCalculatorPage />} />
                   </Route>
@@ -470,6 +476,7 @@ const App: React.FC = () => {
               <Route path="/analytics/*" element={<LegacyDashboardRedirect />} />
               <Route path="/ai-settings/*" element={<LegacyDashboardRedirect />} />
               <Route path="/ai-action-logs/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/copilot/*" element={<LegacyDashboardRedirect />} />
               <Route path="/settings/*" element={<LegacyDashboardRedirect />} />
               <Route path="/notifications/*" element={<LegacyDashboardRedirect />} />
               <Route path="/companies/*" element={<LegacyDashboardRedirect />} />

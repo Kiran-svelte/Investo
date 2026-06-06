@@ -1,4 +1,6 @@
-# Full Railway backend deploy: stop active deployments, redeploy, wait for health.
+# Full Railway backend deploy from Git: stop active deployments, redeploy, wait for health.
+# Uses account/workspace token (GraphQL) or project token ({ projectToken }).
+# For local upload instead of git, use scripts/deploy-railway-upload.ps1 (mint project token + railway up from repo root).
 param(
   [string]$RailwayToken = $env:RAILWAY_TOKEN,
   [string]$ServiceId = $env:RAILWAY_SERVICE_ID,
@@ -114,19 +116,9 @@ do {
   if ($status -in @('FAILED', 'REMOVED', 'CANCELLED')) { throw "Railway deploy failed: $status" }
 } while ((Get-Date) -lt $deadline)
 
-$domainQuery = @"
-query(`$serviceId: String!, `$environmentId: String!) {
-  service(id: `$serviceId) {
-    serviceDomains(environmentId: `$environmentId) { domain }
-  }
-}
-"@
-$domainRes = Invoke-RailwayGql $domainQuery @{ serviceId = $ServiceId; environmentId = $environmentId }
-$domain = $domainRes.data.service.serviceDomains[0].domain
-if ($domain) {
-  $health = curl.exe -s "https://$domain/api/health/live"
-  Write-Host "Health: $health"
-  Write-Host "Backend URL: https://$domain"
-}
+$healthUrl = 'https://investo-backend-production.up.railway.app/api/health/live'
+$health = curl.exe -s $healthUrl
+Write-Host "Health: $health"
+Write-Host "Backend URL: https://investo-backend-production.up.railway.app"
 
 Write-Host 'Railway deploy complete.'

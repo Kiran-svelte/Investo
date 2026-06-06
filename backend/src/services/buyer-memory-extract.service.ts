@@ -16,6 +16,7 @@
 import logger from '../config/logger';
 import type { LeadMemory } from './lead-memory.service';
 import { getLeadMemory, patchLeadMemory } from './lead-memory.service';
+import { syncLeadClientMemory } from './clientMemory.service';
 
 /** Shape of AI-extracted information from aiService.generateResponse. */
 export interface AiExtractedInfo {
@@ -271,6 +272,15 @@ export async function extractAndPatchLeadMemory(params: ExtractBuyerMemoryDeltaP
     }
 
     await patchLeadMemory(params.leadId, delta);
+
+    // G2: Keep the RAG vector index in sync with lead_memory.
+    // Fire-and-forget — never block the buyer pipeline on embedding latency.
+    syncLeadClientMemory(params.leadId).catch((syncErr: unknown) => {
+      logger.warn('syncLeadClientMemory failed after buyer memory patch', {
+        leadId: params.leadId,
+        error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+      });
+    });
   } catch (err: unknown) {
     logger.warn('extractAndPatchLeadMemory failed', {
       leadId: params.leadId,

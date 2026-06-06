@@ -95,6 +95,37 @@ type AgentMessageResult = {
   replyKind: CopilotReplyKind;
 };
 
+/** Fire-and-forget lead_memory patch + RAG sync after staff copilot exchanges. */
+async function patchStaffCopilotLeadMemory(
+  leadId: string | null | undefined,
+  lastIntent: string,
+  inboundText: string,
+  outboundText: string,
+): Promise<void> {
+  if (!leadId) return;
+  const { patchLeadMemory } = await import('../lead-memory.service');
+  const { syncLeadClientMemory } = await import('../clientMemory.service');
+  void patchLeadMemory(leadId, {
+    lastIntent,
+    conversationSummary: `${inboundText.slice(0, 80)} → ${outboundText.slice(0, 120)}`,
+  }).catch(() => undefined);
+  syncLeadClientMemory(leadId).catch(() => undefined);
+}
+
+/**
+ * Core staff copilot handler. Routes a normalized staff WhatsApp message through the
+ * full AI pipeline: greeting fast-path → pending confirmations → deterministic CRM →
+ * workflow LLM → intent orchestrator → LangGraph → deterministic fallback.
+ *
+ * G2 (staff): After every patchLeadMemory call, syncLeadClientMemory is called
+ * fire-and-forget so the RAG vector index stays within one cycle of lead_memory.
+ *
+ * @param user - Authenticated staff user from company membership lookup.
+ * @param messageText - Raw inbound WhatsApp text.
+ * @param interactiveId - Optional interactive button/list ID from the WhatsApp payload.
+ * @param inboundMessageId - Optional WhatsApp message ID used for deduplication.
+ * @returns The reply text and its classification kind.
+ */
 async function handleAgentMessage(
   user: CompanyUserMatch,
   messageText: string,
@@ -103,6 +134,7 @@ async function handleAgentMessage(
 ): Promise<AgentMessageResult> {
   const resolvedCommand = resolveCopilotInboundCommand({ interactiveId, messageText });
   const normalizedText = normalizeCopilotInboundText(resolvedCommand);
+  const isViewer = user.userRole === 'viewer';
 
   // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
   if (isCopilotGreeting(normalizedText)) {
@@ -178,33 +210,49 @@ async function handleAgentMessage(
         inboundText: resolvedCommand || messageText,
         outboundText: crmReply,
       });
+      if (!isViewer) {
+        await patchStaffCopilotLeadMemory(
+          sessionCtx.lastLeadId,
+          'staff_copilot_crm',
+          normalizedText,
+          crmReply,
+        );
+      }
     }
     return { text: crmReply, replyKind: 'crm' };
   }
 
-  const workflowReply = await classifyAndRunWorkflow({
-    toolContext,
-    messageText: normalizedText,
-    recentMessages,
-    companyName: user.companyName,
-    sessionLeadId: sessionCtx.lastLeadId,
-    sessionVisitId: sessionCtx.lastVisitId,
-    staffPhone: user.phone,
-  });
-  if (workflowReply !== null && workflowReply !== undefined) {
-    if (session?.id) {
-      await recordAgentCopilotExchange({
-        sessionId: session.id,
-        inboundText: resolvedCommand || messageText,
-        outboundText: workflowReply,
-      });
+  if (!isViewer) {
+    const workflowReply = await classifyAndRunWorkflow({
+      toolContext,
+      messageText: normalizedText,
+      recentMessages,
+      companyName: user.companyName,
+      sessionLeadId: sessionCtx.lastLeadId,
+      sessionVisitId: sessionCtx.lastVisitId,
+      staffPhone: user.phone,
+    });
+    if (workflowReply !== null && workflowReply !== undefined) {
+      if (session?.id) {
+        await recordAgentCopilotExchange({
+          sessionId: session.id,
+          inboundText: resolvedCommand || messageText,
+          outboundText: workflowReply,
+        });
+        await patchStaffCopilotLeadMemory(
+          sessionCtx.lastLeadId,
+          'staff_copilot_workflow',
+          normalizedText,
+          workflowReply,
+        );
+      }
+      return { text: workflowReply, replyKind: 'workflow' };
     }
-    return { text: workflowReply, replyKind: 'workflow' };
   }
 
   const llmActive = config.agentAi?.enabled !== false && config.agentAi?.llmEnabled !== false;
 
-  const intentReply = llmActive
+  const intentReply = !isViewer && llmActive
     ? await classifyAndExecuteAgentIntent({
         toolContext,
         messageText: normalizedText,
@@ -223,6 +271,12 @@ async function handleAgentMessage(
         inboundText: resolvedCommand || messageText,
         outboundText: intentReply,
       });
+      await patchStaffCopilotLeadMemory(
+        sessionCtx.lastLeadId,
+        'staff_copilot_intent',
+        normalizedText,
+        intentReply,
+      );
     }
     return { text: intentReply, replyKind: 'intent' };
   }
@@ -267,23 +321,30 @@ async function handleAgentMessage(
     });
     const helpText =
       deterministicFallback
-      || `*Investo Copilot* (deterministic mode)\n\n` +
-        `LLM is off. These commands still work:\n` +
-        `- "visits today"\n- "new leads today"\n` +
-        `- "get lead [name]"\n- "confirm visit"\n\n` +
-        `Or use the *Investo dashboard* for advanced operations.`;
+      || (isViewer
+        ? `*Investo Copilot* (read-only)\n\n` +
+          `You can ask:\n` +
+          `- "visits today"\n- "new leads today"\n` +
+          `- "get lead [name]"\n\n` +
+          `Write actions require a sales or admin role.`
+        : `*Investo Copilot* (deterministic mode)\n\n` +
+          `LLM is off. These commands still work:\n` +
+          `- "visits today"\n- "new leads today"\n` +
+          `- "get lead [name]"\n- "confirm visit"\n\n` +
+          `Or use the *Investo dashboard* for advanced operations.`);
     if (session?.id) {
       await recordAgentCopilotExchange({
         sessionId: session.id,
         inboundText: resolvedCommand || messageText,
         outboundText: helpText,
       });
-      if (sessionCtx.lastLeadId) {
-        const { patchLeadMemory } = await import('../lead-memory.service');
-        void patchLeadMemory(sessionCtx.lastLeadId, {
-          lastIntent: 'staff_copilot_deterministic',
-          conversationSummary: `${normalizedText.slice(0, 80)} → deterministic reply`,
-        }).catch(() => undefined);
+      if (!isViewer && sessionCtx.lastLeadId) {
+        await patchStaffCopilotLeadMemory(
+          sessionCtx.lastLeadId,
+          'staff_copilot_deterministic',
+          normalizedText,
+          helpText,
+        );
       }
     }
     return { text: helpText, replyKind: deterministicFallback ? 'crm' : 'help_fallback' };
@@ -344,12 +405,8 @@ async function handleAgentMessage(
       inboundText: resolvedCommand || messageText,
       outboundText: agentReply,
     });
-    if (sessionCtx.lastLeadId) {
-      const { patchLeadMemory } = await import('../lead-memory.service');
-      void patchLeadMemory(sessionCtx.lastLeadId, {
-        lastIntent: replyKind,
-        conversationSummary: `${normalizedText.slice(0, 80)} → ${agentReply.slice(0, 120)}`,
-      }).catch(() => undefined);
+    if (!isViewer && sessionCtx.lastLeadId) {
+      await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, replyKind, normalizedText, agentReply);
     }
   }
   return { text: agentReply, replyKind };
@@ -357,6 +414,13 @@ async function handleAgentMessage(
 
 /**
  * Agent copilot for a known company user (caller must verify company membership).
+ *
+ * @param senderPhone - Raw inbound WhatsApp phone number.
+ * @param messageText - Raw inbound message text.
+ * @param user - Authenticated company user record.
+ * @param interactiveId - Optional interactive button/list ID.
+ * @param inboundMessageId - Optional message ID for deduplication.
+ * @returns true if the message was handled by the copilot, false to fall through.
  */
 export async function routeIfInternalUserForCompany(
   senderPhone: string,
@@ -423,6 +487,11 @@ export async function routeIfInternalUserForCompany(
 /**
  * @deprecated Use inboundWhatsAppRouting.routeCompanyScopedInbound with companyId.
  * Kept for backward compatibility in tests; requires companyId when possible.
+ *
+ * @param senderPhone - Raw inbound WhatsApp phone number.
+ * @param messageText - Raw inbound message text.
+ * @param companyId - Company scope for routing lookup.
+ * @returns true if the message was handled, false otherwise.
  */
 export async function routeIfInternalUser(
   senderPhone: string,
@@ -449,3 +518,13 @@ export async function routeIfInternalUser(
 }
 
 export const agentRouterService = { routeIfInternalUser, routeIfInternalUserForCompany };
+
+/**
+ * Exposed for use by the dashboard copilot REST endpoint (POST /api/copilot/chat).
+ * Re-uses the full staff WhatsApp copilot pipeline without sending a WhatsApp reply.
+ *
+ * @param user - Authenticated staff user.
+ * @param messageText - Message from the dashboard chat UI.
+ * @returns The reply text and its classification kind.
+ */
+export { handleAgentMessage };

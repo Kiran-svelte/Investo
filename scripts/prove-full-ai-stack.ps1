@@ -3,7 +3,7 @@
 #   $env:OPENAI_API_KEY = 'sk-...'   # optional one-off key test (never commit)
 #   .\scripts\prove-full-ai-stack.ps1
 param(
-  [string]$Base = 'https://investo-backend-v2.onrender.com',
+  [string]$Base = 'https://investo-backend-production.up.railway.app',
   [string]$OpenAiKey = $env:OPENAI_API_KEY
 )
 
