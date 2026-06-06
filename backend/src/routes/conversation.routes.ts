@@ -339,7 +339,14 @@ router.patch(
 
       await prisma.conversation.update({
         where: { id: req.params.id },
-        data: { status: 'ai_active', aiEnabled: true },
+        data: {
+          status: 'ai_active',
+          aiEnabled: true,
+          ...(conversation.stage === 'human_escalated' && {
+            stage: 'qualify',
+            escalationReason: null,
+          }),
+        },
       });
 
       socketService.emitToCompany(companyId, SOCKET_EVENTS.CONVERSATION_UPDATED, {

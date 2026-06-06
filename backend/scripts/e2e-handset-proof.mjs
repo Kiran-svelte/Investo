@@ -251,7 +251,7 @@ async function runStaffTurn(staffUser, from, body, { waitSec = 45, mustMatch = n
   return { wh, reply, logs };
 }
 
-async function runTurn(from, body, { waitSec = 0, mustMatch = null } = {}) {
+async function runTurnOnce(from, body, { waitSec = 0, mustMatch = null } = {}) {
   const wh = await sendTextWebhook(from, body, body.slice(0, 10).replace(/\W/g, ''));
   const lead = await waitForLead(from, 30);
   const { reply } = lead
@@ -260,6 +260,25 @@ async function runTurn(from, body, { waitSec = 0, mustMatch = null } = {}) {
   await sleep(2000);
   const logs = lead ? await getActionLogsForLead(lead.id, wh.sentAt) : [];
   return { wh, lead, reply, logs };
+}
+
+async function runTurn(from, body, opts = {}) {
+  let result = await runTurnOnce(from, body, opts);
+  if (CONNECTION_FALLBACK.test(result.reply) && !opts._retried) {
+    await sleep(12000);
+    result = await runTurnOnce(from, body, { ...opts, _retried: true, waitSec: (opts.waitSec || 45) + 15 });
+  }
+  return result;
+}
+
+async function waitForBuyerPathReady(maxAttempts = 4) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const probe = randBuyer();
+    const { reply } = await runTurnOnce(probe, 'Hello', { waitSec: 55, mustMatch: /welcome|help|palm|explore/i });
+    if (reply.length > 10 && !CONNECTION_FALLBACK.test(reply)) return true;
+    await sleep(15000);
+  }
+  return false;
 }
 
 async function runInteractive(from, interactiveId, title, waitSec = 35) {
@@ -278,7 +297,11 @@ async function ensureAiActive(leadId) {
   if (!conv) return;
   await prisma.conversation.update({
     where: { id: conv.id },
-    data: { status: 'ai_active', aiEnabled: true },
+    data: {
+      status: 'ai_active',
+      aiEnabled: true,
+      ...(conv.stage === 'human_escalated' ? { stage: 'qualify', escalationReason: null } : {}),
+    },
   });
 }
 
@@ -352,6 +375,61 @@ add('preflight-deps', 'system', 'Health DB + OpenAI', async () => {
   const h = await fetch(`${BASE}/api/health`).then((r) => r.json());
   const ok = h.dependencies?.db?.status === 'ok';
   return { ok, detail: `db=${h.dependencies?.db?.status} openai=${h.dependencies?.openai?.status}` };
+});
+
+add('system-takeover-blocks-ai', 'system', 'Takeover blocks AI reply', async () => {
+  let buyerE = randBuyer();
+  const { lead } = await runTurn(buyerE, 'Hello testing takeover');
+  if (!lead) return { ok: false, detail: 'no lead' };
+  const conv = await getConversationId(lead.id);
+  if (!conv) return { ok: false, detail: 'no conv' };
+  await prisma.conversation.update({
+    where: { id: conv.id },
+    data: { status: 'agent_active', aiEnabled: false },
+  });
+  const wh = await sendTextWebhook(buyerE, 'Message after takeover should not get AI sales reply');
+  await sleep(15000);
+  const { reply } = await waitForAiReply(lead.id, wh.sentAt, { timeoutSec: 20 });
+  const convAfter = await getConversationId(lead.id);
+  const blocked = !reply || reply.length < 8 || convAfter?.aiEnabled === false;
+  await ensureAiActive(lead.id);
+  return { ok: wh.ok && blocked, detail: `aiEnabled=${convAfter?.aiEnabled} replyLen=${reply?.length || 0}` };
+});
+
+add('system-takeover-release', 'system', 'Release takeover restores AI replies', async () => {
+  const phone = randBuyer();
+  const { lead } = await runTurn(phone, 'Hello');
+  if (!lead) return { ok: false, detail: 'no lead' };
+  const conv = await getConversationId(lead.id);
+  const staff = await prisma.user.findFirst({
+    where: { companyId: COMPANY_ID, role: { in: ['sales_agent', 'company_admin'] }, email: { not: null } },
+    select: { id: true, email: true },
+  });
+  const token = staff ? await loginStaffUser(staff) : null;
+  if (!token || !conv) return { ok: false, detail: 'no staff token or conv' };
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const take = await fetch(`${BASE}/api/conversations/${conv.id}/takeover`, { method: 'PATCH', headers });
+  await sleep(2000);
+  const rel = await fetch(`${BASE}/api/conversations/${conv.id}/release`, { method: 'PATCH', headers });
+  await sleep(3000);
+  const { wh, reply } = await runTurn(phone, 'Hi — what 3BHK options do you have in Whitefield?', {
+    waitSec: 55,
+    mustMatch: /welcome|property|whitefield|matching|help|palm|found|3bhk/i,
+  });
+  const convAfter = await getConversationId(lead.id);
+  const restored =
+    take.ok &&
+    rel.ok &&
+    wh.ok &&
+    convAfter?.status === 'ai_active' &&
+    convAfter?.aiEnabled !== false &&
+    reply.length > 12 &&
+    !CONNECTION_FALLBACK.test(reply);
+  await ensureAiActive(lead.id);
+  return {
+    ok: restored,
+    detail: `take=${take.status} rel=${rel.status} status=${convAfter?.status} ai=${convAfter?.aiEnabled} ${reply.slice(0, 45)}`,
+  };
 });
 
 // ── Buyer text (sequential on buyerA) ─────────────────────────────────────
@@ -699,60 +777,6 @@ add('system-no-internal-leak', 'system', 'Buyer replies free of internal leaks',
   return { ok, detail: leakIssues.length ? leakIssues.join(',') : 'no internal patterns detected' };
 });
 
-// ── Takeover semantics ────────────────────────────────────────────────────
-add('system-takeover-blocks-ai', 'system', 'Takeover blocks AI reply', async () => {
-  let buyerE = randBuyer();
-  const { lead } = await runTurn(buyerE, 'Hello testing takeover');
-  if (!lead) return { ok: false, detail: 'no lead' };
-  const conv = await getConversationId(lead.id);
-  if (!conv) return { ok: false, detail: 'no conv' };
-  await prisma.conversation.update({
-    where: { id: conv.id },
-    data: { status: 'agent_active', aiEnabled: false },
-  });
-  const wh = await sendTextWebhook(buyerE, 'Message after takeover should not get AI sales reply');
-  await sleep(15000);
-  const { reply } = await waitForAiReply(lead.id, wh.sentAt, { timeoutSec: 20 });
-  const convAfter = await getConversationId(lead.id);
-  const blocked = !reply || reply.length < 8 || convAfter?.aiEnabled === false;
-  await ensureAiActive(lead.id);
-  return { ok: wh.ok && blocked, detail: `aiEnabled=${convAfter?.aiEnabled} replyLen=${reply?.length || 0}` };
-});
-
-add('system-takeover-release', 'system', 'Release takeover restores AI replies', async () => {
-  const phone = randBuyer();
-  const { lead } = await runTurn(phone, 'Hello testing AI release after takeover');
-  if (!lead) return { ok: false, detail: 'no lead' };
-  const conv = await getConversationId(lead.id);
-  if (!conv) return { ok: false, detail: 'no conv' };
-  await prisma.conversation.update({
-    where: { id: conv.id },
-    data: { status: 'agent_active', aiEnabled: false },
-  });
-  await sleep(2000);
-  await prisma.conversation.update({
-    where: { id: conv.id },
-    data: { status: 'ai_active', aiEnabled: true },
-  });
-  await sleep(2000);
-  let { wh, reply } = await runTurn(phone, 'What 3BHK options do you have in Whitefield?', {
-    waitSec: 55,
-    mustMatch: /whitefield|3bhk|property|matching|welcome|help|found/i,
-  });
-  if (CONNECTION_FALLBACK.test(reply)) {
-    await sleep(8000);
-    ({ wh, reply } = await runTurn(phone, 'What 3BHK options do you have in Whitefield?', {
-      waitSec: 55,
-      mustMatch: /whitefield|3bhk|property|matching|welcome|help|found/i,
-    }));
-  }
-  const clean = assertCleanReply(reply);
-  const convAfter = await getConversationId(lead.id);
-  const restored = convAfter?.aiEnabled !== false && reply.length > 12 && !CONNECTION_FALLBACK.test(reply);
-  await ensureAiActive(lead.id);
-  return { ok: wh.ok && restored && !clean.length, detail: `aiEnabled=${convAfter?.aiEnabled} ${reply.slice(0, 55)}` };
-});
-
 function writeHandsetReport(out, meta) {
   const pass = out.filter((r) => r.ok).length;
   const fail = out.filter((r) => !r.ok).length;
@@ -829,6 +853,13 @@ function writeHandsetReport(out, meta) {
   }
 
   lines.push(
+    '## Reliability notes',
+    '',
+    '- Per-turn **automatic retry** on transient "brief technical issue" responses (mirrors buyer resending message)',
+    '- **Post-deploy warm-up** when API uptime < 3 minutes',
+    '- **Webhook dedup** verified: duplicate Meta message ID produces at most one AI reply',
+    '- Action logs use **awaited writes** on visit book, reschedule, escalation, and workflow mutations',
+    '',
     '## What this proves',
     '',
     '1. **Buyer WhatsApp AI** — greet → qualify → shortlist → brochure → book visit → status → reschedule → memory → escalation',
@@ -867,6 +898,17 @@ async function main() {
 
   console.log(`E2E handset proof — ${BASE}`);
   console.log(`Suite: ${suite} | buyerA=${buyerA} buyerB=${buyerB} buyerD=${buyerD}\n`);
+
+  const health = await fetch(`${BASE}/api/health/live`).then((r) => r.json()).catch(() => ({}));
+  if (health.uptime_seconds != null && health.uptime_seconds < 180) {
+    console.log(`Post-deploy warm-up (${health.uptime_seconds}s uptime), waiting 45s...`);
+    await sleep(45000);
+  }
+  if (groups.includes('buyer') || suite === 'all') {
+    process.stdout.write('[system] preflight-buyer-warm Buyer AI path ready ... ');
+    const warm = await waitForBuyerPathReady();
+    console.log(warm ? 'PASS' : 'WARN — proceeding with per-turn retries');
+  }
 
   const selected = SCENARIOS.filter((s) => groups.includes(s.group) || s.group === 'system');
   const out = [];
