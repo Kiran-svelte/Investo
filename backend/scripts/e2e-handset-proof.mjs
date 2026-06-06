@@ -352,10 +352,12 @@ async function loginAdmin() {
 function parseArgs() {
   const args = process.argv.slice(2);
   let suite = 'all';
+  let only = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--suite') suite = args[++i];
+    if (args[i] === '--only') only = args[++i];
   }
-  return { suite };
+  return { suite, only };
 }
 
 /** @type {Array<{id:string, group:string, name:string, run:()=>Promise<{ok:boolean,detail:string}>}>} */
@@ -401,17 +403,14 @@ add('system-takeover-release', 'system', 'Release takeover restores AI replies',
   const { lead } = await runTurn(phone, 'Hello');
   if (!lead) return { ok: false, detail: 'no lead' };
   const conv = await getConversationId(lead.id);
-  const staff = await prisma.user.findFirst({
-    where: { companyId: COMPANY_ID, role: 'sales_agent', phone: { not: null }, status: 'active' },
-    select: { id: true, email: true },
-  });
-  if (!staff?.email) return { ok: false, detail: 'staff user missing email for API auth' };
-  const token = staff ? await loginStaffUser(staff) : null;
-  if (!token || !conv) return { ok: false, detail: 'no staff token or conv' };
+  if (!conv) return { ok: false, detail: 'no conv' };
+  const token = await loginAdmin();
+  if (!token) return { ok: false, detail: 'admin login failed' };
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-  const take = await fetch(`${BASE}/api/conversations/${conv.id}/takeover`, { method: 'PATCH', headers });
+  const convUrl = (action) => `${BASE}/api/conversations/${conv.id}/${action}?target_company_id=${COMPANY_ID}`;
+  const take = await fetch(convUrl('takeover'), { method: 'PATCH', headers });
   await sleep(2000);
-  const rel = await fetch(`${BASE}/api/conversations/${conv.id}/release`, { method: 'PATCH', headers });
+  const rel = await fetch(convUrl('release'), { method: 'PATCH', headers });
   await sleep(3000);
   const { wh, reply } = await runTurn(phone, 'Hi — what 3BHK options do you have in Whitefield?', {
     waitSec: 55,
@@ -901,7 +900,7 @@ function writeHandsetReport(out, meta) {
 
 async function main() {
   const started = Date.now();
-  const { suite } = parseArgs();
+  const { suite, only } = parseArgs();
   const groups =
     suite === 'all'
       ? ['system', 'buyer', 'interactive', 'staff', 'admin']
@@ -923,7 +922,9 @@ async function main() {
     console.log(warm ? 'PASS' : 'WARN — proceeding with per-turn retries');
   }
 
-  const selected = SCENARIOS.filter((s) => groups.includes(s.group) || s.group === 'system');
+  const selected = only
+    ? SCENARIOS.filter((s) => s.id === only)
+    : SCENARIOS.filter((s) => groups.includes(s.group) || s.group === 'system');
   const out = [];
 
   for (const sc of selected) {
