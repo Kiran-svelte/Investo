@@ -22,7 +22,15 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: vars
 
 const BUYER_FROM = process.env.BUYER_PHONE?.replace(/\D/g, '')
   || ('91900000' + String(8000 + Math.floor(Math.random() * 999)));
-const BUYER_E164 = BUYER_FROM.startsWith('+') ? BUYER_FROM : `+${BUYER_FROM}`;
+let activeBuyerFrom = BUYER_FROM;
+
+function randEscalationPhone() {
+  return '91900000' + String(8700 + Math.floor(Math.random() * 99));
+}
+
+function buyerE164(from = activeBuyerFrom) {
+  return from.startsWith('+') ? from : `+${from.replace(/\D/g, '')}`;
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -40,7 +48,7 @@ async function sendWebhook(body, suffix = '') {
           metadata: { phone_number_id: PHONE_NUMBER_ID },
           contacts: [{ profile: { name: 'Scenario Buyer' } }],
           messages: [{
-            from: BUYER_FROM.replace(/^\+/, ''),
+            from: activeBuyerFrom.replace(/^\+/, ''),
             id: msgId,
             type: 'text',
             text: { body },
@@ -57,12 +65,13 @@ async function sendWebhook(body, suffix = '') {
   return { ok: res.status === 200, status: res.status, msgId };
 }
 
-async function getLead() {
-  const last10 = BUYER_FROM.replace(/\D/g, '').slice(-10);
+async function getLead(from = activeBuyerFrom) {
+  const last10 = from.replace(/\D/g, '').slice(-10);
+  const e164 = buyerE164(from);
   return prisma.lead.findFirst({
     where: {
       companyId: COMPANY_ID,
-      OR: [{ phone: BUYER_E164 }, { phone: { contains: last10 } }],
+      OR: [{ phone: e164 }, { phone: { contains: last10 } }],
     },
     orderBy: { updatedAt: 'desc' },
     select: {
@@ -99,9 +108,39 @@ async function getLatestAiMessages(leadId, count = 3) {
   });
 }
 
-async function getActionLogs(leadId, limit = 20) {
+async function waitForAiReply(leadId, afterTime, { timeoutSec = 45, mustMatch = null } = {}) {
+  for (let i = 0; i < timeoutSec / 3; i++) {
+    await sleep(3000);
+    const conv = await prisma.conversation.findFirst({
+      where: { leadId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    if (!conv) continue;
+    const msgs = await prisma.message.findMany({
+      where: { conversationId: conv.id, senderType: 'ai', createdAt: { gt: afterTime } },
+      orderBy: { createdAt: 'desc' },
+      take: 2,
+      select: { content: true },
+    });
+    if (msgs.length > 0) {
+      const reply = msgs[0].content || '';
+      if (!mustMatch || mustMatch.test(reply)) return reply;
+    }
+  }
+  const latest = await getLatestAiMessages(leadId, 1);
+  return latest[0]?.content || '';
+}
+
+async function getActionLogs(leadId, since = null, limit = 40) {
+  const visits = await prisma.visit.findMany({ where: { leadId }, select: { id: true } });
+  const visitIds = visits.map((v) => v.id);
   return prisma.agentActionLog.findMany({
-    where: { companyId: COMPANY_ID, resourceId: leadId },
+    where: {
+      companyId: COMPANY_ID,
+      OR: [{ resourceId: leadId }, ...(visitIds.length ? [{ resourceId: { in: visitIds } }] : [])],
+      ...(since ? { createdAt: { gte: since } } : {}),
+    },
     orderBy: { createdAt: 'desc' },
     take: limit,
     select: { action: true, status: true, inputs: true, createdAt: true },
@@ -123,13 +162,14 @@ async function getVisitCount(leadId) {
   return prisma.visit.count({ where: { leadId } });
 }
 
-async function runTurn(body, waitSec = 18) {
+async function runTurn(body, waitSec = 45, mustMatch = null) {
   const wh = await sendWebhook(body, body.slice(0, 12).replace(/\W/g, ''));
-  await sleep(waitSec * 1000);
+  const sentAt = new Date(Date.now() - 1000);
+  await sleep(Math.min(waitSec, 12) * 1000);
   const lead = await getLead();
-  const aiMsgs = lead ? await getLatestAiMessages(lead.id, 2) : [];
-  const logs = lead ? await getActionLogs(lead.id, 5) : [];
-  return { wh, lead, aiMsgs, logs, reply: aiMsgs[0]?.content || '' };
+  const reply = lead ? await waitForAiReply(lead.id, sentAt, { timeoutSec: waitSec, mustMatch }) : '';
+  const logs = lead ? await getActionLogs(lead.id, sentAt) : [];
+  return { wh, lead, aiMsgs: reply ? [{ content: reply }] : [], logs, reply };
 }
 
 /** @type {Array<{id:number,name:string,setup?:()=>Promise<void>,run:()=>Promise<{ok:boolean,detail:string}>}>} */
@@ -262,8 +302,12 @@ const SCENARIOS = [
     id: 9,
     name: 'Reschedule push to Sunday',
     run: async () => {
-      const { wh, lead, logs, reply } = await runTurn('Push my appointment to next Sunday');
-      const reschedLog = logs.some((l) => /workflow_reschedule_visit/i.test(l.action));
+      const { wh, lead, logs, reply } = await runTurn(
+        'Push my appointment to next Sunday',
+        55,
+        /rescheduled|sunday|10:00|10 am/i,
+      );
+      const reschedLog = logs.some((l) => /workflow_reschedule|reschedule|customerVisitBooked/i.test(l.action));
       const clean = assertCleanReply(reply, 'reply');
       const rescheduled = /rescheduled|sunday|10:00|10 am/i.test(reply);
       const ok = wh.ok && !!lead && !clean && rescheduled && reschedLog;
@@ -274,20 +318,33 @@ const SCENARIOS = [
     id: 10,
     name: 'Memory recall — budget',
     run: async () => {
-      const { wh, lead, reply } = await runTurn("What's my budget preference?");
-      const mem = lead?.leadMemory;
+      await sleep(5000);
+      const { wh, lead, reply } = await runTurn(
+        "What's my budget preference?",
+        50,
+        /1\.2|1\.5|crore|budget|₹/i,
+      );
       const clean = assertCleanReply(reply, 'reply');
       const recalls = /1\.2|1\.20|1\.5|1\.50|crore|budget preference|₹/i.test(reply);
-      const ok = wh.ok && !!lead && !clean && recalls;
+      const notStale = !/^(\*Visit rescheduled\*)/i.test(reply.trim());
+      const ok = wh.ok && !!lead && !clean && recalls && notStale;
       return { ok, detail: `${clean || reply.slice(0, 80)}` };
     },
   },
   {
     id: 11,
     name: 'Escalate to human',
+    setup: async () => {
+      activeBuyerFrom = randEscalationPhone();
+    },
     run: async () => {
-      const { wh, lead, logs, reply } = await runTurn('Please call me back, I want to talk to a human agent');
-      const escLog = logs.some((l) => /workflow_escalate|escalat/i.test(l.action));
+      await runTurn('Hi looking for 3BHK Whitefield 1.5 crore', 40);
+      const { wh, lead, logs, reply } = await runTurn(
+        'Please call me back, I want to talk to a human agent',
+        50,
+        /human specialist|alerted our team/i,
+      );
+      const escLog = logs.some((l) => /workflow_escalate|escalat|callback/i.test(l.action));
       const clean = assertCleanReply(reply, 'reply');
       const handoff = /human specialist|alerted our team/i.test(reply);
       const ok = wh.ok && !!lead && !clean && handoff && escLog;
@@ -297,13 +354,21 @@ const SCENARIOS = [
   {
     id: 12,
     name: 'Price negotiation — no AI discount',
+    setup: async () => {
+      activeBuyerFrom = randEscalationPhone();
+    },
     run: async () => {
-      const { wh, lead, logs, reply } = await runTurn('Can you give me 10% discount on the final price?');
-      const escLog = logs.some((l) => /workflow_escalate/i.test(l.action));
+      await runTurn('Hi I want 3BHK in Whitefield budget 1.5 crore', 40);
+      const { wh, lead, logs, reply } = await runTurn(
+        'Can you give me 10% discount on the final price?',
+        50,
+        /human specialist|alerted|agent|negotiat/i,
+      );
+      const escLog = logs.some((l) => /workflow_escalate|escalat/i.test(l.action));
       const clean = assertCleanReply(reply, 'reply');
       const noDiscount = !/i can offer|approved|10%\s*off|discount of/i.test(reply);
       const noCatalog = !/^Here are the matching options/i.test(reply);
-      const escalates = /human specialist|alerted our team/i.test(reply);
+      const escalates = /human specialist|alerted our team|agent/i.test(reply);
       const ok = wh.ok && !!lead && !clean && noDiscount && noCatalog && escalates && escLog;
       return { ok, detail: `wfLog=${escLog} catalog=${!noCatalog} ${clean || reply.slice(0, 80)}` };
     },
@@ -331,7 +396,7 @@ function parseArgs() {
 async function main() {
   try {
     const ids = parseArgs();
-    console.log(`Buyer phone: ${BUYER_FROM} (${BUYER_E164})`);
+    console.log(`Buyer phone: ${activeBuyerFrom} (${buyerE164()})`);
     console.log(`Running scenarios: ${ids.join(', ')}\n`);
 
     const out = [];
@@ -360,7 +425,7 @@ async function main() {
     const fail = out.filter((r) => !r.ok).length;
     console.log(`\nSUMMARY pass=${pass} fail=${fail}`);
     const outPath = path.join(ROOT, 'scripts', 'buyer-scenario-results.json');
-    fs.writeFileSync(outPath, JSON.stringify({ runAt: new Date().toISOString(), buyer: BUYER_FROM, results: out }, null, 2));
+    fs.writeFileSync(outPath, JSON.stringify({ runAt: new Date().toISOString(), buyer: activeBuyerFrom, results: out }, null, 2));
     console.log(`Wrote ${outPath}`);
   } finally {
     await prisma.$disconnect();

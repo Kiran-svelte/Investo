@@ -502,18 +502,32 @@ async function handleVisitCommitReplyTurn(
   void logAgentAction({
     companyId: ctx.companyId,
     triggeredBy: 'inbound_message',
-    action: 'customerVisitBooked',
-    resourceType: 'visit',
-    resourceId: visitCommit.visitId ?? undefined,
+    action:
+      visitCommit.mode === 'rescheduled'
+        ? 'workflow_reschedule_visit'
+        : visitCommit.mode === 'cancelled'
+          ? 'workflow_cancel_visit'
+          : 'customerVisitBooked',
+    resourceType: 'lead',
+    resourceId: ctx.input.leadId,
     status: 'success',
-    inputs: { mode: visitCommit.mode, scheduledAt: visitCommit.scheduledAt?.toISOString() },
+    inputs: {
+      mode: visitCommit.mode,
+      visitId: visitCommit.visitId,
+      scheduledAt: visitCommit.scheduledAt?.toISOString(),
+    },
   });
 
   fireMemoryExtraction({
     leadId: ctx.input.leadId,
     messageText: ctx.input.messageText,
     outboundText: visitCommit.customerReply,
-    workflowId: visitCommit.mode === 'cancelled' ? 'cancel_visit' : 'schedule_visit',
+    workflowId:
+      visitCommit.mode === 'cancelled'
+        ? 'cancel_visit'
+        : visitCommit.mode === 'rescheduled'
+          ? 'reschedule_visit'
+          : 'schedule_visit',
     liveCtx,
     visitCommit: {
       committed: true,
