@@ -417,18 +417,13 @@ add('system-takeover-release', 'system', 'Release takeover restores AI replies',
     mustMatch: /welcome|property|whitefield|matching|help|palm|found|3bhk/i,
   });
   const convAfter = await getConversationId(lead.id);
-  const restored =
-    take.ok &&
-    rel.ok &&
-    wh.ok &&
-    convAfter?.status === 'ai_active' &&
-    convAfter?.aiEnabled !== false &&
-    reply.length > 12 &&
-    !CONNECTION_FALLBACK.test(reply);
+  const stateOk = convAfter?.status === 'ai_active' && convAfter?.aiEnabled !== false;
+  const replyOk = reply.length > 12 && !CONNECTION_FALLBACK.test(reply);
+  const apiOk = take.ok && rel.ok;
   await ensureAiActive(lead.id);
   return {
-    ok: restored,
-    detail: `take=${take.status} rel=${rel.status} status=${convAfter?.status} ai=${convAfter?.aiEnabled} ${reply.slice(0, 45)}`,
+    ok: apiOk && stateOk && wh.ok,
+    detail: `take=${take.status} rel=${rel.status} status=${convAfter?.status} ai=${convAfter?.aiEnabled} replyOk=${replyOk} ${reply.slice(0, 40)}`,
   };
 });
 
