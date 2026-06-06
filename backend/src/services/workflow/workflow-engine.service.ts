@@ -697,7 +697,7 @@ export async function runWorkflow(
     await persistWorkflowIdempotencyResult(companyId, idemKey, reply);
   }
   if (typeof state.leadId === 'string' || runChannel === 'staff') {
-    void logAgentAction({
+    await logAgentAction({
       companyId,
       triggeredBy: 'inbound_message',
       action: `workflow_${workflowId}`,
