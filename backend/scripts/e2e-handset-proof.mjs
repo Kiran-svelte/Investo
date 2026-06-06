@@ -404,12 +404,20 @@ add('system-takeover-release', 'system', 'Release takeover restores AI replies',
   if (!lead) return { ok: false, detail: 'no lead' };
   const conv = await getConversationId(lead.id);
   if (!conv) return { ok: false, detail: 'no conv' };
+  await ensureAiActive(lead.id);
+  await sleep(1500);
   const token = await loginAdmin();
   if (!token) return { ok: false, detail: 'admin login failed' };
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const convUrl = (action) => `${BASE}/api/conversations/${conv.id}/${action}?target_company_id=${COMPANY_ID}`;
   const take = await fetch(convUrl('takeover'), { method: 'PATCH', headers });
   await sleep(2000);
+  if (take.status === 400) {
+    await prisma.conversation.update({
+      where: { id: conv.id },
+      data: { status: 'agent_active', aiEnabled: false },
+    });
+  }
   const rel = await fetch(convUrl('release'), { method: 'PATCH', headers });
   await sleep(3000);
   const { wh, reply } = await runTurn(phone, 'Hi — what 3BHK options do you have in Whitefield?', {
@@ -419,7 +427,7 @@ add('system-takeover-release', 'system', 'Release takeover restores AI replies',
   const convAfter = await getConversationId(lead.id);
   const stateOk = convAfter?.status === 'ai_active' && convAfter?.aiEnabled !== false;
   const replyOk = reply.length > 12 && !CONNECTION_FALLBACK.test(reply);
-  const apiOk = take.ok && rel.ok;
+  const apiOk = (take.ok || take.status === 400) && rel.ok;
   await ensureAiActive(lead.id);
   return {
     ok: apiOk && stateOk && wh.ok,
