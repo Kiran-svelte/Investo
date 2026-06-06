@@ -24,6 +24,11 @@ export function isBuyerRapportMessage(message: string): boolean {
 export function isBuyerQualificationStatement(message: string): boolean {
   const t = message.trim();
   if (!t || EXPLICIT_INTENT.test(t)) return false;
+  // Questions about saved preferences are memory recall, not new qualification statements.
+  if (/\?$/.test(t) && /\b(what|how|when|where|which|who|can you|do you|remind)\b/i.test(t)) {
+    return false;
+  }
+  if (/\bwhat(?:'s| is)\s+my\b/i.test(t)) return false;
   return QUALIFY_PATTERN.test(t);
 }
 

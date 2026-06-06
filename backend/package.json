@@ -1,6 +1,7 @@
 {
     "name": "investo-backend",
     "version": "0.1.10",
+    "deployNote": "v0.1.10-ai-ops-bible",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {

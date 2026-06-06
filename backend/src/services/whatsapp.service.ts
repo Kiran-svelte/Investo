@@ -1318,21 +1318,6 @@ export class WhatsAppService {
           return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
         }
 
-        if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerQualificationStatement(msg.messageText)) {
-          const delta = await patchLeadMemoryFromQualification(lead.id, msg.messageText);
-          const qualReply = buildBuyerQualificationAckReply(delta);
-          await prisma.message.create({
-            data: { conversationId: conversation.id, senderType: 'ai', content: qualReply, status: 'sent' },
-          });
-          if (await claimOutboundAiReply(companyId, msg.messageId)) {
-            await this.sendMessage(customerPhone, qualReply, whatsappConfig!);
-          }
-          void import('./buyer-memory-extract.service').then(({ extractAndPatchLeadMemory }) =>
-            extractAndPatchLeadMemory({ leadId: lead.id, messageText: msg.messageText, outboundText: qualReply }),
-          );
-          return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
-        }
-
         if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerMemoryRecallQuery(msg.messageText)) {
           const memoryReply = await buildBuyerMemoryRecallReply(lead.id);
           if (memoryReply) {
@@ -1362,6 +1347,21 @@ export class WhatsAppService {
               propagation,
             };
           }
+        }
+
+        if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerQualificationStatement(msg.messageText)) {
+          const delta = await patchLeadMemoryFromQualification(lead.id, msg.messageText);
+          const qualReply = buildBuyerQualificationAckReply(delta);
+          await prisma.message.create({
+            data: { conversationId: conversation.id, senderType: 'ai', content: qualReply, status: 'sent' },
+          });
+          if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            await this.sendMessage(customerPhone, qualReply, whatsappConfig!);
+          }
+          void import('./buyer-memory-extract.service').then(({ extractAndPatchLeadMemory }) =>
+            extractAndPatchLeadMemory({ leadId: lead.id, messageText: msg.messageText, outboundText: qualReply }),
+          );
+          return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
         }
 
         // Deterministic visit-status replies — no LLM, no workflow classifier.

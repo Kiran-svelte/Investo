@@ -214,16 +214,16 @@ const SCENARIOS = [
   },
   {
     id: 6,
-    name: 'Book visit Sunday 11am',
+    name: 'Book visit Sunday 2pm',
     run: async () => {
       const before = (await getLead())?.id;
       const visitsBefore = before ? await getVisitCount(before) : 0;
-      const { wh, lead, logs, reply } = await runTurn('Book a site visit for next Sunday 11am');
+      const { wh, lead, logs, reply } = await runTurn('Book a site visit for next Sunday 2pm');
       const visitsAfter = lead ? await getVisitCount(lead.id) : 0;
       const bookLog = logs.some((l) => /workflow_schedule_visit/i.test(l.action));
       const booked = visitsAfter > visitsBefore;
       const clean = assertCleanReply(reply, 'reply');
-      const confirmed = /visit scheduled|confirmed|sunday|11:00|11 am/i.test(reply);
+      const confirmed = /visit scheduled|confirmed|sunday|2:00|2 pm|14:00/i.test(reply);
       const noStaffLeak = !/lead marked|reminders scheduled/i.test(reply);
       const ok = wh.ok && !!lead && booked && !clean && confirmed && noStaffLeak;
       return {
@@ -239,7 +239,7 @@ const SCENARIOS = [
       const lead = await getLead();
       if (!lead) return { ok: false, detail: 'no lead from prior scenarios' };
       const before = await getVisitCount(lead.id);
-      const { wh, reply } = await runTurn('Book a site visit for next Sunday 11am');
+      const { wh, reply } = await runTurn('Book a site visit for next Sunday 2pm');
       const after = await getVisitCount(lead.id);
       const clean = assertCleanReply(reply, 'reply');
       const idempotent = after <= before + 1;
