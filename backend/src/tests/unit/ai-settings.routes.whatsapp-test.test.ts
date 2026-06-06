@@ -39,12 +39,19 @@ function createAiSettingsApp(params: {
         create: jest.fn(),
         upsert: jest.fn(),
       },
+      company: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'company-1', settings: {} }),
+        update: jest.fn().mockResolvedValue({ id: 'company-1' }),
+      },
     },
   }));
 
   jest.doMock('../../middleware/auth', () => ({
     __esModule: true,
-    authenticate: noopMiddleware(),
+    authenticate: (req: any, _res: any, next: any) => {
+      req.user = { id: 'user-1', company_id: 'company-1', companyId: 'company-1', role: 'company_admin' };
+      next();
+    },
   }));
 
   jest.doMock('../../middleware/tenant', () => ({
@@ -61,6 +68,7 @@ function createAiSettingsApp(params: {
   jest.doMock('../../middleware/rbac', () => ({
     __esModule: true,
     authorize: () => noopMiddleware(),
+    hasRole: () => noopMiddleware(),
   }));
 
   jest.doMock('../../middleware/audit', () => ({

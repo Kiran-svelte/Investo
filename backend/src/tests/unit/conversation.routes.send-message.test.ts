@@ -125,6 +125,7 @@ function createConversationApp(options?: { role?: string; assignedAgentId?: stri
   jest.doMock('../../middleware/rbac', () => ({
     __esModule: true,
     authorize: () => noopMiddleware(),
+    hasRole: () => noopMiddleware(),
   }));
 
   jest.doMock('../../middleware/audit', () => ({
@@ -135,6 +136,18 @@ function createConversationApp(options?: { role?: string; assignedAgentId?: stri
   jest.doMock('../../middleware/featureGate', () => ({
     __esModule: true,
     requireFeature: () => noopMiddleware(),
+  }));
+
+  jest.doMock('../../middleware/propertyCompletenessGate', () => ({
+    __esModule: true,
+    propertyCompletenessGate: noopMiddleware(),
+  }));
+
+  jest.doMock('../../config', () => ({
+    __esModule: true,
+    default: {
+      whatsapp: { verifyToken: 'wa-verify-1' },
+    },
   }));
 
   jest.doMock('../../services/whatsapp.service', () => ({

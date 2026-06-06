@@ -40,6 +40,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   AlertTriangle,
+  Bot,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -56,6 +57,7 @@ const NAV_ICONS: Record<NavRouteKey, LucideIcon> = {
   emi_calculator: Calculator,
   audit_logs: ClipboardList,
   error_logs: AlertTriangle,
+  ai_action_logs: Bot,
   notifications: Bell,
   settings: Settings,
 };

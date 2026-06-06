@@ -29,13 +29,13 @@ import {
 function buildCopilotWelcomeMessage(userName: string, companyName: string): string {
   const name = userName.trim() || 'there';
   return (
-    `👋 *Hi ${name}!* Welcome to *Investo Copilot* for *${companyName}*.\n\n` +
+    `*Hi ${name}!* Welcome to *Investo Copilot* for *${companyName}*.\n\n` +
     `I can help you with:\n` +
-    `• 📅 *Visits* — "visits today", "visits tomorrow", "visits on 6th June"\n` +
-    `• 👥 *Leads* — "new leads today", "get lead Rahul", "update lead status"\n` +
-    `• 🏠 *Properties* — "list properties", "property details"\n` +
-    `• 📊 *Analytics* — "dashboard stats", "my performance"\n` +
-    `• ✅ *Actions* — "confirm visit", "mark lead visited", "send brochure"\n\n` +
+    `- *Visits* - "visits today", "visits tomorrow", "visits on 6th June"\n` +
+    `- *Leads* - "new leads today", "get lead Rahul", "update lead status"\n` +
+    `- *Properties* - "list properties", "property details"\n` +
+    `- *Analytics* - "dashboard stats", "my performance"\n` +
+    `- *Actions* - "confirm visit", "mark lead visited", "send brochure"\n\n` +
     `Just type your command or tap a shortcut below.`
   );
 }
@@ -267,10 +267,10 @@ async function handleAgentMessage(
     });
     const helpText =
       deterministicFallback
-      || `📋 *Investo Copilot* (deterministic mode)\n\n` +
-        `LLM is off — these commands still work:\n` +
-        `• "visits today" • "new leads today"\n` +
-        `• "get lead [name]" • "confirm visit"\n\n` +
+      || `*Investo Copilot* (deterministic mode)\n\n` +
+        `LLM is off. These commands still work:\n` +
+        `- "visits today"\n- "new leads today"\n` +
+        `- "get lead [name]"\n- "confirm visit"\n\n` +
         `Or use the *Investo dashboard* for advanced operations.`;
     if (session?.id) {
       await recordAgentCopilotExchange({
@@ -317,13 +317,13 @@ async function handleAgentMessage(
       replyKind = 'welcome';
     } else {
       agentReply =
-        `⚠️ I had trouble processing that request. Here are commands that always work:\n\n` +
-        `📅 *Visit queries*\n` +
-        `• "visits today" • "visits tomorrow" • "visits on 6th June"\n\n` +
-        `👥 *Lead queries*\n` +
-        `• "new leads today" • "get lead [name]"\n\n` +
-        `✅ *Quick actions*\n` +
-        `• "confirm visit" • "mark lead [name] visited"\n\n` +
+        `I had trouble processing that request. These commands always work:\n\n` +
+        `*Visit queries*\n` +
+        `- "visits today"\n- "visits tomorrow"\n- "visits on 6th June"\n\n` +
+        `*Lead queries*\n` +
+        `- "new leads today"\n- "get lead [name]"\n\n` +
+        `*Quick actions*\n` +
+        `- "confirm visit"\n- "mark lead [name] visited"\n\n` +
         `Or use the *Investo dashboard* for advanced operations.`;
       replyKind = 'help_fallback';
     }

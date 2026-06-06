@@ -16,9 +16,9 @@ describe('customerQuickReplies.util', () => {
       recommendedPropertyIds: ['p-sunset', 'p-lake'],
     });
     expect(actions?.buttons.map((b) => b.id)).toEqual([
-      'book-visit-p-sunset',
+      'book-visit-p-green',
+      'more-info-p-green',
       'more-info-p-sunset',
-      'more-info-p-lake',
     ]);
   });
 

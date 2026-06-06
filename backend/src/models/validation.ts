@@ -397,7 +397,7 @@ export const changePasswordSchema = z.object({
 
 /** Schema for POST /api/auth/forgot-password */
 export const forgotPasswordSchema = z.object({
-  email: emailSchema,
+  email: z.string().trim().pipe(emailSchema),
 });
 
 /** Schema for POST /api/auth/reset-password */

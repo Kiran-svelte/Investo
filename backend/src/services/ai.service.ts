@@ -720,12 +720,12 @@ ${PERSONALITY_BLOCK}`;
       const prop = propertyName ? `*${propertyName}*` : 'your property';
       const statusLine =
         status === 'confirmed'
-          ? `Your visit to ${prop} is confirmed ✅`
-          : `You have an upcoming visit to ${prop} 🗓️`;
+          ? `Your visit to ${prop} is confirmed.`
+          : `You have an upcoming visit to ${prop}.`;
       return {
         text:
           `${statusLine}\n\nI'm having a brief connection issue but I'll be right back.\n\n` +
-          `Reply *Confirm*, *Reschedule*, or *Call Agent* and I'll take care of it. 👍`,
+          `Reply *Confirm*, *Reschedule*, or *Call Agent* and I'll take care of it.`,
         detectedLanguage: 'en',
         extractedInfo: undefined,
       };
@@ -737,7 +737,7 @@ ${PERSONALITY_BLOCK}`;
       return {
         text:
           `Apologies${salutation}, I'm experiencing a brief technical issue. ` +
-          `I'll respond to your query in a moment — please bear with me! 🙏`,
+          `I'll respond to your query in a moment. Please bear with me.`,
         detectedLanguage: 'en',
         extractedInfo: undefined,
       };
@@ -746,9 +746,9 @@ ${PERSONALITY_BLOCK}`;
     // Priority 3: First contact only — minimal, non-robotic greeting.
     return {
       text:
-        `*Hey${salutation}!* 👋 Welcome to *${company}*.\n\n` +
+        `*Hey${salutation}!* Welcome to *${company}*.\n\n` +
         `What area are you exploring, and what's your budget range? ` +
-        `I'll match you with the right properties right away. 🏡`,
+        `I'll match you with the right properties right away.`,
       detectedLanguage: 'en',
       extractedInfo: undefined,
     };

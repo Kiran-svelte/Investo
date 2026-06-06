@@ -1,9 +1,10 @@
 /* @vitest-environment jsdom */
 
 import '@testing-library/jest-dom/vitest';
+import React from 'react';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useCompanyFeatures } from './useCompanyFeatures';
+import { useCompanyFeatures, CompanyFeaturesProvider } from './useCompanyFeatures';
 
 const { authState, apiGetMock } = vi.hoisted(() => ({
   authState: {
@@ -49,7 +50,9 @@ describe('useCompanyFeatures', () => {
       },
     });
 
-    const { result } = renderHook(() => useCompanyFeatures());
+    const { result } = renderHook(() => useCompanyFeatures(), {
+      wrapper: ({ children }) => <CompanyFeaturesProvider>{children}</CompanyFeaturesProvider>,
+    });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -63,7 +66,9 @@ describe('useCompanyFeatures', () => {
   it('returns explicit error but keeps default-enabled gates when fetch fails', async () => {
     apiGetMock.mockRejectedValueOnce(new Error('network failure'));
 
-    const { result } = renderHook(() => useCompanyFeatures());
+    const { result } = renderHook(() => useCompanyFeatures(), {
+      wrapper: ({ children }) => <CompanyFeaturesProvider>{children}</CompanyFeaturesProvider>,
+    });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);

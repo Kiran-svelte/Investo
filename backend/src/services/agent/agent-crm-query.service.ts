@@ -420,6 +420,13 @@ export async function tryDeterministicAgentCrmReply(
   if (!text) return null;
 
   try {
+    if (isVisitCancelOrRescheduleMessage(text)) {
+      const visitMutation = await tryDeterministicAgentVisitMutation(context, text);
+      if (visitMutation) {
+        return visitMutation;
+      }
+    }
+
     const visitList = await tryResolveVisitListReply(context, text);
     if (visitList) {
       return visitList;

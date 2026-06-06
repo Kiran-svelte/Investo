@@ -229,8 +229,8 @@ export async function runCompensators(input: CompensatorInput): Promise<boolean>
  */
 export function buildPartialFailureReply(workflowLabel: string, _failedStep: string): string {
   return (
-    `⚠️ *${workflowLabel}* partially completed.\n\n` +
+    `*${workflowLabel}* partially completed.\n\n` +
     `The visit/lead record was saved but the follow-up step did not finish. ` +
-    `Our team has been notified — you can retry or check the dashboard.`
+    `Our team has been notified. You can retry or check the dashboard.`
   );
 }

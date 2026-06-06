@@ -16,11 +16,15 @@ function formatVisitWhen(date: Date): string {
   return `${formatDateIST(date)} ${time}`;
 }
 
-const BUYER_VISIT_STATUS_PATTERN = /\b(any\s+visits?|visits?\s+(booked|scheduled|for\s+me|today|tomorrow|this\s+week|on\b)|(do\s+i|have\s+i|did\s+i)\s+(have\s+)?(any\s+)?(a\s+)?(visit|booking)s?|when\s+(is|was|am\s+i)\s+(my\s+)?(visit|site\s+visit|appointment|booking)|what\s+time\s+(am\s+i|is\s+my\s+visit)|my\s+visit\s+details?|show\s+(my\s+)?visits?|list\s+(my\s+)?visits?|get\s+(my\s+)?visits?|check\s+(my\s+)?visits?|visit\s+status|upcoming\s+visits?|booked\s+for\s+me)\b/i;
+const BUYER_VISIT_STATUS_PATTERN = /\b(any\s+visits?|visits?\s+(booked|scheduled|for\s+me|for\s+(?:today|tomorrow|this\s+week)|today|tomorrow|this\s+week|on\b)|(do\s+i|have\s+i|did\s+i)\s+(have\s+)?(any\s+)?(a\s+)?(visit|booking)s?|when\s+(is|was|am\s+i)\s+(my\s+)?(visit|site\s+visit|appointment|booking)|what\s+time\s+(am\s+i|is\s+my\s+visit)|my\s+visit\s+details?|show\s+(my\s+)?visits?|list\s+(my\s+)?visits?|get\s+(my\s+)?visits?|check\s+(my\s+)?visits?|visit\s+status|upcoming\s+visits?|booked\s+for\s+me)\b/i;
+
+const BUYER_VISIT_MUTATION_PATTERN =
+  /\b(reschedule|cancel|postpone|prepone|move|push|change|call\s+off)\b/i;
 
 export function isBuyerVisitStatusQuery(message: string): boolean {
   const t = message.trim();
   if (!t || t.length > 200) return false;
+  if (BUYER_VISIT_MUTATION_PATTERN.test(t)) return false;
   return BUYER_VISIT_STATUS_PATTERN.test(t);
 }
 

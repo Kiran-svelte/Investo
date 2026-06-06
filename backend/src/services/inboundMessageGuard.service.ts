@@ -276,7 +276,8 @@ export async function claimAgentActionOnce(
   actionKey: string,
   ttlSeconds = 120,
 ): Promise<boolean> {
-  const scope = inboundMessageId?.trim() || 'no-msg-id';
+  const scope = inboundMessageId?.trim();
+  if (!scope) return true;
   const hash = createHash('sha256').update(actionKey).digest('hex').slice(0, 12);
   const key = `${AGENT_ACTION_PREFIX}${companyId}:${userId}:${scope}:${hash}`;
   const claimed = await deduplicationService.claimMessageProcessing(key, ttlSeconds);

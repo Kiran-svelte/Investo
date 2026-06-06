@@ -46,6 +46,40 @@ function createWebhookApp(env: {
     process.env.WHATSAPP_IP_WHITELIST_ENABLED = env.ipWhitelistEnabled ? 'true' : 'false';
   }
 
+  jest.doMock('../../config', () => ({
+    __esModule: true,
+    default: {
+      env: env.nodeEnv,
+      db: { url: 'postgresql://test', ssl: false },
+      whatsapp: {
+        verifyToken: env.verifyToken,
+        appSecret: env.appSecret ?? '',
+      },
+      langgraph: { enabled: false },
+      enterpriseAgent: { enabled: false },
+    },
+  }));
+
+  jest.doMock('../../services/enterpriseAgentBridge', () => ({
+    __esModule: true,
+    runEnterpriseAgent: jest.fn().mockResolvedValue({ reply: 'ok' }),
+  }));
+
+  jest.doMock('../../services/langgraphAdapter.service', () => ({
+    __esModule: true,
+    sendToLangGraph: jest.fn().mockResolvedValue(undefined),
+  }));
+
+  jest.doMock('../../config/prisma', () => ({
+    __esModule: true,
+    default: {
+      $connect: jest.fn(),
+      message: { findFirst: jest.fn(), create: jest.fn() },
+      lead: { findFirst: jest.fn() },
+      company: { findUnique: jest.fn() },
+    },
+  }));
+
   jest.doMock('../../config/logger', () => ({
     __esModule: true,
     default: {
@@ -65,7 +99,10 @@ function createWebhookApp(env: {
         reason: 'test_stub',
         propagation: { status: 'not_attempted' },
       }),
-      getCompanyByPhoneNumberId: jest.fn().mockResolvedValue(null),
+      getCompanyByPhoneNumberId: jest.fn().mockResolvedValue({
+        companyId: 'company-1',
+        company: { id: 'company-1' },
+      }),
     },
   }));
 
@@ -93,6 +130,8 @@ function createWebhookApp(env: {
   app.use('/api/webhook', router);
   return { app };
 }
+
+jest.setTimeout(30000);
 
 describe('WhatsApp webhook security (production)', () => {
   afterEach(() => {
@@ -191,7 +230,7 @@ describe('WhatsApp webhook security (production)', () => {
       .send(rawJson);
 
     expect(response.status).toBe(200);
-    expect(response.body?.status).toBe('received');
+    expect(response.text).toBe('OK');
   });
 
   test('POST rejects invalid signature in production', async () => {

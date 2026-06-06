@@ -45,6 +45,11 @@ describe('route DTO mappers', () => {
       created_at: '2026-04-08T10:00:00.000Z',
       updated_at: '2026-04-08T10:00:00.000Z',
       last_contact_at: '2026-04-08T10:00:00.000Z',
+      intent: null,
+      lead_score: null,
+      lost_reason: null,
+      source_detail: null,
+      tags: [],
     });
   });
 
@@ -98,6 +103,7 @@ describe('route DTO mappers', () => {
       longitude: 77.6,
       created_at: '2026-04-08T10:00:00.000Z',
       updated_at: '2026-04-08T10:00:00.000Z',
+      project_id: null,
     });
   });
 

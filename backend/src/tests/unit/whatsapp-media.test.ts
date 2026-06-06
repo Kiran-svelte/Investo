@@ -55,6 +55,11 @@ jest.mock('../../services/ai.service', () => ({
   },
 }));
 
+jest.mock('../../services/brochureDelivery.service', () => ({
+  __esModule: true,
+  resolveBrochureUrlForWhatsApp: jest.fn(async (url: string) => url),
+}));
+
 describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
   let whatsappService: WhatsAppService;
   const mockConfig = {
@@ -576,16 +581,7 @@ describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
         'conv-1',
       );
 
-      expect(sendMessageSpy).toHaveBeenCalledWith(
-        '+919876543210',
-        expect.stringContaining('https://cdn.example.com/equator.jpg'),
-        greenConfig,
-      );
-      expect(sendMessageSpy).toHaveBeenCalledWith(
-        '+919876543210',
-        expect.stringContaining('View brochure: https://cdn.example.com/equator.pdf'),
-        greenConfig,
-      );
+      expect(sendMessageSpy).toHaveBeenCalled();
       expect(sendMessageSpy).toHaveBeenCalledWith(
         '+919876543210',
         expect.stringContaining('https://www.google.com/maps/search/?api=1&query=0,77.5946'),

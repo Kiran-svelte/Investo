@@ -94,6 +94,17 @@ function createAuthTestApp(frontendBaseUrl?: string, nodeEnv: string = 'developm
     emailService: mockEmailService,
   }));
 
+  jest.doMock('../../config', () => ({
+    __esModule: true,
+    default: {
+      frontend: {
+        baseUrl: (frontendBaseUrl ?? 'http://localhost:3000').replace(/\/+$/, ''),
+      },
+      db: { url: 'postgresql://test', ssl: false },
+      neonAuth: { url: '' },
+    },
+  }));
+
   jest.doMock('../../services/auth.service', () => ({
     __esModule: true,
     normalizeAuthEmail: (email: string): string => email.trim().toLowerCase(),

@@ -29,6 +29,12 @@ jest.mock('../../config/prisma', () => ({
     user: {
       findUnique: jest.fn(),
     },
+    visit: {
+      findFirst: jest.fn(),
+    },
+    aiSetting: {
+      findUnique: jest.fn(),
+    },
   },
 }));
 
@@ -75,6 +81,11 @@ jest.mock('../../services/visitBooking.service', () => {
 
 jest.mock('../../services/alternativeInventory.service', () => ({
   searchAlternativeTiers: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../../services/brochureDelivery.service', () => ({
+  __esModule: true,
+  resolveBrochureUrlForWhatsApp: jest.fn(async (url: string) => url),
 }));
 
 jest.mock('../../services/visitPendingApproval.service', () => ({
@@ -146,6 +157,8 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
 
     (prisma.message.findFirst as jest.Mock).mockResolvedValue(null);
     (prisma.message.create as jest.Mock).mockResolvedValue({});
+    (prisma.aiSetting.findUnique as jest.Mock).mockResolvedValue({ autoConfirmVisits: false });
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue(null);
 
     mockFetch.mockResolvedValue({
       ok: true,
@@ -155,14 +168,14 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
 
   describe('handleInteractiveAction - Book Visit', () => {
     it('handles book-visit button when property is selected', async () => {
-      (prisma.property.findUnique as jest.Mock).mockResolvedValue(mockProperty);
+      (prisma.property.findFirst as jest.Mock).mockResolvedValue(mockProperty);
       (prisma.notification.create as jest.Mock).mockResolvedValue({});
 
       const result = await whatsappService.handleInteractiveAction({
-        interactiveId: 'book-visit-prop-1',
+        interactiveId: `book-visit-${mockPropertyId}`,
         interactiveType: 'button_reply',
         lead: mockLead,
-        conversation: { ...mockConversation, selectedPropertyId: 'prop-1' },
+        conversation: { ...mockConversation, selectedPropertyId: mockPropertyId },
         company: mockCompany,
         whatsappConfig: mockConfig,
         customerPhone: '+919876543210',
@@ -233,10 +246,10 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
 
   describe('handleInteractiveAction - More Info', () => {
     it('sends property details and media when available', async () => {
-      (prisma.property.findUnique as jest.Mock).mockResolvedValue(mockProperty);
+      (prisma.property.findFirst as jest.Mock).mockResolvedValue(mockProperty);
 
       const result = await whatsappService.handleInteractiveAction({
-        interactiveId: 'more-info-prop-1',
+        interactiveId: `more-info-${mockPropertyId}`,
         interactiveType: 'button_reply',
         lead: mockLead,
         conversation: mockConversation,
@@ -247,12 +260,12 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
 
       expect(result.handled).toBe(true);
       expect(result.action).toBe('more-info-sent');
-      expect(result.newState?.selectedPropertyId).toBe('prop-1');
+      expect(result.newState?.selectedPropertyId).toBe(mockPropertyId);
       expect(mockFetch).toHaveBeenCalled();
     });
 
     it('returns unhandled when property not found', async () => {
-      (prisma.property.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.property.findFirst as jest.Mock).mockResolvedValue(null);
 
       const result = await whatsappService.handleInteractiveAction({
         interactiveId: 'more-info-unknown-id',
@@ -308,10 +321,10 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
 
   describe('handleInteractiveAction - Show Location', () => {
     it('sends location pin when coordinates available', async () => {
-      (prisma.property.findUnique as jest.Mock).mockResolvedValue(mockProperty);
+      (prisma.property.findFirst as jest.Mock).mockResolvedValue(mockProperty);
 
       const result = await whatsappService.handleInteractiveAction({
-        interactiveId: 'location-prop-1',
+        interactiveId: `location-${mockPropertyId}`,
         interactiveType: 'button_reply',
         lead: mockLead,
         conversation: mockConversation,
@@ -326,10 +339,10 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
 
     it('sends address text when no coordinates', async () => {
       const propertyWithoutCoords = { ...mockProperty, latitude: null, longitude: null };
-      (prisma.property.findUnique as jest.Mock).mockResolvedValue(propertyWithoutCoords);
+      (prisma.property.findFirst as jest.Mock).mockResolvedValue(propertyWithoutCoords);
 
       const result = await whatsappService.handleInteractiveAction({
-        interactiveId: 'location-prop-1',
+        interactiveId: `location-${mockPropertyId}`,
         interactiveType: 'button_reply',
         lead: mockLead,
         conversation: mockConversation,

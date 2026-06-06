@@ -81,18 +81,27 @@ jest.mock('../../services/agent/lead-status-actions', () => ({
   updateLeadStatusById: jest.fn(),
 }));
 
+jest.mock('../../services/visitBooking.service', () => ({
+  scheduleVisit: jest.fn(),
+}));
+
 import { WORKFLOW_DEFINITIONS, allWorkflowIds } from '../../services/workflow/workflow-registry';
 import {
   classifyAndRunWorkflow,
   classifyAndRunBuyerWorkflow,
   classifyWorkflowMessage,
+  detectActiveVisitMutationBias,
   runWorkflow,
   tryRunBuyerWorkflow,
 } from '../../services/workflow/workflow-engine.service';
 import { resolveLeadForIntent } from '../../services/agent/agent-lead-resolution.service';
 import { updateLeadStatusById } from '../../services/agent/lead-status-actions';
 import { getToolsForRole } from '../../services/agent/tools';
+import { scheduleVisit } from '../../services/visitBooking.service';
+import { cacheGet } from '../../config/redis';
 import type { ToolContext } from '../../services/agent/agent-state';
+
+const propertyId = '11111111-1111-4111-8111-111111111111';
 
 const ctx: ToolContext = {
   userId: 'agent-1',
@@ -201,6 +210,37 @@ describe('workflow-engine.service', () => {
     expect(classified.parameters.scheduledAt).toBe('2026-06-06T10:30:00+05:30');
   });
 
+  it('returns cached workflow idempotency reply without executing handlers', async () => {
+    (cacheGet as jest.Mock).mockResolvedValueOnce('Cached: visit already scheduled.');
+    (getToolsForRole as jest.Mock).mockReturnValue([
+      {
+        name: 'scheduleVisit',
+        schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
+        func: jest.fn().mockResolvedValue('should not run'),
+      },
+    ]);
+
+    const result = await runWorkflow(
+      'schedule_visit',
+      {
+        toolContext: ctx,
+        messageText: 'book visit tomorrow 1pm',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+      },
+      {
+        leadId: kannadaLeadId,
+        propertyId,
+        scheduledAt: '2026-06-06T13:00:00+05:30',
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.idempotencyHit).toBe(true);
+    expect(result.reply).toBe('Cached: visit already scheduled.');
+    expect(getToolsForRole).not.toHaveBeenCalled();
+  });
+
   it('lets the LLM classify natural status phrasing without keyword branching', async () => {
     (resolveLeadForIntent as jest.Mock).mockResolvedValue({
       leadId: kannadaLeadId,
@@ -287,18 +327,27 @@ describe('workflow-engine.service', () => {
   });
 
   it('runs buyer schedule_visit workflow via channel-aware bookVisit', async () => {
-    const scheduleTool = {
-      name: 'scheduleVisit',
-      schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
-      func: jest.fn().mockResolvedValue('Visit scheduled by staff tool'),
-    };
-    (getToolsForRole as jest.Mock).mockReturnValue([scheduleTool]);
+    (getToolsForRole as jest.Mock).mockReturnValue([]);
+    (scheduleVisit as jest.Mock).mockResolvedValue({
+      success: true,
+      visit: {
+        id: 'visit-new-1',
+        leadId: kannadaLeadId,
+        propertyId,
+        scheduledAt: new Date('2026-06-06T13:00:00+05:30'),
+      },
+    });
+    mockPrisma.visit.findUnique.mockResolvedValue({
+      id: 'visit-new-1',
+      property: { name: 'Sunset Heights' },
+      agent: { name: 'Agent One' },
+    });
 
     const llm = jest.fn().mockResolvedValue(
       JSON.stringify({
         workflow: 'schedule_visit',
         confidence: 0.94,
-        parameters: { scheduledAt: '2026-06-06T13:00:00+05:30' },
+        parameters: { scheduledAt: '2026-06-06T13:00:00+05:30', propertyId },
       }),
     );
 
@@ -313,7 +362,50 @@ describe('workflow-engine.service', () => {
     );
 
     expect(reply).toContain('Visit scheduled');
-    expect(scheduleTool.func).toHaveBeenCalled();
+    expect(scheduleVisit).toHaveBeenCalled();
+  });
+
+  it('detectActiveVisitMutationBias maps push appointment to reschedule_visit', () => {
+    const bias = detectActiveVisitMutationBias('push my appointment please', {
+      visitId: 'visit-active-1',
+      propertyName: 'Sunset Heights',
+    });
+    expect(bias?.workflowId).toBe('reschedule_visit');
+    expect(bias?.parameters.visitId).toBe('visit-active-1');
+  });
+
+  it('classifyAndRunBuyerWorkflow biases reschedule when active visit exists (no LLM)', async () => {
+    const rescheduleVisitTool = {
+      name: 'rescheduleVisit',
+      schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
+      func: jest.fn(),
+    };
+    (getToolsForRole as jest.Mock).mockReturnValue([rescheduleVisitTool]);
+    mockPrisma.visit.findFirst.mockResolvedValue({
+      id: 'visit-active-1',
+      leadId: kannadaLeadId,
+      status: 'scheduled',
+    });
+
+    const llm = jest.fn();
+
+    const reply = await classifyAndRunBuyerWorkflow(
+      {
+        companyId: 'company-1',
+        leadId: kannadaLeadId,
+        messageText: 'push my appointment',
+        companyName: 'Demo Realty',
+        activeVisit: {
+          visitId: 'visit-active-1',
+          propertyName: 'Sunset Heights',
+        },
+      },
+      { llm },
+    );
+
+    expect(llm).not.toHaveBeenCalled();
+    expect(reply).toMatch(/scheduled|When/i);
+    expect(rescheduleVisitTool.func).not.toHaveBeenCalled();
   });
 
   it('uses a customer-safe escalation reply for buyer fallback', async () => {

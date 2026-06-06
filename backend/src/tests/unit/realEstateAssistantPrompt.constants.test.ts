@@ -22,7 +22,7 @@ describe('realEstateAssistantPrompt.constants', () => {
 
   test('policy prompt includes capabilities and limits', () => {
     const block = buildRealEstateAssistantPolicyPrompt();
-    expect(block).toContain('WHAT YOU CAN DO');
+    expect(block).toContain('YOUR ROLE');
     expect(block).toContain('AI LIMITS');
     expect(block).toContain('Finalize or negotiate price');
   });

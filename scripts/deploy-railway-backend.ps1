@@ -23,25 +23,55 @@ function Invoke-RailwayGql($query, $variables = @{}) {
 }
 
 Write-Host 'Resolving Railway project context...'
-$ctx = Invoke-RailwayGql '{ projectToken { projectId environmentId } }'
-if ($ctx.errors) {
-  throw "Railway token error: $($ctx.errors[0].message)"
-}
-$projectId = $ctx.data.projectToken.projectId
-$environmentId = if ($EnvironmentId) { $EnvironmentId } else { $ctx.data.projectToken.environmentId }
-Write-Host "Project: $projectId Environment: $environmentId"
+$projectId = $null
+$environmentId = if ($EnvironmentId) { $EnvironmentId } else { $null }
 
-if (-not $ServiceId) {
-  $svcQuery = @"
-query(`$projectId: String!) {
-  project(id: `$projectId) {
+$ctx = Invoke-RailwayGql '{ projectToken { projectId environmentId } }'
+if (-not $ctx.errors -and $ctx.data.projectToken) {
+  $projectId = $ctx.data.projectToken.projectId
+  if (-not $environmentId) { $environmentId = $ctx.data.projectToken.environmentId }
+} else {
+  # Account/workspace token: list projects and pick Investo with backend services.
+  $projectsRes = Invoke-RailwayGql '{ projects { edges { node { id name } } } }'
+  if ($projectsRes.errors) {
+    throw "Railway token error: $($projectsRes.errors[0].message)"
+  }
+  $candidates = $projectsRes.data.projects.edges | ForEach-Object { $_.node } | Where-Object { $_.name -match 'investo' }
+  foreach ($proj in $candidates) {
+    $detail = Invoke-RailwayGql @'
+query($projectId: String!) {
+  project(id: $projectId) {
+    id name
+    environments { edges { node { id name } } }
     services { edges { node { id name } } }
   }
 }
-"@
-  $svcRes = Invoke-RailwayGql $svcQuery @{ projectId = $projectId }
+'@ @{ projectId = $proj.id }
+    $services = $detail.data.project.services.edges | ForEach-Object { $_.node }
+    if ($services.Count -gt 0) {
+      $projectId = $detail.data.project.id
+      if (-not $environmentId) {
+        $envNode = $detail.data.project.environments.edges | ForEach-Object { $_.node } | Where-Object { $_.name -eq 'production' } | Select-Object -First 1
+        $environmentId = $envNode.id
+      }
+      break
+    }
+  }
+  if (-not $projectId) { throw 'No Railway Investo project with services found for this token' }
+}
+
+Write-Host "Project: $projectId Environment: $environmentId"
+
+if (-not $ServiceId) {
+  $svcRes = Invoke-RailwayGql @'
+query($projectId: String!) {
+  project(id: $projectId) {
+    services { edges { node { id name } } }
+  }
+}
+'@ @{ projectId = $projectId }
   $services = $svcRes.data.project.services.edges | ForEach-Object { $_.node }
-  $backend = $services | Where-Object { $_.name -match 'investo|backend|api' } | Select-Object -First 1
+  $backend = $services | Where-Object { $_.name -match 'investo-backend|backend|api' } | Select-Object -First 1
   if (-not $backend) { $backend = $services | Select-Object -First 1 }
   if (-not $backend) { throw 'No Railway service found in project' }
   $ServiceId = $backend.id

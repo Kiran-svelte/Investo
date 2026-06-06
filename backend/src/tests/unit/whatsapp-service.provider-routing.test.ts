@@ -232,9 +232,18 @@ describe('WhatsAppService outbound provider routing', () => {
     expect(String(url)).not.toContain('graph.facebook.com');
   });
 
-  describe('meta-only advanced sends', () => {
-    test('sendImage returns not supported when provider=greenapi', async () => {
-      const service = createServiceWithConfig({
+  describe('greenapi text fallbacks for advanced sends', () => {
+    const greenConfig = {
+      provider: 'greenapi' as const,
+      phoneNumberId: '',
+      accessToken: '',
+      verifyToken: '',
+      idInstance: '1100000001',
+      apiTokenInstance: 'token-abc',
+    };
+
+    function createGreenService() {
+      return createServiceWithConfig({
         env: 'test',
         whatsapp: {
           provider: 'greenapi',
@@ -246,31 +255,19 @@ describe('WhatsAppService outbound provider routing', () => {
           apiTokenInstance: 'token-abc',
         },
       });
+    }
 
-      const result = await service.sendImage('+919876543210', 'https://cdn.example.com/a.jpg', null, {
-        phoneNumberId: '',
-        accessToken: '',
-        verifyToken: '',
-      });
+    test('sendImage uses GreenAPI file send or text fallback when provider=greenapi', async () => {
+      const service = createGreenService();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ idMessage: 'ga-1' }) });
 
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/not supported/i);
-      expect(mockFetch).not.toHaveBeenCalled();
+      const result = await service.sendImage('+919876543210', 'https://cdn.example.com/a.jpg', null, greenConfig);
+
+      expect(result.success).toBe(true);
     });
 
-    test('sendDocument returns not supported when provider=greenapi', async () => {
-      const service = createServiceWithConfig({
-        env: 'test',
-        whatsapp: {
-          provider: 'greenapi',
-          apiUrl: 'https://graph.facebook.com/v18.0',
-        },
-        greenapi: {
-          apiUrl: 'https://api.green-api.com',
-          idInstance: '1100000001',
-          apiTokenInstance: 'token-abc',
-        },
-      });
+    test('sendDocument requires greenapi credentials when provider=greenapi', async () => {
+      const service = createGreenService();
 
       const result = await service.sendDocument('+919876543210', 'https://cdn.example.com/a.pdf', 'a.pdf', null, {
         phoneNumberId: '',
@@ -279,48 +276,21 @@ describe('WhatsAppService outbound provider routing', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toMatch(/not supported/i);
-      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result.error).toMatch(/missing whatsapp configuration/i);
     });
 
-    test('sendLocation returns not supported when provider=greenapi', async () => {
-      const service = createServiceWithConfig({
-        env: 'test',
-        whatsapp: {
-          provider: 'greenapi',
-          apiUrl: 'https://graph.facebook.com/v18.0',
-        },
-        greenapi: {
-          apiUrl: 'https://api.green-api.com',
-          idInstance: '1100000001',
-          apiTokenInstance: 'token-abc',
-        },
-      });
+    test('sendLocation falls back to maps link text when provider=greenapi', async () => {
+      const service = createGreenService();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ idMessage: 'ga-2' }) });
 
-      const result = await service.sendLocation('+919876543210', 12.9716, 77.5946, 'Somewhere', 'Addr', {
-        phoneNumberId: '',
-        accessToken: '',
-        verifyToken: '',
-      });
+      const result = await service.sendLocation('+919876543210', 12.9716, 77.5946, 'Somewhere', 'Addr', greenConfig);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/not supported/i);
-      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
     });
 
-    test('sendInteractiveButtons returns not supported when provider=greenapi', async () => {
-      const service = createServiceWithConfig({
-        env: 'test',
-        whatsapp: {
-          provider: 'greenapi',
-          apiUrl: 'https://graph.facebook.com/v18.0',
-        },
-        greenapi: {
-          apiUrl: 'https://api.green-api.com',
-          idInstance: '1100000001',
-          apiTokenInstance: 'token-abc',
-        },
-      });
+    test('sendInteractiveButtons falls back to numbered text menu when provider=greenapi', async () => {
+      const service = createGreenService();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ idMessage: 'ga-3' }) });
 
       const result = await service.sendInteractiveButtons(
         '+919876543210',
@@ -328,31 +298,15 @@ describe('WhatsAppService outbound provider routing', () => {
         [{ id: 'a', title: 'A' }],
         null,
         null,
-        {
-          phoneNumberId: '',
-          accessToken: '',
-          verifyToken: '',
-        }
+        greenConfig,
       );
 
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/not supported/i);
-      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
     });
 
-    test('sendInteractiveList returns not supported when provider=greenapi', async () => {
-      const service = createServiceWithConfig({
-        env: 'test',
-        whatsapp: {
-          provider: 'greenapi',
-          apiUrl: 'https://graph.facebook.com/v18.0',
-        },
-        greenapi: {
-          apiUrl: 'https://api.green-api.com',
-          idInstance: '1100000001',
-          apiTokenInstance: 'token-abc',
-        },
-      });
+    test('sendInteractiveList falls back to numbered text when provider=greenapi', async () => {
+      const service = createGreenService();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ idMessage: 'ga-4' }) });
 
       const result = await service.sendInteractiveList(
         '+919876543210',
@@ -361,16 +315,10 @@ describe('WhatsAppService outbound provider routing', () => {
         [{ title: 'Section', rows: [{ id: 'row', title: 'Row' }] }],
         null,
         null,
-        {
-          phoneNumberId: '',
-          accessToken: '',
-          verifyToken: '',
-        }
+        greenConfig,
       );
 
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/not supported/i);
-      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
     });
   });
 });

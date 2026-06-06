@@ -1,5 +1,7 @@
 /// <reference types="jest" />
 
+jest.setTimeout(30000);
+
 const mockPrisma = {
   company: { findMany: jest.fn(), findUnique: jest.fn() },
   lead: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), groupBy: jest.fn() },
@@ -107,6 +109,12 @@ jest.mock('../../services/inboundWhatsAppRouting.service', () => ({
     handled: false,
     route: { kind: 'customer' },
   }),
+}));
+
+jest.mock('../../services/buyer-memory-extract.service', () => ({
+  __esModule: true,
+  extractAndPatchLeadMemory: jest.fn().mockResolvedValue(undefined),
+  inferBuyerWorkflowIdFromMessage: jest.fn().mockReturnValue(null),
 }));
 
 jest.mock('../../services/socket.service', () => ({

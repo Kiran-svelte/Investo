@@ -36,7 +36,9 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Sunset Heights');
     expect(prompt).toContain('When is my visit?');
     expect(prompt).toContain('listVisitsToday');
-    expect(prompt).toContain('CONTEXT AWARENESS');
+    expect(prompt).toContain('## Recent copilot turns');
+    expect(prompt).toContain('## Upcoming visits');
+    expect(prompt).toContain('## Active lead');
     expect(prompt).toContain('ALL 15 WORKFLOWS');
     expect(prompt).toContain('schedule_visit');
     expect(prompt).toContain('RIGHT TOOL');

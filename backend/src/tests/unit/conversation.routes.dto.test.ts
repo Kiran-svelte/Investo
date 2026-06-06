@@ -9,10 +9,12 @@ type MockPrisma = {
   conversation: {
     findMany: jest.Mock;
     findFirst: jest.Mock;
+    count: jest.Mock;
   };
   message: {
     findFirst: jest.Mock;
     findMany: jest.Mock;
+    count: jest.Mock;
   };
 };
 
@@ -27,10 +29,12 @@ function createConversationApp(): { app: Express; mockPrisma: MockPrisma } {
     conversation: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      count: jest.fn(),
     },
     message: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
     },
   };
 
@@ -71,6 +75,7 @@ function createConversationApp(): { app: Express; mockPrisma: MockPrisma } {
   jest.doMock('../../middleware/rbac', () => ({
     __esModule: true,
     authorize: () => noopMiddleware(),
+    hasRole: () => noopMiddleware(),
   }));
 
   jest.doMock('../../middleware/audit', () => ({
@@ -81,6 +86,18 @@ function createConversationApp(): { app: Express; mockPrisma: MockPrisma } {
   jest.doMock('../../middleware/featureGate', () => ({
     __esModule: true,
     requireFeature: () => noopMiddleware(),
+  }));
+
+  jest.doMock('../../middleware/propertyCompletenessGate', () => ({
+    __esModule: true,
+    propertyCompletenessGate: noopMiddleware(),
+  }));
+
+  jest.doMock('../../config', () => ({
+    __esModule: true,
+    default: {
+      whatsapp: { verifyToken: 'wa-verify-1' },
+    },
   }));
 
   // Not used by these GET routes, but required at import time.
@@ -125,6 +142,7 @@ describe('conversation routes DTO shape', () => {
   test('GET /api/conversations returns snake_case conversation fields', async () => {
     const { app, mockPrisma } = createConversationApp();
 
+    mockPrisma.conversation.count.mockResolvedValue(1);
     mockPrisma.conversation.findMany.mockResolvedValue([
       {
         id: 'conv-1',
@@ -231,6 +249,7 @@ describe('conversation routes DTO shape', () => {
       },
     });
 
+    mockPrisma.message.count.mockResolvedValue(2);
     mockPrisma.message.findMany.mockResolvedValue([
       {
         id: 'msg-1',

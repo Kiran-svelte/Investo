@@ -84,12 +84,116 @@ export async function resolveVisit(ctx: ActionContext) {
   return ok(undefined, { visitId: visit.id, leadId: visit.leadId });
 }
 
+function formatBuyerVisitReply(
+  title: string,
+  scheduledAt: Date,
+  propertyName?: string | null,
+  agentName?: string | null,
+): string {
+  const when = scheduledAt.toLocaleString('en-IN', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+  });
+  return (
+    `*${title}*\n\n` +
+    `Property: *${propertyName || 'Property'}*\n` +
+    `Date: ${when}\n\n` +
+    `Our specialist${agentName ? ` *${agentName}*` : ''} will confirm details before the visit.`
+  );
+}
+
+async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
+  const leadId = requireLeadId(ctx) ?? ctx.run.sessionLeadId;
+  const scheduledAt = scheduledAtRaw ? new Date(String(scheduledAtRaw)) : null;
+  if (!leadId) return fail('Lead is required to book a visit.');
+  if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+    return fail('When should the visit be scheduled? Share date and time.');
+  }
+
+  const existingVisitId = requireVisitId(ctx);
+  if (existingVisitId) {
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id: existingVisitId,
+        companyId: ctx.run.toolContext.companyId,
+        leadId,
+        status: { in: ['scheduled', 'confirmed'] },
+      },
+      include: {
+        property: { select: { name: true } },
+        agent: { select: { name: true } },
+      },
+    });
+    if (!visit) return fail("I couldn't find an upcoming site visit to reschedule.");
+    const oldTime = visit.scheduledAt;
+    const updated = await prisma.visit.update({
+      where: { id: existingVisitId },
+      data: { scheduledAt, reminderSent: false, status: 'scheduled' },
+      include: {
+        property: { select: { name: true } },
+        agent: { select: { name: true } },
+      },
+    });
+    void import('../../visitNotificationBridge.service').then(({ notifyVisitRescheduledFromTool }) =>
+      notifyVisitRescheduledFromTool(existingVisitId, oldTime),
+    );
+    return ok(
+      formatBuyerVisitReply('Visit rescheduled', updated.scheduledAt, updated.property?.name, updated.agent?.name),
+      { visitId: updated.id, leadId: updated.leadId, propertyId: updated.propertyId ?? undefined },
+    );
+  }
+
+  const propertyId = typeof ctx.params.propertyId === 'string' ? ctx.params.propertyId : undefined;
+  if (!propertyId) {
+    return fail('Which property should I book for your visit?');
+  }
+
+  const booking = await scheduleVisit({
+    companyId: ctx.run.toolContext.companyId,
+    leadId,
+    propertyId,
+    scheduledAt,
+    notes: 'Booked via WhatsApp buyer workflow',
+  });
+
+  if (!booking.success || !booking.visit) {
+    const reason =
+      booking.error === 'agent_conflict'
+        ? 'That slot overlaps with another visit. Please share another time.'
+        : booking.error === 'past_date'
+          ? 'That time is in the past. Please share a future date and time.'
+          : booking.error === 'property_not_found'
+            ? 'I could not find that property in our active catalog.'
+            : 'I could not schedule that visit right now. Please share another time or ask for an agent.';
+    return fail(reason);
+  }
+
+  const visit = await prisma.visit.findUnique({
+    where: { id: booking.visit.id },
+    include: {
+      property: { select: { name: true } },
+      agent: { select: { name: true } },
+    },
+  });
+  return ok(
+    formatBuyerVisitReply('Visit scheduled', booking.visit.scheduledAt, visit?.property?.name, visit?.agent?.name),
+    { visitId: booking.visit.id, leadId: booking.visit.leadId, propertyId: booking.visit.propertyId ?? undefined },
+  );
+}
+
 export async function bookVisit(ctx: ActionContext) {
   if (!ctx.state.priorVisitId && ctx.state.visitId) {
     ctx.state.priorVisitId = ctx.state.visitId;
   }
   const visitId = requireVisitId(ctx);
   const scheduledAt = ctx.params.newScheduledAt ?? ctx.params.scheduledAt;
+  if (ctx.run.channel === 'buyer') {
+    return bookBuyerVisit(ctx, scheduledAt);
+  }
   if (visitId && !scheduledAt) {
     return fail('When should the visit be rescheduled? Share date and time.');
   }
@@ -163,6 +267,7 @@ export async function updateVisitStatus(ctx: ActionContext) {
 }
 
 export async function sendVisitConfirmation(ctx: ActionContext) {
+  if (ctx.run.channel === 'buyer') return skip();
   const visitId = requireVisitId(ctx);
   if (!visitId) return skip();
   const visit = await prisma.visit.findFirst({
@@ -235,10 +340,24 @@ export async function cancelVisit(ctx: ActionContext) {
 
   const existing = await prisma.visit.findFirst({
     where: { id: visitId, companyId: ctx.run.toolContext.companyId },
-    select: { status: true },
+    include: { property: { select: { name: true } } },
   });
   if (existing?.status === 'cancelled') {
     return ok('That visit is already cancelled.');
+  }
+  if (ctx.run.channel === 'buyer') {
+    if (!existing || (ctx.state.leadId && existing.leadId !== ctx.state.leadId)) {
+      return fail("I couldn't find an upcoming site visit to cancel.");
+    }
+    await prisma.visit.update({
+      where: { id: existing.id },
+      data: { status: 'cancelled', notes: 'Cancelled via WhatsApp buyer workflow' },
+    });
+    return ok(
+      `Your site visit for *${existing.property?.name ?? 'Property'}* has been *cancelled*.\n\n` +
+      `Reply with a new date and time if you'd like to book again.`,
+      { visitId: existing.id, leadId: existing.leadId },
+    );
   }
 
   const result = await runNamedTool(ctx.run.toolContext, 'cancelVisit', {

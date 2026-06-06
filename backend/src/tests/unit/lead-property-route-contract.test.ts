@@ -77,6 +77,7 @@ function createRouteContractApp(): { app: Express; mockPrisma: MockPrisma } {
   jest.doMock('../../middleware/rbac', () => ({
     __esModule: true,
     authorize: () => noopMiddleware(),
+    hasRole: () => noopMiddleware(),
   }));
 
   jest.doMock('../../middleware/featureGate', () => ({

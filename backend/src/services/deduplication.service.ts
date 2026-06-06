@@ -26,7 +26,7 @@ export class DeduplicationService {
   private ttlSeconds: number;
 
   constructor(ttlSeconds?: number) {
-    this.ttlSeconds = ttlSeconds ?? config.whatsapp.dedupTtlSeconds ?? 300;
+    this.ttlSeconds = ttlSeconds ?? config.whatsapp?.dedupTtlSeconds ?? 300;
   }
 
   /**

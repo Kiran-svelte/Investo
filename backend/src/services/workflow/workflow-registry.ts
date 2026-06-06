@@ -76,7 +76,7 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
       { action: 'resolveLead' },
       { action: 'bookVisit' },
       { action: 'updateLeadStatusVisitScheduled', optional: true },
-      { action: 'sendVisitConfirmation', optional: true },
+      { action: 'sendVisitConfirmation', optional: true, channel: 'staff' },
       { action: 'scheduleVisitReminders', optional: true },
       { action: 'syncLeadMemory', optional: true },
     ],
@@ -89,10 +89,10 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
       // CRITICAL: cancel the existing visit slot BEFORE booking new one.
       // Without this step, the old visit record stays as 'scheduled' — creating
       // a ghost duplicate booking visible in the agent calendar.
-      { action: 'cancelVisitSlot' },
+      { action: 'cancelVisitSlot', channel: 'staff' },
       { action: 'bookVisit' },
-      { action: 'updateVisitStatus', optional: true },
-      { action: 'sendVisitConfirmation', optional: true },
+      { action: 'updateVisitStatus', optional: true, channel: 'staff' },
+      { action: 'sendVisitConfirmation', optional: true, channel: 'staff' },
       { action: 'rescheduleReminders', optional: true },
     ],
   },

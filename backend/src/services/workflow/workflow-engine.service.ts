@@ -345,9 +345,9 @@ function stepMatchesChannel(step: { channel?: 'buyer' | 'staff' }, runChannel: '
 function buildClarificationReply(workflowId: MutationWorkflowId): string {
   if (workflowId === 'schedule_visit' || workflowId === 'reschedule_visit') {
     return (
-      'I want to make sure I get this right — would you like to:\n' +
-      '1️⃣ *Book a new visit*\n' +
-      '2️⃣ *Change an existing visit*\n\n' +
+      'I want to make sure I get this right. Would you like to:\n' +
+      '1. *Book a new visit*\n' +
+      '2. *Change an existing visit*\n\n' +
       'Reply with 1 or 2, or describe what you need.'
     );
   }
@@ -955,6 +955,39 @@ function buildBuyerWorkflowRun(input: {
  * Buyer orchestrator step 1–3: LLM intent classifier → workflow action handlers → reply.
  * Returns null to fall through to aiService.generateResponse (language brain).
  */
+export interface BuyerActiveVisitContext {
+  visitId: string;
+  propertyName?: string | null;
+}
+
+/**
+ * When buyer has an active visit, bias mutation workflows before LLM classification.
+ * Handles "push my appointment" → reschedule_visit instead of schedule_visit.
+ */
+export function detectActiveVisitMutationBias(
+  messageText: string,
+  activeVisit?: BuyerActiveVisitContext | null,
+): { workflowId: WorkflowId; parameters: WorkflowParams } | null {
+  if (!activeVisit?.visitId) return null;
+  const text = messageText.toLowerCase();
+  if (/\b(cancel|call\s+off)\b/.test(text)) {
+    return {
+      workflowId: 'cancel_visit',
+      parameters: { visitId: activeVisit.visitId, leadId: undefined, message: messageText },
+    };
+  }
+  const rescheduleSignal =
+    /\b(reschedule|move|push|change|postpone|shift|later)\b/.test(text)
+    && /\b(visit|appointment|slot|time|it)\b/.test(text);
+  if (rescheduleSignal || /\bpush\s+my\s+appointment\b/.test(text)) {
+    return {
+      workflowId: 'reschedule_visit',
+      parameters: { visitId: activeVisit.visitId, message: messageText },
+    };
+  }
+  return null;
+}
+
 export async function classifyAndRunBuyerWorkflow(
   input: {
     companyId: string;
@@ -963,6 +996,7 @@ export async function classifyAndRunBuyerWorkflow(
     propertyId?: string;
     companyName: string;
     sessionVisitId?: string | null;
+    activeVisit?: BuyerActiveVisitContext | null;
   },
   deps?: { llm?: WorkflowLlmCaller },
 ): Promise<string | null> {
@@ -971,6 +1005,22 @@ export async function classifyAndRunBuyerWorkflow(
   }
 
   const run = buildBuyerWorkflowRun(input);
+
+  const activeVisitCtx = input.activeVisit
+    ?? (input.sessionVisitId ? { visitId: input.sessionVisitId } : null);
+  const visitBias = detectActiveVisitMutationBias(input.messageText, activeVisitCtx);
+  if (visitBias) {
+    const params: WorkflowParams = {
+      ...visitBias.parameters,
+      leadId: visitBias.parameters.leadId ?? input.leadId,
+      propertyId: input.propertyId,
+      visitId: visitBias.parameters.visitId ?? input.sessionVisitId ?? undefined,
+    };
+    const result = await runWorkflow(visitBias.workflowId, run, params);
+    if (result.reply?.trim()) {
+      return formatBuyerWorkflowReply(visitBias.workflowId, result.reply);
+    }
+  }
 
   const pending = await resolvePendingClarification(input.leadId, input.messageText);
   if (pending && isBuyerWorkflowId(pending.workflowId)) {
