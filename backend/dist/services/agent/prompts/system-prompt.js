@@ -4,7 +4,7 @@ exports.buildSystemPrompt = buildSystemPrompt;
 function formatConversationHistory(history) {
     if (!history?.length)
         return '';
-    const lines = history.slice(-5).map((m) => `${m.role}: ${m.content.slice(0, 120)}`);
+    const lines = history.slice(-10).map((m) => `${m.role}: ${m.content.slice(0, 120)}`);
     return `## Recent copilot turns\n${lines.join('\n')}`;
 }
 function formatUpcomingVisits(visits) {
@@ -48,6 +48,9 @@ function buildSystemPrompt(params) {
         '- Respect tool access and company boundaries.',
         '- For destructive actions, use tools that create a pending confirmation and tell the user to reply yes or no.',
         '- Keep simple replies under 5 lines.',
+        '- NEVER invent errors, outages, or connection problems. Do not say "trouble connecting" or "technical issue".',
+        '- NEVER welcome the user or re-introduce yourself after the first interaction in a thread.',
+        '- NEVER claim a CRM action succeeded unless a tool returned success.',
         ...contextBlocks,
     ]
         .filter(Boolean)

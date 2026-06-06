@@ -23,7 +23,7 @@ const TIME_PATTERN =
  * RegExp across multiple calls, as `lastIndex` state causes non-deterministic
  * match skipping: .test() and .match() reset lastIndex; .matchAll() requires `g`.
  */
-const DAY_PATTERN_SOURCE = `\\b(?:this\\s+)?(${DAY_NAMES.join('|')}|tomorrow|today)\\b`;
+const DAY_PATTERN_SOURCE = `\\b(?:(?:next|this)\\s+)?(${DAY_NAMES.join('|')}|tomorrow|today)\\b`;
 
 /** Non-global variant for .test() and single .match() operations. */
 const DAY_PATTERN = new RegExp(DAY_PATTERN_SOURCE, 'i');
@@ -73,7 +73,7 @@ export function parseRescheduleTargetFromMessage(
 
   // 1. Try explicit "reschedule/move/prepone to <target>" tail — most precise.
   const tailMatch = text.match(
-    /\b(?:reschedule(?:\s+it)?\s+to|rescheduled?\s+to|move\s+(?:it\s+)?to|change\s+(?:it\s+)?to|pre\s*pone(?:\s+\w+)*\s+to|prepone(?:\s+\w+)*\s+to)\b([\s\S]+)$/i,
+    /\b(?:reschedule(?:\s+it)?\s+to|rescheduled?\s+to|move\s+(?:it\s+)?to|change\s+(?:it\s+)?to|push\s+(?:my\s+)?(?:appointment|visit|it)\s+to|pre\s*pone(?:\s+\w+)*\s+to|prepone(?:\s+\w+)*\s+to)\b([\s\S]+)$/i,
   );
   if (tailMatch?.[1]) {
     const tail = tailMatch[1].trim();

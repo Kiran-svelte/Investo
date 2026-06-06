@@ -58,6 +58,17 @@ describe('visitIntentFromMessage.service', () => {
     expect(parsed!.getHours()).toBe(13);
   });
 
+  it('parses next Sunday from push appointment phrasing (defaults 10am IST)', () => {
+    const saturday = new Date('2026-06-06T12:00:00+05:30');
+    const parsed = parseRescheduleTargetFromMessage(
+      'Push my appointment to next Sunday',
+      saturday,
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.getDay()).toBe(0);
+    expect(parsed!.getHours()).toBe(10);
+  });
+
   it('parses slot from recent history when user replies yes', () => {
     const parsed = parseVisitDateTimeFromHistory(
       ['This Saturday 12 pm okay ??', 'Yes'],

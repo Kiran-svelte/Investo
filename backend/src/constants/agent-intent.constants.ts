@@ -85,4 +85,4 @@ export const DETERMINISTIC_DELEGATE_INTENTS: ReadonlySet<AgentIntent> = new Set(
 /** Minimum classifier confidence to run parameter extraction + execution */
 export const INTENT_CONFIDENCE_THRESHOLD = 0.55;
 
-export const INTENT_LLM_TEMPERATURE = 0.05;
+export const INTENT_LLM_TEMPERATURE = 0;

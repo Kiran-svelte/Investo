@@ -125,7 +125,7 @@ ${groundedFacts.slice(0, 6000) || '(none provided)'}`;
     body: JSON.stringify({
       model,
       max_tokens: 512,
-      temperature: 0.3,
+      temperature: 0,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: raw },

@@ -80,6 +80,31 @@ export function extractUuid(text: string): string | undefined {
   return text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0];
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isValidUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value);
+}
+
+/** Classifiers sometimes emit property names in id fields — coerce to name lookup instead. */
+function sanitizeInvalidUuidFields(parameters: WorkflowParams): void {
+  if (parameters.propertyId && !isValidUuid(parameters.propertyId)) {
+    if (!parameters.propertyName) parameters.propertyName = String(parameters.propertyId);
+    delete parameters.propertyId;
+  }
+  if (parameters.visitId && !isValidUuid(parameters.visitId)) {
+    delete parameters.visitId;
+  }
+  if (parameters.agentId && !isValidUuid(parameters.agentId)) {
+    if (!parameters.agentName) parameters.agentName = String(parameters.agentId);
+    delete parameters.agentId;
+  }
+  if (parameters.leadId && !isValidUuid(parameters.leadId)) {
+    if (!parameters.leadName) parameters.leadName = String(parameters.leadId);
+    delete parameters.leadId;
+  }
+}
+
 export async function enrichWorkflowParams(input: {
   context: ToolContext;
   params: WorkflowParams;
@@ -94,6 +119,8 @@ export async function enrichWorkflowParams(input: {
     ...input.params,
   };
 
+  sanitizeInvalidUuidFields(parameters);
+
   if (!parameters.leadId && (parameters.leadName || input.sessionLeadId)) {
     const lead = await resolveLeadForIntent(
       input.context,
@@ -102,6 +129,34 @@ export async function enrichWorkflowParams(input: {
       input.recentMessages,
     );
     if (lead) parameters.leadId = lead.leadId;
+  }
+
+  if (parameters.leadId && !parameters.propertyId) {
+    const leadRow = await prisma.lead.findUnique({
+      where: { id: parameters.leadId },
+      select: { leadMemory: true },
+    });
+    const raw = leadRow?.leadMemory;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const discussed = (raw as { projectsDiscussed?: Array<{ propertyId?: string; name?: string }> })
+        .projectsDiscussed;
+      if (Array.isArray(discussed) && discussed.length) {
+        const withId = [...discussed].reverse().find((p) => p.propertyId && isValidUuid(p.propertyId));
+        if (withId?.propertyId) {
+          parameters.propertyId = withId.propertyId;
+        } else if (!parameters.propertyName) {
+          const named = [...discussed].reverse().find((p) => p.name);
+          if (named?.name) parameters.propertyName = named.name;
+        }
+      }
+      if (!parameters.visitId) {
+        const visits = (raw as { upcomingVisits?: Array<{ visitId?: string }> }).upcomingVisits;
+        const active = Array.isArray(visits)
+          ? [...visits].reverse().find((v) => v.visitId && isValidUuid(v.visitId))
+          : undefined;
+        if (active?.visitId) parameters.visitId = active.visitId;
+      }
+    }
   }
 
   if (!parameters.visitId && input.sessionVisitId) {
@@ -135,6 +190,26 @@ export async function enrichWorkflowParams(input: {
 
   if (!parameters.newScheduledAt && parameters.scheduledAt) {
     parameters.newScheduledAt = parameters.scheduledAt;
+  }
+
+  if (!parameters.scheduledAt && !parameters.newScheduledAt) {
+    const message = parameters.message ?? parameters.messageText ?? input.messageText;
+    const {
+      parseRescheduleTargetFromMessage,
+      parseVisitDateTimeFromMessage,
+      isVisitCancelOrRescheduleMessage,
+      isVisitSchedulingMessage,
+    } = await import('../../visitIntentFromMessage.service');
+    const parsed = isVisitCancelOrRescheduleMessage(message)
+      ? parseRescheduleTargetFromMessage(message)
+      : isVisitSchedulingMessage(message)
+        ? parseVisitDateTimeFromMessage(message)
+        : null;
+    if (parsed) {
+      const iso = parsed.toISOString();
+      parameters.scheduledAt = iso;
+      parameters.newScheduledAt = iso;
+    }
   }
 
   return parameters;

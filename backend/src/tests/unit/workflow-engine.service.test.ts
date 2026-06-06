@@ -97,6 +97,9 @@ import {
   classifyAndRunBuyerWorkflow,
   classifyWorkflowMessage,
   detectActiveVisitMutationBias,
+  detectBuyerNegotiationEscalationBias,
+  buildBuyerWorkflowFailureReply,
+  isBuyerQualificationOnlyMessage,
   runWorkflow,
   tryRunBuyerWorkflow,
 } from '../../services/workflow/workflow-engine.service';
@@ -180,19 +183,30 @@ describe('workflow-engine.service', () => {
       status: 'scheduled',
     });
 
+    mockPrisma.visit.findUnique.mockResolvedValue({
+      id: 'visit-1',
+      leadId: kannadaLeadId,
+      status: 'scheduled',
+      scheduledAt: new Date('2026-06-10T10:00:00+05:30'),
+      companyId: 'company-1',
+    });
+
     const result = await runWorkflow(
       'reschedule_visit',
       {
-        toolContext: ctx,
+        toolContext: { ...ctx, userRole: 'company_admin' },
         messageText: 'reschedule visit',
         recentMessages: [],
         companyName: 'Demo',
+        channel: 'buyer',
+        sessionLeadId: kannadaLeadId,
+        sessionVisitId: 'visit-1',
       },
-      { visitId: 'visit-1' },
+      { visitId: 'visit-1', leadId: kannadaLeadId },
     );
 
     expect(result.ok).toBe(false);
-    expect(result.reply).toMatch(/scheduled|When/i);
+    expect(result.reply).toMatch(/date and time|site visit/i);
     expect(rescheduleVisitTool.func).not.toHaveBeenCalled();
   });
 
@@ -381,6 +395,30 @@ describe('workflow-engine.service', () => {
     });
     expect(bias?.workflowId).toBe('reschedule_visit');
     expect(bias?.parameters.visitId).toBe('visit-active-1');
+  });
+
+  it('detectBuyerNegotiationEscalationBias maps discount request to escalate_to_human', () => {
+    const bias = detectBuyerNegotiationEscalationBias(
+      'Can you give me 10% discount on the final price?',
+    );
+    expect(bias?.workflowId).toBe('escalate_to_human');
+  });
+
+  it('buildBuyerWorkflowFailureReply hides internal workflow errors', () => {
+    const reply = buildBuyerWorkflowFailureReply(
+      'price_inquiry',
+      'fetchPropertyPrice',
+      'Workflow "price_inquiry" failed at step "fetchPropertyPrice": propertyId: Invalid uuid',
+    );
+    expect(reply).not.toContain('Workflow "');
+    expect(reply).not.toContain('Invalid uuid');
+  });
+
+  it('isBuyerQualificationOnlyMessage skips workflow for budget-only turns', () => {
+    expect(
+      isBuyerQualificationOnlyMessage('My budget is 1.2 to 1.5 crore for 3BHK in Whitefield'),
+    ).toBe(true);
+    expect(isBuyerQualificationOnlyMessage('What is the price for 3BHK?')).toBe(false);
   });
 
   it('classifyAndRunBuyerWorkflow biases reschedule when active visit exists (no LLM)', async () => {

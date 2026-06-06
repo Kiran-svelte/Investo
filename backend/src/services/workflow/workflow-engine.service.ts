@@ -7,6 +7,8 @@ import { incrementOpsMetric } from '../opsMetrics.service';
 import {
   BUYER_WORKFLOW_IDS,
   CLARIFICATION_BAND,
+  ESCALATION_CLARIFICATION_BAND,
+  ESCALATION_CONFIDENCE_THRESHOLD,
   MUTATION_CONFIDENCE_THRESHOLD,
   MUTATION_WORKFLOW_IDS,
   WORKFLOW_CONFIDENCE_THRESHOLD,
@@ -203,6 +205,23 @@ function normalizeWorkflowParameters(params: WorkflowParams, messageText: string
   if (params.scheduledAt !== undefined || params.newScheduledAt !== undefined) {
     const iso = coerceToIso(params.scheduledAt ?? params.newScheduledAt, messageText);
     if (iso) {
+      normalized.scheduledAt = iso;
+      normalized.newScheduledAt = iso;
+    }
+  } else {
+    const {
+      parseRescheduleTargetFromMessage,
+      parseVisitDateTimeFromMessage,
+      isVisitCancelOrRescheduleMessage,
+      isVisitSchedulingMessage,
+    } = require('../visitIntentFromMessage.service');
+    const parsed = isVisitCancelOrRescheduleMessage(messageText)
+      ? parseRescheduleTargetFromMessage(messageText)
+      : isVisitSchedulingMessage(messageText)
+        ? parseVisitDateTimeFromMessage(messageText)
+        : null;
+    if (parsed) {
+      const iso = parsed.toISOString();
       normalized.scheduledAt = iso;
       normalized.newScheduledAt = iso;
     }
@@ -431,6 +450,16 @@ function evaluateMutationConfidence(
   workflowId: WorkflowId,
   confidence: number,
 ): 'execute' | 'clarify' | 'fallthrough' {
+  if (workflowId === 'escalate_to_human') {
+    if (confidence >= ESCALATION_CONFIDENCE_THRESHOLD) return 'execute';
+    if (
+      confidence >= ESCALATION_CLARIFICATION_BAND.low
+      && confidence < ESCALATION_CLARIFICATION_BAND.high
+    ) {
+      return 'clarify';
+    }
+    return 'fallthrough';
+  }
   if (!MUTATION_WORKFLOW_SET.has(workflowId)) {
     return confidence >= WORKFLOW_CONFIDENCE_THRESHOLD ? 'execute' : 'fallthrough';
   }
@@ -589,9 +618,25 @@ export async function runWorkflow(
 
       await finalizeWorkflowRun(workflowRunId, 'failed', stepsLog, step.action);
       await clearWorkflowIdempotencyClaim(companyId, idemKey ?? undefined);
+      const buyerReply = runChannel === 'buyer'
+        ? buildBuyerWorkflowFailureReply(workflowId, step.action, detail)
+        : `Workflow "${workflowId}" failed at step "${step.action}": ${detail}`;
+      if (runChannel === 'buyer' && typeof state.leadId === 'string') {
+        void logAgentAction({
+          companyId,
+          triggeredBy: 'inbound_message',
+          action: `workflow_${workflowId}`,
+          resourceType: 'lead',
+          resourceId: state.leadId,
+          inputs: { workflowId, channel: 'buyer', failedStep: step.action, completedSteps },
+          status: 'failed',
+          errorMessage: detail,
+          result: buyerReply.slice(0, 500),
+        });
+      }
       return {
         ok: false,
-        reply: `Workflow "${workflowId}" failed at step "${step.action}": ${detail}`,
+        reply: buyerReply,
         workflowId,
         failedStep: step.action,
         completedSteps,
@@ -619,12 +664,38 @@ export async function runWorkflow(
     return { ok: true, reply: null, workflowId, completedSteps };
   }
 
-  const reply = messages.length === 1 ? messages[0] : messages.join('\n\n');
+  let reply = messages.length === 1 ? messages[0] : messages.join('\n\n');
+  if (runChannel === 'buyer') {
+    reply = stripBuyerInternalWorkflowLines(reply);
+  }
   if (idemKey) {
     await persistWorkflowIdempotencyResult(companyId, idemKey, reply);
   }
+  if (runChannel === 'buyer' && typeof state.leadId === 'string') {
+    void logAgentAction({
+      companyId,
+      triggeredBy: 'inbound_message',
+      action: `workflow_${workflowId}`,
+      resourceType: 'lead',
+      resourceId: state.leadId,
+      inputs: { workflowId, channel: 'buyer', completedSteps },
+      status: 'success',
+      result: reply.slice(0, 500),
+    });
+  }
   incrementOpsMetric('workflow_runs');
   return { ok: true, reply, workflowId, completedSteps };
+}
+
+/** Remove staff-only status lines from buyer-visible workflow replies. */
+function stripBuyerInternalWorkflowLines(reply: string): string {
+  return reply
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*lead marked\s/i.test(line.trim()))
+    .filter((line) => !/^\s*visit reminders scheduled\.?\s*$/i.test(line.trim()))
+    .join('\n\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 async function finalizeWorkflowRun(
@@ -753,6 +824,55 @@ function shouldClassifyWorkflow(messageText: string): boolean {
   const text = messageText.trim();
   if (!text || text.length > 1200) return false;
   return true;
+}
+
+/** Budget/location/BHK sharing without an explicit inquiry — let the language brain acknowledge. */
+export function isBuyerQualificationOnlyMessage(messageText: string): boolean {
+  const t = messageText.toLowerCase();
+  const hasQualify =
+    /\b(budget|crore|lakh|bhk|whitefield|looking for|need a|preference|interested in)\b/i.test(t);
+  const hasExplicitIntent =
+    /\b(price|cost|how much|brochure|pdf|book|schedule|visit|available|amenities|discount|negotiat|human|call me|send me)\b/i.test(t);
+  return hasQualify && !hasExplicitIntent;
+}
+
+const INTERNAL_WORKFLOW_LEAK = /Workflow\s+"[^"]+"\s+failed|handler not configured|Invalid uuid|propertyId:/i;
+
+/** Never expose internal workflow/step names to buyers. */
+export function buildBuyerWorkflowFailureReply(
+  workflowId: WorkflowId,
+  failedStep: string | undefined,
+  detail: string | undefined,
+): string {
+  const raw = (detail ?? '').trim();
+  if (raw && !INTERNAL_WORKFLOW_LEAK.test(raw)) {
+    return raw;
+  }
+  const d = raw.toLowerCase();
+  if (failedStep === 'bookVisit' || workflowId === 'schedule_visit' || workflowId === 'reschedule_visit') {
+    if (d.includes('overlap') || d.includes('conflict')) {
+      return 'That time slot is already booked. Please share another date and time (e.g. "Sunday 11 am").';
+    }
+    if (d.includes('past')) {
+      return 'That time is in the past. Please share a future date and time.';
+    }
+    if (d.includes('which property')) {
+      return 'Which property would you like to visit? Share the project name and your preferred time.';
+    }
+    return 'What date and time works for your site visit? (e.g. "next Saturday 4 pm")';
+  }
+  if (workflowId === 'brochure_request') {
+    return "I'd love to send you the brochure — which project are you interested in?";
+  }
+  if (workflowId === 'price_inquiry' || workflowId === 'availability_check') {
+    return "I'm pulling up the latest details — could you name the project you're asking about?";
+  }
+  return "I couldn't complete that just now. Please try again or reply *talk to agent* for help.";
+}
+
+function sanitizeBuyerWorkflowReply(workflowId: WorkflowId, reply: string, failedStep?: string): string {
+  if (!INTERNAL_WORKFLOW_LEAK.test(reply)) return reply;
+  return buildBuyerWorkflowFailureReply(workflowId, failedStep, reply);
 }
 
 function isCopilotActive(): boolean {
@@ -927,7 +1047,13 @@ export async function tryRunBuyerWorkflow(input: {
   else if (/\b(book|schedule)\b.*\b(visit|appointment|site\s+visit)\b/.test(text)) workflowId = 'schedule_visit';
   else if (/\b(site\s+visit|property\s+visit)\b/.test(text)) workflowId = 'schedule_visit';
   else if (/\b(brochure|pdf|details|share)\b/.test(text)) workflowId = 'brochure_request';
-  else if (/\b(price|cost|how much|rate)\b/.test(text)) workflowId = 'price_inquiry';
+  else if (
+    /\b(discount|negotiat|%\s*off|best price|final price|counter offer|lower the price)\b/.test(text)
+    || /\bcan you (do|give)\s+\d+\s*%/.test(text)
+    || /\bgive me\s+\d+\s*%/.test(text)
+  ) {
+    workflowId = 'escalate_to_human';
+  } else if (/\b(price|cost|how much|rate)\b/.test(text)) workflowId = 'price_inquiry';
   else if (/\b(available|availability|units left|in stock)\b/.test(text)) workflowId = 'availability_check';
   else if (/\b(amenit|pool|gym|clubhouse)\b/.test(text)) workflowId = 'amenities_question';
   else if (/\b(talk\s+to|speak\s+to|human|agent|call\s+me|callback|call\s+back)\b/.test(text)) workflowId = 'escalate_to_human';
@@ -943,8 +1069,9 @@ export async function tryRunBuyerWorkflow(input: {
 
   const result = await runWorkflow(workflowId, buildBuyerWorkflowRun(input), params);
 
-  if (!result.ok || !result.reply?.trim()) return null;
-  return formatBuyerWorkflowReply(workflowId, result.reply);
+  if (!result.reply?.trim()) return null;
+  const safe = sanitizeBuyerWorkflowReply(workflowId, result.reply, result.failedStep);
+  return formatBuyerWorkflowReply(workflowId, safe);
 }
 
 function buildBuyerWorkflowRun(input: {
@@ -979,6 +1106,25 @@ export interface BuyerActiveVisitContext {
   propertyName?: string | null;
 }
 
+/** Discount / negotiation requests must escalate — never answer via price_inquiry catalog. */
+export function detectBuyerNegotiationEscalationBias(
+  messageText: string,
+): { workflowId: WorkflowId; parameters: WorkflowParams } | null {
+  const text = messageText.toLowerCase();
+  const isNegotiation =
+    /\b(discount|negotiat|%\s*off|best price|final price|counter offer|lower the price|rate reduce)\b/.test(text)
+    || /\bcan you (do|give)\s+\d+\s*%/.test(text)
+    || /\bgive me\s+\d+\s*%/.test(text);
+  if (!isNegotiation) return null;
+  return {
+    workflowId: 'escalate_to_human',
+    parameters: {
+      message: messageText,
+      note: 'Price negotiation — specialist handoff',
+    },
+  };
+}
+
 /**
  * When buyer has an active visit, bias mutation workflows before LLM classification.
  * Handles "push my appointment" → reschedule_visit instead of schedule_visit.
@@ -999,9 +1145,16 @@ export function detectActiveVisitMutationBias(
     /\b(reschedule|move|push|change|postpone|shift|later)\b/.test(text)
     && /\b(visit|appointment|slot|time|it)\b/.test(text);
   if (rescheduleSignal || /\bpush\s+my\s+appointment\b/.test(text)) {
+    const { parseRescheduleTargetFromMessage } = require('../visitIntentFromMessage.service');
+    const parsed = parseRescheduleTargetFromMessage(messageText);
+    const scheduledAt = parsed?.toISOString();
     return {
       workflowId: 'reschedule_visit',
-      parameters: { visitId: activeVisit.visitId, message: messageText },
+      parameters: {
+        visitId: activeVisit.visitId,
+        message: messageText,
+        ...(scheduledAt ? { scheduledAt, newScheduledAt: scheduledAt } : {}),
+      },
     };
   }
   return null;
@@ -1022,8 +1175,25 @@ export async function classifyAndRunBuyerWorkflow(
   if (!shouldClassifyWorkflow(input.messageText)) {
     return null;
   }
+  if (isBuyerQualificationOnlyMessage(input.messageText)) {
+    return null;
+  }
 
   const run = buildBuyerWorkflowRun(input);
+
+  const negotiationBias = detectBuyerNegotiationEscalationBias(input.messageText);
+  if (negotiationBias) {
+    const params: WorkflowParams = {
+      ...negotiationBias.parameters,
+      leadId: input.leadId,
+      propertyId: input.propertyId,
+    };
+    const result = await runWorkflow(negotiationBias.workflowId, run, params);
+    if (result.reply?.trim()) {
+      const safe = sanitizeBuyerWorkflowReply(negotiationBias.workflowId, result.reply, result.failedStep);
+      return formatBuyerWorkflowReply(negotiationBias.workflowId, safe);
+    }
+  }
 
   const activeVisitCtx = input.activeVisit
     ?? (input.sessionVisitId ? { visitId: input.sessionVisitId } : null);
@@ -1037,7 +1207,8 @@ export async function classifyAndRunBuyerWorkflow(
     };
     const result = await runWorkflow(visitBias.workflowId, run, params);
     if (result.reply?.trim()) {
-      return formatBuyerWorkflowReply(visitBias.workflowId, result.reply);
+      const safe = sanitizeBuyerWorkflowReply(visitBias.workflowId, result.reply, result.failedStep);
+      return formatBuyerWorkflowReply(visitBias.workflowId, safe);
     }
   }
 
@@ -1074,6 +1245,17 @@ export async function classifyAndRunBuyerWorkflow(
       return tryRunBuyerWorkflow(input);
     }
 
+    if (
+      classified.workflowId === 'price_inquiry'
+      && detectBuyerNegotiationEscalationBias(input.messageText)
+    ) {
+      classified.workflowId = 'escalate_to_human';
+      classified.parameters = {
+        ...classified.parameters,
+        note: 'Price negotiation — specialist handoff',
+      };
+    }
+
     const confidenceAction = evaluateMutationConfidence(classified.workflowId, classified.confidence);
     if (confidenceAction === 'fallthrough') {
       return tryRunBuyerWorkflow(input);
@@ -1096,6 +1278,12 @@ export async function classifyAndRunBuyerWorkflow(
         status: 'success',
         result: 'Clarification requested',
       });
+      if (classified.workflowId === 'escalate_to_human') {
+        return (
+          'Would you like me to connect you with a team member? Reply *yes* to confirm, ' +
+          'or tell me what you need and I will try to help.'
+        );
+      }
       return buildClarificationReply(classified.workflowId as MutationWorkflowId);
     }
 
@@ -1112,10 +1300,14 @@ export async function classifyAndRunBuyerWorkflow(
 
     if (!result.ok) {
       if (!result.reply?.trim()) return null;
-      return formatBuyerWorkflowReply(classified.workflowId, result.reply);
+      const safe = sanitizeBuyerWorkflowReply(classified.workflowId, result.reply, result.failedStep);
+      return formatBuyerWorkflowReply(classified.workflowId, safe);
     }
 
-    if (result.reply?.trim()) return formatBuyerWorkflowReply(classified.workflowId, result.reply);
+    if (result.reply?.trim()) {
+      const safe = sanitizeBuyerWorkflowReply(classified.workflowId, result.reply);
+      return formatBuyerWorkflowReply(classified.workflowId, safe);
+    }
     return null;
   } catch (err: unknown) {
     logger.warn('Buyer workflow orchestrator skipped', {

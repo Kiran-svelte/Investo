@@ -1296,6 +1296,74 @@ export class WhatsAppService {
           recentCustomerMessages,
         });
 
+        const {
+          isBuyerRapportMessage,
+          isBuyerQualificationStatement,
+          buildBuyerRapportReply,
+          buildBuyerQualificationAckReply,
+          patchLeadMemoryFromQualification,
+        } = await import('./buyerQualification.service');
+        const { isBuyerMemoryRecallQuery, buildBuyerMemoryRecallReply } = await import(
+          './buyerMemoryRecall.service'
+        );
+
+        if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerRapportMessage(msg.messageText)) {
+          const rapportReply = buildBuyerRapportReply(company.name);
+          await prisma.message.create({
+            data: { conversationId: conversation.id, senderType: 'ai', content: rapportReply, status: 'sent' },
+          });
+          if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            await this.sendMessage(customerPhone, rapportReply, whatsappConfig!);
+          }
+          return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
+        }
+
+        if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerQualificationStatement(msg.messageText)) {
+          const delta = await patchLeadMemoryFromQualification(lead.id, msg.messageText);
+          const qualReply = buildBuyerQualificationAckReply(delta);
+          await prisma.message.create({
+            data: { conversationId: conversation.id, senderType: 'ai', content: qualReply, status: 'sent' },
+          });
+          if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            await this.sendMessage(customerPhone, qualReply, whatsappConfig!);
+          }
+          void import('./buyer-memory-extract.service').then(({ extractAndPatchLeadMemory }) =>
+            extractAndPatchLeadMemory({ leadId: lead.id, messageText: msg.messageText, outboundText: qualReply }),
+          );
+          return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
+        }
+
+        if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerMemoryRecallQuery(msg.messageText)) {
+          const memoryReply = await buildBuyerMemoryRecallReply(lead.id);
+          if (memoryReply) {
+            await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                senderType: 'ai',
+                content: memoryReply,
+                status: 'sent',
+              },
+            });
+            if (await claimOutboundAiReply(companyId, msg.messageId)) {
+              await this.sendMessage(customerPhone, memoryReply, whatsappConfig!);
+            }
+            void import('./buyer-memory-extract.service').then(({ extractAndPatchLeadMemory }) =>
+              extractAndPatchLeadMemory({
+                leadId: lead.id,
+                messageText: msg.messageText,
+                outboundText: memoryReply,
+              }),
+            );
+            return {
+              status: 'processed',
+              companyId,
+              leadId: lead.id,
+              conversationId: conversation.id,
+              propagation,
+            };
+          }
+        }
+
         // Deterministic visit-status replies — no LLM, no workflow classifier.
         if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerVisitStatusQuery(msg.messageText)) {
           const visitReply = await buildBuyerVisitStatusReply({

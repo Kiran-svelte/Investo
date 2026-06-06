@@ -52,6 +52,20 @@ export const CLARIFICATION_BAND: Readonly<{ low: number; high: number }> = {
 export const WORKFLOW_LLM_TEMPERATURE = 0.0;
 
 /**
+ * Minimum confidence to execute escalate_to_human (buyer handoff).
+ * Higher than WORKFLOW_CONFIDENCE_THRESHOLD to avoid unnecessary escalations.
+ */
+export const ESCALATION_CONFIDENCE_THRESHOLD = 0.70;
+
+/**
+ * Confidence band [low, high) for escalate_to_human — ask clarification instead of escalating.
+ */
+export const ESCALATION_CLARIFICATION_BAND: Readonly<{ low: number; high: number }> = {
+  low: 0.65,
+  high: 0.70,
+};
+
+/**
  * Workflows that mutate DB state (visit/lead writes).
  * These require MUTATION_CONFIDENCE_THRESHOLD and support clarification loops.
  */

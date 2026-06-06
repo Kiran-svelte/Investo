@@ -89,7 +89,8 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
       // CRITICAL: cancel the existing visit slot BEFORE booking new one.
       // Without this step, the old visit record stays as 'scheduled' — creating
       // a ghost duplicate booking visible in the agent calendar.
-      { action: 'cancelVisitSlot', channel: 'staff' },
+      // Buyer reschedules update the same visit in-place; cancelling first breaks bookBuyerVisit.
+      { action: 'cancelVisitSlot', channel: 'staff', optional: true },
       { action: 'bookVisit' },
       { action: 'updateVisitStatus', optional: true, channel: 'staff' },
       { action: 'sendVisitConfirmation', optional: true, channel: 'staff' },

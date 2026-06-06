@@ -80,10 +80,10 @@ export async function sendBrochure(ctx: ActionContext) {
     }
   }
 
-  // No property could be resolved — let the buyer know we need more info.
-  return fail(
+  // No property could be resolved — clarify without failing the workflow.
+  return ok(
     "I'd love to send you the brochure! Could you let me know which project you're interested in? " +
-    "We have several properties available.",
+    'We have several properties available.',
   );
 }
 

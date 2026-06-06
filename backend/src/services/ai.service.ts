@@ -40,6 +40,12 @@ import { stripInternalCustomerMeta } from './aiTransparency.service';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
 
+/** Maximum determinism for buyer LLM — prevents hallucinated errors and repetition. */
+const BUYER_LLM_TEMPERATURE = 0;
+
+/** Recent turns injected into system prompt + chat messages (not only RAG). */
+const BUYER_CONVERSATION_HISTORY_WINDOW = 10;
+
 /** Minimum shape of a Message record needed by the AI service. */
 interface AiHistoryMessage {
   senderType: string;
@@ -302,6 +308,7 @@ export class AIService {
       knowledgeContext,
       mergedMemoryContext,
       request.liveLeadContextBlock,
+      request.conversationHistory,
     );
     const messages = this.buildMessages(request);
     const providers = this.getProviderOrder();
@@ -368,6 +375,18 @@ export class AIService {
     return `\n## DISCLAIMER (include once naturally at end)\n${disclaimer}`;
   }
 
+  private formatRecentConversationBlock(
+    history: AiHistoryMessage[] | undefined,
+  ): string {
+    const recent = (history ?? []).slice(-BUYER_CONVERSATION_HISTORY_WINDOW);
+    if (!recent.length) return '';
+    const lines = recent.map((m) => {
+      const role = m.senderType === 'customer' ? 'Customer' : 'Assistant';
+      return `${role}: ${m.content.slice(0, 200)}`;
+    });
+    return `## RECENT CONVERSATION (continue this thread — do NOT re-welcome)\n${lines.join('\n')}`;
+  }
+
   private buildGoalDirectedPrompt(
     request: AIRequest,
     state: ConversationState,
@@ -375,6 +394,7 @@ export class AIService {
     knowledgeContext = '',
     clientMemoryContext = '',
     liveLeadContextBlock = '',
+    conversationHistory: AiHistoryMessage[] = [],
   ): string {
     const { aiSettings, companyName, properties, lead } = request;
     const stageConfig = getStageConfig(state.stage);
@@ -403,6 +423,8 @@ export class AIService {
       state.commitments.propertyTypeConfirmed ? '✅ Property Type' : '❌ Property Type',
       state.commitments.visitSlotDiscussed ? '✅ Visit Discussed' : '❌ Visit Discussed',
     ].join(' | ');
+
+    const recentConversationBlock = this.formatRecentConversationBlock(conversationHistory);
 
     return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
 ${liveLeadContextBlock ? `\n${liveLeadContextBlock}\n` : ''}
@@ -437,6 +459,8 @@ ${buildRealEstateAssistantPolicyPrompt()}
 7. ONE clear call-to-action per message.
 8. Keep responses under 200 words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
+8c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".
+8d. If RECENT CONVERSATION exists below, continue naturally — NEVER welcome the customer again or re-introduce yourself.
 9. ${state.stage === 'rapport' ? 'Ask ONE warm open question about what they are looking for (area, budget, property type). Do NOT list your services or say "Here is how I can help". Open with a personal question like "What area are you exploring?" or "Looking for something to move in soon, or a long-term investment?"' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
 10. NEVER list your capabilities. NEVER say "Here's how I can help:", "I can do:", or any numbered service menu. Respond to what they actually said.
 ${this.disclaimerPromptLine(request)}
@@ -452,6 +476,8 @@ ${propertyList || 'No properties listed. Tell customer listings are being update
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ''}
 
 ${clientMemoryContext ? `\n${clientMemoryContext}\n` : ''}
+
+${recentConversationBlock ? `\n${recentConversationBlock}\n` : ''}
 
 ${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 
@@ -472,17 +498,14 @@ BRIDGE TO VALUE: "${nextAction.objectionPlaybook.bridgeToValue}"
 ${nextAction.action === 'escalate' ? this.operatorContactPromptBlock(aiSettings) : ''}
 
 ## RESPONSE FORMAT
-Respond with the WhatsApp message to send. Use *bold* for emphasis.
+Return ONLY valid JSON (no markdown fences, no extra text):
+{"reply":"<WhatsApp message with *bold* for emphasis>","extract":{"language":"en","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}}
 
 ⚠️ NEVER emit a numbered capability menu ("Here's how I can help: 1. Answer questions 2. Compare...")
 ⚠️ NEVER start with "I'm here to assist you with" or "Here's what I can do" — that is robotic.
 ✅ Instead: ask ONE warm question, or make ONE specific property observation relevant to their message.
 ✅ Use emojis sparingly (1-2 per message) to match WhatsApp's natural tone: 🏡 💬 ✅ 🗓️
-
-End your response with:
-###EXTRACT###
-{"language":"xx","budget_min":null,"budget_max":null,"location_preference":null,"property_type":null,"customer_name":null}
-(Only include fields you're confident about)
+✅ Put only confident fields in extract; use null for unknown values.
 
 ${PERSONALITY_BLOCK}`;
   }
@@ -552,8 +575,8 @@ ${PERSONALITY_BLOCK}`;
   private buildMessages(request: AIRequest): Array<{ role: string; content: string }> {
     const messages: Array<{ role: string; content: string }> = [];
 
-    // Add conversation history (last 20 messages)
-    const history = request.conversationHistory.slice(-20);
+    // Add conversation history (last N messages for mid-thread continuity)
+    const history = request.conversationHistory.slice(-BUYER_CONVERSATION_HISTORY_WINDOW);
     for (const msg of history) {
       if (msg.senderType === 'customer') {
         messages.push({ role: 'user', content: msg.content });
@@ -614,7 +637,8 @@ ${PERSONALITY_BLOCK}`;
       body: JSON.stringify({
         model: config.ai.kimi25Model,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: BUYER_LLM_TEMPERATURE,
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: systemPrompt },
           ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
@@ -654,7 +678,8 @@ ${PERSONALITY_BLOCK}`;
           model: config.ai.openaiModel,
           messages: allMessages,
           max_tokens: 1024,
-          temperature: 0.7,
+          temperature: BUYER_LLM_TEMPERATURE,
+          response_format: { type: 'json_object' },
         }),
       },
       { retries: 2, label: 'whatsapp_ai_chat' },
@@ -758,23 +783,40 @@ ${PERSONALITY_BLOCK}`;
    * Parse AI response and extract structured info.
    */
   private parseAIResponse(rawText: string): AIResponse {
-    let text = rawText;
+    let text = rawText.trim();
     let extractedInfo: AIResponse['extractedInfo'] = undefined;
     let detectedLanguage = 'en';
 
-    // Extract the ###EXTRACT### JSON block
+    const applyExtract = (info: Record<string, unknown>): void => {
+      detectedLanguage = typeof info.language === 'string' ? info.language : 'en';
+      extractedInfo = {};
+      if (info.budget_min) extractedInfo.budget_min = info.budget_min as number;
+      if (info.budget_max) extractedInfo.budget_max = info.budget_max as number;
+      if (info.location_preference) {
+        extractedInfo.location_preference = String(info.location_preference);
+      }
+      if (info.property_type) extractedInfo.property_type = String(info.property_type);
+      if (info.customer_name) extractedInfo.customer_name = String(info.customer_name);
+    };
+
+    try {
+      const parsed = JSON.parse(text) as { reply?: string; extract?: Record<string, unknown> };
+      if (typeof parsed.reply === 'string' && parsed.reply.trim()) {
+        text = parsed.reply.trim();
+        if (parsed.extract && typeof parsed.extract === 'object') {
+          applyExtract(parsed.extract);
+        }
+        return { text: stripInternalCustomerMeta(text), detectedLanguage, extractedInfo };
+      }
+    } catch {
+      // Fall through to legacy ###EXTRACT### format (Claude / older models).
+    }
+
     const extractMatch = text.match(/###EXTRACT###\s*(\{[\s\S]*?\})/);
     if (extractMatch) {
       text = text.replace(/###EXTRACT###[\s\S]*$/, '').trim();
       try {
-        const info = JSON.parse(extractMatch[1]);
-        detectedLanguage = info.language || 'en';
-        extractedInfo = {};
-        if (info.budget_min) extractedInfo.budget_min = info.budget_min;
-        if (info.budget_max) extractedInfo.budget_max = info.budget_max;
-        if (info.location_preference) extractedInfo.location_preference = info.location_preference;
-        if (info.property_type) extractedInfo.property_type = info.property_type;
-        if (info.customer_name) extractedInfo.customer_name = info.customer_name;
+        applyExtract(JSON.parse(extractMatch[1]) as Record<string, unknown>);
       } catch {
         logger.warn('Failed to parse AI extraction block');
       }

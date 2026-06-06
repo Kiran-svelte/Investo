@@ -222,7 +222,7 @@ export async function updateLeadStatusVisitScheduled(ctx: ActionContext) {
   const okTransition = await transitionLeadStatus(leadId, 'visit_scheduled', { force: false });
   if (!okTransition) return skip();
   ctx.state.newStatus = 'visit_scheduled';
-  return ok('Lead marked visit_scheduled.');
+  return skip();
 }
 
 export async function updateLeadStatusVisited(ctx: ActionContext) {

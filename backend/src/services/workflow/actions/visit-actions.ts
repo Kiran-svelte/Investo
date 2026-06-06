@@ -314,7 +314,7 @@ export async function scheduleVisitReminders(ctx: ActionContext) {
       await automationQueueService.schedule('visit_reminder_1h', visitId, at1h, payload);
     }
     logger.info('Visit reminders scheduled', { visitId, at24h, at1h });
-    return ok('Visit reminders scheduled.');
+    return skip();
   } catch (err: unknown) {
     logger.warn('scheduleVisitReminders failed', {
       visitId,

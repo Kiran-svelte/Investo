@@ -1071,6 +1071,103 @@ class WhatsAppService {
                         customerPhone,
                         recentCustomerMessages,
                     });
+                    const { isBuyerRapportMessage, isBuyerQualificationStatement, buildBuyerRapportReply, buildBuyerQualificationAckReply, patchLeadMemoryFromQualification, } = await Promise.resolve().then(() => __importStar(require('./buyerQualification.service')));
+                    const { isBuyerMemoryRecallQuery, buildBuyerMemoryRecallReply } = await Promise.resolve().then(() => __importStar(require('./buyerMemoryRecall.service')));
+                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerRapportMessage(msg.messageText)) {
+                        const rapportReply = buildBuyerRapportReply(company.name);
+                        await prisma_1.default.message.create({
+                            data: { conversationId: conversation.id, senderType: 'ai', content: rapportReply, status: 'sent' },
+                        });
+                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                            await this.sendMessage(customerPhone, rapportReply, whatsappConfig);
+                        }
+                        return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
+                    }
+                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerQualificationStatement(msg.messageText)) {
+                        const delta = await patchLeadMemoryFromQualification(lead.id, msg.messageText);
+                        const qualReply = buildBuyerQualificationAckReply(delta);
+                        await prisma_1.default.message.create({
+                            data: { conversationId: conversation.id, senderType: 'ai', content: qualReply, status: 'sent' },
+                        });
+                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                            await this.sendMessage(customerPhone, qualReply, whatsappConfig);
+                        }
+                        void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory }) => extractAndPatchLeadMemory({ leadId: lead.id, messageText: msg.messageText, outboundText: qualReply }));
+                        return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
+                    }
+                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerMemoryRecallQuery(msg.messageText)) {
+                        const memoryReply = await buildBuyerMemoryRecallReply(lead.id);
+                        if (memoryReply) {
+                            await prisma_1.default.message.create({
+                                data: {
+                                    conversationId: conversation.id,
+                                    senderType: 'ai',
+                                    content: memoryReply,
+                                    status: 'sent',
+                                },
+                            });
+                            if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                                await this.sendMessage(customerPhone, memoryReply, whatsappConfig);
+                            }
+                            void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory }) => extractAndPatchLeadMemory({
+                                leadId: lead.id,
+                                messageText: msg.messageText,
+                                outboundText: memoryReply,
+                            }));
+                            return {
+                                status: 'processed',
+                                companyId,
+                                leadId: lead.id,
+                                conversationId: conversation.id,
+                                propagation,
+                            };
+                        }
+                    }
+                    // Deterministic visit-status replies — no LLM, no workflow classifier.
+                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && (0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText)) {
+                        const visitReply = await (0, buyerVisitQuery_service_1.buildBuyerVisitStatusReply)({
+                            leadId: lead.id,
+                            companyId,
+                            companyName: company.name,
+                        });
+                        await prisma_1.default.message.create({
+                            data: {
+                                conversationId: conversation.id,
+                                senderType: 'ai',
+                                content: visitReply,
+                                status: 'sent',
+                            },
+                        });
+                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                            await this.sendMessage(customerPhone, visitReply, whatsappConfig);
+                        }
+                        await prisma_1.default.conversation.update({
+                            where: { id: conversation.id },
+                            data: {
+                                stage: 'confirmation',
+                                escalationReason: null,
+                            },
+                        });
+                        await this.sendContextualQuickReplies(customerPhone, 'confirmation', {
+                            propertyId: conversation.selectedPropertyId,
+                            hasActiveVisit: Boolean(liveCtx.activeVisit),
+                            visitStatus: liveCtx.activeVisit?.status,
+                            visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+                            visitTime: liveCtx.activeVisit
+                                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
+                                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
+                                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+                                })
+                                : undefined,
+                        }, whatsappConfig);
+                        return {
+                            status: 'processed',
+                            companyId,
+                            leadId: lead.id,
+                            conversationId: conversation.id,
+                            propagation,
+                        };
+                    }
                     // Only run buyer workflow when visit fast-path did not already mutate state.
                     // Running both causes a double-write race (fast-path saves correct time, workflow overwrites with stale params).
                     let buyerWorkflowReply;
@@ -1103,6 +1200,12 @@ class WhatsAppService {
                             propertyId: conversation.selectedPropertyId ?? undefined,
                             companyName: company.name,
                             sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
+                            activeVisit: liveCtx.activeVisit
+                                ? {
+                                    visitId: liveCtx.activeVisit.visitId,
+                                    propertyName: liveCtx.activeVisit.propertyName,
+                                }
+                                : null,
                         });
                     }
                     if (buyerWorkflowReply?.trim()) {
@@ -1135,6 +1238,23 @@ class WhatsAppService {
                                     : undefined,
                             }, whatsappConfig);
                         }
+                        void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory, inferBuyerWorkflowIdFromMessage }) => extractAndPatchLeadMemory({
+                            leadId: lead.id,
+                            messageText: msg.messageText,
+                            outboundText: buyerWorkflowReply,
+                            workflowId: visitCommit.workflowSuggestion?.workflowId
+                                ?? inferBuyerWorkflowIdFromMessage(msg.messageText),
+                            liveCtx: liveCtx.activeVisit
+                                ? {
+                                    activeVisit: {
+                                        visitId: liveCtx.activeVisit.visitId,
+                                        propertyName: liveCtx.activeVisit.propertyName,
+                                        scheduledAt: liveCtx.activeVisit.scheduledAt,
+                                        status: liveCtx.activeVisit.status,
+                                    },
+                                }
+                                : null,
+                        }));
                         return {
                             status: 'processed',
                             companyId,
@@ -1193,51 +1313,29 @@ class WhatsAppService {
                             leadId: lead.id,
                             trigger: 'visit_booked',
                         });
-                        return {
-                            status: 'processed',
-                            companyId,
+                        void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory }) => extractAndPatchLeadMemory({
                             leadId: lead.id,
-                            conversationId: conversation.id,
-                            propagation,
-                        };
-                    }
-                    // Deterministic visit-status replies — no LLM, no escalation (ai.md §3 & §5).
-                    if ((0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText)) {
-                        const visitReply = await (0, buyerVisitQuery_service_1.buildBuyerVisitStatusReply)({
-                            leadId: lead.id,
-                            companyId,
-                            companyName: company.name,
-                        });
-                        await prisma_1.default.message.create({
-                            data: {
-                                conversationId: conversation.id,
-                                senderType: 'ai',
-                                content: visitReply,
-                                status: 'sent',
+                            messageText: msg.messageText,
+                            outboundText: visitCommit.customerReply,
+                            workflowId: visitCommit.mode === 'cancelled' ? 'cancel_visit' : 'schedule_visit',
+                            visitCommit: {
+                                committed: true,
+                                visitId: visitCommit.visitId,
+                                scheduledAt: visitCommit.scheduledAt,
+                                mode: visitCommit.mode,
+                                propertyName: liveCtx.activeVisit?.propertyName ?? null,
                             },
-                        });
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                            await this.sendMessage(customerPhone, visitReply, whatsappConfig);
-                        }
-                        await prisma_1.default.conversation.update({
-                            where: { id: conversation.id },
-                            data: {
-                                stage: 'confirmation',
-                                escalationReason: null,
-                            },
-                        });
-                        await this.sendContextualQuickReplies(customerPhone, 'confirmation', {
-                            propertyId: conversation.selectedPropertyId,
-                            hasActiveVisit: Boolean(liveCtx.activeVisit),
-                            visitStatus: liveCtx.activeVisit?.status,
-                            visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-                            visitTime: liveCtx.activeVisit
-                                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
-                                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
-                                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
-                                })
-                                : undefined,
-                        }, whatsappConfig);
+                            liveCtx: liveCtx.activeVisit
+                                ? {
+                                    activeVisit: {
+                                        visitId: liveCtx.activeVisit.visitId,
+                                        propertyName: liveCtx.activeVisit.propertyName,
+                                        scheduledAt: liveCtx.activeVisit.scheduledAt,
+                                        status: liveCtx.activeVisit.status,
+                                    },
+                                }
+                                : null,
+                        }));
                         return {
                             status: 'processed',
                             companyId,
@@ -1269,8 +1367,18 @@ class WhatsAppService {
                             take: 20,
                         });
                     const customerMessageCount = history.filter((m) => m.senderType === 'customer').length + 1;
-                    const { buildConversationContextBlock } = await Promise.resolve().then(() => __importStar(require('./conversation-summary.service')));
-                    const conversationContextBlock = await buildConversationContextBlock(conversation.id, lead.id, companyId);
+                    let conversationContextBlock = '';
+                    try {
+                        const { buildConversationContextBlock } = await Promise.resolve().then(() => __importStar(require('./conversation-summary.service')));
+                        conversationContextBlock = await buildConversationContextBlock(conversation.id, lead.id, companyId);
+                    }
+                    catch (err) {
+                        logger_1.default.warn('Conversation context block skipped', {
+                            leadId: lead.id,
+                            conversationId: conversation.id,
+                            error: err instanceof Error ? err.message : String(err),
+                        });
+                    }
                     const aiResponse = await Promise.race([
                         ai_service_1.aiService.generateResponse({
                             companyId,
@@ -1564,6 +1672,23 @@ class WhatsAppService {
                         conversationId: conversation.id,
                         language: aiResponse.detectedLanguage,
                     });
+                    void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory, inferBuyerWorkflowIdFromMessage }) => extractAndPatchLeadMemory({
+                        leadId: lead.id,
+                        messageText: msg.messageText,
+                        outboundText,
+                        aiExtractedInfo: aiResponse.extractedInfo ?? null,
+                        workflowId: inferBuyerWorkflowIdFromMessage(msg.messageText),
+                        liveCtx: liveCtx.activeVisit
+                            ? {
+                                activeVisit: {
+                                    visitId: liveCtx.activeVisit.visitId,
+                                    propertyName: liveCtx.activeVisit.propertyName,
+                                    scheduledAt: liveCtx.activeVisit.scheduledAt,
+                                    status: liveCtx.activeVisit.status,
+                                },
+                            }
+                            : null,
+                    }));
                 }
                 catch (err) {
                     logger_1.default.error('AI response generation failed', {

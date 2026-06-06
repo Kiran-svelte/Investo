@@ -406,9 +406,9 @@ const config = {
         maxToolCalls: parseInt(process.env.AGENT_AI_MAX_TOOL_CALLS || '10', 10),
         threadTtlHours: parseInt(process.env.AGENT_AI_THREAD_TTL_HOURS || '24', 10),
         confirmationTtlMinutes: parseInt(process.env.AGENT_AI_CONFIRMATION_TTL_MINUTES || '5', 10),
-        messageWindowSize: parseInt(process.env.AGENT_AI_MESSAGE_WINDOW || '20', 10),
+        messageWindowSize: parseInt(process.env.AGENT_AI_MESSAGE_WINDOW || '10', 10),
         cronEnabled: process.env.AGENT_AI_CRON_ENABLED !== 'false',
-        temperature: parseFloat(process.env.AGENT_AI_TEMPERATURE || '0.1'),
+        temperature: parseFloat(process.env.AGENT_AI_TEMPERATURE || '0'),
     },
     storage: {
         provider: process.env.STORAGE_PROVIDER || 'aws',

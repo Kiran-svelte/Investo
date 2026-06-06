@@ -117,11 +117,14 @@ function extractPropertyMentionFromReply(outbound: string): Array<{ name: string
   const amenitiesShown = /amenities|pool|gym|club|garden/i.test(outbound);
 
   // Extract project name — matches bold names or "* [Name]*" WhatsApp formatting.
+  const denyPropertyName =
+    /^(visit scheduled|visit rescheduled|your visit|confirm|reschedule|cancel|property|specialist|amogh sales)$/i;
+
   const namePattern = /\*([A-Z][a-zA-Z\s]{3,40})\*/g;
   let match = namePattern.exec(outbound);
   while (match !== null) {
     const name = match[1].trim();
-    if (name.length > 3 && name.length < 50) {
+    if (name.length > 3 && name.length < 50 && !denyPropertyName.test(name)) {
       const factsShown: string[] = [];
       if (priceShown) factsShown.push('price');
       if (brochureShown) factsShown.push('brochure');

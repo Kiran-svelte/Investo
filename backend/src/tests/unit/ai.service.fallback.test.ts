@@ -134,5 +134,63 @@ describe('AIService fallback behavior', () => {
     expect(systemPrompt).toContain('YOUR ROLE');
     expect(systemPrompt).toContain('AI LIMITS');
     expect(systemPrompt).toContain('Finalize or negotiate price');
+    expect(body.temperature).toBe(0);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(systemPrompt).toContain('NEVER invent errors');
+    expect(systemPrompt).toContain('RECENT CONVERSATION');
+  });
+
+  test('parses structured JSON reply from the LLM', async () => {
+    (global as any).fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                reply: 'Great — Whitefield works well for your budget.',
+                extract: {
+                  language: 'en',
+                  location_preference: 'Whitefield',
+                },
+              }),
+            },
+          },
+        ],
+      }),
+    });
+
+    const aiService = loadAiService({
+      db: { url: 'postgresql://test', ssl: false },
+      ai: {
+        provider: 'openai',
+        openaiApiKey: 'test-openai-key',
+        openaiModel: 'gpt-4o',
+        kimiApiKey: '',
+        claudeApiKey: '',
+      },
+    });
+
+    const response = await aiService.generateResponse({
+      customerMessage: 'I prefer Whitefield',
+      conversationHistory: [
+        { senderType: 'customer', content: 'Hi' },
+        { senderType: 'ai', content: 'What area are you exploring?' },
+      ],
+      lead: {
+        customerName: 'Rajesh Kumar',
+        budgetMin: null,
+        budgetMax: null,
+        locationPreference: null,
+        propertyType: null,
+      },
+      properties: [],
+      aiSettings: {},
+      companyName: 'Investo',
+      conversationState: undefined,
+    });
+
+    expect(response.text).toContain('Whitefield');
+    expect(response.extractedInfo?.location_preference).toBe('Whitefield');
   });
 });
