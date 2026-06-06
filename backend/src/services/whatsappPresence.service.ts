@@ -2,7 +2,7 @@ import config from '../config';
 import logger from '../config/logger';
 
 export interface WhatsAppPresenceConfig {
-  provider?: 'meta' | 'greenapi';
+  provider?: 'meta';
   phoneNumberId?: string;
   accessToken?: string;
 }
@@ -21,16 +21,13 @@ function normalizeTo(to: string): string {
 }
 
 /**
- * Meta Cloud API typing indicator (best-effort). GreenAPI: no-op.
+ * Meta Cloud API typing indicator (best-effort).
  * @see https://developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators
  */
 export async function sendTypingIndicator(
   to: string,
   whatsappConfig: WhatsAppPresenceConfig,
 ): Promise<void> {
-  const provider = whatsappConfig.provider ?? 'meta';
-  if (provider !== 'meta') return;
-
   const phoneNumberId = whatsappConfig.phoneNumberId;
   const accessToken = whatsappConfig.accessToken;
   if (!phoneNumberId || !accessToken) return;

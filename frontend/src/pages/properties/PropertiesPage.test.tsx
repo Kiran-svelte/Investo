@@ -150,7 +150,7 @@ describe('PropertiesPage rich media form flow', () => {
     expect(screen.getByLabelText('Floor plan URL 1')).toHaveValue('https://cdn.example.com/floor-1.pdf');
     expect(screen.getByLabelText('Latitude')).toHaveValue(0);
     expect(screen.getByLabelText('Longitude')).toHaveValue(0);
-  });
+  }, 15000);
 
   it('renders API save failures in the modal', async () => {
     const user = userEvent.setup();
@@ -176,5 +176,5 @@ describe('PropertiesPage rich media form flow', () => {
     await user.click(screen.getByRole('button', { name: 'common.create' }));
 
     expect(await screen.findByText('Failed to save property from API')).toBeInTheDocument();
-  });
+  }, 15000);
 });

@@ -52,7 +52,7 @@ describe('automation post-visit follow-up', () => {
       company: {
         whatsappPhone: '+911',
         settings: {
-          whatsapp: { provider: 'greenapi', greenapi: { idInstance: '1', apiTokenInstance: 't' } },
+          whatsapp: { provider: 'meta', meta: { phoneNumberId: 'phone-1', accessToken: 'token-1' } },
         },
       },
     });
@@ -87,7 +87,7 @@ describe('automation post-visit follow-up', () => {
       company: {
         whatsappPhone: '+911',
         settings: {
-          whatsapp: { provider: 'greenapi', greenapi: { idInstance: '1', apiTokenInstance: 't' } },
+          whatsapp: { provider: 'meta', meta: { phoneNumberId: 'phone-1', accessToken: 'token-1' } },
         },
       },
     });

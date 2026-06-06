@@ -301,7 +301,7 @@ async function alertCompanyAdminsCronFailure(cronName, error, affectedCompanyIds
     }
     await notifyAdminsByRole(cronName, error, { role: 'company_admin', companyId: { in: companyIds } });
 }
-/** Mark visits as no-show 30 minutes after scheduled time; ask agents YES/NO attendance. */
+/** Ask agents to confirm attendance after the visit grace period; do not mark no-show until they answer. */
 async function detectAndMarkNoShows() {
     const affected = trackCompanyIds();
     const cutoff = new Date(Date.now() - NO_SHOW_GRACE_MS);
@@ -314,7 +314,16 @@ async function detectAndMarkNoShows() {
     });
     for (const visit of visits) {
         affected.add(visit.companyId);
-        await prisma_1.default.visit.update({ where: { id: visit.id }, data: { status: 'no_show' } });
+        const existingAction = await prisma_1.default.pendingAction.findFirst({
+            where: {
+                actionType: 'attendance_check',
+                status: 'awaiting',
+                actionParams: { path: ['visitId'], equals: visit.id },
+            },
+            select: { id: true },
+        });
+        if (existingAction)
+            continue;
         void (0, agent_action_log_service_1.logAgentAction)({
             companyId: visit.companyId,
             triggeredBy: 'cron',
@@ -322,7 +331,7 @@ async function detectAndMarkNoShows() {
             resourceType: 'visit',
             resourceId: visit.id,
             status: 'success',
-            result: `Marked no_show for ${visit.lead?.customerName ?? 'visit'}`,
+            result: `Attendance check requested for ${visit.lead?.customerName ?? 'visit'}`,
         });
         if (!visit.agent.phone)
             continue;
@@ -357,15 +366,14 @@ async function detectAndMarkNoShows() {
                 expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
             },
         });
-        await sendNotification(visit.agent.phone, visit.companyId, [
-            `*Attendance Check Required*`,
-            `Visit: ${visit.lead?.customerName ?? 'Unknown'} \u2014 ${visit.property?.name ?? 'TBD'}`,
-            `Scheduled: ${(0, response_formatter_service_1.formatDateIST)(visit.scheduledAt)} ${(0, response_formatter_service_1.formatTimeIST)(visit.scheduledAt)}`,
-            ``,
-            `Did the customer show up?`,
-            `Reply *YES* if they came \u2705`,
-            `Reply *NO* if they didn\u2019t \u274C`,
-        ].join('\n'));
+        const { sendAttendanceCheck } = await Promise.resolve().then(() => __importStar(require('../attendanceWorkflow.service')));
+        await sendAttendanceCheck({
+            id: visit.id,
+            companyId: visit.companyId,
+            scheduledAt: visit.scheduledAt,
+            customerName: visit.lead?.customerName,
+            propertyName: visit.property?.name,
+        }, { phone: visit.agent.phone, companyId: visit.companyId });
     }
     return affected.result();
 }
@@ -428,16 +436,14 @@ async function sendEodAttendanceChecks() {
                 expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
             },
         });
-        await sendNotification(visit.agent.phone, visit.companyId, [
-            `\uD83C\uDF07 *End-of-Day Attendance Check*`,
-            ``,
-            `Visit: *${visit.lead?.customerName ?? 'Unknown'}*`,
-            `Property: ${visit.property?.name ?? 'TBD'}`,
-            `Time: ${(0, response_formatter_service_1.formatTimeIST)(visit.scheduledAt)}`,
-            ``,
-            `Did they show up today?`,
-            `Reply *YES* \u2705 or *NO* \u274C`,
-        ].join('\n'));
+        const { sendAttendanceCheck } = await Promise.resolve().then(() => __importStar(require('../attendanceWorkflow.service')));
+        await sendAttendanceCheck({
+            id: visit.id,
+            companyId: visit.companyId,
+            scheduledAt: visit.scheduledAt,
+            customerName: visit.lead?.customerName,
+            propertyName: visit.property?.name,
+        }, { phone: visit.agent.phone, companyId: visit.companyId });
         void (0, agent_action_log_service_1.logAgentAction)({
             companyId: visit.companyId,
             triggeredBy: 'cron',
@@ -621,6 +627,76 @@ async function purgeActionLogCron() {
     logger_1.default.info('AgentActionLog purge completed', { deleted });
     return {};
 }
+/**
+ * G13 — Nightly conversation summary cron.
+ *
+ * For each lead that had WhatsApp activity in the last 24 hours, extract the
+ * most recent messages (up to 10) and patch `lead_memory.conversationSummary`
+ * with a compact plain-text digest. This preserves long-thread continuity for
+ * the buyer AI so it never needs to ask the same questions again.
+ *
+ * Design:
+ *   - Idempotent: processing the same lead twice overwrites with identical text.
+ *   - Capped at 200 leads per run to prevent memory spikes on large tenants.
+ *   - Never touches leads with no recent activity (no wasted DB writes).
+ *   - All errors are caught per-lead; one bad lead does not abort the batch.
+ *
+ * @returns CronRunResult with affected company IDs.
+ */
+async function refreshNightlyConversationSummaries() {
+    const affected = trackCompanyIds();
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Find leads with recent inbound messages — these are the ones whose
+    // conversationSummary is most likely to be stale.
+    const activeLeads = await prisma_1.default.lead.findMany({
+        where: {
+            conversations: {
+                some: {
+                    messages: {
+                        some: { createdAt: { gte: since }, senderType: 'customer' },
+                    },
+                },
+            },
+        },
+        select: { id: true, companyId: true, customerName: true },
+        take: 200,
+    });
+    logger_1.default.info('refreshNightlyConversationSummaries started', { leadCount: activeLeads.length });
+    const { patchLeadMemory } = await Promise.resolve().then(() => __importStar(require('../lead-memory.service')));
+    for (const lead of activeLeads) {
+        try {
+            // Fetch the latest messages for this lead from the most recent conversation.
+            const recentMessages = await prisma_1.default.message.findMany({
+                where: { conversation: { leadId: lead.id } },
+                orderBy: { createdAt: 'desc' },
+                take: 10,
+                select: { content: true, senderType: true, createdAt: true },
+            });
+            if (!recentMessages.length)
+                continue;
+            const summaryLines = recentMessages
+                .reverse()
+                .map((m) => {
+                const role = m.senderType === 'customer' ? 'Buyer' : m.senderType === 'ai' ? 'AI' : 'Agent';
+                return `${role}: ${m.content.slice(0, 100)}`;
+            });
+            const summary = summaryLines.join(' | ').slice(0, 400);
+            await patchLeadMemory(lead.id, { conversationSummary: summary });
+            affected.add(lead.companyId);
+        }
+        catch (leadErr) {
+            logger_1.default.warn('refreshNightlyConversationSummaries: lead failed', {
+                leadId: lead.id,
+                error: leadErr instanceof Error ? leadErr.message : String(leadErr),
+            });
+        }
+    }
+    logger_1.default.info('refreshNightlyConversationSummaries completed', {
+        processed: activeLeads.length,
+        affectedCompanies: [...new Set(activeLeads.map((l) => l.companyId))].length,
+    });
+    return affected.result();
+}
 async function runConfirmationCleanup() {
     await (0, confirmation_service_1.cleanupExpiredConfirmations)();
     return {};
@@ -688,7 +764,9 @@ function startCronScheduler() {
     // EOD attendance check — 7:00 PM IST = 13:30 UTC. Asks agents YES/NO for unresolved visits.
     node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.EOD_ATTENDANCE_CHECK, wrap('eodAttendanceChecks', sendEodAttendanceChecks)), 
     // Workflow saga reconciliation — nightly 2:30 AM IST. Alerts on needs_reconciliation runs.
-    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.WORKFLOW_RECONCILIATION_CHECK, wrap('reconcileWorkflowRuns', reconcileWorkflowRuns)));
+    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.WORKFLOW_RECONCILIATION_CHECK, wrap('reconcileWorkflowRuns', reconcileWorkflowRuns)), 
+    // G13: Nightly conversation summary — 2:10 AM IST. Patches lead_memory.conversationSummary.
+    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.NIGHTLY_CONVERSATION_SUMMARY, wrap('refreshNightlyConversationSummaries', refreshNightlyConversationSummaries)));
     logger_1.default.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }
 function stopCronScheduler() {

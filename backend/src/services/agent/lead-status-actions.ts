@@ -37,6 +37,20 @@ export async function updateLeadStatusById(
     return { handled: true, reply: message, leadId, requiresConfirmation: true };
   }
 
+  if (status === 'visited' && lead.status !== 'visited') {
+    const completedVisit = await prisma.visit.findFirst({
+      where: { leadId, companyId: context.companyId, status: 'completed' },
+      select: { id: true },
+    });
+    if (!completedVisit) {
+      return {
+        handled: true,
+        reply: 'Cannot mark this lead as visited until a visit is completed. Use "complete visit" after confirming attendance.',
+        leadId,
+      };
+    }
+  }
+
   const force = context.userRole === 'company_admin' || context.userRole === 'super_admin';
   const ok = await transitionLeadStatus(leadId, status, { force });
   if (!ok) {

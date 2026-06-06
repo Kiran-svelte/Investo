@@ -35,10 +35,18 @@ describe('copilotShortcut.util', () => {
     expect(resolveStaffCopilotQuickActions({ replyKind: 'crm', outboundText: 'Dashboard stats' })).toBeNull();
   });
 
-  it('returns visit action shortcuts after visit-related replies', () => {
+  it('suppresses visit action shortcuts after successful visit mutation replies', () => {
     const actions = resolveStaffCopilotQuickActions({
       replyKind: 'workflow',
       outboundText: 'Visit scheduled for tomorrow at 10am',
+    });
+    expect(actions).toBeNull();
+  });
+
+  it('returns visit action shortcuts only when the reply is asking for a visit selection', () => {
+    const actions = resolveStaffCopilotQuickActions({
+      replyKind: 'workflow',
+      outboundText: 'Which visit should I update? Share visit ID or describe the booking.',
     });
     expect(actions?.map((a) => a.id)).toEqual([
       'copilot-confirm-visit',

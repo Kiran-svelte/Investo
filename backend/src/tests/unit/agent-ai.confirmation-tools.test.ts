@@ -11,6 +11,9 @@ const mockPrisma = {
     delete: jest.fn(),
     update: jest.fn(),
   },
+  agentActionLog: {
+    create: jest.fn(),
+  },
   visit: {
     findFirst: jest.fn(),
     update: jest.fn(),
@@ -47,7 +50,7 @@ describe('Agent AI confirmation workflow', () => {
     jest.clearAllMocks();
   });
 
-  it('confirms and executes a pending lead deletion with company scoping', async () => {
+  it('confirms and executes a pending lead soft deletion with company scoping', async () => {
     mockPrisma.pendingAction.findFirst.mockResolvedValue({
       id: 'pending-1',
       actionType: 'deleteLead',
@@ -63,7 +66,7 @@ describe('Agent AI confirmation workflow', () => {
       session: { companyId: 'company-1' },
     });
     mockPrisma.lead.findFirst.mockResolvedValue({ id: 'lead-1', customerName: 'A Lead' });
-    mockPrisma.lead.delete.mockResolvedValue({ id: 'lead-1' });
+    mockPrisma.lead.update.mockResolvedValue({ id: 'lead-1', status: 'closed_lost' });
 
     const confirmation = await checkAndResolvePendingConfirmation('session-1', 'yes');
     expect(confirmation).toEqual(expect.objectContaining({
@@ -77,11 +80,15 @@ describe('Agent AI confirmation workflow', () => {
     });
 
     const result = await executePendingAction('pending-1');
-    expect(result).toBe('Deleted lead A Lead.');
+    expect(result).toBe('Closed lead A Lead (marked as lost).');
     expect(mockPrisma.lead.findFirst).toHaveBeenCalledWith({
       where: { id: 'lead-1', companyId: 'company-1' },
       select: { id: true, customerName: true },
     });
-    expect(mockPrisma.lead.delete).toHaveBeenCalledWith({ where: { id: 'lead-1' } });
+    expect(mockPrisma.lead.update).toHaveBeenCalledWith({
+      where: { id: 'lead-1' },
+      data: { status: 'closed_lost' },
+    });
+    expect(mockPrisma.lead.delete).not.toHaveBeenCalled();
   });
 });

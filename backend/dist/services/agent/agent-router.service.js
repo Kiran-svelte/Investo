@@ -39,13 +39,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.agentRouterService = void 0;
 exports.routeIfInternalUserForCompany = routeIfInternalUserForCompany;
 exports.routeIfInternalUser = routeIfInternalUser;
+exports.handleAgentMessage = handleAgentMessage;
 const config_1 = __importDefault(require("../../config"));
 const logger_1 = __importDefault(require("../../config/logger"));
 const maskPhoneNumberForLogs_1 = require("../../utils/maskPhoneNumberForLogs");
 const phoneMatch_1 = require("../../utils/phoneMatch");
 const copilotGreeting_util_1 = require("../../utils/copilotGreeting.util");
 const copilotShortcut_util_1 = require("../../utils/copilotShortcut.util");
+const copilotButtonPolicy_service_1 = require("../copilot/copilotButtonPolicy.service");
+const attendanceWorkflow_service_1 = require("../attendanceWorkflow.service");
 const inboundMessageGuard_service_1 = require("../inboundMessageGuard.service");
+const outboundTurnDebug_service_1 = require("../outboundTurnDebug.service");
 /**
  * Builds a deterministic welcome/help message for the agent copilot.
  * Shown whenever a staff user sends a greeting or "help" command.
@@ -56,13 +60,13 @@ const inboundMessageGuard_service_1 = require("../inboundMessageGuard.service");
  */
 function buildCopilotWelcomeMessage(userName, companyName) {
     const name = userName.trim() || 'there';
-    return (`👋 *Hi ${name}!* Welcome to *Investo Copilot* for *${companyName}*.\n\n` +
+    return (`*Hi ${name}!* Welcome to *Investo Copilot* for *${companyName}*.\n\n` +
         `I can help you with:\n` +
-        `• 📅 *Visits* — "visits today", "visits tomorrow", "visits on 6th June"\n` +
-        `• 👥 *Leads* — "new leads today", "get lead Rahul", "update lead status"\n` +
-        `• 🏠 *Properties* — "list properties", "property details"\n` +
-        `• 📊 *Analytics* — "dashboard stats", "my performance"\n` +
-        `• ✅ *Actions* — "confirm visit", "mark lead visited", "send brochure"\n\n` +
+        `- *Visits* - "visits today", "visits tomorrow", "visits on 6th June"\n` +
+        `- *Leads* - "new leads today", "get lead Rahul", "update lead status"\n` +
+        `- *Properties* - "list properties", "property details"\n` +
+        `- *Analytics* - "dashboard stats", "my performance"\n` +
+        `- *Actions* - "confirm visit", "mark lead visited", "send brochure"\n\n` +
         `Just type your command or tap a shortcut below.`);
 }
 async function getPrisma() {
@@ -101,9 +105,38 @@ async function sendWhatsAppResponse(phone, companyId, message) {
     };
     await whatsappService.sendMessage(phone, message, outboundConfig);
 }
+/** Fire-and-forget lead_memory patch + RAG sync after staff copilot exchanges. */
+async function patchStaffCopilotLeadMemory(leadId, lastIntent, inboundText, outboundText) {
+    if (!leadId)
+        return;
+    const { patchLeadMemory } = await Promise.resolve().then(() => __importStar(require('../lead-memory.service')));
+    const { syncLeadClientMemory } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
+    void patchLeadMemory(leadId, {
+        lastIntent,
+        conversationSummary: `${inboundText.slice(0, 80)} → ${outboundText.slice(0, 120)}`,
+    }).catch(() => undefined);
+    syncLeadClientMemory(leadId).catch(() => undefined);
+}
+/**
+ * Core staff copilot handler. Routes a normalized staff WhatsApp message through the
+ * full AI pipeline: greeting fast-path → pending confirmations → deterministic CRM →
+ * workflow LLM → intent orchestrator → LangGraph → deterministic fallback.
+ *
+ * G2 (staff): After every patchLeadMemory call, syncLeadClientMemory is called
+ * fire-and-forget so the RAG vector index stays within one cycle of lead_memory.
+ *
+ * @param user - Authenticated staff user from company membership lookup.
+ * @param messageText - Raw inbound WhatsApp text.
+ * @param interactiveId - Optional interactive button/list ID from the WhatsApp payload.
+ * @param inboundMessageId - Optional WhatsApp message ID used for deduplication.
+ * @returns The reply text and its classification kind.
+ */
 async function handleAgentMessage(user, messageText, interactiveId, inboundMessageId) {
-    const resolvedCommand = (0, copilotShortcut_util_1.resolveCopilotInboundCommand)({ interactiveId, messageText });
+    const attendanceCommand = (0, attendanceWorkflow_service_1.resolveAttendanceButtonCommand)(interactiveId);
+    const resolvedCommand = attendanceCommand
+        ?? (0, copilotShortcut_util_1.resolveCopilotInboundCommand)({ interactiveId, messageText });
     const normalizedText = (0, copilotGreeting_util_1.normalizeCopilotInboundText)(resolvedCommand);
+    const isViewer = user.userRole === 'viewer';
     // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
     if ((0, copilotGreeting_util_1.isCopilotGreeting)(normalizedText)) {
         return {
@@ -117,8 +150,31 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
     const { invokeAgent } = await Promise.resolve().then(() => __importStar(require('./agent-graph.service')));
     const threadId = await getOrCreateThreadId(user.userId, user.phone, user.companyId);
     const session = await prisma.agentSession.findUnique({ where: { threadId } });
+    if (session && attendanceCommand === 'reschedule') {
+        const pendingAttendance = await prisma.pendingAction.findFirst({
+            where: {
+                sessionId: session.id,
+                actionType: 'attendance_check',
+                status: 'awaiting',
+                expiresAt: { gt: new Date() },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        if (pendingAttendance) {
+            const params = (pendingAttendance.actionParams ?? {});
+            const customerName = typeof params.customerName === 'string' ? params.customerName : 'the customer';
+            await prisma.pendingAction.update({
+                where: { id: pendingAttendance.id },
+                data: { status: 'expired', resolvedAt: new Date() },
+            });
+            return {
+                text: `To reschedule ${customerName}'s visit, type "reschedule visit ${customerName}".`,
+                replyKind: 'confirmation',
+            };
+        }
+    }
     if (session) {
-        const confirmation = await checkAndResolvePendingConfirmation(session.id, messageText);
+        const confirmation = await checkAndResolvePendingConfirmation(session.id, resolvedCommand);
         if (confirmation.hasPending && confirmation.isConfirmed) {
             return {
                 text: await executePendingAction(confirmation.pendingActionId),
@@ -169,30 +225,36 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
                 inboundText: resolvedCommand || messageText,
                 outboundText: crmReply,
             });
+            if (!isViewer) {
+                await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, 'staff_copilot_crm', normalizedText, crmReply);
+            }
         }
         return { text: crmReply, replyKind: 'crm' };
     }
-    const workflowReply = await classifyAndRunWorkflow({
-        toolContext,
-        messageText: normalizedText,
-        recentMessages,
-        companyName: user.companyName,
-        sessionLeadId: sessionCtx.lastLeadId,
-        sessionVisitId: sessionCtx.lastVisitId,
-        staffPhone: user.phone,
-    });
-    if (workflowReply !== null && workflowReply !== undefined) {
-        if (session?.id) {
-            await recordAgentCopilotExchange({
-                sessionId: session.id,
-                inboundText: resolvedCommand || messageText,
-                outboundText: workflowReply,
-            });
+    if (!isViewer) {
+        const workflowReply = await classifyAndRunWorkflow({
+            toolContext,
+            messageText: normalizedText,
+            recentMessages,
+            companyName: user.companyName,
+            sessionLeadId: sessionCtx.lastLeadId,
+            sessionVisitId: sessionCtx.lastVisitId,
+            staffPhone: user.phone,
+        });
+        if (workflowReply !== null && workflowReply !== undefined) {
+            if (session?.id) {
+                await recordAgentCopilotExchange({
+                    sessionId: session.id,
+                    inboundText: resolvedCommand || messageText,
+                    outboundText: workflowReply,
+                });
+                await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, 'staff_copilot_workflow', normalizedText, workflowReply);
+            }
+            return { text: workflowReply, replyKind: 'workflow' };
         }
-        return { text: workflowReply, replyKind: 'workflow' };
     }
     const llmActive = config_1.default.agentAi?.enabled !== false && config_1.default.agentAi?.llmEnabled !== false;
-    const intentReply = llmActive
+    const intentReply = !isViewer && llmActive
         ? await classifyAndExecuteAgentIntent({
             toolContext,
             messageText: normalizedText,
@@ -211,6 +273,7 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
                 inboundText: resolvedCommand || messageText,
                 outboundText: intentReply,
             });
+            await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, 'staff_copilot_intent', normalizedText, intentReply);
         }
         return { text: intentReply, replyKind: 'intent' };
     }
@@ -250,29 +313,34 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
             sessionLeadId: sessionCtx.lastLeadId,
         });
         const helpText = deterministicFallback
-            || `📋 *Investo Copilot* (deterministic mode)\n\n` +
-                `LLM is off — these commands still work:\n` +
-                `• "visits today" • "new leads today"\n` +
-                `• "get lead [name]" • "confirm visit"\n\n` +
-                `Or use the *Investo dashboard* for advanced operations.`;
+            || (isViewer
+                ? `*Investo Copilot* (read-only)\n\n` +
+                    `You can ask:\n` +
+                    `- "visits today"\n- "new leads today"\n` +
+                    `- "get lead [name]"\n\n` +
+                    `Write actions require a sales or admin role.`
+                : `*Investo Copilot* (deterministic mode)\n\n` +
+                    `LLM is off. These commands still work:\n` +
+                    `- "visits today"\n- "new leads today"\n` +
+                    `- "get lead [name]"\n- "confirm visit"\n\n` +
+                    `Or use the *Investo dashboard* for advanced operations.`);
         if (session?.id) {
             await recordAgentCopilotExchange({
                 sessionId: session.id,
                 inboundText: resolvedCommand || messageText,
                 outboundText: helpText,
             });
-            if (sessionCtx.lastLeadId) {
-                const { patchLeadMemory } = await Promise.resolve().then(() => __importStar(require('../lead-memory.service')));
-                void patchLeadMemory(sessionCtx.lastLeadId, {
-                    lastIntent: 'staff_copilot_deterministic',
-                    conversationSummary: `${normalizedText.slice(0, 80)} → deterministic reply`,
-                }).catch(() => undefined);
+            if (!isViewer && sessionCtx.lastLeadId) {
+                await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, 'staff_copilot_deterministic', normalizedText, helpText);
             }
         }
         return { text: helpText, replyKind: deterministicFallback ? 'crm' : 'help_fallback' };
     }
     let agentReply;
     let replyKind = 'agent';
+    (0, outboundTurnDebug_service_1.logOutboundBranch)('H3', 'agent-router.service.ts:invokeAgent', 'staff_invoke_agent', {
+        textLen: normalizedText.length,
+    });
     try {
         agentReply = await invokeAgent({
             messageText: normalizedText,
@@ -302,13 +370,13 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
         }
         else {
             agentReply =
-                `⚠️ I had trouble processing that request. Here are commands that always work:\n\n` +
-                    `📅 *Visit queries*\n` +
-                    `• "visits today" • "visits tomorrow" • "visits on 6th June"\n\n` +
-                    `👥 *Lead queries*\n` +
-                    `• "new leads today" • "get lead [name]"\n\n` +
-                    `✅ *Quick actions*\n` +
-                    `• "confirm visit" • "mark lead [name] visited"\n\n` +
+                `I had trouble processing that request. These commands always work:\n\n` +
+                    `*Visit queries*\n` +
+                    `- "visits today"\n- "visits tomorrow"\n- "visits on 6th June"\n\n` +
+                    `*Lead queries*\n` +
+                    `- "new leads today"\n- "get lead [name]"\n\n` +
+                    `*Quick actions*\n` +
+                    `- "confirm visit"\n- "mark lead [name] visited"\n\n` +
                     `Or use the *Investo dashboard* for advanced operations.`;
             replyKind = 'help_fallback';
         }
@@ -327,18 +395,21 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
             inboundText: resolvedCommand || messageText,
             outboundText: agentReply,
         });
-        if (sessionCtx.lastLeadId) {
-            const { patchLeadMemory } = await Promise.resolve().then(() => __importStar(require('../lead-memory.service')));
-            void patchLeadMemory(sessionCtx.lastLeadId, {
-                lastIntent: replyKind,
-                conversationSummary: `${normalizedText.slice(0, 80)} → ${agentReply.slice(0, 120)}`,
-            }).catch(() => undefined);
+        if (!isViewer && sessionCtx.lastLeadId) {
+            await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, replyKind, normalizedText, agentReply);
         }
     }
     return { text: agentReply, replyKind };
 }
 /**
  * Agent copilot for a known company user (caller must verify company membership).
+ *
+ * @param senderPhone - Raw inbound WhatsApp phone number.
+ * @param messageText - Raw inbound message text.
+ * @param user - Authenticated company user record.
+ * @param interactiveId - Optional interactive button/list ID.
+ * @param inboundMessageId - Optional message ID for deduplication.
+ * @returns true if the message was handled by the copilot, false to fall through.
  */
 async function routeIfInternalUserForCompany(senderPhone, messageText, user, interactiveId, inboundMessageId) {
     const resolvedText = (0, copilotShortcut_util_1.resolveCopilotInboundCommand)({ interactiveId, messageText });
@@ -354,15 +425,33 @@ async function routeIfInternalUserForCompany(senderPhone, messageText, user, int
         return true;
     }
     const normalizedPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone);
+    (0, outboundTurnDebug_service_1.beginOutboundTurn)({
+        channel: 'staff',
+        inboundMessageId,
+        companyId: user.companyId,
+        route: 'staff_copilot',
+    });
     try {
         const { text: response, replyKind } = await handleAgentMessage(user, messageText, interactiveId, inboundMessageId);
-        if (await (0, inboundMessageGuard_service_1.claimStaffCopilotOutboundReply)(user.companyId, inboundMessageId)) {
+        const outboundClaimed = await (0, inboundMessageGuard_service_1.claimStaffCopilotOutboundReply)(user.companyId, inboundMessageId);
+        (0, outboundTurnDebug_service_1.logOutboundBranch)('H4', 'agent-router.service.ts:outbound', 'staff_primary_reply', {
+            replyKind,
+            outboundClaimed,
+            preview: response.slice(0, 80),
+        });
+        if (outboundClaimed) {
+            (0, outboundTurnDebug_service_1.logOutboundSend)('H4', 'agent-router.service.ts:send', 'staff_primary_text', response);
             await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
         }
-        const quickActions = (0, copilotShortcut_util_1.resolveStaffCopilotQuickActions)({ replyKind, outboundText: response });
+        const components = (0, copilotButtonPolicy_service_1.resolveCopilotComponents)({ replyKind, outboundText: response });
+        const quickActions = components[0]?.kind === 'buttons' ? components[0].buttons : null;
         if (quickActions?.length) {
+            (0, outboundTurnDebug_service_1.logOutboundBranch)('H4', 'agent-router.service.ts:quickActions', 'staff_quick_actions', {
+                count: quickActions.length,
+            });
             await sendStaffCopilotQuickActions(normalizedPhone, user.companyId, quickActions);
         }
+        (0, outboundTurnDebug_service_1.endOutboundTurn)('staff_ok');
         return true;
     }
     catch (error) {
@@ -374,6 +463,7 @@ async function routeIfInternalUserForCompany(senderPhone, messageText, user, int
         if (await (0, inboundMessageGuard_service_1.claimStaffCopilotOutboundReply)(user.companyId, inboundMessageId)) {
             await sendWhatsAppResponse(normalizedPhone, user.companyId, 'That request did not go through. Try a shorter command like "visits today" or "new leads today", or use the Investo dashboard.');
         }
+        (0, outboundTurnDebug_service_1.endOutboundTurn)('staff_error');
         return true;
     }
     finally {
@@ -383,6 +473,11 @@ async function routeIfInternalUserForCompany(senderPhone, messageText, user, int
 /**
  * @deprecated Use inboundWhatsAppRouting.routeCompanyScopedInbound with companyId.
  * Kept for backward compatibility in tests; requires companyId when possible.
+ *
+ * @param senderPhone - Raw inbound WhatsApp phone number.
+ * @param messageText - Raw inbound message text.
+ * @param companyId - Company scope for routing lookup.
+ * @returns true if the message was handled, false otherwise.
  */
 async function routeIfInternalUser(senderPhone, messageText, companyId) {
     if (!companyId) {

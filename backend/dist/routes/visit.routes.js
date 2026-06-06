@@ -17,8 +17,8 @@ const logger_1 = __importDefault(require("../config/logger"));
 const notification_engine_1 = require("../services/notification.engine");
 const visitBooking_service_1 = require("../services/visitBooking.service");
 const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
-const leadTransition_service_1 = require("../services/leadTransition.service");
 const automation_service_1 = require("../services/automation.service");
+const visitState_service_1 = require("../services/visitState.service");
 const pagination_1 = require("../utils/pagination");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
@@ -235,27 +235,45 @@ router.patch('/:id/status', (0, rbac_1.authorize)('visits', 'update'), (0, valid
             });
             return;
         }
-        const updated = await prisma_1.default.visit.update({
-            where: { id },
-            data: { status: target },
-        });
-        const leadForNotification = await prisma_1.default.lead.findFirst({
-            where: { id: visit.leadId, companyId },
-        });
-        const company = await prisma_1.default.company.findFirst({
-            where: { id: companyId },
-            select: { whatsappPhone: true, settings: true },
-        });
-        await notification_engine_1.notificationEngine.onVisitStatusChange(updated, current, target, leadForNotification, company);
-        // Auto-update lead status based on visit outcome (state machine)
-        if (target === 'completed' || target === 'no_show') {
-            await (0, leadTransition_service_1.transitionLeadStatus)(visit.leadId, 'visited');
-            if (target === 'completed') {
-                await automation_service_1.automationService.scheduleVisitPostFollowUp(visit.leadId, visit.id);
+        let updated;
+        if (target === 'completed') {
+            const result = await (0, visitState_service_1.markVisitAttended)({ companyId, visitId: id });
+            if (!result.success) {
+                res.status(400).json({ error: result.error || 'Failed to complete visit' });
+                return;
             }
+            updated = result.visit;
+            await automation_service_1.automationService.scheduleVisitPostFollowUp(visit.leadId, visit.id);
         }
-        if (target === 'cancelled') {
-            await (0, leadTransition_service_1.transitionLeadStatus)(visit.leadId, 'contacted');
+        else if (target === 'no_show') {
+            const result = await (0, visitState_service_1.markVisitNoShow)({ companyId, visitId: id });
+            if (!result.success) {
+                res.status(400).json({ error: result.error || 'Failed to mark no-show' });
+                return;
+            }
+            updated = result.visit;
+        }
+        else if (target === 'cancelled') {
+            const result = await (0, visitState_service_1.cancelVisitById)({ companyId, visitId: id });
+            if (!result.success) {
+                res.status(400).json({ error: result.error || 'Failed to cancel visit' });
+                return;
+            }
+            updated = result.visit;
+        }
+        else {
+            updated = await prisma_1.default.visit.update({
+                where: { id },
+                data: { status: target },
+            });
+            const leadForNotification = await prisma_1.default.lead.findFirst({
+                where: { id: visit.leadId, companyId },
+            });
+            const company = await prisma_1.default.company.findFirst({
+                where: { id: companyId },
+                select: { whatsappPhone: true, settings: true },
+            });
+            await notification_engine_1.notificationEngine.onVisitStatusChange(updated, current, target, leadForNotification, company);
         }
         const full = await prisma_1.default.visit.findFirst({
             where: { id, companyId },

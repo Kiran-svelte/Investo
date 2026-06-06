@@ -7,34 +7,14 @@ import { automationQueueService, AutomationJobType } from './automationQueue.ser
 import { logAgentAction } from './agent-action-log.service';
 
 function getCompanyWhatsAppConfig(company: any): {
-  provider: 'meta' | 'greenapi';
+  provider: 'meta';
   phoneNumberId: string;
   accessToken: string;
   verifyToken: string;
-  idInstance?: string;
-  apiTokenInstance?: string;
   isCompanyConfigured: boolean;
 } {
   const settings = (company?.settings as any) || {};
   const whatsapp = settings.whatsapp || {};
-
-  const provider = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-
-  if (provider === 'greenapi') {
-    const greenapi = whatsapp.greenapi || whatsapp;
-    const idInstance = greenapi.idInstance || whatsapp.phoneNumberId || '';
-    const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
-
-    return {
-      provider: 'greenapi',
-      phoneNumberId: '',
-      accessToken: '',
-      verifyToken: whatsapp.verifyToken || config.whatsapp.verifyToken,
-      idInstance,
-      apiTokenInstance,
-      isCompanyConfigured: Boolean(idInstance && apiTokenInstance),
-    };
-  }
 
   const meta = whatsapp.meta || whatsapp;
   const phoneNumberId = meta.phoneNumberId || config.whatsapp.phoneNumberId;
@@ -241,9 +221,8 @@ export class AutomationService {
       const whatsappConfig = getCompanyWhatsAppConfig(visit.company);
       if (
         !whatsappConfig.isCompanyConfigured ||
-        (whatsappConfig.provider === 'meta'
-          ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
-          : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)
+        !whatsappConfig.phoneNumberId ||
+        !whatsappConfig.accessToken
       ) {
         logger.debug('Visit reminder skipped because company WhatsApp is not configured', {
           visitId: visit.id,
@@ -257,8 +236,6 @@ export class AutomationService {
         phoneNumberId: whatsappConfig.phoneNumberId,
         accessToken: whatsappConfig.accessToken,
         verifyToken: whatsappConfig.verifyToken,
-        idInstance: whatsappConfig.idInstance,
-        apiTokenInstance: whatsappConfig.apiTokenInstance,
       });
 
       if (!sent) {
@@ -455,9 +432,8 @@ export class AutomationService {
       const whatsappConfig = getCompanyWhatsAppConfig(lead.company);
       if (
         !whatsappConfig.isCompanyConfigured ||
-        (whatsappConfig.provider === 'meta'
-          ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
-          : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)
+        !whatsappConfig.phoneNumberId ||
+        !whatsappConfig.accessToken
       ) {
         logger.debug('Follow-up skipped because company WhatsApp is not configured', {
           leadId: lead.id,
@@ -471,8 +447,6 @@ export class AutomationService {
         phoneNumberId: whatsappConfig.phoneNumberId,
         accessToken: whatsappConfig.accessToken,
         verifyToken: whatsappConfig.verifyToken,
-        idInstance: whatsappConfig.idInstance,
-        apiTokenInstance: whatsappConfig.apiTokenInstance,
       });
 
       if (!sent) {

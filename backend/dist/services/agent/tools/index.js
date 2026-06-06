@@ -28,6 +28,14 @@ function isOperationsRole(role) {
  * @returns Flat array of agent tools scoped to the caller's role.
  */
 function getToolsForRole(context) {
+    if (context.userRole === 'viewer') {
+        return [
+            ...(0, property_tools_1.createPropertyTools)(context),
+            ...(0, analytics_tools_1.createAnalyticsTools)(context),
+            ...(0, calendar_tools_1.createCalendarTools)(context),
+            ...(0, emi_tools_1.createEmiTools)(context),
+        ];
+    }
     const tools = [
         ...(0, property_tools_1.createPropertyTools)(context),
         ...(0, notification_tools_1.createNotificationTools)(context),

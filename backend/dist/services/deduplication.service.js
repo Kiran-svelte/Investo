@@ -27,7 +27,7 @@ const memoryDedup = new Map(); // messageId -> expiry timestamp
  */
 class DeduplicationService {
     constructor(ttlSeconds) {
-        this.ttlSeconds = ttlSeconds ?? config_1.default.whatsapp.dedupTtlSeconds ?? 300;
+        this.ttlSeconds = ttlSeconds ?? config_1.default.whatsapp?.dedupTtlSeconds ?? 300;
     }
     /**
      * Check if a message has already been processed

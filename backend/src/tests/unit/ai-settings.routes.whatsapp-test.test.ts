@@ -113,7 +113,6 @@ describe('POST /api/ai-settings/whatsapp/test (provider-aware)', () => {
       config: {
         env: 'test',
         whatsapp: { provider: 'meta', apiUrl: 'https://graph.facebook.com/v18.0' },
-        greenapi: { apiUrl: 'https://api.green-api.com', idInstance: '1', apiTokenInstance: 't' },
       },
       whatsappService,
     });
@@ -133,7 +132,7 @@ describe('POST /api/ai-settings/whatsapp/test (provider-aware)', () => {
     });
   });
 
-  test('greenapi provider requires id_instance and api_token_instance and passes them through', async () => {
+  test('returns 400 when meta credentials are missing even if an unsupported provider is requested', async () => {
     const whatsappService: WhatsAppServiceMock = {
       testConnection: jest.fn().mockResolvedValue({ success: true }),
     };
@@ -141,49 +140,20 @@ describe('POST /api/ai-settings/whatsapp/test (provider-aware)', () => {
     const { app } = createAiSettingsApp({
       config: {
         env: 'test',
-        whatsapp: { provider: 'greenapi', apiUrl: 'https://graph.facebook.com/v18.0' },
-        greenapi: { apiUrl: 'https://api.green-api.com', idInstance: '1100000001', apiTokenInstance: 'token-abc' },
+        whatsapp: { provider: 'meta', apiUrl: 'https://graph.facebook.com/v18.0' },
       },
       whatsappService,
     });
 
+    // Server must always require Meta credentials regardless of what `provider` value is sent in the body.
     const response = await request(app)
       .post('/api/ai-settings/whatsapp/test')
-      .send({ provider: 'greenapi', id_instance: '1100000001', api_token_instance: 'token-abc' });
-
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
-    expect(whatsappService.testConnection).toHaveBeenCalledTimes(1);
-    expect(whatsappService.testConnection).toHaveBeenCalledWith({
-      provider: 'greenapi',
-      phoneNumberId: '',
-      accessToken: '',
-      verifyToken: '',
-      idInstance: '1100000001',
-      apiTokenInstance: 'token-abc',
-    });
-  });
-
-  test('greenapi provider returns 400 when credentials are missing', async () => {
-    const whatsappService: WhatsAppServiceMock = {
-      testConnection: jest.fn().mockResolvedValue({ success: true }),
-    };
-
-    const { app } = createAiSettingsApp({
-      config: {
-        env: 'test',
-        whatsapp: { provider: 'greenapi', apiUrl: 'https://graph.facebook.com/v18.0' },
-        greenapi: { apiUrl: 'https://api.green-api.com', idInstance: '', apiTokenInstance: '' },
-      },
-      whatsappService,
-    });
-
-    const response = await request(app).post('/api/ai-settings/whatsapp/test').send({ provider: 'greenapi' });
+      .send({ provider: 'unsupported_provider' });
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
       success: false,
-      error: 'id_instance and api_token_instance are required',
+      error: 'phone_number_id and access_token are required',
     });
     expect(whatsappService.testConnection).not.toHaveBeenCalled();
   });

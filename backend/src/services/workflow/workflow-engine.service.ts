@@ -18,6 +18,7 @@ import {
   type WorkflowId,
 } from '../../constants/workflow.constants';
 import {
+  buildBuyerSafePartialFailureReply,
   buildPartialFailureReply,
   isMutationAction,
   runCompensators,
@@ -299,7 +300,7 @@ export async function claimWorkflowExecution(
     incrementOpsMetric('workflow_idempotency_hits');
     return {
       claimed: false,
-      cachedReply: 'That workflow is already being processed. I will send the confirmed result shortly.',
+      cachedReply: "I'm already working on that request. One moment.",
       key,
     };
   }
@@ -321,7 +322,7 @@ export async function claimWorkflowExecution(
     if (retry?.status === 'running' && retry.expiresAt > new Date()) {
       return {
         claimed: false,
-        cachedReply: 'That workflow is already being processed. I will send the confirmed result shortly.',
+        cachedReply: "I'm already working on that request. One moment.",
         key,
       };
     }
@@ -444,6 +445,25 @@ export async function resolvePendingClarification(
   }).catch(() => undefined);
 
   return { workflowId, parameters };
+}
+
+export type MutationGateSource =
+  | 'classifier'
+  | 'exact_regex'
+  | 'bias_detector'
+  | 'pending_clarification';
+
+/** Single mutation confidence gate for classifier, bias, regex, and clarification resume paths. */
+export function evaluateMutationGate(
+  workflowId: WorkflowId,
+  confidence: number,
+  source: MutationGateSource,
+): 'execute' | 'clarify' | 'fallthrough' {
+  if (source === 'exact_regex') {
+    if (MUTATION_WORKFLOW_SET.has(workflowId)) return 'execute';
+    return evaluateMutationConfidence(workflowId, 1);
+  }
+  return evaluateMutationConfidence(workflowId, confidence);
 }
 
 function evaluateMutationConfidence(
@@ -606,9 +626,12 @@ export async function runWorkflow(
         const label = definition.label;
         await finalizeWorkflowRun(workflowRunId, 'needs_reconciliation', stepsLog, step.action, stateSnapshot);
         await clearWorkflowIdempotencyClaim(companyId, idemKey ?? undefined);
+        const partialReply = runChannel === 'buyer'
+          ? buildBuyerSafePartialFailureReply(label, step.action)
+          : buildPartialFailureReply(label, step.action);
         return {
           ok: false,
-          reply: buildPartialFailureReply(label, step.action),
+          reply: partialReply,
           workflowId,
           failedStep: step.action,
           completedSteps,
@@ -621,14 +644,16 @@ export async function runWorkflow(
       const buyerReply = runChannel === 'buyer'
         ? buildBuyerWorkflowFailureReply(workflowId, step.action, detail)
         : `Workflow "${workflowId}" failed at step "${step.action}": ${detail}`;
-      if (runChannel === 'buyer' && typeof state.leadId === 'string') {
+      if (typeof state.leadId === 'string' || runChannel === 'staff') {
         void logAgentAction({
           companyId,
           triggeredBy: 'inbound_message',
           action: `workflow_${workflowId}`,
           resourceType: 'lead',
-          resourceId: state.leadId,
-          inputs: { workflowId, channel: 'buyer', failedStep: step.action, completedSteps },
+          resourceId: state.leadId ?? run.sessionLeadId ?? null,
+          actorId: run.toolContext.userId,
+          actorRole: run.toolContext.userRole,
+          inputs: { workflowId, channel: runChannel, failedStep: step.action, completedSteps },
           status: 'failed',
           errorMessage: detail,
           result: buyerReply.slice(0, 500),
@@ -671,14 +696,16 @@ export async function runWorkflow(
   if (idemKey) {
     await persistWorkflowIdempotencyResult(companyId, idemKey, reply);
   }
-  if (runChannel === 'buyer' && typeof state.leadId === 'string') {
+  if (typeof state.leadId === 'string' || runChannel === 'staff') {
     void logAgentAction({
       companyId,
       triggeredBy: 'inbound_message',
       action: `workflow_${workflowId}`,
       resourceType: 'lead',
-      resourceId: state.leadId,
-      inputs: { workflowId, channel: 'buyer', completedSteps },
+      resourceId: state.leadId ?? run.sessionLeadId ?? null,
+      actorId: run.toolContext.userId,
+      actorRole: run.toolContext.userRole,
+      inputs: { workflowId, channel: runChannel, completedSteps },
       status: 'success',
       result: reply.slice(0, 500),
     });
@@ -1060,6 +1087,9 @@ export async function tryRunBuyerWorkflow(input: {
   if (!workflowId) return null;
   if (workflowId === 'escalate_to_human' && !input.leadId) return null;
 
+  const gate = evaluateMutationGate(workflowId, 1, 'exact_regex');
+  if (gate !== 'execute') return null;
+
   const params: WorkflowParams = {
     leadId: input.leadId,
     propertyId: input.propertyId,
@@ -1183,15 +1213,18 @@ export async function classifyAndRunBuyerWorkflow(
 
   const negotiationBias = detectBuyerNegotiationEscalationBias(input.messageText);
   if (negotiationBias) {
-    const params: WorkflowParams = {
-      ...negotiationBias.parameters,
-      leadId: input.leadId,
-      propertyId: input.propertyId,
-    };
-    const result = await runWorkflow(negotiationBias.workflowId, run, params);
-    if (result.reply?.trim()) {
-      const safe = sanitizeBuyerWorkflowReply(negotiationBias.workflowId, result.reply, result.failedStep);
-      return formatBuyerWorkflowReply(negotiationBias.workflowId, safe);
+    const gate = evaluateMutationGate(negotiationBias.workflowId, 1, 'exact_regex');
+    if (gate === 'execute') {
+      const params: WorkflowParams = {
+        ...negotiationBias.parameters,
+        leadId: input.leadId,
+        propertyId: input.propertyId,
+      };
+      const result = await runWorkflow(negotiationBias.workflowId, run, params);
+      if (result.reply?.trim()) {
+        const safe = sanitizeBuyerWorkflowReply(negotiationBias.workflowId, result.reply, result.failedStep);
+        return formatBuyerWorkflowReply(negotiationBias.workflowId, safe);
+      }
     }
   }
 
@@ -1199,30 +1232,57 @@ export async function classifyAndRunBuyerWorkflow(
     ?? (input.sessionVisitId ? { visitId: input.sessionVisitId } : null);
   const visitBias = detectActiveVisitMutationBias(input.messageText, activeVisitCtx);
   if (visitBias) {
-    const params: WorkflowParams = {
-      ...visitBias.parameters,
-      leadId: visitBias.parameters.leadId ?? input.leadId,
-      propertyId: input.propertyId,
-      visitId: visitBias.parameters.visitId ?? input.sessionVisitId ?? undefined,
-    };
-    const result = await runWorkflow(visitBias.workflowId, run, params);
-    if (result.reply?.trim()) {
-      const safe = sanitizeBuyerWorkflowReply(visitBias.workflowId, result.reply, result.failedStep);
-      return formatBuyerWorkflowReply(visitBias.workflowId, safe);
+    const hasRescheduleTime = Boolean(
+      visitBias.parameters.scheduledAt || visitBias.parameters.newScheduledAt,
+    );
+    const confidence = visitBias.workflowId === 'reschedule_visit' && !hasRescheduleTime ? 0.75 : 1;
+    const gate = evaluateMutationGate(visitBias.workflowId, confidence, 'bias_detector');
+    if (gate === 'clarify') {
+      await storePendingClarification(input.leadId, visitBias.workflowId, visitBias.parameters);
+      void logAgentAction({
+        companyId: input.companyId,
+        triggeredBy: 'inbound_message',
+        action: 'workflow_clarification',
+        resourceType: 'lead',
+        resourceId: input.leadId,
+        inputs: { workflowId: visitBias.workflowId, confidence, channel: 'buyer', source: 'bias_detector' },
+        status: 'success',
+        result: 'Clarification requested',
+      });
+      return buildClarificationReply(visitBias.workflowId as MutationWorkflowId);
+    }
+    if (gate === 'execute') {
+      const params: WorkflowParams = {
+        ...visitBias.parameters,
+        leadId: visitBias.parameters.leadId ?? input.leadId,
+        propertyId: input.propertyId,
+        visitId: visitBias.parameters.visitId ?? input.sessionVisitId ?? undefined,
+      };
+      const result = await runWorkflow(visitBias.workflowId, run, params);
+      if (result.reply?.trim()) {
+        const safe = sanitizeBuyerWorkflowReply(visitBias.workflowId, result.reply, result.failedStep);
+        return formatBuyerWorkflowReply(visitBias.workflowId, safe);
+      }
     }
   }
 
   const pending = await resolvePendingClarification(input.leadId, input.messageText);
   if (pending && isBuyerWorkflowId(pending.workflowId)) {
-    const params: WorkflowParams = {
-      ...pending.parameters,
-      leadId: pending.parameters.leadId ?? input.leadId,
-      propertyId: pending.parameters.propertyId ?? input.propertyId,
-      visitId: pending.parameters.visitId ?? input.sessionVisitId ?? undefined,
-      message: input.messageText,
-    };
-    const result = await runWorkflow(pending.workflowId, run, params);
-    if (result.reply?.trim()) return formatBuyerWorkflowReply(pending.workflowId, result.reply);
+    const gate = evaluateMutationGate(pending.workflowId, 1, 'pending_clarification');
+    if (gate === 'clarify') {
+      return buildClarificationReply(pending.workflowId as MutationWorkflowId);
+    }
+    if (gate === 'execute') {
+      const params: WorkflowParams = {
+        ...pending.parameters,
+        leadId: pending.parameters.leadId ?? input.leadId,
+        propertyId: pending.parameters.propertyId ?? input.propertyId,
+        visitId: pending.parameters.visitId ?? input.sessionVisitId ?? undefined,
+        message: input.messageText,
+      };
+      const result = await runWorkflow(pending.workflowId, run, params);
+      if (result.reply?.trim()) return formatBuyerWorkflowReply(pending.workflowId, result.reply);
+    }
   }
 
   if (!isCopilotActive() || !isLlmActive()) {
@@ -1256,7 +1316,7 @@ export async function classifyAndRunBuyerWorkflow(
       };
     }
 
-    const confidenceAction = evaluateMutationConfidence(classified.workflowId, classified.confidence);
+    const confidenceAction = evaluateMutationGate(classified.workflowId, classified.confidence, 'classifier');
     if (confidenceAction === 'fallthrough') {
       return tryRunBuyerWorkflow(input);
     }

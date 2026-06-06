@@ -77,10 +77,8 @@ class WhatsAppHealthService {
             return status;
         }
         try {
-            const provider = await this.resolveProvider(companyId);
-            const response = provider === 'greenapi'
-                ? await this.checkGreenApiConnection(companyId)
-                : await this.checkMetaConnection(companyId);
+            const provider = 'meta';
+            const response = await this.checkMetaConnection(companyId);
             const responseTime = Date.now() - startTime;
             if (response.ok) {
                 const status = {
@@ -213,43 +211,16 @@ class WhatsAppHealthService {
     }
     async checkConfigCompleteness(companyId) {
         try {
-            const provider = await this.resolveProvider(companyId);
-            if (provider === 'greenapi') {
-                const creds = await this.getGreenApiCredentials(companyId);
-                if (!creds.idInstance || !creds.apiTokenInstance) {
-                    return { complete: false, reason: 'Green-API not configured: missing idInstance or apiTokenInstance' };
-                }
-            }
-            else {
-                const accessToken = companyId
-                    ? await this.getCompanyAccessToken(companyId)
-                    : config_1.default.whatsapp.accessToken;
-                if (!accessToken) {
-                    return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken' };
-                }
+            const accessToken = companyId
+                ? await this.getCompanyAccessToken(companyId)
+                : config_1.default.whatsapp.accessToken;
+            if (!accessToken) {
+                return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken' };
             }
             return { complete: true, reason: '' };
         }
         catch (err) {
             return { complete: false, reason: `Config check error: ${err.message}` };
-        }
-    }
-    async resolveProvider(companyId) {
-        if (!companyId) {
-            return config_1.default.whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-        }
-        try {
-            const prisma = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
-            const company = await prisma.company.findUnique({
-                where: { id: companyId },
-                select: { settings: true },
-            });
-            const settings = company?.settings || {};
-            const whatsapp = settings.whatsapp || {};
-            return whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-        }
-        catch {
-            return config_1.default.whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
         }
     }
     async checkMetaConnection(companyId) {
@@ -266,42 +237,6 @@ class WhatsAppHealthService {
                 'Content-Type': 'application/json',
             },
         });
-    }
-    async checkGreenApiConnection(companyId) {
-        const greenApiConfig = await this.getGreenApiCredentials(companyId);
-        if (!greenApiConfig.idInstance || !greenApiConfig.apiTokenInstance) {
-            throw new Error('Missing Green-API idInstance or apiTokenInstance');
-        }
-        const endpoint = `${config_1.default.greenapi.apiUrl}/waInstance${greenApiConfig.idInstance}/getSettings/${greenApiConfig.apiTokenInstance}`;
-        return fetch(endpoint, { method: 'GET' });
-    }
-    async getGreenApiCredentials(companyId) {
-        if (!companyId) {
-            return {
-                idInstance: config_1.default.greenapi.idInstance || '',
-                apiTokenInstance: config_1.default.greenapi.apiTokenInstance || '',
-            };
-        }
-        try {
-            const prisma = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
-            const company = await prisma.company.findUnique({
-                where: { id: companyId },
-                select: { settings: true },
-            });
-            const settings = company?.settings || {};
-            const whatsapp = settings.whatsapp || {};
-            const greenapi = whatsapp.greenapi || whatsapp;
-            return {
-                idInstance: greenapi.idInstance || whatsapp.phoneNumberId || '',
-                apiTokenInstance: greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '',
-            };
-        }
-        catch {
-            return {
-                idInstance: config_1.default.greenapi.idInstance || '',
-                apiTokenInstance: config_1.default.greenapi.apiTokenInstance || '',
-            };
-        }
     }
     async checkRedis() {
         const startTime = Date.now();

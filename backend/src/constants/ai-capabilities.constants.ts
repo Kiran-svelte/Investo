@@ -21,7 +21,7 @@ export const AI_STACK_CAPABILITIES = {
   },
   whatsapp_interactive: {
     quick_reply_buttons: { wired: true, note: 'sendContextualQuickReplies after buyer AI turn' },
-    interactive_buttons: { wired: true, note: 'sendInteractiveButtons; GreenAPI → numbered menu' },
+    interactive_buttons: { wired: true, note: 'sendInteractiveButtons via Meta Cloud API' },
     interactive_list: { wired: true, note: 'Property filter dropdown' },
     catalog_cards: { wired: true, note: 'sendCatalogMessage (image + CTA buttons)' },
     location: { wired: true, note: 'location-* interactive + sendLocation' },

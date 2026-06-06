@@ -14,13 +14,6 @@ function getWhatsAppSettings(settings) {
 }
 function hasWhatsAppCredentials(settings) {
     const whatsapp = getWhatsAppSettings(settings);
-    const provider = String(whatsapp.provider || 'meta').toLowerCase();
-    if (provider === 'greenapi') {
-        const green = whatsapp.greenapi || {};
-        const idInstance = String(green.idInstance || whatsapp.phoneNumberId || '').trim();
-        const token = String(green.apiTokenInstance || whatsapp.apiTokenInstance || '').trim();
-        return Boolean(idInstance && token);
-    }
     const meta = whatsapp.meta || {};
     const phoneNumberId = String(meta.phoneNumberId || whatsapp.phoneNumberId || '').trim();
     const accessToken = String(meta.accessToken || whatsapp.accessToken || '').trim();

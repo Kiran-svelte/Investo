@@ -389,6 +389,11 @@ export function isValidTransition<T extends string>(
   return allowed ? allowed.includes(to) : false;
 }
 
+/** Visit state machine guard — shared by REST API and copilot tools. */
+export function isValidVisitTransition(from: VisitStatus, to: VisitStatus): boolean {
+  return isValidTransition(VISIT_TRANSITIONS, from, to);
+}
+
 /** Schema for POST /api/auth/change-password */
 export const changePasswordSchema = z.object({
   current_password: z.string().optional(),

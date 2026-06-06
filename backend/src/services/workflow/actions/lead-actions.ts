@@ -207,6 +207,10 @@ export async function reassignLead(ctx: ActionContext) {
   if (!lead) return fail('Lead not found.');
   const result = await runNamedTool(ctx.run.toolContext, 'assignLead', { leadId, agentId });
   if (result.ok === false) return failToolResult(result);
+  const text = result.text ?? '';
+  if (/reply "yes" to confirm/i.test(text)) {
+    return ok(text, undefined, true);
+  }
   const updated = await prisma.lead.findUnique({ where: { id: leadId } });
   if (updated) await notificationEngine.onLeadReassigned(updated, lead.assignedAgentId, agentId);
   return ok(result.text);

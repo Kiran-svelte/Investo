@@ -7,6 +7,7 @@ const STAFF_PROCESSING_PREFIX = 'staff-processing:';
 const CUSTOMER_PROCESSING_PREFIX = 'customer-processing:';
 const STAFF_FINGERPRINT_PREFIX = 'staff-fp:';
 const OUTBOUND_AI_PREFIX = 'outbound-ai:';
+const OUTBOUND_TURN_PREFIX = 'outbound-turn:';
 const OUTBOUND_COPILOT_PREFIX = 'outbound-copilot:';
 const AGENT_ACTION_PREFIX = 'agent-action:';
 
@@ -16,7 +17,7 @@ const STAFF_PROCESSING_TTL_SECONDS = 45;
 const CUSTOMER_PROCESSING_TTL_SECONDS = 60;
 
 /**
- * Unified inbound dedup key — shared by Meta/GreenAPI webhooks and handleIncomingMessage.
+ * Unified inbound dedup key shared by Meta webhooks and handleIncomingMessage.
  */
 export function buildInboundDedupKey(companyId: string, messageId: string): string {
   return `${INBOUND_KEY_PREFIX}${companyId}:${messageId}`;
@@ -183,7 +184,7 @@ function fingerprintHash(text: string): string {
 }
 
 /**
- * Blocks duplicate customer processing when Meta + GreenAPI (or webhook retry)
+ * Blocks duplicate customer processing during webhook retries or concurrent delivery.
  * deliver the same user text within a short window with different message IDs.
  */
 export async function claimCustomerInboundFingerprint(
@@ -227,6 +228,26 @@ export async function claimStaffInboundFingerprint(
 }
 
 /**
+ * Ensures at most one outbound bundle (text + interactive + media) per inbound messageId.
+ */
+export async function claimOutboundTurn(
+  companyId: string,
+  inboundMessageId: string | undefined | null,
+  ttlSeconds = 300,
+): Promise<boolean> {
+  if (!inboundMessageId?.trim()) return true;
+  const key = `${OUTBOUND_TURN_PREFIX}${companyId}:${inboundMessageId.trim()}`;
+  const claimed = await deduplicationService.claimMessageProcessing(key, ttlSeconds);
+  if (!claimed) {
+    logger.info('Outbound turn dedup: duplicate send blocked', {
+      companyId,
+      inboundMessageId,
+    });
+  }
+  return claimed;
+}
+
+/**
  * Ensures at most one AI WhatsApp text reply per inbound messageId (buyers).
  */
 export async function claimOutboundAiReply(
@@ -234,16 +255,7 @@ export async function claimOutboundAiReply(
   inboundMessageId: string | undefined | null,
   ttlSeconds = 300,
 ): Promise<boolean> {
-  if (!inboundMessageId?.trim()) return true;
-  const key = `${OUTBOUND_AI_PREFIX}${companyId}:${inboundMessageId.trim()}`;
-  const claimed = await deduplicationService.claimMessageProcessing(key, ttlSeconds);
-  if (!claimed) {
-    logger.info('Outbound AI reply dedup: duplicate send blocked', {
-      companyId,
-      inboundMessageId,
-    });
-  }
-  return claimed;
+  return claimOutboundTurn(companyId, inboundMessageId, ttlSeconds);
 }
 
 /**

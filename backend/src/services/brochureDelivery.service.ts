@@ -147,3 +147,54 @@ export async function deliverBrochuresForAiTurn(input: {
 
   return { cleanedText, sent, failed };
 }
+
+/**
+ * Pure brochure resolution — strips brochure links from `aiText` and returns an
+ * optional WhatsApp media component for the orchestrator to include in `TurnResult`.
+ *
+ * **Does NOT send anything.** The media component is dispatched later via
+ * `sendTurnResult`, keeping all outbound sends in one place.
+ *
+ * @returns `cleanedText` — `aiText` with embedded brochure URLs removed.
+ * @returns `mediaComponent` — a `{ kind: 'media' }` component when a brochure should be
+ *   delivered this turn, or `null` when no brochure intent is detected.
+ */
+export async function resolveBrochureForAiTurn(input: {
+  customerMessage: string;
+  aiText: string;
+  properties: PropertyBrochureSource[];
+}): Promise<{
+  cleanedText: string;
+  mediaComponent: { kind: 'media'; url: string; mime: string; caption?: string } | null;
+}> {
+  const targets = selectPropertiesForBrochureDelivery({
+    customerMessage: input.customerMessage,
+    aiText: input.aiText,
+    properties: input.properties,
+  });
+
+  const cleanedText = stripBrochureLinksFromText(input.aiText);
+
+  if (targets.length === 0 || !targets[0].brochureUrl) {
+    return { cleanedText, mediaComponent: null };
+  }
+
+  const target = targets[0];
+  const publicUrl = await resolveBrochureUrlForWhatsApp(target.brochureUrl);
+  if (!publicUrl) {
+    logger.warn('resolveBrochureForAiTurn: could not resolve presigned URL', {
+      propertyId: target.id,
+    });
+    return { cleanedText, mediaComponent: null };
+  }
+
+  return {
+    cleanedText,
+    mediaComponent: {
+      kind: 'media',
+      url: publicUrl,
+      mime: 'application/pdf',
+      caption: `📎 ${target.name} — Brochure`,
+    },
+  };
+}

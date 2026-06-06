@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import sanitizeHtml from 'sanitize-html';
 
-const SKIP_PATH_PREFIXES = ['/api/webhook', '/api/greenapi/webhook'];
+const SKIP_PATH_PREFIXES = ['/api/webhook'];
 
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [],

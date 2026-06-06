@@ -9,7 +9,7 @@ import {
   parseVisitDateTimeFromMessage,
 } from './visitIntentFromMessage.service';
 import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
-import { scheduleVisit } from './visitBooking.service';
+import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
 import { createVisitApprovalRequest } from './visitPendingApproval.service';
 import type { WorkflowId } from '../constants/workflow.constants';
 import type { WorkflowParams } from './workflow/workflow.types';
@@ -366,6 +366,7 @@ export async function tryCommitCustomerVisitBooking(
       scheduledAt,
       notes: 'Booked via WhatsApp customer message',
       agentId,
+      idempotencyKey: buildVisitIdempotencyKey(companyId, lead.id, scheduledAt.toISOString()),
     });
 
     if (booking.success && booking.visit) {

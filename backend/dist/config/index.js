@@ -249,17 +249,13 @@ function resolveWhatsAppProvider() {
     if (!raw) {
         return 'meta';
     }
-    if (raw === 'meta' || raw === 'greenapi') {
-        return raw;
+    if (raw === 'meta') {
+        return 'meta';
     }
-    throw new Error("WHATSAPP_PROVIDER must be one of: 'meta', 'greenapi'");
+    throw new Error("WHATSAPP_PROVIDER must be 'meta'");
 }
 const nodeEnv = process.env.NODE_ENV || 'development';
 const whatsappProvider = resolveWhatsAppProvider();
-const allowGreenapiInProd = process.env.WHATSAPP_ALLOW_GREENAPI_IN_PRODUCTION === 'true';
-if (nodeEnv === 'production' && whatsappProvider === 'greenapi' && !allowGreenapiInProd) {
-    throw new Error("WHATSAPP_PROVIDER='greenapi' is not allowed when NODE_ENV='production'");
-}
 const databaseUrl = resolveDatabaseUrl();
 const directUrl = resolveDirectUrl(databaseUrl);
 const neonPoolerConfigured = isNeonPoolerDatabaseUrl(databaseUrl);
@@ -348,7 +344,6 @@ const config = {
     },
     whatsapp: {
         provider: whatsappProvider,
-        allowGreenapiInProd,
         apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v18.0',
         verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
         appSecret: process.env.WHATSAPP_APP_SECRET || '',
@@ -359,12 +354,6 @@ const config = {
         skipIpWhitelist: process.env.SKIP_IP_WHITELIST === 'true',
         webhookMaxSize: process.env.WHATSAPP_WEBHOOK_MAX_SIZE || '1mb',
         dedupTtlSeconds: parseInt(process.env.WHATSAPP_DEDUP_TTL_SECONDS || '300', 10),
-    },
-    greenapi: {
-        apiUrl: (process.env.GREENAPI_API_URL || 'https://api.green-api.com').replace(/\/+$/, ''),
-        idInstance: process.env.GREENAPI_ID_INSTANCE || '',
-        apiTokenInstance: process.env.GREENAPI_API_TOKEN_INSTANCE || '',
-        webhookUrlToken: process.env.GREENAPI_WEBHOOK_URL_TOKEN || '',
     },
     ai: {
         provider: process.env.AI_PROVIDER || 'openai',

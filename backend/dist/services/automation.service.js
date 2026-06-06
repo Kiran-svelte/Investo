@@ -47,21 +47,6 @@ const agent_action_log_service_1 = require("./agent-action-log.service");
 function getCompanyWhatsAppConfig(company) {
     const settings = company?.settings || {};
     const whatsapp = settings.whatsapp || {};
-    const provider = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-    if (provider === 'greenapi') {
-        const greenapi = whatsapp.greenapi || whatsapp;
-        const idInstance = greenapi.idInstance || whatsapp.phoneNumberId || '';
-        const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
-        return {
-            provider: 'greenapi',
-            phoneNumberId: '',
-            accessToken: '',
-            verifyToken: whatsapp.verifyToken || config_1.default.whatsapp.verifyToken,
-            idInstance,
-            apiTokenInstance,
-            isCompanyConfigured: Boolean(idInstance && apiTokenInstance),
-        };
-    }
     const meta = whatsapp.meta || whatsapp;
     const phoneNumberId = meta.phoneNumberId || config_1.default.whatsapp.phoneNumberId;
     const accessToken = meta.accessToken || config_1.default.whatsapp.accessToken;
@@ -233,9 +218,8 @@ class AutomationService {
             }
             const whatsappConfig = getCompanyWhatsAppConfig(visit.company);
             if (!whatsappConfig.isCompanyConfigured ||
-                (whatsappConfig.provider === 'meta'
-                    ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
-                    : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)) {
+                !whatsappConfig.phoneNumberId ||
+                !whatsappConfig.accessToken) {
                 logger_1.default.debug('Visit reminder skipped because company WhatsApp is not configured', {
                     visitId: visit.id,
                     timing,
@@ -247,8 +231,6 @@ class AutomationService {
                 phoneNumberId: whatsappConfig.phoneNumberId,
                 accessToken: whatsappConfig.accessToken,
                 verifyToken: whatsappConfig.verifyToken,
-                idInstance: whatsappConfig.idInstance,
-                apiTokenInstance: whatsappConfig.apiTokenInstance,
             });
             if (!sent) {
                 logger_1.default.warn('Visit reminder WhatsApp send failed', { visitId: visit.id, timing });
@@ -428,9 +410,8 @@ class AutomationService {
             }
             const whatsappConfig = getCompanyWhatsAppConfig(lead.company);
             if (!whatsappConfig.isCompanyConfigured ||
-                (whatsappConfig.provider === 'meta'
-                    ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
-                    : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)) {
+                !whatsappConfig.phoneNumberId ||
+                !whatsappConfig.accessToken) {
                 logger_1.default.debug('Follow-up skipped because company WhatsApp is not configured', {
                     leadId: lead.id,
                     reason,
@@ -442,8 +423,6 @@ class AutomationService {
                 phoneNumberId: whatsappConfig.phoneNumberId,
                 accessToken: whatsappConfig.accessToken,
                 verifyToken: whatsappConfig.verifyToken,
-                idInstance: whatsappConfig.idInstance,
-                apiTokenInstance: whatsappConfig.apiTokenInstance,
             });
             if (!sent) {
                 logger_1.default.warn('Follow-up WhatsApp send failed', { leadId: lead.id, reason });

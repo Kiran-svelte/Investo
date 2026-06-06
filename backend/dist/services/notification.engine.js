@@ -79,21 +79,6 @@ async function sendWhatsAppToUser(phone, companyId, message) {
 function getCompanyWhatsAppConfig(company) {
     const settings = company?.settings || {};
     const whatsapp = settings.whatsapp || {};
-    const provider = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-    if (provider === 'greenapi') {
-        const greenapi = whatsapp.greenapi || whatsapp;
-        const idInstance = greenapi.idInstance || whatsapp.phoneNumberId || '';
-        const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
-        return {
-            provider: 'greenapi',
-            phoneNumberId: '',
-            accessToken: '',
-            verifyToken: whatsapp.verifyToken || config_1.default.whatsapp.verifyToken,
-            idInstance,
-            apiTokenInstance,
-            isCompanyConfigured: Boolean(idInstance && apiTokenInstance),
-        };
-    }
     const meta = whatsapp.meta || whatsapp;
     const phoneNumberId = meta.phoneNumberId || config_1.default.whatsapp.phoneNumberId;
     const accessToken = meta.accessToken || config_1.default.whatsapp.accessToken;
@@ -362,9 +347,8 @@ class NotificationEngine {
         if (lead?.phone) {
             const whatsappConfig = getCompanyWhatsAppConfig(company);
             if (!whatsappConfig.isCompanyConfigured ||
-                (whatsappConfig.provider === 'meta'
-                    ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
-                    : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)) {
+                !whatsappConfig.phoneNumberId ||
+                !whatsappConfig.accessToken) {
                 logger_1.default.debug('Skipping WhatsApp visit notification (company not configured)', {
                     companyId: visit.companyId,
                     visitId: visit.id,
@@ -391,8 +375,6 @@ class NotificationEngine {
                         phoneNumberId: whatsappConfig.phoneNumberId,
                         accessToken: whatsappConfig.accessToken,
                         verifyToken: whatsappConfig.verifyToken,
-                        idInstance: whatsappConfig.idInstance,
-                        apiTokenInstance: whatsappConfig.apiTokenInstance,
                     });
                     if (!sent) {
                         logger_1.default.warn('Failed to send WhatsApp visit notification', {
@@ -507,9 +489,8 @@ class NotificationEngine {
         if (!suppressCustomerNotification && lead?.phone) {
             const whatsappConfig = getCompanyWhatsAppConfig(company);
             if (!whatsappConfig.isCompanyConfigured ||
-                (whatsappConfig.provider === 'meta'
-                    ? !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken
-                    : !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance)) {
+                !whatsappConfig.phoneNumberId ||
+                !whatsappConfig.accessToken) {
                 logger_1.default.debug('Skipping customer WhatsApp reschedule notification (company not configured)', {
                     companyId: visit.companyId,
                     visitId: visit.id,
@@ -524,8 +505,6 @@ class NotificationEngine {
                     phoneNumberId: whatsappConfig.phoneNumberId,
                     accessToken: whatsappConfig.accessToken,
                     verifyToken: whatsappConfig.verifyToken,
-                    idInstance: whatsappConfig.idInstance,
-                    apiTokenInstance: whatsappConfig.apiTokenInstance,
                 });
                 if (!sent) {
                     logger_1.default.warn('Failed to send WhatsApp reschedule notification to customer', {

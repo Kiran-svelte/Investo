@@ -261,7 +261,7 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
       expect(result.handled).toBe(true);
       expect(result.action).toBe('more-info-sent');
       expect(result.newState?.selectedPropertyId).toBe(mockPropertyId);
-      expect(mockFetch).toHaveBeenCalled();
+      expect(result.turnResult?.components?.some((component) => component.kind === 'media')).toBe(true);
     });
 
     it('returns unhandled when property not found', async () => {

@@ -6,17 +6,21 @@ import type { CompanyUserMatch } from '../inboundWhatsAppRouting.service';
 import { ToolContext } from './agent-state';
 
 import { isCopilotGreeting, normalizeCopilotInboundText } from '../../utils/copilotGreeting.util';
-import {
-  resolveCopilotInboundCommand,
-  resolveStaffCopilotQuickActions,
-  type CopilotReplyKind,
-} from '../../utils/copilotShortcut.util';
+import { resolveCopilotInboundCommand, type CopilotReplyKind } from '../../utils/copilotShortcut.util';
+import { resolveCopilotComponents } from '../copilot/copilotButtonPolicy.service';
+import { resolveAttendanceButtonCommand } from '../attendanceWorkflow.service';
 import {
   claimStaffCopilotTurn,
   releaseStaffCopilotTurn,
   claimStaffInboundFingerprint,
   claimStaffCopilotOutboundReply,
 } from '../inboundMessageGuard.service';
+import {
+  beginOutboundTurn,
+  endOutboundTurn,
+  logOutboundBranch,
+  logOutboundSend,
+} from '../outboundTurnDebug.service';
 
 /**
  * Builds a deterministic welcome/help message for the agent copilot.
@@ -132,7 +136,9 @@ async function handleAgentMessage(
   interactiveId?: string,
   inboundMessageId?: string,
 ): Promise<AgentMessageResult> {
-  const resolvedCommand = resolveCopilotInboundCommand({ interactiveId, messageText });
+  const attendanceCommand = resolveAttendanceButtonCommand(interactiveId);
+  const resolvedCommand = attendanceCommand
+    ?? resolveCopilotInboundCommand({ interactiveId, messageText });
   const normalizedText = normalizeCopilotInboundText(resolvedCommand);
   const isViewer = user.userRole === 'viewer';
 
@@ -151,8 +157,33 @@ async function handleAgentMessage(
   const threadId = await getOrCreateThreadId(user.userId, user.phone, user.companyId);
   const session = await prisma.agentSession.findUnique({ where: { threadId } });
 
+  if (session && attendanceCommand === 'reschedule') {
+    const pendingAttendance = await prisma.pendingAction.findFirst({
+      where: {
+        sessionId: session.id,
+        actionType: 'attendance_check',
+        status: 'awaiting',
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (pendingAttendance) {
+      const params = (pendingAttendance.actionParams ?? {}) as Record<string, unknown>;
+      const customerName =
+        typeof params.customerName === 'string' ? params.customerName : 'the customer';
+      await prisma.pendingAction.update({
+        where: { id: pendingAttendance.id },
+        data: { status: 'expired', resolvedAt: new Date() },
+      });
+      return {
+        text: `To reschedule ${customerName}'s visit, type "reschedule visit ${customerName}".`,
+        replyKind: 'confirmation',
+      };
+    }
+  }
+
   if (session) {
-    const confirmation = await checkAndResolvePendingConfirmation(session.id, messageText);
+    const confirmation = await checkAndResolvePendingConfirmation(session.id, resolvedCommand);
     if (confirmation.hasPending && confirmation.isConfirmed) {
       return {
         text: await executePendingAction(confirmation.pendingActionId!),
@@ -352,6 +383,9 @@ async function handleAgentMessage(
 
   let agentReply: string;
   let replyKind: CopilotReplyKind = 'agent';
+  logOutboundBranch('H3', 'agent-router.service.ts:invokeAgent', 'staff_invoke_agent', {
+    textLen: normalizedText.length,
+  });
   try {
     agentReply = await invokeAgent({
       messageText: normalizedText,
@@ -450,6 +484,13 @@ export async function routeIfInternalUserForCompany(
 
   const normalizedPhone = normalizeInboundWhatsAppPhone(senderPhone);
 
+  beginOutboundTurn({
+    channel: 'staff',
+    inboundMessageId,
+    companyId: user.companyId,
+    route: 'staff_copilot',
+  });
+
   try {
     const { text: response, replyKind } = await handleAgentMessage(
       user,
@@ -457,13 +498,25 @@ export async function routeIfInternalUserForCompany(
       interactiveId,
       inboundMessageId,
     );
-    if (await claimStaffCopilotOutboundReply(user.companyId, inboundMessageId)) {
+    const outboundClaimed = await claimStaffCopilotOutboundReply(user.companyId, inboundMessageId);
+    logOutboundBranch('H4', 'agent-router.service.ts:outbound', 'staff_primary_reply', {
+      replyKind,
+      outboundClaimed,
+      preview: response.slice(0, 80),
+    });
+    if (outboundClaimed) {
+      logOutboundSend('H4', 'agent-router.service.ts:send', 'staff_primary_text', response);
       await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
     }
-    const quickActions = resolveStaffCopilotQuickActions({ replyKind, outboundText: response });
+    const components = resolveCopilotComponents({ replyKind, outboundText: response });
+    const quickActions = components[0]?.kind === 'buttons' ? components[0].buttons : null;
     if (quickActions?.length) {
+      logOutboundBranch('H4', 'agent-router.service.ts:quickActions', 'staff_quick_actions', {
+        count: quickActions.length,
+      });
       await sendStaffCopilotQuickActions(normalizedPhone, user.companyId, quickActions);
     }
+    endOutboundTurn('staff_ok');
     return true;
   } catch (error: any) {
     logger.error('Agent AI routing failed', {
@@ -478,6 +531,7 @@ export async function routeIfInternalUserForCompany(
         'That request did not go through. Try a shorter command like "visits today" or "new leads today", or use the Investo dashboard.',
       );
     }
+    endOutboundTurn('staff_error');
     return true;
   } finally {
     await releaseStaffCopilotTurn(user.companyId, user.userId);

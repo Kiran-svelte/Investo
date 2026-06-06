@@ -4,7 +4,7 @@ param(
   [string]$Base = 'https://investo-backend-production.up.railway.app',
   [string]$Email = 'admin@investo.in',
   [string]$Password = 'admin@123',
-  [string]$GeekyCompanyId = 'e12e7540-8218-4b25-b427-ff8b800df116',
+  [string]$GeekyCompanyId = 'a9c308d8-1083-4981-bd46-3667e0474e8e',  # Palm — prod Meta phone_number_id tenant
   [string]$PhoneNumberId = '1090528010807708'
 )
 

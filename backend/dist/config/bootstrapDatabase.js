@@ -281,6 +281,67 @@ async function applyCompatibilityPatches() {
     await prisma_1.default.$executeRawUnsafe(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS last_visit_id UUID NULL
   `);
+    // Lead upsert requires @@unique([companyId, phone]) — safe on live DB.
+    await prisma_1.default.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'leads_company_id_phone_key'
+      ) THEN
+        ALTER TABLE leads ADD CONSTRAINT leads_company_id_phone_key UNIQUE (company_id, phone);
+      END IF;
+    END $$;
+  `);
+    await prisma_1.default.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS inbound_whatsapp_dedup (
+      id UUID NOT NULL DEFAULT gen_random_uuid(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      whatsapp_message_id VARCHAR(255) NOT NULL,
+      sender_phone VARCHAR(32),
+      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT inbound_whatsapp_dedup_pkey PRIMARY KEY (id)
+    )
+  `);
+    await prisma_1.default.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS inbound_whatsapp_dedup_company_id_whatsapp_message_id_key ON inbound_whatsapp_dedup (company_id, whatsapp_message_id)`);
+    // Workflow saga + centralized lead memory (A+ gate).
+    await prisma_1.default.$executeRawUnsafe(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_memory JSONB`);
+    await prisma_1.default.$executeRawUnsafe(`
+    DO $$ BEGIN
+      CREATE TYPE "WorkflowRunStatus" AS ENUM (
+        'running', 'completed', 'failed', 'completed_with_errors', 'needs_reconciliation'
+      );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+  `);
+    await prisma_1.default.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS workflow_run_records (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      workflow_id VARCHAR(60) NOT NULL,
+      channel VARCHAR(20) NOT NULL,
+      idempotency_key VARCHAR(255),
+      status "WorkflowRunStatus" NOT NULL DEFAULT 'running',
+      state_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+      steps_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+      failed_step VARCHAR(80),
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+    await prisma_1.default.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS workflow_idempotency_keys (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      key VARCHAR(255) NOT NULL,
+      workflow_id VARCHAR(60) NOT NULL,
+      result_reply TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'completed',
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+    await prisma_1.default.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_idempotency_keys_company_key_uidx ON workflow_idempotency_keys (company_id, key)`);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_session_status_idx ON pending_actions(session_id, status)`);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_expires_idx ON pending_actions(expires_at)`);
     await prisma_1.default.$executeRawUnsafe(`

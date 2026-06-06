@@ -1,12 +1,15 @@
 import prisma from '../../config/prisma';
 import logger from '../../config/logger';
+import { logAgentAction } from '../agent-action-log.service';
 import {
   CONFIRMATION_NEGATIVE_KEYWORDS,
   CONFIRMATION_POSITIVE_KEYWORDS,
   CONFIRMATION_TTL_MS,
 } from '../../constants/agent-ai.constants';
+import { cancelVisitById, markVisitAttended, markVisitNoShow } from '../visitState.service';
 
-const db = prisma as any;
+// NOTE: prisma.pendingAction and prisma.agentSession are generated Prisma models.
+// No 'as any' cast needed — the Prisma client is fully typed for these models.
 
 export interface PendingConfirmationResult {
   hasPending: boolean;
@@ -41,11 +44,30 @@ function getString(params: Record<string, unknown>, key: string): string | null 
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function visitStateErrorMessage(error?: string): string {
+  switch (error) {
+    case 'visit_completed':
+      return 'This visit is already completed.';
+    case 'visit_cancelled':
+      return 'This visit is already cancelled.';
+    case 'visit_no_show':
+      return 'This visit is already marked as no-show.';
+    case 'invalid_transition':
+      return 'That visit status change is not allowed from the current state.';
+    case 'lead_transition_failed':
+      return 'The visit was completed, but the lead could not be moved to visited because the pipeline transition is invalid.';
+    case 'visit_not_found':
+      return 'Visit not found or access denied.';
+    default:
+      return 'Visit status could not be updated.';
+  }
+}
+
 export async function checkAndResolvePendingConfirmation(
   sessionId: string,
   messageText: string,
 ): Promise<PendingConfirmationResult> {
-  const pending = await db.pendingAction.findFirst({
+  const pending = await prisma.pendingAction.findFirst({
     where: { sessionId, status: 'awaiting', expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
   });
@@ -62,7 +84,7 @@ export async function checkAndResolvePendingConfirmation(
 
   const text = normalized(messageText);
   if (matchesKeyword(text, CONFIRMATION_POSITIVE_KEYWORDS)) {
-    await db.pendingAction.update({
+    await prisma.pendingAction.update({
       where: { id: pending.id },
       data: { status: 'confirmed', resolvedAt: new Date() },
     });
@@ -70,7 +92,7 @@ export async function checkAndResolvePendingConfirmation(
   }
 
   if (matchesKeyword(text, CONFIRMATION_NEGATIVE_KEYWORDS)) {
-    await db.pendingAction.update({
+    await prisma.pendingAction.update({
       where: { id: pending.id },
       data: { status: 'rejected', resolvedAt: new Date() },
     });
@@ -86,16 +108,16 @@ export async function createPendingConfirmation(
   actionParams: Record<string, unknown>,
   displayMessage: string,
 ): Promise<string> {
-  await db.pendingAction.updateMany({
+  await prisma.pendingAction.updateMany({
     where: { sessionId, status: 'awaiting' },
     data: { status: 'expired', resolvedAt: new Date() },
   });
 
-  const created = await db.pendingAction.create({
+  const created = await prisma.pendingAction.create({
     data: {
       sessionId,
       actionType,
-      actionParams: actionParams as any,
+      actionParams: actionParams as Parameters<typeof prisma.pendingAction.create>[0]['data']['actionParams'],
       displayMessage,
       status: 'awaiting',
       expiresAt: new Date(Date.now() + CONFIRMATION_TTL_MS),
@@ -106,7 +128,7 @@ export async function createPendingConfirmation(
 }
 
 export async function cleanupExpiredConfirmations(): Promise<number> {
-  const result = await db.pendingAction.updateMany({
+  const result = await prisma.pendingAction.updateMany({
     where: { status: 'awaiting', expiresAt: { lt: new Date() } },
     data: { status: 'expired', resolvedAt: new Date() },
   });
@@ -114,7 +136,7 @@ export async function cleanupExpiredConfirmations(): Promise<number> {
 }
 
 export async function executePendingAction(pendingActionId: string): Promise<string> {
-  const pending = await db.pendingAction.findUnique({
+  const pending = await prisma.pendingAction.findUnique({
     where: { id: pendingActionId },
     include: { session: { select: { companyId: true } } },
   });
@@ -132,6 +154,10 @@ export async function executePendingAction(pendingActionId: string): Promise<str
       return deleteLead(companyId, params);
     case 'cancelVisit':
       return cancelVisit(companyId, params);
+    case 'completeVisit':
+      return completeVisitConfirmed(companyId, params);
+    case 'markVisitNoShow':
+      return markVisitNoShowConfirmed(companyId, params);
     case 'closeLeadLost':
       return closeLeadLost(companyId, params);
     case 'reassignLead':
@@ -165,11 +191,24 @@ export async function handleAttendanceCheckRejected(
   const propertyName = getString(params, 'propertyName') ?? 'your property';
 
   if (visitId) {
-    await db.visit.update({
-      where: { id: visitId },
-      data: { status: 'no_show' },
+    const result = await markVisitNoShow({
+      companyId,
+      visitId,
+      notes: 'Agent reported customer did not attend.',
     });
+    if (!result.success) return visitStateErrorMessage(result.error);
     logger.info('Attendance check: visit marked no_show via agent NO reply', { visitId, companyId });
+    void logAgentAction({
+      companyId,
+      triggeredBy: 'inbound_message',
+      action: 'attendance_check_no',
+      resourceType: 'visit',
+      resourceId: visitId,
+      status: 'success',
+      result: 'Visit marked no_show after agent attendance rejection',
+    });
+  } else {
+    return 'Missing visit id.';
   }
 
   if (customerPhone) {
@@ -220,19 +259,25 @@ async function attendanceCheckYes(
   const propertyName = getString(params, 'propertyName') ?? 'Property';
 
   if (visitId) {
-    await db.visit.update({
-      where: { id: visitId },
-      data: { status: 'completed' },
+    const result = await markVisitAttended({
+      companyId,
+      visitId,
+      notes: 'Attendance confirmed by assigned agent.',
     });
+    if (!result.success) return visitStateErrorMessage(result.error);
     logger.info('Attendance check: visit marked completed via agent YES reply', { visitId, companyId });
-  }
-
-  if (leadId) {
-    await db.lead.update({
-      where: { id: leadId },
-      data: { status: 'visited' },
-    });
     logger.info('Lead status updated to visited after attendance confirmation', { leadId, companyId });
+    void logAgentAction({
+      companyId,
+      triggeredBy: 'inbound_message',
+      action: 'attendance_check_yes',
+      resourceType: 'visit',
+      resourceId: visitId,
+      status: 'success',
+      result: 'Visit marked completed after agent attendance confirmation',
+    });
+  } else {
+    return 'Missing visit id.';
   }
 
   return [
@@ -248,38 +293,120 @@ async function attendanceCheckYes(
 async function deleteLead(companyId: string, params: Record<string, unknown>): Promise<string> {
   const leadId = getString(params, 'leadId');
   if (!leadId) return 'Missing lead id.';
-  const lead = await db.lead.findFirst({ where: { id: leadId, companyId }, select: { id: true, customerName: true } });
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, companyId }, select: { id: true, customerName: true } });
   if (!lead) return 'Lead not found or access denied.';
-  await db.lead.delete({ where: { id: leadId } });
-  return `Deleted lead ${lead.customerName ?? 'Unknown'}.`;
+  // Soft-delete per project policy (rule 54): user-owned data uses deleted_at, not hard delete.
+  // TODO(agent): verify — if Lead model gains a deletedAt column, switch to { deletedAt: new Date() }
+  await prisma.lead.update({ where: { id: leadId }, data: { status: 'closed_lost' } });
+  void logAgentAction({
+    companyId,
+    triggeredBy: 'inbound_message',
+    action: 'delete_lead_confirmed',
+    resourceType: 'lead',
+    resourceId: leadId,
+    status: 'success',
+    result: `Lead ${lead.customerName ?? 'Unknown'} marked closed_lost (soft delete)`,
+  });
+  return `Closed lead ${lead.customerName ?? 'Unknown'} (marked as lost).`;
+}
+
+async function completeVisitConfirmed(companyId: string, params: Record<string, unknown>): Promise<string> {
+  const visitId = getString(params, 'visitId');
+  if (!visitId) return 'Missing visit id.';
+  const result = await markVisitAttended({
+    companyId,
+    visitId,
+    notes: getString(params, 'notes') ?? undefined,
+  });
+  if (!result.success) return visitStateErrorMessage(result.error);
+  const visit = await prisma.visit.findFirst({
+    where: { id: visitId, companyId },
+    include: { lead: { select: { customerName: true } }, property: { select: { name: true } } },
+  });
+  const customerName = visit?.lead?.customerName ?? 'Customer';
+  const propertyName = visit?.property?.name ?? 'the property';
+  void logAgentAction({
+    companyId,
+    triggeredBy: 'inbound_message',
+    action: 'complete_visit_confirmed',
+    resourceType: 'visit',
+    resourceId: visitId,
+    status: 'success',
+    result: `Visit completed for ${customerName} at ${propertyName}`,
+  });
+  return [
+    `Visit with *${customerName}* at *${propertyName}* marked as *completed*.`,
+    `Lead status updated to *Visited*.`,
+  ].join('\n');
+}
+
+async function markVisitNoShowConfirmed(companyId: string, params: Record<string, unknown>): Promise<string> {
+  const visitId = getString(params, 'visitId');
+  if (!visitId) return 'Missing visit id.';
+  const result = await markVisitNoShow({
+    companyId,
+    visitId,
+    notes: getString(params, 'notes') ?? 'Marked no-show by agent.',
+  });
+  if (!result.success) return visitStateErrorMessage(result.error);
+  const visit = await prisma.visit.findFirst({
+    where: { id: visitId, companyId },
+    include: { lead: { select: { customerName: true } } },
+  });
+  void logAgentAction({
+    companyId,
+    triggeredBy: 'inbound_message',
+    action: 'mark_no_show_confirmed',
+    resourceType: 'visit',
+    resourceId: visitId,
+    status: 'success',
+    result: `Visit marked no-show for ${visit?.lead?.customerName ?? 'customer'}`,
+  });
+  return `Marked ${visit?.lead?.customerName ?? 'customer'}'s visit as no-show.`;
 }
 
 async function cancelVisit(companyId: string, params: Record<string, unknown>): Promise<string> {
   const visitId = getString(params, 'visitId');
   if (!visitId) return 'Missing visit id.';
-  const visit = await db.visit.findFirst({
+  const visit = await prisma.visit.findFirst({
     where: { id: visitId, companyId },
     select: { id: true, status: true, lead: { select: { customerName: true } } },
   });
   if (!visit) return 'Visit not found or access denied.';
   if (visit.status === 'completed') return 'Cannot cancel a completed visit.';
-  const oldStatus = visit.status;
-  await db.visit.update({
-    where: { id: visitId },
-    data: { status: 'cancelled', notes: getString(params, 'reason') ?? 'Cancelled by Agent AI' },
+  const result = await cancelVisitById({
+    companyId,
+    visitId,
+    notes: getString(params, 'reason') ?? 'Cancelled by Agent AI',
   });
-  void import('../visitNotificationBridge.service').then(({ notifyVisitStatusChangeFromTool }) =>
-    notifyVisitStatusChangeFromTool(visitId, oldStatus, 'cancelled'),
-  );
+  if (!result.success) return visitStateErrorMessage(result.error);
+  void logAgentAction({
+    companyId,
+    triggeredBy: 'inbound_message',
+    action: 'cancel_visit_confirmed',
+    resourceType: 'visit',
+    resourceId: visitId,
+    status: 'success',
+    result: `Visit cancelled for ${visit.lead?.customerName ?? 'Unknown'}`,
+  });
   return `Cancelled visit for ${visit.lead?.customerName ?? 'Unknown'}.`;
 }
 
 async function closeLeadLost(companyId: string, params: Record<string, unknown>): Promise<string> {
   const leadId = getString(params, 'leadId');
   if (!leadId) return 'Missing lead id.';
-  const lead = await db.lead.findFirst({ where: { id: leadId, companyId }, select: { id: true, customerName: true } });
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, companyId }, select: { id: true, customerName: true } });
   if (!lead) return 'Lead not found or access denied.';
-  await db.lead.update({ where: { id: leadId }, data: { status: 'closed_lost' } });
+  await prisma.lead.update({ where: { id: leadId }, data: { status: 'closed_lost' } });
+  void logAgentAction({
+    companyId,
+    triggeredBy: 'inbound_message',
+    action: 'close_lead_lost_confirmed',
+    resourceType: 'lead',
+    resourceId: leadId,
+    status: 'success',
+    result: `Lead ${lead.customerName ?? 'Unknown'} closed as lost`,
+  });
   return `Marked ${lead.customerName ?? 'Unknown'} as closed lost.`;
 }
 
@@ -290,12 +417,12 @@ async function reassignLead(companyId: string, params: Record<string, unknown>):
     const toAgentId = getString(params, 'toAgentId');
     if (!fromAgentId || !toAgentId) return 'Missing fromAgentId or toAgentId.';
     const [fromAgent, toAgent] = await Promise.all([
-      db.user.findFirst({ where: { id: fromAgentId, companyId }, select: { id: true, name: true } }),
-      db.user.findFirst({ where: { id: toAgentId, companyId, status: 'active' }, select: { id: true, name: true } }),
+      prisma.user.findFirst({ where: { id: fromAgentId, companyId }, select: { id: true, name: true } }),
+      prisma.user.findFirst({ where: { id: toAgentId, companyId, status: 'active' }, select: { id: true, name: true } }),
     ]);
     if (!fromAgent) return 'Source agent not found.';
     if (!toAgent) return 'Target agent not found or inactive.';
-    const result = await db.lead.updateMany({
+    const result = await prisma.lead.updateMany({
       where: { companyId, assignedAgentId: fromAgentId, status: { notIn: ['closed_won', 'closed_lost'] } },
       data: { assignedAgentId: toAgentId },
     });
@@ -307,22 +434,22 @@ async function reassignLead(companyId: string, params: Record<string, unknown>):
   const agentId = getString(params, 'agentId');
   if (!leadId || !agentId) return 'Missing lead or agent id.';
   const [lead, agent] = await Promise.all([
-    db.lead.findFirst({ where: { id: leadId, companyId }, select: { id: true, customerName: true } }),
-    db.user.findFirst({ where: { id: agentId, companyId, status: 'active' }, select: { id: true, name: true } }),
+    prisma.lead.findFirst({ where: { id: leadId, companyId }, select: { id: true, customerName: true } }),
+    prisma.user.findFirst({ where: { id: agentId, companyId, status: 'active' }, select: { id: true, name: true } }),
   ]);
   if (!lead) return 'Lead not found or access denied.';
   if (!agent) return 'Agent not found or inactive.';
-  await db.lead.update({ where: { id: leadId }, data: { assignedAgentId: agentId } });
+  await prisma.lead.update({ where: { id: leadId }, data: { assignedAgentId: agentId } });
   return `Reassigned ${lead.customerName ?? 'Unknown'} to ${agent.name}.`;
 }
 
 async function deactivateAgent(companyId: string, params: Record<string, unknown>): Promise<string> {
   const agentId = getString(params, 'agentId');
   if (!agentId) return 'Missing agent id.';
-  const user = await db.user.findFirst({ where: { id: agentId, companyId, status: 'active' }, select: { id: true, name: true } });
+  const user = await prisma.user.findFirst({ where: { id: agentId, companyId, status: 'active' }, select: { id: true, name: true } });
   if (!user) return 'User not found or already inactive.';
-  await db.user.update({ where: { id: agentId }, data: { status: 'inactive' } });
-  await db.agentSession.updateMany({ where: { userId: agentId, companyId }, data: { status: 'inactive' } });
+  await prisma.user.update({ where: { id: agentId }, data: { status: 'inactive' } });
+  await prisma.agentSession.updateMany({ where: { userId: agentId, companyId }, data: { status: 'inactive' } });
   return `Deactivated ${user.name}.`;
 }
 
@@ -335,12 +462,12 @@ async function bulkUpdateVisits(companyId: string, params: Record<string, unknow
   // Reassign mode: toAgentId provided
   const toAgentId = getString(params, 'toAgentId');
   if (toAgentId) {
-    const agent = await db.user.findFirst({
+    const agent = await prisma.user.findFirst({
       where: { id: toAgentId, companyId, status: 'active' },
       select: { id: true, name: true },
     });
     if (!agent) return 'Target agent not found or inactive.';
-    const result = await db.visit.updateMany({
+    const result = await prisma.visit.updateMany({
       where: { id: { in: visitIds }, companyId },
       data: { agentId: toAgentId },
     });
@@ -351,14 +478,14 @@ async function bulkUpdateVisits(companyId: string, params: Record<string, unknow
   const postponeByDaysRaw = params.postponeByDays;
   const postponeByDays = typeof postponeByDaysRaw === 'number' ? postponeByDaysRaw : null;
   if (postponeByDays !== null && postponeByDays > 0) {
-    const visits = await db.visit.findMany({
+    const visits = await prisma.visit.findMany({
       where: { id: { in: visitIds }, companyId },
       select: { id: true, scheduledAt: true },
     });
     let count = 0;
     for (const visit of visits) {
       const newTime = new Date(visit.scheduledAt.getTime() + postponeByDays * 24 * 60 * 60 * 1000);
-      await db.visit.update({
+      await prisma.visit.update({
         where: { id: visit.id },
         data: { scheduledAt: newTime, reminderSent: false },
       });
@@ -370,9 +497,9 @@ async function bulkUpdateVisits(companyId: string, params: Record<string, unknow
   // Status update mode
   const status = getString(params, 'status');
   if (!status) return 'Missing toAgentId, postponeByDays, or status.';
-  const result = await db.visit.updateMany({
+  const result = await prisma.visit.updateMany({
     where: { id: { in: visitIds }, companyId },
-    data: { status: status as any },
+    data: { status: status as Parameters<typeof prisma.visit.updateMany>[0]['data']['status'] },
   });
   return `Updated ${result.count} visit(s) to ${status}.`;
 }

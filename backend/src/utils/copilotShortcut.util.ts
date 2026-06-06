@@ -79,11 +79,12 @@ export function resolveStaffCopilotQuickActions(
 
   const text = input.outboundText.toLowerCase();
 
+  if (/\b(updated|scheduled|rescheduled|cancelled|completed|confirmed|marked|sent)\b/i.test(text)) {
+    return null;
+  }
+
   if (input.replyKind === 'confirmation') {
-    return [
-      { id: 'copilot-visits-today', title: 'Visits today' },
-      { id: 'copilot-dashboard', title: 'Dashboard stats' },
-    ];
+    return null;
   }
 
   if (
@@ -98,7 +99,7 @@ export function resolveStaffCopilotQuickActions(
   }
 
   if (
-    /\bvisit|scheduled|site visit|reschedul|confirm/i.test(text) &&
+    /\b(which visit|share visit|what date|what time|when should|choose a visit)\b/i.test(text) &&
     (input.replyKind === 'workflow' || input.replyKind === 'crm' || input.replyKind === 'intent')
   ) {
     return [

@@ -3,6 +3,7 @@ import logger from '../../../config/logger';
 import { logAgentAction } from '../../agent-action-log.service';
 import { applyVisitMutationFromChat } from '../../visitMutationFromChat.service';
 import { scheduleVisit } from '../../visitBooking.service';
+import { cancelVisitById, rescheduleVisitById } from '../../visitState.service';
 import { buildVisitScopeFilter } from '../../agent/tools/format-helpers';
 import type { ActionContext } from './action-helpers';
 import { fail, failToolResult, ok, requireLeadId, requireVisitId, runNamedTool, skip, mergeStateFromToolOutput } from './action-helpers';
@@ -129,18 +130,23 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
       },
     });
     if (!visit) return fail("I couldn't find an upcoming site visit to reschedule.");
-    const oldTime = visit.scheduledAt;
-    const updated = await prisma.visit.update({
+    const result = await rescheduleVisitById({
+      companyId: ctx.run.toolContext.companyId,
+      visitId: existingVisitId,
+      scheduledAt,
+    });
+    if (!result.success) {
+      if (result.error === 'past_date') return fail('That time is in the past. Please share a future date and time.');
+      return fail("I couldn't reschedule that visit. Please share another time or ask for an agent.");
+    }
+    const updated = await prisma.visit.findUnique({
       where: { id: existingVisitId },
-      data: { scheduledAt, reminderSent: false, status: 'scheduled' },
       include: {
         property: { select: { name: true } },
         agent: { select: { name: true } },
       },
     });
-    void import('../../visitNotificationBridge.service').then(({ notifyVisitRescheduledFromTool }) =>
-      notifyVisitRescheduledFromTool(existingVisitId, oldTime),
-    );
+    if (!updated) return fail("I couldn't load the updated visit.");
     return ok(
       formatBuyerVisitReply('Visit rescheduled', updated.scheduledAt, updated.property?.name, updated.agent?.name),
       { visitId: updated.id, leadId: updated.leadId, propertyId: updated.propertyId ?? undefined },
@@ -349,10 +355,12 @@ export async function cancelVisit(ctx: ActionContext) {
     if (!existing || (ctx.state.leadId && existing.leadId !== ctx.state.leadId)) {
       return fail("I couldn't find an upcoming site visit to cancel.");
     }
-    await prisma.visit.update({
-      where: { id: existing.id },
-      data: { status: 'cancelled', notes: 'Cancelled via WhatsApp buyer workflow' },
+    const result = await cancelVisitById({
+      companyId: ctx.run.toolContext.companyId,
+      visitId: existing.id,
+      notes: 'Cancelled via WhatsApp buyer workflow',
     });
+    if (!result.success) return fail("I couldn't cancel that visit. Please ask for an agent.");
     return ok(
       `Your site visit for *${existing.property?.name ?? 'Property'}* has been *cancelled*.\n\n` +
       `Reply with a new date and time if you'd like to book again.`,

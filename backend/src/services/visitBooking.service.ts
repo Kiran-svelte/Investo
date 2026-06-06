@@ -16,6 +16,17 @@ export interface ScheduleVisitInput {
   notes?: string;
   /** When omitted, uses lead.assignedAgentId or round-robin. */
   agentId?: string;
+  /** Shared idempotency key across workflow, commit, and tool paths. */
+  idempotencyKey?: string;
+}
+
+/** Shared visit booking idempotency key shape (workflow + commit + tools). */
+export function buildVisitIdempotencyKey(
+  companyId: string,
+  leadId: string,
+  scheduledAtISO: string,
+): string {
+  return `visit_book:${companyId}:${leadId}:${scheduledAtISO}`;
 }
 
 export interface ScheduleVisitResult {
@@ -103,6 +114,64 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
       success: false,
       error: 'agent_conflict',
       conflicts: conflicts.map((c) => ({ id: c.id, scheduledAt: c.scheduledAt })),
+    };
+  }
+
+  const idemKey = input.idempotencyKey
+    ?? buildVisitIdempotencyKey(companyId, leadId, scheduledAt.toISOString());
+  const { deduplicationService } = await import('./deduplication.service');
+  const redisKey = `visit-idem:${idemKey}`;
+  const claimed = await deduplicationService.claimMessageProcessing(redisKey, 120);
+  if (!claimed) {
+    const duplicate = await prisma.visit.findFirst({
+      where: {
+        companyId,
+        leadId,
+        scheduledAt,
+        status: { in: ['scheduled', 'confirmed'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (duplicate) {
+      return {
+        success: true,
+        visit: {
+          id: duplicate.id,
+          scheduledAt: duplicate.scheduledAt,
+          agentId: duplicate.agentId,
+          propertyId: duplicate.propertyId,
+          leadId: duplicate.leadId,
+          companyId: duplicate.companyId,
+          durationMinutes: duplicate.durationMinutes,
+          status: duplicate.status,
+          notes: duplicate.notes,
+        },
+      };
+    }
+  }
+
+  const existingSameSlot = await prisma.visit.findFirst({
+    where: {
+      companyId,
+      leadId,
+      scheduledAt,
+      status: { in: ['scheduled', 'confirmed'] },
+    },
+  });
+  if (existingSameSlot) {
+    return {
+      success: true,
+      visit: {
+        id: existingSameSlot.id,
+        scheduledAt: existingSameSlot.scheduledAt,
+        agentId: existingSameSlot.agentId,
+        propertyId: existingSameSlot.propertyId,
+        leadId: existingSameSlot.leadId,
+        companyId: existingSameSlot.companyId,
+        durationMinutes: existingSameSlot.durationMinutes,
+        status: existingSameSlot.status,
+        notes: existingSameSlot.notes,
+      },
     };
   }
 

@@ -451,7 +451,7 @@ describe('workflow-engine.service', () => {
     );
 
     expect(llm).not.toHaveBeenCalled();
-    expect(reply).toMatch(/scheduled|When/i);
+    expect(reply).toMatch(/Book a new visit|Change an existing visit/i);
     expect(rescheduleVisitTool.func).not.toHaveBeenCalled();
   });
 

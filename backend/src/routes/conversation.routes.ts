@@ -37,21 +37,6 @@ router.use(requireFeature('conversation_center'));
 function normalizeWhatsAppConfig(company: { settings: unknown; whatsappPhone: string | null }) {
   const settings = (company.settings as any) || {};
   const whatsapp = settings.whatsapp || {};
-  const provider = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-
-  if (provider === 'greenapi') {
-    const greenapi = whatsapp.greenapi || whatsapp;
-
-    return {
-      provider: 'greenapi' as const,
-      phoneNumberId: '',
-      accessToken: '',
-      verifyToken: whatsapp.verifyToken || config.whatsapp.verifyToken,
-      idInstance: greenapi.idInstance || whatsapp.phoneNumberId || '',
-      apiTokenInstance: greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '',
-    };
-  }
-
   const meta = whatsapp.meta || whatsapp;
 
   return {
@@ -268,16 +253,18 @@ router.get(
 /**
  * PATCH /api/conversations/:id/takeover
  * Agent takes over conversation from AI.
+ * Requires 'update' permission — 'read' alone is insufficient to change conversation ownership.
  */
 router.patch(
   '/:id/takeover',
-  authorize('conversations', 'read'),
+  authorize('conversations', 'update'),
   auditLog('takeover', 'conversations'),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
       const conversation = await prisma.conversation.findFirst({
         where: { id: req.params.id, companyId },
+        include: { lead: { select: { assignedAgentId: true } } },
       });
 
       if (!conversation) {
@@ -290,12 +277,33 @@ router.patch(
         return;
       }
 
+      // Sales agents may only take over conversations assigned to them.
+      if (
+        req.user!.role === 'sales_agent' &&
+        conversation.lead?.assignedAgentId !== req.user!.id
+      ) {
+        res.status(403).json({ error: 'Can only take over conversations assigned to you' });
+        return;
+      }
+
       await prisma.conversation.update({
         where: { id: req.params.id },
-        data: { status: 'agent_active' },
+        data: { status: 'agent_active', aiEnabled: false },
       });
 
-      res.json({ message: 'Agent takeover successful', data: { status: 'agent_active' } });
+      socketService.emitToCompany(companyId, SOCKET_EVENTS.CONVERSATION_UPDATED, {
+        conversationId: req.params.id,
+        leadId: conversation.leadId,
+        trigger: 'agent_takeover',
+        status: 'agent_active',
+        aiEnabled: false,
+        occurredAt: new Date().toISOString(),
+      });
+
+      res.json({
+        message: 'Agent takeover successful',
+        data: { status: 'agent_active', aiEnabled: false },
+      });
     } catch (err: any) {
       logger.error('Failed to takeover conversation', { error: err.message });
       res.status(500).json({ error: 'Failed to takeover conversation' });
@@ -306,10 +314,11 @@ router.patch(
 /**
  * PATCH /api/conversations/:id/release
  * Agent releases conversation back to AI.
+ * Requires 'update' permission — 'read' alone is insufficient to change conversation ownership.
  */
 router.patch(
   '/:id/release',
-  authorize('conversations', 'read'),
+  authorize('conversations', 'update'),
   auditLog('release', 'conversations'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -330,10 +339,22 @@ router.patch(
 
       await prisma.conversation.update({
         where: { id: req.params.id },
-        data: { status: 'ai_active' },
+        data: { status: 'ai_active', aiEnabled: true },
       });
 
-      res.json({ message: 'Released to AI', data: { status: 'ai_active' } });
+      socketService.emitToCompany(companyId, SOCKET_EVENTS.CONVERSATION_UPDATED, {
+        conversationId: req.params.id,
+        leadId: conversation.leadId,
+        trigger: 'agent_release',
+        status: 'ai_active',
+        aiEnabled: true,
+        occurredAt: new Date().toISOString(),
+      });
+
+      res.json({
+        message: 'Released to AI',
+        data: { status: 'ai_active', aiEnabled: true },
+      });
     } catch (err: any) {
       logger.error('Failed to release conversation', { error: err.message });
       res.status(500).json({ error: 'Failed to release conversation' });
@@ -344,10 +365,11 @@ router.patch(
 /**
  * PATCH /api/conversations/:id/close
  * Close a conversation.
+ * Requires 'update' permission — closing changes conversation status permanently.
  */
 router.patch(
   '/:id/close',
-  authorize('conversations', 'read'),
+  authorize('conversations', 'update'),
   auditLog('close', 'conversations'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -458,16 +480,9 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
     }
 
     const whatsappConfig = normalizeWhatsAppConfig(company);
-    if (whatsappConfig.provider === 'greenapi') {
-      if (!whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance) {
-        res.status(400).json({ error: 'WhatsApp is not configured for this company' });
-        return;
-      }
-    } else {
-      if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
-        res.status(400).json({ error: 'WhatsApp is not configured for this company' });
-        return;
-      }
+    if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+      res.status(400).json({ error: 'WhatsApp is not configured for this company' });
+      return;
     }
 
     const payload = parsed.data;

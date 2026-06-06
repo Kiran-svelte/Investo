@@ -13,6 +13,7 @@
         "test": "jest --detectOpenHandles --forceExit",
         "test:unit": "jest --testPathPattern=tests/unit --detectOpenHandles --forceExit",
         "test:integration": "jest --testPathPattern=tests/integration --detectOpenHandles --forceExit",
+        "eval": "jest src/tests/evals --runInBand --detectOpenHandles --forceExit",
         "proof:webhook": "ts-node scripts/verify-meta-webhook-proof.ts",
         "migrate": "ts-node src/config/migrate.ts",
         "seed": "ts-node src/config/seed.ts"

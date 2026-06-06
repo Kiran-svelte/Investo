@@ -5,4 +5,3 @@ export type {
 } from './whatsapp-provider';
 
 export { MetaWhatsAppProvider } from './meta-whatsapp.provider';
-export { GreenApiWhatsAppProvider } from './greenapi-whatsapp.provider';

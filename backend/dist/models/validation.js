@@ -5,6 +5,7 @@ exports.normalizeIndianPhoneNumber = normalizeIndianPhoneNumber;
 exports.isIndianE164Phone = isIndianE164Phone;
 exports.whatsappPhoneLookupVariants = whatsappPhoneLookupVariants;
 exports.isValidTransition = isValidTransition;
+exports.isValidVisitTransition = isValidVisitTransition;
 const zod_1 = require("zod");
 const INDIAN_E164_REGEX = /^\+91\d{10}$/;
 /**
@@ -324,6 +325,10 @@ function isValidTransition(transitions, from, to) {
     const allowed = transitions[from];
     return allowed ? allowed.includes(to) : false;
 }
+/** Visit state machine guard — shared by REST API and copilot tools. */
+function isValidVisitTransition(from, to) {
+    return isValidTransition(exports.VISIT_TRANSITIONS, from, to);
+}
 /** Schema for POST /api/auth/change-password */
 exports.changePasswordSchema = zod_1.z.object({
     current_password: zod_1.z.string().optional(),
@@ -331,7 +336,7 @@ exports.changePasswordSchema = zod_1.z.object({
 });
 /** Schema for POST /api/auth/forgot-password */
 exports.forgotPasswordSchema = zod_1.z.object({
-    email: emailSchema,
+    email: zod_1.z.string().trim().pipe(emailSchema),
 });
 /** Schema for POST /api/auth/reset-password */
 exports.resetPasswordSchema = zod_1.z.object({

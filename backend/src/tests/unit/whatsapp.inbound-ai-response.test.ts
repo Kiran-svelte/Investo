@@ -24,18 +24,11 @@ jest.mock('../../config', () => ({
   default: {
     env: 'development',
     whatsapp: {
-      provider: 'greenapi',
+      provider: 'meta',
       phoneNumberId: '',
       accessToken: '',
       verifyToken: '',
-      apiUrl: 'https://api.green-api.com',
-      allowGreenapiInProd: true,
-    },
-    greenapi: {
-      apiUrl: 'https://api.green-api.com',
-      idInstance: '7107584520',
-      apiTokenInstance: 'token',
-      webhookUrlToken: 'token',
+      apiUrl: 'https://graph.facebook.com/v18.0',
     },
     ai: {
       provider: 'openai',
@@ -141,13 +134,8 @@ describe('WhatsAppService AI response processing', () => {
         name: 'Investo Platform',
         settings: {
           whatsapp: {
-            provider: 'greenapi',
-            greenapi: {
-              idInstance: '7107584520',
-              apiTokenInstance: 'token',
-              webhookUrlToken: 'token',
-            },
-          },
+            provider: 'meta',
+                  },
         },
       },
     ]);
@@ -156,13 +144,8 @@ describe('WhatsAppService AI response processing', () => {
       name: 'Investo Platform',
       settings: {
         whatsapp: {
-          provider: 'greenapi',
-          greenapi: {
-            idInstance: '7107584520',
-            apiTokenInstance: 'token',
-            webhookUrlToken: 'token',
-          },
-        },
+          provider: 'meta',
+              },
       },
     });
 
@@ -244,7 +227,7 @@ describe('WhatsAppService AI response processing', () => {
     jest.spyOn(service as any, 'sendMessage').mockResolvedValue(true);
 
     const result = await service.handleIncomingMessage({
-      provider: 'greenapi',
+      provider: 'meta',
       phoneNumberId: '7107584520',
       customerPhone: '916363062930',
       customerName: 'Rajesh Kumar',

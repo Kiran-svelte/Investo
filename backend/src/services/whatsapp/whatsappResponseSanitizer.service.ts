@@ -1,0 +1,103 @@
+import { stripInternalCustomerMeta } from '../aiTransparency.service';
+import { enforceNeverSayNoResponse } from '../neverSayNoResponseGuard.service';
+import { polishOutboundMessage } from '../messagePolish.service';
+import type { PropertyLike } from '../propertyCompleteness.service';
+import type { MutationLanguageTurnContext } from './mutationLanguageGuard.service';
+import { guardBookingClaims } from './mutationLanguageGuard.service';
+
+export type SanitizeChannel = 'buyer' | 'staff';
+
+export type SanitizeBuyerOutboundInput = {
+  text: string;
+  channel?: 'buyer';
+  /** neverSayNo guard inputs */
+  hasInventoryAlternatives?: boolean;
+  fallbackCta?: string;
+  groundedProperties?: PropertyLike[];
+  conversionPromptBlock?: string;
+  skipFallbackCta?: boolean;
+  /** polish inputs */
+  groundedFactsBlock?: string;
+  language?: string;
+  companyName?: string;
+  maxLength?: number;
+  /** mutation language guard */
+  turnContext?: MutationLanguageTurnContext;
+};
+
+export type SanitizeStaffOutboundInput = {
+  text: string;
+  channel: 'staff';
+  companyName?: string;
+  maxLength?: number;
+};
+
+const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
+const BUYER_INTERNAL_LINE =
+  /^(ID:|Match score:|Workflow|grounded|propertyId:|handler not configured|Confidence:|Sources:)/i;
+
+/**
+ * Strip UUIDs, internal metadata, and workflow leakage from buyer-facing text.
+ */
+export function stripBuyerInternalMetadata(text: string): string {
+  let out = stripInternalCustomerMeta(text);
+  out = out.replace(UUID_RE, '');
+  out = out
+    .split(/\r?\n/)
+    .filter((line) => !BUYER_INTERNAL_LINE.test(line.trim()))
+    .join('\n')
+    .replace(/\bMatch score:\s*\d+/gi, '')
+    .replace(/\bpropertyId:\s*\S+/gi, '')
+    .replace(/\bWorkflow\s+"[^"]+"/gi, '')
+    .replace(/\bgrounded\b/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return out;
+}
+
+/**
+ * Full buyer outbound pipeline: neverSayNo → internal strip → polish → mutation guard.
+ */
+export async function sanitizeBuyerOutbound(input: SanitizeBuyerOutboundInput): Promise<string> {
+  const fallbackCta = input.fallbackCta ?? 'Share your budget and preferred area, and I will shortlist options.';
+
+  const guarded = enforceNeverSayNoResponse({
+    text: input.text,
+    hasInventoryAlternatives: input.hasInventoryAlternatives ?? false,
+    fallbackCta,
+    groundedProperties: input.groundedProperties,
+    conversionPromptBlock: input.conversionPromptBlock,
+    skipFallbackCta: input.skipFallbackCta,
+  });
+
+  let text = stripBuyerInternalMetadata(guarded.text);
+
+  const polished = await polishOutboundMessage({
+    rawText: text,
+    groundedFactsBlock: input.groundedFactsBlock,
+    channel: 'whatsapp',
+    language: input.language,
+    companyName: input.companyName,
+    maxLength: input.maxLength,
+  });
+  text = polished.text;
+
+  if (input.turnContext) {
+    text = guardBookingClaims(text, input.turnContext);
+  }
+
+  return text.trim();
+}
+
+/**
+ * Lighter staff outbound strip — keeps CRM terms, removes audit footers only.
+ */
+export async function sanitizeStaffOutbound(input: SanitizeStaffOutboundInput): Promise<string> {
+  const polished = await polishOutboundMessage({
+    rawText: stripInternalCustomerMeta(input.text),
+    channel: 'whatsapp',
+    companyName: input.companyName,
+    maxLength: input.maxLength,
+  });
+  return polished.text.trim();
+}

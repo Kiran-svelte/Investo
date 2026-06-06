@@ -12,11 +12,11 @@ describe('whatsappPresence.service', () => {
     expect(long).toBeGreaterThan(short);
   });
 
-  it('simulateHumanReplyPacing completes without throw for greenapi', async () => {
+  it('simulateHumanReplyPacing completes without throw with minimal meta config', async () => {
     const start = Date.now();
     await simulateHumanReplyPacing({
       to: '+919876543210',
-      whatsappConfig: { provider: 'greenapi' },
+      whatsappConfig: { provider: 'meta' },
       outboundTextLength: 50,
     });
     expect(Date.now() - start).toBeGreaterThanOrEqual(800);

@@ -44,7 +44,6 @@ import propertyImportUploadRoutes from './routes/property-import-upload.routes';
 import propertyImportBulkRoutes from './routes/property-import-bulk.routes';
 import financeRoutes from './routes/finance.routes';
 import { isAllowedCorsOrigin } from './config';
-import greenApiWebhookRoutes from './routes/greenapi-webhook.routes';
 import copilotRoutes from './routes/copilot.routes';
 
 const app = express();
@@ -81,9 +80,6 @@ app.use('/api/metrics', metricsRoutes);
 
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
-
-// GreenAPI webhook route (guarded internally for production)
-app.use('/api/greenapi/webhook', webhookRateLimiter, whatsappAiRateLimiter, greenApiWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(express.json({ limit: '10mb' }));

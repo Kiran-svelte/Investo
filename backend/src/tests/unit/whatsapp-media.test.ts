@@ -60,6 +60,13 @@ jest.mock('../../services/brochureDelivery.service', () => ({
   resolveBrochureUrlForWhatsApp: jest.fn(async (url: string) => url),
 }));
 
+jest.mock('../../services/outboundTurnDebug.service', () => ({
+  beginOutboundTurn: jest.fn(),
+  endOutboundTurn: jest.fn(),
+  logOutboundBranch: jest.fn(),
+  logOutboundSend: jest.fn(),
+}));
+
 describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
   let whatsappService: WhatsAppService;
   const mockConfig = {
@@ -70,6 +77,7 @@ describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFetch.mockReset();
     whatsappService = new WhatsAppService();
   });
 
@@ -552,66 +560,105 @@ describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
     });
   });
 
-  describe('property media set after shortlist', () => {
-    it('falls back to text URLs for Green API property media', async () => {
-      const sendMessageSpy = jest.spyOn(whatsappService, 'sendMessage').mockResolvedValue(true);
-      const greenConfig = {
-        provider: 'greenapi' as const,
-        phoneNumberId: '',
-        accessToken: '',
-        verifyToken: '',
-        idInstance: '1100000001',
-        apiTokenInstance: 'token-abc',
-      };
+  describe('sendTurnResult media-only addon', () => {
+    it('sends hero image without primary text when components include media only', async () => {
+      const sendImageSpy = jest.spyOn(whatsappService as any, 'sendImage').mockResolvedValue(undefined);
 
-      await (whatsappService as any).sendPropertyMediaSet(
+      await whatsappService.sendTurnResult(
         '+919876543210',
-        greenConfig,
         {
-          id: 'prop-1',
-          name: 'Equator View',
-          images: ['https://cdn.example.com/equator.jpg'],
-          brochureUrl: 'https://cdn.example.com/equator.pdf',
-          latitude: 0,
-          longitude: 77.5946,
-          locationArea: 'MG Road',
-          locationCity: 'Bangalore',
+          audience: 'buyer',
+          handled: true,
+          components: [
+            {
+              kind: 'media',
+              url: 'https://cdn.example.com/hero.jpg',
+              mime: 'image/jpeg',
+              caption: 'Lake Vista',
+            },
+          ],
         },
-        { stage: 'shortlist', messageCount: 1 },
-        'conv-1',
+        mockConfig,
       );
 
-      expect(sendMessageSpy).toHaveBeenCalled();
-      expect(sendMessageSpy).toHaveBeenCalledWith(
+      expect(sendImageSpy).toHaveBeenCalledWith(
         '+919876543210',
-        expect.stringContaining('https://www.google.com/maps/search/?api=1&query=0,77.5946'),
-        greenConfig,
+        'https://cdn.example.com/hero.jpg',
+        'Lake Vista',
+        mockConfig,
       );
-      expect(prisma.message.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          conversationId: 'conv-1',
-          content: expect.stringContaining('images, brochure, location'),
-        }),
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sendTurnResult', () => {
+    it('sends buttons as the primary payload without a separate text send', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ messages: [{ id: 'wamid.primary-buttons' }] }),
       });
+
+      await whatsappService.sendTurnResult(
+        '+919876543210',
+        {
+          audience: 'buyer',
+          handled: true,
+          text: 'What type of property are you looking for?',
+          components: [
+            {
+              kind: 'buttons',
+              buttons: [
+                { id: 'filter-2bhk', title: '2 BHK' },
+                { id: 'filter-3bhk', title: '3 BHK' },
+              ],
+            },
+          ],
+        },
+        mockConfig,
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.type).toBe('interactive');
+      expect(callBody.interactive.type).toBe('button');
+      expect(callBody.interactive.body.text).toBe('What type of property are you looking for?');
+      expect(callBody.interactive.action.buttons).toHaveLength(2);
     });
 
-    it('does not record media as sent when Meta media URLs fail validation', async () => {
-      await (whatsappService as any).sendPropertyMediaSet(
+    it('falls back to text when the primary interactive payload fails', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: async () => 'meta temporarily unavailable',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ messages: [{ id: 'wamid.text-fallback' }] }),
+        });
+
+      await whatsappService.sendTurnResult(
         '+919876543210',
-        mockConfig,
         {
-          id: 'prop-2',
-          name: 'Bad Media',
-          images: ['http://cdn.example.com/image.jpg'],
-          brochureUrl: 'http://cdn.example.com/brochure.pdf',
-          latitude: null,
-          longitude: null,
+          audience: 'buyer',
+          handled: true,
+          text: 'Choose a visit option.',
+          components: [
+            {
+              kind: 'buttons',
+              buttons: [{ id: 'book-visit', title: 'Book Visit' }],
+            },
+          ],
         },
-        { stage: 'shortlist', messageCount: 1 },
-        'conv-2',
+        mockConfig,
       );
 
-      expect(prisma.message.create).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const interactiveBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const fallbackBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(interactiveBody.type).toBe('interactive');
+      expect(fallbackBody.type).toBe('text');
+      expect(fallbackBody.text.body).toBe('Choose a visit option.');
     });
   });
 });

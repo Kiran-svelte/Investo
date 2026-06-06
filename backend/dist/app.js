@@ -34,12 +34,13 @@ const onboarding_routes_1 = __importDefault(require("./routes/onboarding.routes"
 const audit_routes_1 = __importDefault(require("./routes/audit.routes"));
 const error_log_routes_1 = __importDefault(require("./routes/error-log.routes"));
 const assignment_settings_routes_1 = __importDefault(require("./routes/assignment-settings.routes"));
+const agent_action_log_routes_1 = __importDefault(require("./routes/agent-action-log.routes"));
 const property_import_routes_1 = __importDefault(require("./routes/property-import.routes"));
 const property_import_upload_routes_1 = __importDefault(require("./routes/property-import-upload.routes"));
 const property_import_bulk_routes_1 = __importDefault(require("./routes/property-import-bulk.routes"));
 const finance_routes_1 = __importDefault(require("./routes/finance.routes"));
 const config_1 = require("./config");
-const greenapi_webhook_routes_1 = __importDefault(require("./routes/greenapi-webhook.routes"));
+const copilot_routes_1 = __importDefault(require("./routes/copilot.routes"));
 const app = (0, express_1.default)();
 // Render/other reverse proxies forward client IP via X-Forwarded-For.
 // express-rate-limit requires trust proxy to be enabled to avoid ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
@@ -65,8 +66,6 @@ app.use('/api/readiness', readiness_routes_1.default);
 app.use('/api/metrics', metrics_routes_1.default);
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', rateLimiter_1.webhookRateLimiter, rateLimiter_1.whatsappAiRateLimiter, webhook_routes_1.default);
-// GreenAPI webhook route (guarded internally for production)
-app.use('/api/greenapi/webhook', rateLimiter_1.webhookRateLimiter, rateLimiter_1.whatsappAiRateLimiter, greenapi_webhook_routes_1.default);
 // Body parsing (for all non-webhook routes)
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
@@ -98,6 +97,8 @@ app.use('/api/roles', rateLimiter_1.companyRateLimiter, role_routes_1.default);
 app.use('/api/features', rateLimiter_1.companyRateLimiter, feature_routes_1.default);
 app.use('/api/onboarding', rateLimiter_1.companyRateLimiter, onboarding_routes_1.default);
 app.use('/api/audit', rateLimiter_1.companyRateLimiter, audit_routes_1.default);
+app.use('/api/agent-action-logs', rateLimiter_1.companyRateLimiter, agent_action_log_routes_1.default);
+app.use('/api/copilot', rateLimiter_1.companyRateLimiter, rateLimiter_1.companyAiRateLimiter, copilot_routes_1.default);
 app.use('/api/error-logs', rateLimiter_1.companyRateLimiter, error_log_routes_1.default);
 app.use('/api/assignment-settings', rateLimiter_1.companyRateLimiter, assignment_settings_routes_1.default);
 app.use('/api', finance_routes_1.default);

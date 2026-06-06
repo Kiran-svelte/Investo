@@ -1,8 +1,42 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildVisitIdempotencyKey = buildVisitIdempotencyKey;
 exports.scheduleVisit = scheduleVisit;
 exports.scheduleVisitFromWhatsApp = scheduleVisitFromWhatsApp;
 exports.parseVisitTimeInteractiveId = parseVisitTimeInteractiveId;
@@ -12,6 +46,10 @@ const logger_1 = __importDefault(require("../config/logger"));
 const leadAssignment_service_1 = require("./leadAssignment.service");
 const leadTransition_service_1 = require("./leadTransition.service");
 const notification_engine_1 = require("./notification.engine");
+/** Shared visit booking idempotency key shape (workflow + commit + tools). */
+function buildVisitIdempotencyKey(companyId, leadId, scheduledAtISO) {
+    return `visit_book:${companyId}:${leadId}:${scheduledAtISO}`;
+}
 /**
  * Books a site visit (REST API, WhatsApp, or automation) with shared validation rules.
  */
@@ -65,6 +103,62 @@ async function scheduleVisit(input) {
             success: false,
             error: 'agent_conflict',
             conflicts: conflicts.map((c) => ({ id: c.id, scheduledAt: c.scheduledAt })),
+        };
+    }
+    const idemKey = input.idempotencyKey
+        ?? buildVisitIdempotencyKey(companyId, leadId, scheduledAt.toISOString());
+    const { deduplicationService } = await Promise.resolve().then(() => __importStar(require('./deduplication.service')));
+    const redisKey = `visit-idem:${idemKey}`;
+    const claimed = await deduplicationService.claimMessageProcessing(redisKey, 120);
+    if (!claimed) {
+        const duplicate = await prisma_1.default.visit.findFirst({
+            where: {
+                companyId,
+                leadId,
+                scheduledAt,
+                status: { in: ['scheduled', 'confirmed'] },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        if (duplicate) {
+            return {
+                success: true,
+                visit: {
+                    id: duplicate.id,
+                    scheduledAt: duplicate.scheduledAt,
+                    agentId: duplicate.agentId,
+                    propertyId: duplicate.propertyId,
+                    leadId: duplicate.leadId,
+                    companyId: duplicate.companyId,
+                    durationMinutes: duplicate.durationMinutes,
+                    status: duplicate.status,
+                    notes: duplicate.notes,
+                },
+            };
+        }
+    }
+    const existingSameSlot = await prisma_1.default.visit.findFirst({
+        where: {
+            companyId,
+            leadId,
+            scheduledAt,
+            status: { in: ['scheduled', 'confirmed'] },
+        },
+    });
+    if (existingSameSlot) {
+        return {
+            success: true,
+            visit: {
+                id: existingSameSlot.id,
+                scheduledAt: existingSameSlot.scheduledAt,
+                agentId: existingSameSlot.agentId,
+                propertyId: existingSameSlot.propertyId,
+                leadId: existingSameSlot.leadId,
+                companyId: existingSameSlot.companyId,
+                durationMinutes: existingSameSlot.durationMinutes,
+                status: existingSameSlot.status,
+                notes: existingSameSlot.notes,
+            },
         };
     }
     const agent = await prisma_1.default.user.findFirst({

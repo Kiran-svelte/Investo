@@ -58,7 +58,7 @@ export function sanitizeCompanySettings(settings: unknown): Record<string, unkno
   const whatsapp = copy.whatsapp;
   if (whatsapp && typeof whatsapp === 'object' && !Array.isArray(whatsapp)) {
     const wa = whatsapp as Record<string, unknown>;
-    for (const nestedKey of ['meta', 'greenapi']) {
+    for (const nestedKey of ['meta']) {
       const nested = wa[nestedKey];
       if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
         wa[nestedKey] = redactSensitiveData(nested);

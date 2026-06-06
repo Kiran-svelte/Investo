@@ -71,10 +71,8 @@ export class WhatsAppHealthService {
     }
     
     try {
-      const provider = await this.resolveProvider(companyId);
-      const response = provider === 'greenapi'
-        ? await this.checkGreenApiConnection(companyId)
-        : await this.checkMetaConnection(companyId);
+      const provider = 'meta';
+      const response = await this.checkMetaConnection(companyId);
 
       const responseTime = Date.now() - startTime;
 
@@ -221,46 +219,17 @@ export class WhatsAppHealthService {
 
   private async checkConfigCompleteness(companyId?: string): Promise<{ complete: boolean; reason: string }> {
     try {
-      const provider = await this.resolveProvider(companyId);
+      const accessToken = companyId
+        ? await this.getCompanyAccessToken(companyId)
+        : config.whatsapp.accessToken;
 
-      if (provider === 'greenapi') {
-        const creds = await this.getGreenApiCredentials(companyId);
-        if (!creds.idInstance || !creds.apiTokenInstance) {
-          return { complete: false, reason: 'Green-API not configured: missing idInstance or apiTokenInstance' };
-        }
-      } else {
-        const accessToken = companyId
-          ? await this.getCompanyAccessToken(companyId)
-          : config.whatsapp.accessToken;
-
-        if (!accessToken) {
-          return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken' };
-        }
+      if (!accessToken) {
+        return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken' };
       }
 
       return { complete: true, reason: '' };
     } catch (err: any) {
       return { complete: false, reason: `Config check error: ${err.message}` };
-    }
-  }
-
-  private async resolveProvider(companyId?: string): Promise<'meta' | 'greenapi'> {
-    if (!companyId) {
-      return config.whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-    }
-
-    try {
-      const prisma = (await import('../config/prisma')).default;
-      const company = await prisma.company.findUnique({
-        where: { id: companyId },
-        select: { settings: true },
-      });
-
-      const settings = (company?.settings as any) || {};
-      const whatsapp = (settings.whatsapp as any) || {};
-      return whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
-    } catch {
-      return config.whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
     }
   }
 
@@ -280,47 +249,6 @@ export class WhatsAppHealthService {
         'Content-Type': 'application/json',
       },
     });
-  }
-
-  private async checkGreenApiConnection(companyId?: string): Promise<Response> {
-    const greenApiConfig = await this.getGreenApiCredentials(companyId);
-    if (!greenApiConfig.idInstance || !greenApiConfig.apiTokenInstance) {
-      throw new Error('Missing Green-API idInstance or apiTokenInstance');
-    }
-
-    const endpoint = `${(config as any).greenapi.apiUrl}/waInstance${greenApiConfig.idInstance}/getSettings/${greenApiConfig.apiTokenInstance}`;
-    return fetch(endpoint, { method: 'GET' });
-  }
-
-  private async getGreenApiCredentials(companyId?: string): Promise<{ idInstance: string; apiTokenInstance: string }> {
-    if (!companyId) {
-      return {
-        idInstance: (config as any).greenapi.idInstance || '',
-        apiTokenInstance: (config as any).greenapi.apiTokenInstance || '',
-      };
-    }
-
-    try {
-      const prisma = (await import('../config/prisma')).default;
-      const company = await prisma.company.findUnique({
-        where: { id: companyId },
-        select: { settings: true },
-      });
-
-      const settings = (company?.settings as any) || {};
-      const whatsapp = (settings.whatsapp as any) || {};
-      const greenapi = (whatsapp.greenapi as any) || whatsapp;
-
-      return {
-        idInstance: greenapi.idInstance || whatsapp.phoneNumberId || '',
-        apiTokenInstance: greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '',
-      };
-    } catch {
-      return {
-        idInstance: (config as any).greenapi.idInstance || '',
-        apiTokenInstance: (config as any).greenapi.apiTokenInstance || '',
-      };
-    }
   }
 
   private async checkRedis(): Promise<{

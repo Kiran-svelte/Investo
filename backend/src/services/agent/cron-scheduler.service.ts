@@ -295,7 +295,7 @@ export async function alertCompanyAdminsCronFailure(
   await notifyAdminsByRole(cronName, error, { role: 'company_admin', companyId: { in: companyIds } });
 }
 
-/** Mark visits as no-show 30 minutes after scheduled time; ask agents YES/NO attendance. */
+/** Ask agents to confirm attendance after the visit grace period; do not mark no-show until they answer. */
 async function detectAndMarkNoShows(): Promise<CronRunResult> {
   const affected = trackCompanyIds();
   const cutoff = new Date(Date.now() - NO_SHOW_GRACE_MS);
@@ -308,7 +308,16 @@ async function detectAndMarkNoShows(): Promise<CronRunResult> {
   });
   for (const visit of visits) {
     affected.add(visit.companyId);
-    await prisma.visit.update({ where: { id: visit.id }, data: { status: 'no_show' } });
+    const existingAction = await prisma.pendingAction.findFirst({
+      where: {
+        actionType: 'attendance_check',
+        status: 'awaiting',
+        actionParams: { path: ['visitId'], equals: visit.id },
+      },
+      select: { id: true },
+    });
+    if (existingAction) continue;
+
     void logAgentAction({
       companyId: visit.companyId,
       triggeredBy: 'cron',
@@ -316,7 +325,7 @@ async function detectAndMarkNoShows(): Promise<CronRunResult> {
       resourceType: 'visit',
       resourceId: visit.id,
       status: 'success',
-      result: `Marked no_show for ${visit.lead?.customerName ?? 'visit'}`,
+      result: `Attendance check requested for ${visit.lead?.customerName ?? 'visit'}`,
     });
     if (!visit.agent.phone) continue;
     // Find or create an AgentSession for the assigned agent so we can store a PendingAction.
@@ -350,18 +359,16 @@ async function detectAndMarkNoShows(): Promise<CronRunResult> {
         expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
       },
     });
-    await sendNotification(
-      visit.agent.phone,
-      visit.companyId,
-      [
-        `*Attendance Check Required*`,
-        `Visit: ${visit.lead?.customerName ?? 'Unknown'} \u2014 ${visit.property?.name ?? 'TBD'}`,
-        `Scheduled: ${formatDateIST(visit.scheduledAt)} ${formatTimeIST(visit.scheduledAt)}`,
-        ``,
-        `Did the customer show up?`,
-        `Reply *YES* if they came \u2705`,
-        `Reply *NO* if they didn\u2019t \u274C`,
-      ].join('\n'),
+    const { sendAttendanceCheck } = await import('../attendanceWorkflow.service');
+    await sendAttendanceCheck(
+      {
+        id: visit.id,
+        companyId: visit.companyId,
+        scheduledAt: visit.scheduledAt,
+        customerName: visit.lead?.customerName,
+        propertyName: visit.property?.name,
+      },
+      { phone: visit.agent.phone, companyId: visit.companyId },
     );
   }
   return affected.result();
@@ -424,19 +431,16 @@ async function sendEodAttendanceChecks(): Promise<CronRunResult> {
         expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
       },
     });
-    await sendNotification(
-      visit.agent.phone,
-      visit.companyId,
-      [
-        `\uD83C\uDF07 *End-of-Day Attendance Check*`,
-        ``,
-        `Visit: *${visit.lead?.customerName ?? 'Unknown'}*`,
-        `Property: ${visit.property?.name ?? 'TBD'}`,
-        `Time: ${formatTimeIST(visit.scheduledAt)}`,
-        ``,
-        `Did they show up today?`,
-        `Reply *YES* \u2705 or *NO* \u274C`,
-      ].join('\n'),
+    const { sendAttendanceCheck } = await import('../attendanceWorkflow.service');
+    await sendAttendanceCheck(
+      {
+        id: visit.id,
+        companyId: visit.companyId,
+        scheduledAt: visit.scheduledAt,
+        customerName: visit.lead?.customerName,
+        propertyName: visit.property?.name,
+      },
+      { phone: visit.agent.phone, companyId: visit.companyId },
     );
     void logAgentAction({
       companyId: visit.companyId,

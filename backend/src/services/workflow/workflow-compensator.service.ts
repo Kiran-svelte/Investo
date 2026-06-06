@@ -221,16 +221,41 @@ export async function runCompensators(input: CompensatorInput): Promise<boolean>
 }
 
 /**
- * Builds a user-facing partial-failure reply for staff copilot.
+ * Builds a staff copilot partial-failure reply.
  * Never exposes internal step names to the end user.
  *
  * @param workflowLabel - Human-readable workflow label (e.g. "Schedule Visit").
  * @param _failedStep - Internal action name for logging only (not shown to user).
+ * @returns Staff-facing partial failure message.
  */
 export function buildPartialFailureReply(workflowLabel: string, _failedStep: string): string {
   return (
     `*${workflowLabel}* partially completed.\n\n` +
     `The visit/lead record was saved but the follow-up step did not finish. ` +
     `Our team has been notified. You can retry or check the dashboard.`
+  );
+}
+
+/**
+ * Builds a buyer-safe partial-failure reply.
+ *
+ * Rules:
+ * - Never say "was saved" or any mutation-claim language — the mutation may have
+ *   rolled back. `mutationLanguageGuard` would catch it, but we prevent it at source.
+ * - Never expose workflow names, step names, or internal identifiers.
+ * - Set buyer expectation that the team will confirm.
+ *
+ * @param _workflowLabel - Unused in buyer-safe variant (would expose internal names).
+ * @param _failedStep - Internal action name for logging only (never shown to buyer).
+ * @returns Buyer-facing fallback message that does not claim mutation success.
+ */
+export function buildBuyerSafePartialFailureReply(
+  _workflowLabel: string,
+  _failedStep: string,
+): string {
+  return (
+    'We hit a small snag processing your request. ' +
+    'Our team will follow up with you to confirm everything shortly. ' +
+    'You can also call us directly if it is urgent.'
   );
 }

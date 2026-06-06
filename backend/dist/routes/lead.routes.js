@@ -99,6 +99,7 @@ function mapLeadToSnakeCaseDTO(lead) {
         updated_at: toIsoString(lead.updatedAt),
         last_contact_at: toIsoString(lead.lastContactAt),
         conversation_id: lead.conversations?.[0]?.id || null,
+        lead_memory: lead.leadMemory ?? null,
     };
 }
 function buildLeadExportWhere(companyId, query, userRole, userId) {

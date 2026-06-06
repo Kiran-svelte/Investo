@@ -1,7 +1,7 @@
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { formatDateIST, getISTDayBounds, getTomorrowIST } from './agent/tools/format-helpers';
-import { notificationEngine } from './notification.engine';
+import { cancelVisitById, rescheduleVisitById } from './visitState.service';
 import {
   isVisitCancelOrRescheduleMessage,
   isVisitListQueryMessage,
@@ -219,10 +219,17 @@ export async function applyVisitMutationFromChat(
   const forAgent = Boolean(input.visitScope);
 
   if (cancelOnly) {
-    await prisma.visit.update({
-      where: { id: visit.id },
-      data: { status: 'cancelled', notes: 'Cancelled via WhatsApp' },
+    const result = await cancelVisitById({
+      companyId: input.companyId,
+      visitId: visit.id,
+      notes: 'Cancelled via WhatsApp',
     });
+    if (!result.success) {
+      return {
+        handled: true,
+        reply: "I couldn't cancel that visit. Please ask an agent to help.",
+      };
+    }
     return {
       handled: true,
       mode: 'cancelled',
@@ -248,12 +255,20 @@ export async function applyVisitMutationFromChat(
     };
   }
 
-  const oldTime = visit.scheduledAt;
-  const updated = await prisma.visit.update({
-    where: { id: visit.id },
-    data: { scheduledAt: newScheduledAt, reminderSent: false, status: 'scheduled' },
-    include: { property: { select: { name: true } }, lead: true },
+  const result = await rescheduleVisitById({
+    companyId: input.companyId,
+    visitId: visit.id,
+    scheduledAt: newScheduledAt,
+    suppressCustomerNotification: Boolean(input.suppressCustomerNotification),
   });
+  if (!result.success) {
+    return {
+      handled: true,
+      reply: "I couldn't reschedule that visit. Please send another future date and time.",
+    };
+  }
+  const updated = result.visit;
+  /*
 
   try {
     const company = await prisma.company.findUnique({ where: { id: input.companyId } });
@@ -276,6 +291,8 @@ export async function applyVisitMutationFromChat(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+
+  */
 
   if (visit.leadId) {
     void import('./clientMemory.service').then(({ syncLeadClientMemory }) =>

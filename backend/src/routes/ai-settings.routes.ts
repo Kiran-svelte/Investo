@@ -142,47 +142,6 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';
-
-      if (provider === 'greenapi') {
-        // Removed production restriction for GreenAPI
-
-
-        const idInstance =
-          req.body?.id_instance || req.body?.idInstance || (config as any)?.greenapi?.idInstance || '';
-        const apiTokenInstance =
-          req.body?.api_token_instance ||
-          req.body?.apiTokenInstance ||
-          (config as any)?.greenapi?.apiTokenInstance ||
-          '';
-
-        if (!idInstance || !apiTokenInstance) {
-          res.status(400).json({
-            success: false,
-            error: 'id_instance and api_token_instance are required',
-          });
-          return;
-        }
-
-        const { whatsappService } = await import('../services/whatsapp.service');
-        const result = await whatsappService.testConnection({
-          provider: 'greenapi',
-          phoneNumberId: '',
-          accessToken: '',
-          verifyToken: '',
-          idInstance,
-          apiTokenInstance,
-        });
-
-      if (result.success) {
-        await markWhatsAppVerified(companyId);
-        res.json({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
-      } else {
-        res.status(400).json({ success: false, provider: 'greenapi', error: result.error });
-      }
-
-        return;
-      }
 
       const { phone_number_id, access_token } = req.body;
 

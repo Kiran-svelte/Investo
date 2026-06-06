@@ -41,35 +41,25 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
 const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
-const ai_service_1 = require("./ai.service");
 const emi_service_1 = require("./emi.service");
-const neverSayNoEngine_service_1 = require("./neverSayNoEngine.service");
-const alternativeInventory_service_1 = require("./alternativeInventory.service");
-const neverSayNoResponseGuard_service_1 = require("./neverSayNoResponseGuard.service");
-const messagePolish_service_1 = require("./messagePolish.service");
+const metaMessageBuilder_service_1 = require("./whatsapp/metaMessageBuilder.service");
 const opsMetrics_service_1 = require("./opsMetrics.service");
 const whatsappPresence_service_1 = require("./whatsappPresence.service");
-const groundingGuard_service_1 = require("./groundingGuard.service");
-const propertyCompleteness_service_1 = require("./propertyCompleteness.service");
 const propertyKnowledge_service_1 = require("./propertyKnowledge.service");
 const phoneMatch_1 = require("../utils/phoneMatch");
 const inboundWhatsAppRouting_service_1 = require("./inboundWhatsAppRouting.service");
 const inboundMessageGuard_service_1 = require("./inboundMessageGuard.service");
-const contextQuickReplies_util_1 = require("../utils/contextQuickReplies.util");
-const customerQuickReplies_util_1 = require("../utils/customerQuickReplies.util");
+const buyerButtonPolicy_service_1 = require("./buyer/buyerButtonPolicy.service");
+const outboundTurnDebug_service_1 = require("./outboundTurnDebug.service");
 const visitBooking_service_1 = require("./visitBooking.service");
-const alternativeInventory_service_2 = require("./alternativeInventory.service");
 const leadTransition_service_1 = require("./leadTransition.service");
 const socket_service_1 = require("./socket.service");
 const leadAssignment_service_1 = require("./leadAssignment.service");
 const leadRouting_service_1 = require("./leadRouting.service");
-const leadScoring_service_1 = require("./leadScoring.service");
 const agent_action_log_service_1 = require("./agent-action-log.service");
-const customerVisitBooking_service_1 = require("./customerVisitBooking.service");
 const visitIntentFromMessage_service_1 = require("./visitIntentFromMessage.service");
 const buyerVisitQuery_service_1 = require("./buyerVisitQuery.service");
 const customerMessageFastPath_service_1 = require("./customerMessageFastPath.service");
-const visitMutationFromChat_service_1 = require("./visitMutationFromChat.service");
 const wrongReport_service_1 = require("./wrongReport.service");
 const providers_1 = require("./whatsapp/providers");
 const conversationStateMachine_1 = require("./conversationStateMachine");
@@ -102,23 +92,17 @@ class WhatsAppService {
     constructor() {
         this.outboundProviders = {};
     }
-    resolveOutboundProviderName(whatsappConfig) {
-        const explicitProvider = whatsappConfig?.provider;
-        const requested = explicitProvider || config_1.default?.whatsapp?.provider;
-        // Always respect the explicit company-level provider selection.
-        // The production restriction has been removed — GreenAPI is fully supported.
-        return requested === 'greenapi' ? 'greenapi' : 'meta';
+    resolveOutboundProviderName(_whatsappConfig) {
+        void _whatsappConfig;
+        // Meta Cloud API is the only outbound provider.
+        return 'meta';
     }
     getOutboundProvider(providerName) {
         const cached = this.outboundProviders[providerName];
         if (cached) {
             return cached;
         }
-        const provider = providerName === 'greenapi'
-            ? new providers_1.GreenApiWhatsAppProvider({
-                apiUrl: config_1.default?.greenapi?.apiUrl || 'https://api.green-api.com',
-            })
-            : new providers_1.MetaWhatsAppProvider({ apiUrl: config_1.default.whatsapp.apiUrl });
+        const provider = new providers_1.MetaWhatsAppProvider({ apiUrl: config_1.default.whatsapp.apiUrl });
         this.outboundProviders[providerName] = provider;
         return provider;
     }
@@ -132,7 +116,7 @@ class WhatsAppService {
             where: { status: 'active' },
             select: { id: true, name: true, settings: true, whatsappPhone: true, updatedAt: true },
         });
-        const providerName = providerHint || this.resolveOutboundProviderName(null);
+        void providerHint;
         const normalizeStringLike = (value) => {
             if (typeof value === 'string') {
                 return value.trim();
@@ -142,206 +126,6 @@ class WhatsAppService {
             }
             return '';
         };
-        const normalizeTokenLike = (value) => {
-            const normalized = normalizeStringLike(value);
-            if (!normalized) {
-                return '';
-            }
-            return normalized.replace(/^(?:Bearer|Basic)\s+/i, '').trim();
-        };
-        // GreenAPI inbound MUST be deterministically routed by instance identifier.
-        // Fail closed if no company is explicitly mapped.
-        if (providerName === 'greenapi') {
-            const normalizedInstanceId = normalizeStringLike(phoneNumberId);
-            const normalizedCompanyIdHint = normalizeStringLike(companyIdHint);
-            const normalizedWebhookToken = normalizeTokenLike(webhookTokenHint);
-            if (!normalizedInstanceId) {
-                logger_1.default.error('GreenAPI company resolution failed: missing instance identifier (phoneNumberId)');
-                return null;
-            }
-            const matches = [];
-            for (const company of companies) {
-                const settings = company.settings || {};
-                const whatsapp = settings.whatsapp || {};
-                const greenapi = whatsapp.greenapi || {};
-                const configuredId = normalizeStringLike(greenapi.idInstance);
-                const legacyConfiguredId = normalizeStringLike(whatsapp.phoneNumberId);
-                const allowLegacyMapping = whatsapp.provider === 'greenapi' ||
-                    (config_1.default.env !== 'production' && config_1.default?.whatsapp?.provider === 'greenapi');
-                const candidateId = configuredId || (allowLegacyMapping ? legacyConfiguredId : '');
-                if (candidateId && candidateId === normalizedInstanceId) {
-                    matches.push(company);
-                }
-            }
-            if (matches.length === 1) {
-                const company = matches[0];
-                const settings = company.settings || {};
-                const whatsapp = settings.whatsapp || {};
-                const greenapi = whatsapp.greenapi || {};
-                const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
-                const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
-                    normalizeStringLike(whatsapp.apiTokenInstance) ||
-                    config_1.default?.greenapi?.apiTokenInstance ||
-                    '';
-                return {
-                    company,
-                    config: {
-                        provider: 'greenapi',
-                        phoneNumberId: '',
-                        accessToken: '',
-                        verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
-                        idInstance,
-                        apiTokenInstance,
-                    },
-                };
-            }
-            if (matches.length > 1 && normalizedCompanyIdHint) {
-                const companyMatches = matches.filter((company) => company.id === normalizedCompanyIdHint);
-                if (companyMatches.length === 1) {
-                    const company = companyMatches[0];
-                    const settings = company.settings || {};
-                    const whatsapp = settings.whatsapp || {};
-                    const greenapi = whatsapp.greenapi || {};
-                    const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
-                    const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
-                        normalizeStringLike(whatsapp.apiTokenInstance) ||
-                        config_1.default?.greenapi?.apiTokenInstance ||
-                        '';
-                    return {
-                        company,
-                        config: {
-                            provider: 'greenapi',
-                            phoneNumberId: '',
-                            accessToken: '',
-                            verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
-                            idInstance,
-                            apiTokenInstance,
-                        },
-                    };
-                }
-            }
-            if (matches.length > 1 && normalizeStringLike(customerPhoneHint)) {
-                const digits = normalizeStringLike(customerPhoneHint).replace(/[^0-9]/g, '');
-                const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
-                const phoneCandidates = Array.from(new Set([
-                    normalizeStringLike(customerPhoneHint),
-                    digits,
-                    last10 ? `+${last10}` : '',
-                    last10 ? `91${last10}` : '',
-                    last10 ? `+91${last10}` : '',
-                ].filter(Boolean)));
-                const leads = await prisma_1.default.lead.findMany({
-                    where: {
-                        companyId: { in: matches.map((company) => company.id) },
-                        OR: phoneCandidates.map((candidate) => ({ phone: { contains: candidate } })),
-                    },
-                    select: { companyId: true },
-                    take: 20,
-                });
-                const uniqueLeadCompanyIds = Array.from(new Set(leads.map((lead) => lead.companyId)));
-                if (uniqueLeadCompanyIds.length === 1) {
-                    const company = matches.find((item) => item.id === uniqueLeadCompanyIds[0]);
-                    if (company) {
-                        const settings = company.settings || {};
-                        const whatsapp = settings.whatsapp || {};
-                        const greenapi = whatsapp.greenapi || {};
-                        const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
-                        const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
-                            normalizeStringLike(whatsapp.apiTokenInstance) ||
-                            config_1.default?.greenapi?.apiTokenInstance ||
-                            '';
-                        return {
-                            company,
-                            config: {
-                                provider: 'greenapi',
-                                phoneNumberId: '',
-                                accessToken: '',
-                                verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
-                                idInstance,
-                                apiTokenInstance,
-                            },
-                        };
-                    }
-                }
-            }
-            if (matches.length > 1 && normalizedWebhookToken) {
-                const tokenMatches = matches.filter((company) => {
-                    const settings = company.settings || {};
-                    const whatsapp = settings.whatsapp || {};
-                    const greenapi = whatsapp.greenapi || {};
-                    const configuredToken = normalizeTokenLike(greenapi.webhookUrlToken || whatsapp.webhookUrlToken || '');
-                    return configuredToken && configuredToken === normalizedWebhookToken;
-                });
-                if (tokenMatches.length === 1) {
-                    const company = tokenMatches[0];
-                    const settings = company.settings || {};
-                    const whatsapp = settings.whatsapp || {};
-                    const greenapi = whatsapp.greenapi || {};
-                    const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
-                    const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
-                        normalizeStringLike(whatsapp.apiTokenInstance) ||
-                        config_1.default?.greenapi?.apiTokenInstance ||
-                        '';
-                    return {
-                        company,
-                        config: {
-                            provider: 'greenapi',
-                            phoneNumberId: '',
-                            accessToken: '',
-                            verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
-                            idInstance,
-                            apiTokenInstance,
-                        },
-                    };
-                }
-            }
-            if (matches.length > 1) {
-                const fallbackCompany = matches
-                    .slice()
-                    .sort((a, b) => {
-                    const aTime = new Date(a.updatedAt || 0).getTime();
-                    const bTime = new Date(b.updatedAt || 0).getTime();
-                    return bTime - aTime;
-                })[0];
-                if (fallbackCompany) {
-                    const settings = fallbackCompany.settings || {};
-                    const whatsapp = settings.whatsapp || {};
-                    const greenapi = whatsapp.greenapi || {};
-                    const idInstance = normalizeStringLike(greenapi.idInstance) || normalizeStringLike(whatsapp.phoneNumberId);
-                    const apiTokenInstance = normalizeStringLike(greenapi.apiTokenInstance) ||
-                        normalizeStringLike(whatsapp.apiTokenInstance) ||
-                        config_1.default?.greenapi?.apiTokenInstance ||
-                        '';
-                    logger_1.default.warn('GreenAPI company resolution fallback selected most recently updated company', {
-                        instanceId: normalizedInstanceId,
-                        selectedCompanyId: fallbackCompany.id,
-                        matchingCompanyIds: matches.map((company) => company.id),
-                    });
-                    return {
-                        company: fallbackCompany,
-                        config: {
-                            provider: 'greenapi',
-                            phoneNumberId: '',
-                            accessToken: '',
-                            verifyToken: normalizeStringLike(whatsapp.verifyToken) || config_1.default.whatsapp.verifyToken,
-                            idInstance,
-                            apiTokenInstance,
-                        },
-                    };
-                }
-                logger_1.default.error('GreenAPI company resolution failed: duplicate instance mapping', {
-                    instanceId: normalizedInstanceId,
-                    matchingCompanyIds: matches.map((company) => company.id),
-                    totalCompanies: companies.length,
-                });
-                return null;
-            }
-            logger_1.default.error('No company found for GreenAPI instance', {
-                instanceId: normalizedInstanceId,
-                totalCompanies: companies.length,
-            });
-            return null;
-        }
         const normalizedPhoneNumberId = typeof phoneNumberId === 'string' ? phoneNumberId.trim() : String(phoneNumberId ?? '').trim();
         if (!normalizedPhoneNumberId) {
             logger_1.default.error('Meta company resolution failed: missing phoneNumberId');
@@ -546,7 +330,7 @@ class WhatsAppService {
     async handleIncomingMessage(msg) {
         const notAttempted = { status: 'not_attempted' };
         (0, opsMetrics_service_1.incrementOpsMetric)('webhook_inbound');
-        const inboundProvider = msg.provider === 'greenapi' ? 'greenapi' : 'meta';
+        const inboundProvider = 'meta';
         logger_1.default.info('=== WHATSAPP SERVICE: handleIncomingMessage START ===', {
             provider: inboundProvider,
             phoneNumberId: msg.phoneNumberId,
@@ -624,6 +408,10 @@ class WhatsAppService {
             inboundMessageId: msg.messageId,
         });
         if (staffRoute.handled) {
+            (0, outboundTurnDebug_service_1.logOutboundBranch)('H2', 'whatsapp.service.ts:staffRoute', 'staff_route_handled', {
+                routeKind: staffRoute.route.kind,
+                companyId,
+            });
             logger_1.default.info('Inbound handled as company user (not prospect AI)', {
                 route: staffRoute.route.kind,
                 companyId,
@@ -648,6 +436,9 @@ class WhatsAppService {
         }
         const customerTurnClaimed = await (0, inboundMessageGuard_service_1.claimCustomerProcessingTurn)(companyId, customerPhone);
         if (!customerTurnClaimed) {
+            (0, outboundTurnDebug_service_1.logOutboundBranch)('H2', 'whatsapp.service.ts:concurrent', 'concurrent_customer_blocked', {
+                companyId,
+            });
             return {
                 status: 'skipped',
                 reason: 'concurrent_customer_processing',
@@ -655,6 +446,12 @@ class WhatsAppService {
                 propagation: notAttempted,
             };
         }
+        (0, outboundTurnDebug_service_1.beginOutboundTurn)({
+            channel: 'buyer',
+            inboundMessageId: msg.messageId,
+            companyId,
+            route: 'buyer_inbound',
+        });
         try {
             // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
             let lead = (await prisma_1.default.lead.findFirst({
@@ -934,6 +731,7 @@ class WhatsAppService {
                     customerPhone,
                 });
                 // If action was fully handled, don't proceed to AI response
+                // If action was fully handled, don't proceed to AI response
                 if (actionResult.handled) {
                     logger_1.default.info('Interactive action handled', {
                         interactiveId: msg.interactiveId,
@@ -961,21 +759,22 @@ class WhatsAppService {
                     else if (actionResult.leadStatus) {
                         await (0, leadTransition_service_1.transitionLeadStatus)(lead.id, actionResult.leadStatus);
                     }
-                    // Send property media after shortlist (filter / list selection)
-                    if (actionResult.newState?.stage === 'shortlist') {
-                        const recommendedIds = actionResult.newState.recommendedPropertyIds ||
-                            actionResult.newState.recommendedProperties ||
-                            [];
-                        if (recommendedIds.length > 0) {
-                            const mediaState = {
-                                ...conversationState,
-                                stage: 'shortlist',
-                                recommendedProperties: recommendedIds,
-                            };
-                            const properties = await prisma_1.default.property.findMany({
-                                where: { companyId, id: { in: recommendedIds } },
+                    // Unified TurnResult dispatch (interactive orchestrator + sendTurnResult)
+                    if (actionResult.turnResult) {
+                        const outboundText = actionResult.turnResult.text?.trim();
+                        if (outboundText) {
+                            await prisma_1.default.message.create({
+                                data: {
+                                    conversationId: conversation.id,
+                                    senderType: 'ai',
+                                    content: outboundText,
+                                    status: 'sent',
+                                },
                             });
-                            await this.sendPropertyMediaForStage(customerPhone, whatsappConfig, mediaState, properties, lead, conversation.id);
+                        }
+                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                            await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig);
+                            (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
                         }
                     }
                     propagation = await this.propagateConversationUpdate({
@@ -1006,14 +805,16 @@ class WhatsAppService {
                     };
                 }
             }
-            // 4. Any non-staff WhatsApp sender is a prospect — resume AI for this channel before replying
+            // 4. Any non-staff WhatsApp sender is a prospect — resume AI only when not in human takeover
             const aiReady = await this.ensureProspectConversationAiActive(conversation);
             conversation = { ...conversation, status: aiReady.status, aiEnabled: aiReady.aiEnabled };
             // CRITICAL: If the stage was 'human_escalated' and we just reset it to 'rapport' in the DB,
             // we must also reset the in-memory conversationState — it was built before the DB update.
             // Without this, the AI still sees stage='human_escalated' this turn and generates
             // "A human specialist will assist you" again, which is the bug we are fixing.
-            if (conversationState.stage === 'human_escalated') {
+            if (conversation.status === 'ai_active'
+                && conversation.aiEnabled
+                && conversationState.stage === 'human_escalated') {
                 const resetState = conversationStateMachine_1.conversationStateManager.createInitialState();
                 // Preserve any commitments already collected — don't wipe their budget/location data.
                 Object.assign(conversationState, {
@@ -1029,754 +830,100 @@ class WhatsAppService {
                     conversationId: conversation.id,
                 });
             }
-            // Pre-capture a lightweight fallback context for the error handler.
-            // liveCtx is declared inside the try block below; if the LLM call throws,
-            // we need a safe snapshot here so the catch block can send a contextual reply
-            // instead of the generic "I'm having a little trouble connecting" message.
+            const history = await prisma_1.default.message.findMany({
+                where: { conversationId: conversation.id },
+                orderBy: { createdAt: 'asc' },
+                take: 30,
+            });
+            const hasPriorOutbound = history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
             let preFetchedActiveVisitName = null;
-            if (conversation.status === 'ai_active' && conversation.aiEnabled) {
-                try {
-                    const history = await prisma_1.default.message.findMany({
-                        where: { conversationId: conversation.id },
-                        orderBy: { createdAt: 'asc' },
-                        take: 30,
-                    });
-                    const recentCustomerMessages = history
-                        .filter((m) => m.senderType === 'customer')
-                        .map((m) => m.content)
-                        .slice(-7);
-                    // Fetch real-time lead context (visit status, agent) once at the start
-                    // of the AI block so it is available to ALL downstream paths:
-                    // the workflow-reply CTA, the visitCommit reply, and the AI response.
-                    // Direct DB read — not the eventual-consistent vector store.
-                    const { getLiveLeadContext } = await Promise.resolve().then(() => __importStar(require('./liveLeadContext.service')));
-                    const liveCtx = await getLiveLeadContext(lead.id, companyId);
-                    // Capture visit name for the outer catch block fallback before we go deeper.
-                    preFetchedActiveVisitName = liveCtx.activeVisit?.propertyName ?? null;
-                    const visitCommit = await (0, customerVisitBooking_service_1.tryCommitCustomerVisitBooking)({
-                        companyId,
-                        lead: {
-                            id: lead.id,
-                            assignedAgentId: lead.assignedAgentId,
-                            customerName: lead.customerName,
-                            status: lead.status,
-                        },
-                        conversation: {
-                            id: conversation.id,
-                            selectedPropertyId: conversation.selectedPropertyId,
-                            proposedVisitTime: conversation.proposedVisitTime,
-                            recommendedPropertyIds: conversation.recommendedPropertyIds,
-                        },
-                        customerMessage: msg.messageText,
-                        customerPhone,
-                        recentCustomerMessages,
-                    });
-                    const { isBuyerRapportMessage, isBuyerQualificationStatement, buildBuyerRapportReply, buildBuyerQualificationAckReply, patchLeadMemoryFromQualification, } = await Promise.resolve().then(() => __importStar(require('./buyerQualification.service')));
-                    const { isBuyerMemoryRecallQuery, buildBuyerMemoryRecallReply } = await Promise.resolve().then(() => __importStar(require('./buyerMemoryRecall.service')));
-                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerRapportMessage(msg.messageText)) {
-                        const rapportReply = buildBuyerRapportReply(company.name);
-                        await prisma_1.default.message.create({
-                            data: { conversationId: conversation.id, senderType: 'ai', content: rapportReply, status: 'sent' },
-                        });
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                            await this.sendMessage(customerPhone, rapportReply, whatsappConfig);
-                        }
-                        return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
-                    }
-                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerQualificationStatement(msg.messageText)) {
-                        const delta = await patchLeadMemoryFromQualification(lead.id, msg.messageText);
-                        const qualReply = buildBuyerQualificationAckReply(delta);
-                        await prisma_1.default.message.create({
-                            data: { conversationId: conversation.id, senderType: 'ai', content: qualReply, status: 'sent' },
-                        });
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                            await this.sendMessage(customerPhone, qualReply, whatsappConfig);
-                        }
-                        void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory }) => extractAndPatchLeadMemory({ leadId: lead.id, messageText: msg.messageText, outboundText: qualReply }));
-                        return { status: 'processed', companyId, leadId: lead.id, conversationId: conversation.id, propagation };
-                    }
-                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && isBuyerMemoryRecallQuery(msg.messageText)) {
-                        const memoryReply = await buildBuyerMemoryRecallReply(lead.id);
-                        if (memoryReply) {
-                            await prisma_1.default.message.create({
-                                data: {
-                                    conversationId: conversation.id,
-                                    senderType: 'ai',
-                                    content: memoryReply,
-                                    status: 'sent',
-                                },
-                            });
-                            if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                                await this.sendMessage(customerPhone, memoryReply, whatsappConfig);
-                            }
-                            void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory }) => extractAndPatchLeadMemory({
-                                leadId: lead.id,
-                                messageText: msg.messageText,
-                                outboundText: memoryReply,
-                            }));
-                            return {
-                                status: 'processed',
-                                companyId,
-                                leadId: lead.id,
-                                conversationId: conversation.id,
-                                propagation,
-                            };
-                        }
-                    }
-                    // Deterministic visit-status replies — no LLM, no workflow classifier.
-                    if (!visitCommit.committed && !visitCommit.workflowSuggestion && (0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText)) {
-                        const visitReply = await (0, buyerVisitQuery_service_1.buildBuyerVisitStatusReply)({
-                            leadId: lead.id,
-                            companyId,
-                            companyName: company.name,
-                        });
-                        await prisma_1.default.message.create({
-                            data: {
-                                conversationId: conversation.id,
-                                senderType: 'ai',
-                                content: visitReply,
-                                status: 'sent',
-                            },
-                        });
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                            await this.sendMessage(customerPhone, visitReply, whatsappConfig);
-                        }
-                        await prisma_1.default.conversation.update({
-                            where: { id: conversation.id },
-                            data: {
-                                stage: 'confirmation',
-                                escalationReason: null,
-                            },
-                        });
-                        await this.sendContextualQuickReplies(customerPhone, 'confirmation', {
-                            propertyId: conversation.selectedPropertyId,
-                            hasActiveVisit: Boolean(liveCtx.activeVisit),
-                            visitStatus: liveCtx.activeVisit?.status,
-                            visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-                            visitTime: liveCtx.activeVisit
-                                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
-                                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
-                                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
-                                })
-                                : undefined,
-                        }, whatsappConfig);
-                        return {
-                            status: 'processed',
-                            companyId,
-                            leadId: lead.id,
-                            conversationId: conversation.id,
-                            propagation,
-                        };
-                    }
-                    // Only run buyer workflow when visit fast-path did not already mutate state.
-                    // Running both causes a double-write race (fast-path saves correct time, workflow overwrites with stale params).
-                    let buyerWorkflowReply;
-                    if (!visitCommit.committed && visitCommit.workflowSuggestion) {
-                        const { runWorkflow } = await Promise.resolve().then(() => __importStar(require('./workflow/workflow-engine.service')));
-                        const wfResult = await runWorkflow(visitCommit.workflowSuggestion.workflowId, {
-                            toolContext: {
-                                userId: 'system',
-                                companyId,
-                                userRole: 'company_admin',
-                                userName: 'System',
-                            },
-                            messageText: msg.messageText,
-                            recentMessages: [],
-                            companyName: company.name,
-                            sessionLeadId: lead.id,
-                            sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
-                            channel: 'buyer',
-                        }, visitCommit.workflowSuggestion.parameters);
-                        if (wfResult.reply?.trim()) {
-                            buyerWorkflowReply = wfResult.reply;
-                        }
-                    }
-                    if (!visitCommit.committed && !buyerWorkflowReply) {
-                        const { classifyAndRunBuyerWorkflow } = await Promise.resolve().then(() => __importStar(require('./workflow/workflow-engine.service')));
-                        buyerWorkflowReply = await classifyAndRunBuyerWorkflow({
-                            companyId,
-                            leadId: lead.id,
-                            messageText: msg.messageText,
-                            propertyId: conversation.selectedPropertyId ?? undefined,
-                            companyName: company.name,
-                            sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
-                            activeVisit: liveCtx.activeVisit
-                                ? {
-                                    visitId: liveCtx.activeVisit.visitId,
-                                    propertyName: liveCtx.activeVisit.propertyName,
-                                }
-                                : null,
-                        });
-                    }
-                    if (buyerWorkflowReply?.trim()) {
-                        await prisma_1.default.message.create({
-                            data: {
-                                conversationId: conversation.id,
-                                senderType: 'ai',
-                                content: buyerWorkflowReply,
-                                status: 'sent',
-                            },
-                        });
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                            await this.sendMessage(customerPhone, buyerWorkflowReply, whatsappConfig);
-                        }
-                        if ((0, contextQuickReplies_util_1.shouldAttachContextualQuickReplies)({
-                            stage: conversationState.stage,
-                            outboundText: buyerWorkflowReply,
-                        })) {
-                            await this.sendContextualQuickReplies(customerPhone, conversationState.stage, {
-                                propertyId: conversationState.selectedPropertyId ?? conversation.selectedPropertyId,
-                                outboundText: buyerWorkflowReply,
-                                hasActiveVisit: Boolean(liveCtx.activeVisit),
-                                visitStatus: liveCtx.activeVisit?.status,
-                                visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-                                visitTime: liveCtx.activeVisit
-                                    ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
-                                        timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
-                                        month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
-                                    })
-                                    : undefined,
-                            }, whatsappConfig);
-                        }
-                        void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory, inferBuyerWorkflowIdFromMessage }) => extractAndPatchLeadMemory({
-                            leadId: lead.id,
-                            messageText: msg.messageText,
-                            outboundText: buyerWorkflowReply,
-                            workflowId: visitCommit.workflowSuggestion?.workflowId
-                                ?? inferBuyerWorkflowIdFromMessage(msg.messageText),
-                            liveCtx: liveCtx.activeVisit
-                                ? {
-                                    activeVisit: {
-                                        visitId: liveCtx.activeVisit.visitId,
-                                        propertyName: liveCtx.activeVisit.propertyName,
-                                        scheduledAt: liveCtx.activeVisit.scheduledAt,
-                                        status: liveCtx.activeVisit.status,
-                                    },
-                                }
-                                : null,
-                        }));
-                        return {
-                            status: 'processed',
-                            companyId,
-                            leadId: lead.id,
-                            conversationId: conversation.id,
-                            propagation,
-                        };
-                    }
-                    if (visitCommit.committed && visitCommit.customerReply) {
-                        await prisma_1.default.message.create({
-                            data: {
-                                conversationId: conversation.id,
-                                senderType: 'ai',
-                                content: visitCommit.customerReply,
-                                status: 'sent',
-                            },
-                        });
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                            await this.sendMessage(customerPhone, visitCommit.customerReply, whatsappConfig);
-                        }
-                        if (visitCommit.scheduledAt) {
-                            await prisma_1.default.conversation.update({
-                                where: { id: conversation.id },
-                                data: {
-                                    stage: visitCommit.mode === 'scheduled' || visitCommit.mode === 'rescheduled'
-                                        ? 'confirmation'
-                                        : 'visit_booking',
-                                    proposedVisitTime: visitCommit.scheduledAt,
-                                    commitments: {
-                                        ...conversation.commitments,
-                                        visitSlotDiscussed: true,
-                                        visitSlotConfirmed: visitCommit.mode === 'scheduled' || visitCommit.mode === 'rescheduled',
-                                    },
-                                },
-                            });
-                        }
-                        if (visitCommit.leadStatus === 'visit_scheduled') {
-                            await (0, leadTransition_service_1.transitionLeadToVisitScheduled)(lead.id);
-                        }
-                        void Promise.resolve().then(() => __importStar(require('./clientMemory.service'))).then(({ syncLeadClientMemory }) => syncLeadClientMemory(lead.id));
-                        void (0, agent_action_log_service_1.logAgentAction)({
-                            companyId,
-                            triggeredBy: 'inbound_message',
-                            action: 'customerVisitBooked',
-                            resourceType: 'visit',
-                            resourceId: visitCommit.visitId ?? undefined,
-                            status: 'success',
-                            inputs: {
-                                mode: visitCommit.mode,
-                                scheduledAt: visitCommit.scheduledAt?.toISOString(),
-                            },
-                        });
-                        propagation = await this.propagateConversationUpdate({
-                            companyId,
-                            conversationId: conversation.id,
-                            leadId: lead.id,
-                            trigger: 'visit_booked',
-                        });
-                        void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory }) => extractAndPatchLeadMemory({
-                            leadId: lead.id,
-                            messageText: msg.messageText,
-                            outboundText: visitCommit.customerReply,
-                            workflowId: visitCommit.mode === 'cancelled' ? 'cancel_visit' : 'schedule_visit',
-                            visitCommit: {
-                                committed: true,
-                                visitId: visitCommit.visitId,
-                                scheduledAt: visitCommit.scheduledAt,
-                                mode: visitCommit.mode,
-                                propertyName: liveCtx.activeVisit?.propertyName ?? null,
-                            },
-                            liveCtx: liveCtx.activeVisit
-                                ? {
-                                    activeVisit: {
-                                        visitId: liveCtx.activeVisit.visitId,
-                                        propertyName: liveCtx.activeVisit.propertyName,
-                                        scheduledAt: liveCtx.activeVisit.scheduledAt,
-                                        status: liveCtx.activeVisit.status,
-                                    },
-                                }
-                                : null,
-                        }));
-                        return {
-                            status: 'processed',
-                            companyId,
-                            leadId: lead.id,
-                            conversationId: conversation.id,
-                            propagation,
-                        };
-                    }
-                    const aiSettings = await prisma_1.default.aiSetting.findUnique({
-                        where: { companyId },
-                    });
-                    const neverSayNoCtx = await (0, neverSayNoEngine_service_1.buildNeverSayNoContext)(companyId, (0, alternativeInventory_service_1.criteriaFromLead)(lead), {
-                        customerMessage: msg.messageText,
-                        customerName: lead.customerName,
-                        language: lead.language,
-                    });
-                    const propertyIdSet = [
-                        ...new Set([
-                            ...neverSayNoCtx.exactPropertyIds,
-                            ...neverSayNoCtx.alternativePropertyIds,
-                        ]),
-                    ];
-                    const properties = propertyIdSet.length > 0
-                        ? await prisma_1.default.property.findMany({
-                            where: { companyId, id: { in: propertyIdSet } },
-                        })
-                        : await prisma_1.default.property.findMany({
-                            where: { companyId, status: 'available' },
-                            take: 20,
-                        });
-                    const customerMessageCount = history.filter((m) => m.senderType === 'customer').length + 1;
-                    let conversationContextBlock = '';
-                    try {
-                        const { buildConversationContextBlock } = await Promise.resolve().then(() => __importStar(require('./conversation-summary.service')));
-                        conversationContextBlock = await buildConversationContextBlock(conversation.id, lead.id, companyId);
-                    }
-                    catch (err) {
-                        logger_1.default.warn('Conversation context block skipped', {
-                            leadId: lead.id,
-                            conversationId: conversation.id,
-                            error: err instanceof Error ? err.message : String(err),
-                        });
-                    }
-                    const aiResponse = await Promise.race([
-                        ai_service_1.aiService.generateResponse({
-                            companyId,
-                            customerMessage: msg.messageText,
-                            conversationHistory: history,
-                            lead,
-                            properties,
-                            aiSettings: aiSettings || {},
-                            companyName: company.name,
-                            conversationState,
-                            conversionPromptBlock: neverSayNoCtx.promptBlock,
-                            neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
-                            neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
-                            customerMessageCount,
-                            conversationId: conversation.id,
-                            conversationContextBlock,
-                            liveLeadContextBlock: liveCtx.promptBlock || undefined,
-                            activeVisit: liveCtx.activeVisit,
-                        }),
-                        new Promise((_, reject) => {
-                            setTimeout(() => reject(new Error('AI response timed out after 28s')), 28000);
-                        }),
-                    ]);
-                    const groundedProperties = properties.map(propertyCompleteness_service_1.propertyToCompletenessInput);
-                    const groundedFactsBlock = (0, groundingGuard_service_1.buildGroundedFactsBlock)(groundedProperties, neverSayNoCtx.promptBlock);
-                    let outboundCandidate = aiResponse.text;
-                    let visitMutationRecentAction;
-                    if ((0, visitIntentFromMessage_service_1.isVisitCancelOrRescheduleMessage)(msg.messageText)) {
-                        const mutation = await (0, visitMutationFromChat_service_1.applyVisitMutationFromChat)({
-                            companyId,
-                            leadId: lead.id,
-                            message: msg.messageText,
-                        });
-                        if (mutation.handled && mutation.reply) {
-                            outboundCandidate = mutation.reply;
-                            if (mutation.mode === 'cancelled') {
-                                visitMutationRecentAction = 'cancelled';
-                            }
-                            else if (mutation.mode === 'rescheduled' && mutation.scheduledAt) {
-                                visitMutationRecentAction = 'rescheduled';
-                            }
-                        }
-                        else if (!visitCommit.committed && liveCtx.activeVisit) {
-                            const { formatDateIST } = await Promise.resolve().then(() => __importStar(require('./agent/tools/format-helpers')));
-                            outboundCandidate =
-                                `I found your visit for *${liveCtx.activeVisit.propertyName ?? 'your property'}* ` +
-                                    `on ${formatDateIST(new Date(liveCtx.activeVisit.scheduledAt))}. ` +
-                                    `What date and time should we move it to? (e.g. "this Saturday 11am") \ud83d\udcc5`;
-                        }
-                    }
-                    const guarded = (0, neverSayNoResponseGuard_service_1.enforceNeverSayNoResponse)({
-                        text: outboundCandidate,
-                        hasInventoryAlternatives: neverSayNoCtx.hasInventoryAlternatives,
-                        fallbackCta: neverSayNoCtx.fallbackCta,
-                        groundedProperties,
-                        conversionPromptBlock: neverSayNoCtx.promptBlock,
-                        skipFallbackCta: conversationState.commitments.visitSlotDiscussed ||
-                            conversationState.commitments.visitSlotConfirmed ||
-                            conversationState.stage === 'visit_booking' ||
-                            conversationState.stage === 'confirmation' ||
-                            (0, visitIntentFromMessage_service_1.isVisitSchedulingMessage)(msg.messageText) ||
-                            (0, visitIntentFromMessage_service_1.isVisitCancelOrRescheduleMessage)(msg.messageText),
-                    });
-                    const polished = await (0, messagePolish_service_1.polishOutboundMessage)({
-                        rawText: guarded.text,
-                        groundedFactsBlock,
-                        channel: 'whatsapp',
-                        language: aiResponse.detectedLanguage,
-                        companyName: company.name,
-                    });
-                    let outboundText = polished.text;
-                    // Empty-outbound fallback: use a context-aware message instead of the generic
-                    // onboarding prompt ("Please share your area, budget...") which resets context mid-conversation.
-                    if (!outboundText.trim()) {
-                        if (liveCtx.activeVisit) {
-                            // Customer has an active visit — acknowledge without resetting context
-                            outboundText = `I'm looking into your visit details, one moment\u2026 \uD83D\uDD0D`;
-                        }
-                        else if ((0, visitIntentFromMessage_service_1.isVisitCancelOrRescheduleMessage)(msg.messageText)) {
-                            outboundText = `I couldn't find an upcoming visit to change. Would you like to book a new visit? \uD83D\uDCC5`;
-                        }
-                        else {
-                            outboundText = `Sorry, I had a brief issue. Could you repeat that? \uD83D\uDE4F`;
-                        }
-                    }
-                    const { deliverBrochuresForAiTurn } = await Promise.resolve().then(() => __importStar(require('./brochureDelivery.service')));
-                    const brochureDelivery = await deliverBrochuresForAiTurn({
-                        customerPhone,
-                        customerMessage: msg.messageText,
-                        aiText: outboundText,
-                        properties: properties.map((p) => ({
-                            id: p.id,
-                            name: p.name,
-                            brochureUrl: p.brochureUrl,
-                        })),
-                        whatsappConfig: whatsappConfig,
-                        whatsappService: this,
-                    });
-                    outboundText = brochureDelivery.cleanedText;
-                    logger_1.default.info('AI response generated', {
-                        conversationId: conversation.id,
-                        stage: aiResponse.newState?.stage,
-                        action: aiResponse.nextAction?.action,
-                        polishMode: polished.mode,
-                        guardApplied: guarded.guardApplied,
-                    });
-                    // Store AI response
-                    await prisma_1.default.message.create({
-                        data: {
-                            conversationId: conversation.id,
-                            senderType: 'ai',
-                            content: outboundText,
-                            language: aiResponse.detectedLanguage,
-                            status: 'sent',
-                        },
-                    });
-                    // Persist updated state machine state to conversation
-                    if (aiResponse.newState) {
-                        const newState = aiResponse.newState;
-                        await prisma_1.default.conversation.update({
-                            where: { id: conversation.id },
-                            data: {
-                                stage: newState.stage,
-                                stageEnteredAt: newState.stageEnteredAt,
-                                stageMessageCount: newState.messageCount,
-                                commitments: newState.commitments,
-                                objectionCount: newState.objectionCount,
-                                lastObjectionType: newState.lastObjectionType,
-                                consecutiveObjections: newState.consecutiveObjections,
-                                urgencyScore: newState.urgencyScore,
-                                valueScore: newState.valueScore,
-                                escalationReason: newState.escalationReason,
-                                recommendedPropertyIds: newState.recommendedProperties,
-                                selectedPropertyId: newState.selectedPropertyId,
-                                proposedVisitTime: newState.proposedVisitTime,
-                                // Handle escalation
-                                ...(newState.stage === 'human_escalated' && {
-                                    status: 'agent_active',
-                                    escalatedAt: new Date(),
-                                    aiEnabled: false,
-                                }),
-                            },
-                        });
-                        if (aiResponse.newState) {
-                            await (0, leadScoring_service_1.syncLeadScoreFromConversation)(lead.id, aiResponse.newState.urgencyScore, aiResponse.newState.valueScore);
-                        }
-                        // Sync CRM pipeline when policy brain suggests (price → negotiation)
-                        const suggestedStatus = aiResponse.nextAction?.suggestedLeadStatus;
-                        if (suggestedStatus) {
-                            await (0, leadTransition_service_1.transitionLeadStatus)(lead.id, suggestedStatus, { force: true });
-                        }
-                        // Notify human agent if escalated
-                        if (newState.stage === 'human_escalated' && lead.assignedAgentId) {
-                            await prisma_1.default.notification.create({
-                                data: {
-                                    companyId,
-                                    userId: lead.assignedAgentId,
-                                    type: 'agent_takeover',
-                                    title: '🚨 AI Escalation - Human Agent Needed',
-                                    message: `Lead ${lead.customerName || lead.phone} escalated: ${newState.escalationReason}`,
-                                    data: {
-                                        leadId: lead.id,
-                                        conversationId: conversation.id,
-                                        reason: newState.escalationReason,
-                                        valueScore: newState.valueScore,
-                                    },
-                                },
-                            });
-                            // Also notify the agent via WhatsApp immediately — a DB notification alone
-                            // is invisible until the agent opens the dashboard. Agents need real-time awareness.
-                            const agentRecord = await prisma_1.default.user.findUnique({
-                                where: { id: lead.assignedAgentId },
-                                select: { phone: true, name: true },
-                            });
-                            if (agentRecord?.phone) {
-                                const escalationAlert = [
-                                    `🚨 *Escalation Alert — Action Required*`,
-                                    ``,
-                                    `Customer: *${lead.customerName ?? lead.phone}*`,
-                                    `Phone: ${lead.phone}`,
-                                    `Reason: ${newState.escalationReason ?? 'Customer requested human agent'}`,
-                                    ``,
-                                    `Reply to this number or call the customer directly.`,
-                                ].join('\n');
-                                void this.sendCompanyTextMessage(agentRecord.phone, escalationAlert, companyId);
-                            }
-                        }
-                        // Operator contact is embedded directly in the LLM response via the
-                        // operatorContactPromptBlock in buildGoalDirectedPrompt() (action === 'escalate').
-                        // Do NOT send a separate message here — that caused a double WhatsApp message
-                        // (AI text + operator line) on every escalation event.
-                    }
-                    // Update lead language if detected
-                    if (aiResponse.detectedLanguage && aiResponse.detectedLanguage !== lead.language) {
-                        await prisma_1.default.lead.update({ where: { id: lead.id }, data: { language: aiResponse.detectedLanguage } });
-                        await prisma_1.default.conversation.update({ where: { id: conversation.id }, data: { language: aiResponse.detectedLanguage } });
-                    }
-                    // Update lead fields if AI extracted info
-                    if (aiResponse.extractedInfo) {
-                        const info = aiResponse.extractedInfo;
-                        const updates = {};
-                        if (info.budget_min)
-                            updates.budgetMin = info.budget_min;
-                        if (info.budget_max)
-                            updates.budgetMax = info.budget_max;
-                        if (info.location_preference)
-                            updates.locationPreference = info.location_preference;
-                        const normalizedPropertyType = normalizeLeadPropertyType(info.property_type);
-                        if (normalizedPropertyType)
-                            updates.propertyType = normalizedPropertyType;
-                        if (info.customer_name && !lead.customerName)
-                            updates.customerName = info.customer_name;
-                        if (Object.keys(updates).length > 0) {
-                            await prisma_1.default.lead.update({ where: { id: lead.id }, data: updates });
-                        }
-                    }
-                    // If lead is 'new', auto-transition to 'contacted'
-                    if (lead.status === 'new') {
-                        await prisma_1.default.lead.update({ where: { id: lead.id }, data: { status: 'contacted' } });
-                    }
-                    if (outboundText.trim()) {
-                        const outboundClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
-                        if (outboundClaimed) {
-                            (0, opsMetrics_service_1.incrementOpsMetric)('ai_replies');
-                            await (0, whatsappPresence_service_1.simulateHumanReplyPacing)({
-                                to: customerPhone,
-                                whatsappConfig: whatsappConfig,
-                                outboundTextLength: outboundText.length,
-                                inboundMessageId: msg.messageId,
-                            });
-                            const ok = await this.sendMessage(customerPhone, outboundText, whatsappConfig);
-                            if (!ok) {
-                                logger_1.default.error('WhatsApp AI reply send failed', {
-                                    conversationId: conversation.id,
-                                    inboundMessageId: msg.messageId,
-                                });
-                            }
-                            else {
-                                (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
-                            }
-                        }
-                    }
-                    // CHUNK 5: AI Rich Media Presentation
-                    // If AI recommended properties and they have media, send it automatically
-                    if (aiResponse.newState && this.shouldSendPropertyMedia(aiResponse.newState, aiResponse.nextAction)) {
-                        await this.sendPropertyMediaForStage(customerPhone, whatsappConfig, aiResponse.newState, properties, lead, conversation.id);
-                    }
-                    // CHUNK 6: AI Interactive Filters
-                    // If AI is qualifying and lead hasn't specified preference, send filter buttons
-                    if (aiResponse.newState && this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction)) {
-                        await this.sendPropertyTypeFilters(customerPhone, whatsappConfig, {
-                            leadId: lead.id,
-                            conversationId: conversation.id,
-                            companyId,
-                        });
-                    }
-                    // CHUNK 7: Stage-based quick-reply buttons (Meta native; GreenAPI numbered menu fallback)
-                    const sentPropertyFilters = Boolean(aiResponse.newState &&
-                        this.shouldSendPropertyFilters(aiResponse.newState, lead, aiResponse.nextAction));
-                    const recentAction = visitCommit.committed && visitCommit.mode === 'cancelled'
-                        ? 'cancelled'
-                        : visitCommit.committed && (visitCommit.mode === 'rescheduled' || visitCommit.mode === 'scheduled')
-                            ? 'rescheduled'
-                            : visitMutationRecentAction;
-                    if (aiResponse.newState?.stage &&
-                        (0, contextQuickReplies_util_1.shouldAttachContextualQuickReplies)({
-                            stage: aiResponse.newState.stage,
-                            outboundText,
-                            nextAction: aiResponse.nextAction,
-                            recentAction,
-                            sentPropertyFilters,
-                        })) {
-                        await this.sendContextualQuickReplies(customerPhone, aiResponse.newState.stage, {
-                            propertyId: aiResponse.newState.selectedPropertyId ?? conversation.selectedPropertyId,
-                            recommendedPropertyIds: this.getRecommendedPropertyIds(aiResponse.newState),
-                            properties: properties.map((p) => ({ id: p.id, name: p.name })),
-                            outboundText,
-                            hasActiveVisit: Boolean(liveCtx.activeVisit),
-                            visitStatus: liveCtx.activeVisit?.status,
-                            visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-                            visitTime: liveCtx.activeVisit
-                                ? new Date(liveCtx.activeVisit.scheduledAt).toLocaleString('en-IN', {
-                                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
-                                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
-                                })
-                                : undefined,
-                            recentAction,
-                        }, whatsappConfig);
-                    }
-                    logger_1.default.info('AI response sent', {
-                        conversationId: conversation.id,
-                        language: aiResponse.detectedLanguage,
-                    });
-                    void Promise.resolve().then(() => __importStar(require('./buyer-memory-extract.service'))).then(({ extractAndPatchLeadMemory, inferBuyerWorkflowIdFromMessage }) => extractAndPatchLeadMemory({
-                        leadId: lead.id,
-                        messageText: msg.messageText,
-                        outboundText,
-                        aiExtractedInfo: aiResponse.extractedInfo ?? null,
-                        workflowId: inferBuyerWorkflowIdFromMessage(msg.messageText),
-                        liveCtx: liveCtx.activeVisit
-                            ? {
-                                activeVisit: {
-                                    visitId: liveCtx.activeVisit.visitId,
-                                    propertyName: liveCtx.activeVisit.propertyName,
-                                    scheduledAt: liveCtx.activeVisit.scheduledAt,
-                                    status: liveCtx.activeVisit.status,
-                                },
-                            }
-                            : null,
-                    }));
-                }
-                catch (err) {
-                    logger_1.default.error('AI response generation failed', {
-                        error: err instanceof Error ? err.message : String(err),
-                        conversationId: conversation.id,
-                        stage: conversationState.stage,
-                    });
-                    // Build a context-aware fallback — never a generic "I'm having a little trouble"
-                    // that resets the conversation or ignores that the customer has an active visit.
-                    let fallbackText;
-                    if ((0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText)) {
-                        fallbackText = await (0, buyerVisitQuery_service_1.buildBuyerVisitStatusReply)({
-                            leadId: lead.id,
-                            companyId,
-                            companyName: company.name,
-                        });
-                    }
-                    else {
-                        fallbackText = buildAiFallbackMessage({
-                            customerName: lead.customerName,
-                            activeVisitPropertyName: preFetchedActiveVisitName,
-                            isVisitQuery: (0, visitIntentFromMessage_service_1.isVisitCancelOrRescheduleMessage)(msg.messageText)
-                                || (0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText)
-                                || /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
-                        });
-                    }
-                    try {
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                            await this.sendMessage(customerPhone, fallbackText, whatsappConfig);
-                            await prisma_1.default.message.create({
-                                data: {
-                                    conversationId: conversation.id,
-                                    senderType: 'ai',
-                                    content: fallbackText,
-                                    status: 'sent',
-                                },
-                            });
-                        }
-                    }
-                    catch (sendErr) {
-                        logger_1.default.error('Failed to send AI fallback WhatsApp message', {
-                            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
-                        });
-                    }
-                }
+            try {
+                const { getLiveLeadContext: _qlc } = await Promise.resolve().then(() => __importStar(require('./liveLeadContext.service')));
+                const quickCtx = await _qlc(lead.id, companyId);
+                preFetchedActiveVisitName = quickCtx.activeVisit?.propertyName ?? null;
             }
-            else {
-                // Human takeover in CRM — still reply on WhatsApp so unknown prospects are never left silent
-                const aiSettings = await prisma_1.default.aiSetting.findUnique({ where: { companyId } });
-                const handoffText = `Thanks for your message! Our team at *${company.name}* has your request.\n\n` +
-                    (formatOperatorHandoffLine(aiSettings?.operatorContact) ||
-                        `Please share your *area*, *budget*, and *property type* if you have not already — we will assist you shortly.`);
-                await prisma_1.default.message.create({
-                    data: {
-                        conversationId: conversation.id,
-                        senderType: 'ai',
-                        content: handoffText,
-                        language: lead.language || 'en',
-                        status: 'sent',
-                    },
+            catch {
+                // non-fatal
+            }
+            const { orchestrateWhatsAppBuyerTurn } = await Promise.resolve().then(() => __importStar(require('./whatsapp/whatsappTurnOrchestrator.service')));
+            const turnResult = await orchestrateWhatsAppBuyerTurn({
+                input: {
+                    companyId,
+                    customerPhone,
+                    messageId: msg.messageId,
+                    messageText: msg.messageText,
+                    interactiveId: msg.interactiveId,
+                    interactiveType: msg.interactiveType,
+                    companyName: company.name,
+                    leadId: lead.id,
+                    leadStatus: lead.status,
+                    leadAssignedAgentId: lead.assignedAgentId,
+                    leadCustomerName: lead.customerName,
+                    leadLanguage: lead.language,
+                    conversationId: conversation.id,
+                    conversationSelectedPropertyId: conversation.selectedPropertyId,
+                    conversationProposedVisitTime: conversation.proposedVisitTime,
+                    conversationRecommendedPropertyIds: (conversation.recommendedPropertyIds ?? []),
+                    conversationStage: conversationState.stage,
+                    humanTakeover: conversation.status !== 'ai_active' || !conversation.aiEnabled,
+                    history,
+                    hasPriorOutbound,
+                },
+                companyId,
+                customerPhone,
+                messageId: msg.messageId,
+                companyName: company.name,
+                whatsappConfig: whatsappConfig,
+                history,
+            }, conversationState).catch(async (err) => {
+                (0, outboundTurnDebug_service_1.logOutboundBranch)('H9', 'whatsapp.service.ts:orchestratorCatch', 'buyer_ai_catch_fallback', {
+                    error: err instanceof Error ? err.message : String(err),
                 });
+                logger_1.default.error('Buyer turn orchestrator failed', {
+                    error: err instanceof Error ? err.message : String(err),
+                    conversationId: conversation.id,
+                    stage: conversationState.stage,
+                });
+                let fallbackText;
+                if ((0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText)) {
+                    const { buildBuyerVisitStatusReply: bvsr } = await Promise.resolve().then(() => __importStar(require('./buyerVisitQuery.service')));
+                    fallbackText = await bvsr({ leadId: lead.id, companyId, companyName: company.name });
+                }
+                else {
+                    fallbackText = buildAiFallbackMessage({
+                        customerName: lead.customerName,
+                        activeVisitPropertyName: preFetchedActiveVisitName,
+                        isVisitQuery: (0, visitIntentFromMessage_service_1.isVisitCancelOrRescheduleMessage)(msg.messageText) ||
+                            (0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText) ||
+                            /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
+                    });
+                }
                 try {
+                    await prisma_1.default.message.create({
+                        data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'sent' },
+                    });
                     if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                        await this.sendMessage(customerPhone, handoffText, whatsappConfig);
+                        await this.sendMessage(customerPhone, fallbackText, whatsappConfig);
                     }
                 }
                 catch (sendErr) {
-                    logger_1.default.error('Failed to send handoff WhatsApp message to prospect', {
-                        error: sendErr?.message,
-                        conversationId: conversation.id,
+                    logger_1.default.error('Failed to send AI fallback WhatsApp message', {
+                        error: sendErr instanceof Error ? sendErr.message : String(sendErr),
                     });
                 }
-                if (lead.assignedAgentId) {
-                    await prisma_1.default.notification.create({
-                        data: {
-                            companyId,
-                            userId: lead.assignedAgentId,
-                            type: 'agent_takeover',
-                            title: 'New message from customer',
-                            message: `${msg.customerName || msg.customerPhone}: ${msg.messageText.substring(0, 100)}`,
-                        },
+                return { audience: 'buyer', handled: true, terminal: true, text: fallbackText };
+            });
+            if (turnResult.text?.trim()) {
+                if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                    await (0, whatsappPresence_service_1.simulateHumanReplyPacing)({
+                        to: customerPhone,
+                        whatsappConfig: whatsappConfig,
+                        outboundTextLength: turnResult.text.length,
+                        inboundMessageId: msg.messageId,
                     });
+                    await this.sendTurnResult(customerPhone, turnResult, whatsappConfig);
+                    (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
                 }
-                logger_1.default.info('Prospect message stored; handoff reply sent (conversation not ai_active)', {
-                    conversationId: conversation.id,
-                    status: conversation.status,
-                    aiEnabled: conversation.aiEnabled,
-                });
             }
             return {
                 status: 'processed',
@@ -1787,19 +934,18 @@ class WhatsAppService {
             };
         }
         finally {
+            (0, outboundTurnDebug_service_1.endOutboundTurn)('buyer_finally');
             await (0, inboundMessageGuard_service_1.releaseCustomerProcessingTurn)(companyId, customerPhone);
         }
     }
     /**
-     * Prospects (any phone not registered as company staff) must get AI replies.
-     * Re-enable AI when a customer messages again after agent takeover or manual disable.
-     *
-     * CRITICAL FIX: If stage is 'human_escalated', reset it to 'rapport' so the AI
-     * does not permanently output "A human specialist will assist you" on every turn.
-     * A customer messaging again after escalation is re-engaging — treat them as re-entering
-     * the funnel, not as still escalated.
+     * Prospects (any phone not registered as company staff) must get AI replies when AI is on.
+     * Human takeover (agent_active / aiEnabled false) persists until an agent releases the conversation.
      */
     async ensureProspectConversationAiActive(conversation) {
+        if (conversation.status === 'agent_active' || !conversation.aiEnabled) {
+            return { status: conversation.status, aiEnabled: conversation.aiEnabled };
+        }
         const isAlreadyActive = conversation.status === 'ai_active' && conversation.aiEnabled;
         const isStuckEscalated = conversation.stage === 'human_escalated';
         if (isAlreadyActive && !isStuckEscalated) {
@@ -1870,10 +1016,8 @@ class WhatsAppService {
         const settings = company.settings || {};
         const whatsapp = settings.whatsapp || {};
         const meta = whatsapp.meta || {};
-        const greenapi = whatsapp.greenapi || {};
-        const provider = normalizeStringLike(whatsapp.provider);
         return {
-            provider: provider || undefined,
+            provider: 'meta',
             phoneNumberId: normalizeStringLike(meta.phoneNumberId) ||
                 normalizeStringLike(whatsapp.phoneNumberId) ||
                 config_1.default.whatsapp.phoneNumberId,
@@ -1883,8 +1027,6 @@ class WhatsAppService {
             verifyToken: normalizeStringLike(meta.verifyToken) ||
                 normalizeStringLike(whatsapp.verifyToken) ||
                 config_1.default.whatsapp.verifyToken,
-            idInstance: normalizeStringLike(greenapi.idInstance),
-            apiTokenInstance: normalizeStringLike(greenapi.apiTokenInstance),
         };
     }
     async sendCompanyTextMessage(to, text, companyId) {
@@ -1908,10 +1050,8 @@ class WhatsAppService {
         const settings = company?.settings || {};
         const whatsapp = settings.whatsapp || {};
         const meta = whatsapp.meta || {};
-        const greenapi = whatsapp.greenapi || {};
-        const provider = normalizeStringLike(whatsapp.provider);
         const whatsappConfig = {
-            provider: provider || undefined,
+            provider: 'meta',
             phoneNumberId: normalizeStringLike(meta.phoneNumberId) ||
                 normalizeStringLike(whatsapp.phoneNumberId) ||
                 config_1.default.whatsapp.phoneNumberId,
@@ -1921,8 +1061,6 @@ class WhatsAppService {
             verifyToken: normalizeStringLike(meta.verifyToken) ||
                 normalizeStringLike(whatsapp.verifyToken) ||
                 config_1.default.whatsapp.verifyToken,
-            idInstance: normalizeStringLike(greenapi.idInstance),
-            apiTokenInstance: normalizeStringLike(greenapi.apiTokenInstance),
         };
         const result = await this.sendInteractiveButtons(to, bodyText, buttons, headerText ?? null, footerText ?? null, whatsappConfig);
         return result.success;
@@ -1936,27 +1074,15 @@ class WhatsAppService {
             logger_1.default.error('Refusing to send empty WhatsApp message');
             return false;
         }
+        (0, outboundTurnDebug_service_1.logOutboundSend)('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', text, {
+            provider: this.resolveOutboundProviderName(whatsappConfig),
+            hasButtons: /Reply with the number/i.test(text),
+        });
         const providerName = this.resolveOutboundProviderName(whatsappConfig);
-        if (providerName === 'meta') {
-            const { phoneNumberId, accessToken } = whatsappConfig;
-            if (!phoneNumberId || !accessToken) {
-                logger_1.default.error('WhatsApp Meta config missing phoneNumberId or accessToken');
-                return false;
-            }
-        }
-        else {
-            const idInstance = whatsappConfig.idInstance || config_1.default?.greenapi?.idInstance || '';
-            const apiTokenInstance = whatsappConfig.apiTokenInstance || config_1.default?.greenapi?.apiTokenInstance || '';
-            if (!idInstance || !apiTokenInstance) {
-                logger_1.default.error('WhatsApp GreenAPI config missing idInstance or apiTokenInstance');
-                return false;
-            }
-            // Ensure provider config contains credentials for the provider implementation.
-            whatsappConfig = {
-                ...whatsappConfig,
-                idInstance,
-                apiTokenInstance,
-            };
+        const { phoneNumberId, accessToken } = whatsappConfig;
+        if (!phoneNumberId || !accessToken) {
+            logger_1.default.error('WhatsApp Meta config missing phoneNumberId or accessToken');
+            return false;
         }
         try {
             const result = await this.getOutboundProvider(providerName).sendTextMessage(to, text, {
@@ -1979,17 +1105,6 @@ class WhatsAppService {
      * Test WhatsApp connection by calling the phone number endpoint.
      */
     async testConnection(whatsappConfig) {
-        const providerName = this.resolveOutboundProviderName(whatsappConfig);
-        if (providerName === 'greenapi') {
-            const idInstance = whatsappConfig.idInstance || config_1.default?.greenapi?.idInstance || '';
-            const apiTokenInstance = whatsappConfig.apiTokenInstance || config_1.default?.greenapi?.apiTokenInstance || '';
-            return this.getOutboundProvider('greenapi').testConnection({
-                ...whatsappConfig,
-                provider: 'greenapi',
-                idInstance,
-                apiTokenInstance,
-            });
-        }
         return this.getOutboundProvider('meta').testConnection({
             ...whatsappConfig,
             provider: 'meta',
@@ -2012,20 +1127,6 @@ class WhatsAppService {
      * @param whatsappConfig - Company-specific WhatsApp credentials
      */
     async sendImage(to, imageUrl, caption, whatsappConfig) {
-        const providerName = this.resolveOutboundProviderName(whatsappConfig);
-        if (providerName === 'greenapi') {
-            const provider = this.getOutboundProvider('greenapi');
-            if (provider.sendFileByUrl) {
-                const result = await provider.sendFileByUrl(to, imageUrl, 'image.jpg', caption ?? null, {
-                    ...whatsappConfig, provider: 'greenapi',
-                });
-                if (result?.success !== false)
-                    return { success: true, messageId: result?.messageId };
-            }
-            const text = caption ? `📸 ${caption}\n${imageUrl}` : `📸 ${imageUrl}`;
-            const sent = await this.sendMessage(to, text, whatsappConfig);
-            return { success: sent };
-        }
         const { phoneNumberId, accessToken } = whatsappConfig;
         if (!phoneNumberId || !accessToken) {
             logger_1.default.error('WhatsApp config missing for sendImage');
@@ -2046,7 +1147,7 @@ class WhatsAppService {
                 },
             };
             if (caption) {
-                payload.image.caption = caption.substring(0, 1024); // WhatsApp limit
+                payload.image.caption = caption.substring(0, 1024);
             }
             const response = await fetch(`${config_1.default.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
                 method: 'POST',
@@ -2080,25 +1181,6 @@ class WhatsAppService {
      * @param whatsappConfig - Company-specific WhatsApp credentials
      */
     async sendDocument(to, documentUrl, filename, caption, whatsappConfig) {
-        const providerName = this.resolveOutboundProviderName(whatsappConfig);
-        if (providerName === 'greenapi') {
-            const provider = this.getOutboundProvider('greenapi');
-            if (!provider.sendFileByUrl) {
-                return { success: false, error: 'Green API file send not available' };
-            }
-            const { idInstance, apiTokenInstance } = whatsappConfig;
-            if (!idInstance || !apiTokenInstance) {
-                return { success: false, error: 'Missing WhatsApp configuration' };
-            }
-            if (!documentUrl?.startsWith('https://')) {
-                return { success: false, error: 'Document URL must be HTTPS' };
-            }
-            const result = await provider.sendFileByUrl(to, documentUrl, filename || 'document.pdf', caption, { idInstance, apiTokenInstance });
-            if (result.success === false) {
-                return { success: false, error: result.error };
-            }
-            return { success: true, messageId: result.messageId };
-        }
         const { phoneNumberId, accessToken } = whatsappConfig;
         if (!phoneNumberId || !accessToken) {
             logger_1.default.error('WhatsApp config missing for sendDocument');
@@ -2155,12 +1237,6 @@ class WhatsAppService {
      * @param whatsappConfig - Company-specific WhatsApp credentials
      */
     async sendLocation(to, latitude, longitude, name, address, whatsappConfig) {
-        if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-            const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
-            const text = `📍 *${name || 'Property Location'}*\n${address ? `${address}\n` : ''}${mapsUrl}`;
-            const sent = await this.sendMessage(to, text, whatsappConfig);
-            return { success: sent };
-        }
         const { phoneNumberId, accessToken } = whatsappConfig;
         if (!phoneNumberId || !accessToken) {
             logger_1.default.error('WhatsApp config missing for sendLocation');
@@ -2216,18 +1292,6 @@ class WhatsAppService {
      * @param whatsappConfig - Company-specific WhatsApp credentials
      */
     async sendInteractiveButtons(to, bodyText, buttons, headerText, footerText, whatsappConfig) {
-        if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-            const menuLines = [
-                headerText ? `*${headerText}*` : '',
-                bodyText,
-                '',
-                ...buttons.map((btn, i) => `${i + 1}. ${btn.title}`),
-                footerText ? `\n_${footerText}_` : '',
-                '_Reply with the number of your choice_',
-            ].filter(s => s !== '');
-            const sent = await this.sendMessage(to, menuLines.join('\n'), whatsappConfig);
-            return { success: sent };
-        }
         const { phoneNumberId, accessToken } = whatsappConfig;
         if (!phoneNumberId || !accessToken) {
             logger_1.default.error('WhatsApp config missing for sendInteractiveButtons');
@@ -2238,34 +1302,7 @@ class WhatsAppService {
             return { success: false, error: 'Must have 1-3 buttons' };
         }
         try {
-            const interactive = {
-                type: 'button',
-                body: {
-                    text: bodyText.substring(0, 1024),
-                },
-                action: {
-                    buttons: buttons.map((btn) => ({
-                        type: 'reply',
-                        reply: {
-                            id: btn.id.substring(0, 256),
-                            title: btn.title.substring(0, 20), // WhatsApp limit
-                        },
-                    })),
-                },
-            };
-            if (headerText) {
-                interactive.header = { type: 'text', text: headerText.substring(0, 60) };
-            }
-            if (footerText) {
-                interactive.footer = { text: footerText.substring(0, 60) };
-            }
-            const payload = {
-                messaging_product: 'whatsapp',
-                recipient_type: 'individual',
-                to: to.replace('+', ''),
-                type: 'interactive',
-                interactive,
-            };
+            const payload = (0, metaMessageBuilder_service_1.buildButtonMessage)(bodyText, buttons, to, headerText, footerText);
             const response = await fetch(`${config_1.default.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -2300,22 +1337,6 @@ class WhatsAppService {
      * @param whatsappConfig - Company-specific WhatsApp credentials
      */
     async sendInteractiveList(to, bodyText, buttonText, sections, headerText, footerText, whatsappConfig) {
-        // P1-7: GreenAPI fallback — send numbered text menu when Meta list is unsupported.
-        if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-            const allRows = sections.flatMap((s) => s.rows);
-            if (allRows.length === 0) {
-                return { success: false, error: 'No rows to display in list fallback' };
-            }
-            const numberedList = allRows
-                .slice(0, 10)
-                .map((row, idx) => `${idx + 1}. *${row.title}*${row.description ? `\n   ${row.description}` : ''}`)
-                .join('\n');
-            const fallbackText = `${bodyText}\n\n${numberedList}\n\n_Reply with the number of your choice._`;
-            const sent = await this.sendMessage(to, fallbackText, whatsappConfig);
-            return sent
-                ? { success: true }
-                : { success: false, error: 'GreenAPI text fallback for list message failed' };
-        }
         const { phoneNumberId, accessToken } = whatsappConfig;
         if (!phoneNumberId || !accessToken) {
             logger_1.default.error('WhatsApp config missing for sendInteractiveList');
@@ -2332,36 +1353,7 @@ class WhatsAppService {
             return { success: false, error: 'Maximum 10 rows allowed' };
         }
         try {
-            const interactive = {
-                type: 'list',
-                body: {
-                    text: bodyText.substring(0, 1024),
-                },
-                action: {
-                    button: buttonText.substring(0, 20),
-                    sections: sections.map((section) => ({
-                        title: section.title.substring(0, 24),
-                        rows: section.rows.map((row) => ({
-                            id: row.id.substring(0, 200),
-                            title: row.title.substring(0, 24),
-                            description: row.description?.substring(0, 72) || undefined,
-                        })),
-                    })),
-                },
-            };
-            if (headerText) {
-                interactive.header = { type: 'text', text: headerText.substring(0, 60) };
-            }
-            if (footerText) {
-                interactive.footer = { text: footerText.substring(0, 60) };
-            }
-            const payload = {
-                messaging_product: 'whatsapp',
-                recipient_type: 'individual',
-                to: to.replace('+', ''),
-                type: 'interactive',
-                interactive,
-            };
+            const payload = (0, metaMessageBuilder_service_1.buildListMessage)(bodyText, buttonText, sections, to, headerText, footerText);
             const response = await fetch(`${config_1.default.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -2391,7 +1383,7 @@ class WhatsAppService {
     /**
      * Send property catalog cards — image + details + CTA buttons per property.
      * Simulates WhatsApp Catalog behavior. Sends up to 3 property cards.
-     * GreenAPI: sends as plain text cards.
+     * Sends Meta-native property cards.
      *
      * @param to - Recipient phone number
      * @param products - Property products to display (max 3)
@@ -2422,7 +1414,7 @@ class WhatsAppService {
     }
     /**
      * Share an agent contact card via WhatsApp.
-     * Uses Meta Contacts API when on meta provider; falls back to formatted text on GreenAPI.
+     * Uses the Meta Contacts API.
      *
      * @param to - Recipient phone number
      * @param contact - Agent contact details
@@ -2431,15 +1423,8 @@ class WhatsAppService {
      */
     async sendContactCard(to, contact, whatsappConfig) {
         const { phoneNumberId, accessToken } = whatsappConfig;
-        if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta' || !phoneNumberId || !accessToken) {
-            const text = [
-                `👤 *${contact.name}*`,
-                contact.role ? `🏷️ ${contact.role}` : '',
-                contact.company ? `🏢 ${contact.company}` : '',
-                `📞 ${contact.phone}`,
-            ].filter(Boolean).join('\n');
-            const ok = await this.sendMessage(to, text, whatsappConfig);
-            return { success: ok };
+        if (!phoneNumberId || !accessToken) {
+            return { success: false, error: 'Missing WhatsApp configuration' };
         }
         try {
             const payload = {
@@ -2479,7 +1464,7 @@ class WhatsAppService {
     }
     /**
      * React to a WhatsApp message with an emoji.
-     * Only supported on Meta Cloud API. Silently returns false on GreenAPI.
+     * Supported on Meta Cloud API.
      *
      * @param to - Recipient phone number
      * @param reactionMessageId - WhatsApp message ID to react to (wamid.xxx)
@@ -2489,8 +1474,8 @@ class WhatsAppService {
      */
     async sendReaction(to, reactionMessageId, emoji, whatsappConfig) {
         const { phoneNumberId, accessToken } = whatsappConfig;
-        if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta' || !phoneNumberId || !accessToken) {
-            return { success: false, error: 'Reactions require Meta provider' };
+        if (!phoneNumberId || !accessToken) {
+            return { success: false, error: 'Missing WhatsApp configuration' };
         }
         if (!reactionMessageId)
             return { success: false, error: 'Missing message ID to react to' };
@@ -2521,10 +1506,85 @@ class WhatsAppService {
         }
     }
     /**
+     * Send at most one interactive component from a TurnResult-style component list.
+     */
+    async sendTurnComponents(to, components, whatsappConfig, bodyFallback) {
+        const interactive = components.find((c) => c.kind === 'buttons' || c.kind === 'list');
+        if (!interactive)
+            return;
+        if (interactive.kind === 'buttons') {
+            await this.sendInteractiveButtons(to, bodyFallback ?? 'Tap an option below:', interactive.buttons, null, null, whatsappConfig).catch(() => undefined);
+            return;
+        }
+        await this.sendInteractiveList(to, bodyFallback ?? 'Choose an option:', interactive.title, interactive.sections, null, null, whatsappConfig).catch(() => undefined);
+    }
+    /**
+     * Send the primary user-visible payload for a turn.
+     *
+     * If a button/list component exists, the text becomes the interactive body so
+     * WhatsApp shows one message with actions instead of a text bubble plus a
+     * duplicate button bubble. If the interactive send fails, fall back to text.
+     */
+    async sendPrimaryTurnPayload(to, text, components, whatsappConfig) {
+        const body = text.trim();
+        if (!body)
+            return false;
+        const interactive = components?.find((c) => c.kind === 'buttons' || c.kind === 'list');
+        if (interactive?.kind === 'buttons' && interactive.buttons.length) {
+            (0, outboundTurnDebug_service_1.logOutboundBranch)('H4', 'whatsapp.service.ts:primaryPayload', 'primary_interactive_buttons', {
+                buttonCount: interactive.buttons.length,
+            });
+            const result = await this.sendInteractiveButtons(to, body, interactive.buttons, null, null, whatsappConfig);
+            if (result.success)
+                return true;
+            logger_1.default.warn('Primary interactive button send failed; falling back to text', {
+                to: (0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(to),
+                error: result.error,
+            });
+        }
+        if (interactive?.kind === 'list' && interactive.sections.length) {
+            (0, outboundTurnDebug_service_1.logOutboundBranch)('H4', 'whatsapp.service.ts:primaryPayload', 'primary_interactive_list', {
+                sectionCount: interactive.sections.length,
+            });
+            const result = await this.sendInteractiveList(to, body, interactive.title, interactive.sections, null, null, whatsappConfig);
+            if (result.success)
+                return true;
+            logger_1.default.warn('Primary interactive list send failed; falling back to text', {
+                to: (0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(to),
+                error: result.error,
+            });
+        }
+        (0, outboundTurnDebug_service_1.logOutboundSend)('H4', 'whatsapp.service.ts:primaryPayload', 'primary_text', body);
+        return this.sendMessage(to, body, whatsappConfig);
+    }
+    /**
+     * Send a complete buyer/staff turn: one primary payload, then optional media.
+     */
+    async sendTurnResult(to, result, whatsappConfig) {
+        if (!result.handled)
+            return;
+        const hasText = Boolean(result.text?.trim());
+        const media = result.components?.find((c) => c.kind === 'media');
+        const nonMediaComponents = result.components?.filter((c) => c.kind !== 'media');
+        if (!hasText && !media)
+            return;
+        if (hasText) {
+            const primarySent = await this.sendPrimaryTurnPayload(to, result.text, nonMediaComponents, whatsappConfig);
+            if (!primarySent && !media)
+                return;
+        }
+        if (media?.kind === 'media' && media.url) {
+            if (media.mime.startsWith('image/')) {
+                await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig).catch(() => undefined);
+            }
+            else {
+                await this.sendDocument(to, media.url, 'document.pdf', media.caption ?? null, whatsappConfig).catch(() => undefined);
+            }
+        }
+    }
+    /**
      * Send contextual quick-reply suggestion buttons after an AI response.
-     * Button set is chosen based on the current conversation stage AND live visit state.
-     * When the client already has an active visit, replaces 'Book Visit' with visit-management CTAs.
-     * On GreenAPI the text-fallback in sendInteractiveButtons is used automatically.
+     * Delegates button selection to buyerButtonPolicy.service.
      *
      * @param to - Recipient phone number
      * @param stage - Current conversation stage (from ConversationStateMachine)
@@ -2532,111 +1592,24 @@ class WhatsAppService {
      * @param whatsappConfig - Company WhatsApp credentials
      */
     async sendContextualQuickReplies(to, stage, context, whatsappConfig) {
-        if (context.recentAction)
-            return;
-        const dynamicActions = context.outboundText
-            ? (0, customerQuickReplies_util_1.resolveCustomerQuickActions)({
-                stage,
-                outboundText: context.outboundText,
-                selectedPropertyId: context.propertyId,
-                recommendedPropertyIds: context.recommendedPropertyIds,
-                properties: context.properties,
-                hasActiveVisit: context.hasActiveVisit,
-            })
-            : null;
-        if (dynamicActions) {
-            await this.sendInteractiveButtons(to, dynamicActions.body, dynamicActions.buttons, null, null, whatsappConfig).catch(() => undefined);
-            return;
-        }
-        const pid = context.propertyId ?? '';
-        const hasVisit = Boolean(context.hasActiveVisit);
-        const isConfirmed = context.visitStatus === 'confirmed';
-        // ── Visit-management CTAs (overrides stage-based buttons) ─────────────────
-        // When the client already has an active visit, NEVER show 'Book Visit'.
-        // Includes visit_booking stage — time-picker slots must not appear when a visit exists.
-        const visitStages = ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation', 'visit_booking'];
-        if (hasVisit && visitStages.includes(stage)) {
-            const visitBody = context.visitProperty
-                ? `Your visit for *${context.visitProperty}*${context.visitTime ? ` on ${context.visitTime}` : ''} 🗓️`
-                : 'You have an upcoming site visit 🗓️';
-            if (isConfirmed) {
-                // Visit already confirmed — skip the Confirm button, offer post-confirm actions.
-                await this.sendInteractiveButtons(to, visitBody, [
-                    { id: 'visit-reschedule', title: '📅 Change Time' },
-                    { id: pid ? `more-info-${pid}` : 'more-info', title: '🏗️ Property Details' },
-                    { id: 'call-me', title: '📞 Call Agent' },
-                ], null, null, whatsappConfig).catch(() => undefined);
-                return;
-            }
-            // Visit scheduled (not yet confirmed) — offer confirm / reschedule / call.
-            await this.sendInteractiveButtons(to, visitBody, [
-                { id: 'visit-confirm', title: '✅ Confirm Visit' },
-                { id: 'visit-reschedule', title: '📅 Reschedule' },
-                { id: 'call-me', title: '📞 Call Agent' },
-            ], null, null, whatsappConfig).catch(() => undefined);
-            return;
-        }
-        // ── Stage-based CTAs (default path — no active visit) ────────────────────
-        const STAGE_REPLIES = {
-            rapport: {
-                body: 'What are you looking for? 🏡',
-                buttons: [
-                    { id: 'filter-apartment', title: '🏢 Apartments' },
-                    { id: 'filter-villa', title: '🏡 Villas' },
-                    { id: 'call-me', title: '📞 Call Me' },
-                ],
-            },
-            qualify: {
-                body: 'Filter by property type:',
-                buttons: [
-                    { id: 'filter-apartment', title: '🏢 Apartment' },
-                    { id: 'filter-villa', title: '🏡 Villa' },
-                    { id: 'filter-plot', title: '📐 Plot' },
-                ],
-            },
-            shortlist: {
-                body: 'Ready for your next step? ✅',
-                buttons: [
-                    { id: pid ? `book-visit-${pid}` : 'book-visit', title: '🗓️ Book Free Visit' },
-                    { id: 'emi-calculator', title: '💰 EMI Calculator' },
-                    { id: 'call-me', title: '📞 Call Me' },
-                ],
-            },
-            commitment: {
-                body: "Let's take the next step 🚀",
-                buttons: [
-                    { id: pid ? `book-visit-${pid}` : 'book-visit', title: '🗓️ Book Visit' },
-                    { id: 'call-me', title: '📞 Call Me' },
-                    { id: pid ? `location-${pid}` : 'more-info', title: '📍 Show Location' },
-                ],
-            },
-            // visit_booking: only shown when no active visit exists (guard above handles the hasVisit case)
-            visit_booking: {
-                body: 'Pick a time that works for you 🗓️',
-                buttons: [
-                    { id: 'visit-slot-morning', title: '☀️ Morning 10AM' },
-                    { id: 'visit-slot-afternoon', title: '🌤️ Afternoon 3PM' },
-                    { id: 'call-me', title: '📞 Call to Confirm' },
-                ],
-            },
-            confirmation: {
-                body: 'Anything else I can help with?',
-                buttons: [
-                    { id: pid ? `more-info-${pid}` : 'more-info', title: '🏗️ Property Details' },
-                    { id: 'emi-calculator', title: '💰 EMI Calculator' },
-                    { id: 'call-me', title: '📞 Call Me' },
-                ],
-            },
-        };
-        const stageConfig = STAGE_REPLIES[stage];
-        if (!stageConfig)
-            return;
-        await this.sendInteractiveButtons(to, stageConfig.body, stageConfig.buttons, null, null, whatsappConfig).catch(() => undefined);
+        const components = (0, buyerButtonPolicy_service_1.resolveBuyerComponents)({
+            stage,
+            outboundText: context.outboundText ?? '',
+            recentAction: context.recentAction,
+            propertyId: context.propertyId,
+            recommendedPropertyIds: context.recommendedPropertyIds,
+            properties: context.properties,
+            hasActiveVisit: context.hasActiveVisit,
+            visitStatus: context.visitStatus,
+            visitProperty: context.visitProperty,
+            visitTime: context.visitTime,
+        });
+        await this.sendTurnComponents(to, components, whatsappConfig, context.outboundText);
     }
     /**
      * Send a WhatsApp Flow message for multi-step forms (e.g. lead qualification, booking).
      * Requires a configured Flow ID from Meta Business Manager.
-     * Falls back to a plain button on GreenAPI or when no flowId is provided.
+     * Falls back to a plain button when no flowId is provided.
      *
      * @param to - Recipient phone number
      * @param flowId - Meta Flow ID (from Business Manager → Flows)
@@ -2647,7 +1620,7 @@ class WhatsAppService {
      */
     async sendFlowMessage(to, flowId, bodyText, ctaText, whatsappConfig) {
         const { phoneNumberId, accessToken } = whatsappConfig;
-        if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta' || !phoneNumberId || !accessToken || !flowId) {
+        if (!phoneNumberId || !accessToken || !flowId) {
             return this.sendInteractiveButtons(to, bodyText, [{ id: 'flow-fallback', title: ctaText.slice(0, 20) }], null, null, whatsappConfig);
         }
         try {
@@ -2705,13 +1678,6 @@ class WhatsAppService {
                 sent++;
             }
             else {
-                if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-                    const fallbackSent = await this.sendMessage(to, `📸 ${propertyName} — photo ${i + 1}: ${imagesToSend[i]}`, whatsappConfig);
-                    if (fallbackSent) {
-                        sent++;
-                        continue;
-                    }
-                }
                 errors.push(`Image ${i + 1}: ${result.error}`);
             }
             // Small delay between messages to avoid rate limiting
@@ -2802,151 +1768,17 @@ class WhatsAppService {
             leadId: lead.id,
             conversationId: conversation.id,
         });
-        // ---- Visit Confirmation (from visit-aware CTA) ----
-        if (interactiveId === 'visit-confirm') {
-            const existingVisit = await prisma_1.default.visit.findFirst({
-                where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
-                orderBy: { scheduledAt: 'asc' },
-                include: { property: { select: { name: true } } },
-            });
-            if (!existingVisit) {
-                await this.sendMessage(customerPhone, `I couldn't find an upcoming visit to confirm. Would you like to book a new site visit?`, whatsappConfig);
-                return { handled: true, action: 'visit-confirm-no-visit' };
-            }
-            await prisma_1.default.visit.update({
-                where: { id: existingVisit.id },
-                data: { status: 'confirmed' },
-            });
-            const visitDate = new Date(existingVisit.scheduledAt).toLocaleString('en-IN', {
-                timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
-                month: 'long', hour: '2-digit', minute: '2-digit', hour12: true,
-            });
-            const propName = existingVisit.property?.name ?? 'the property';
-            await this.sendMessage(customerPhone, `✅ *Visit Confirmed!*\n\n🏠 *${propName}*\n📅 ${visitDate}\n\nWe look forward to seeing you! 😊\n\nNeed anything else? Feel free to ask.`, whatsappConfig);
-            // FIX P2-7: Notify the assigned agent that the customer has confirmed their visit.
-            // Agent notification is best-effort — a failure must never block the customer confirmation flow.
-            if (lead.assignedAgentId) {
-                const agentRecord = await prisma_1.default.user.findUnique({
-                    where: { id: lead.assignedAgentId },
-                    select: { phone: true },
-                });
-                if (agentRecord?.phone) {
-                    const agentAlert = `✅ *Visit Confirmed by Customer!*\n\n` +
-                        `👤 ${lead.customerName || lead.phone}\n` +
-                        `🏠 ${propName}\n` +
-                        `📅 ${visitDate}\n\n` +
-                        `Please ensure you are available to receive the customer.`;
-                    try {
-                        await this.sendCompanyTextMessage(agentRecord.phone, agentAlert, company.id);
-                    }
-                    catch (notifyErr) {
-                        logger_1.default.warn('Failed to notify agent of visit confirmation', {
-                            agentId: lead.assignedAgentId,
-                            visitId: existingVisit.id,
-                            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
-                        });
-                    }
-                }
-            }
-            logger_1.default.info('Visit confirmed via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
-            return { handled: true, action: 'visit-confirmed', leadStatus: 'visit_scheduled' };
+        const { tryOrchestratedInteractiveAction } = await Promise.resolve().then(() => __importStar(require('./whatsapp/whatsappInteractiveOrchestrator.service')));
+        const orchestrated = await tryOrchestratedInteractiveAction({
+            interactiveId,
+            lead,
+            conversation,
+            company,
+        });
+        if (orchestrated !== null) {
+            return orchestrated;
         }
-        // ---- Visit Reschedule (from visit-aware CTA) ----
-        if (interactiveId === 'visit-reschedule') {
-            const existingVisit = await prisma_1.default.visit.findFirst({
-                where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
-                orderBy: { scheduledAt: 'asc' },
-                include: { property: { select: { name: true, id: true } } },
-            });
-            if (!existingVisit) {
-                await this.sendMessage(customerPhone, `I couldn't find an upcoming visit to reschedule. Would you like to book a new site visit?`, whatsappConfig);
-                return { handled: true, action: 'visit-reschedule-no-visit' };
-            }
-            const propertyId = existingVisit.property?.id ?? null;
-            const propName = existingVisit.property?.name ?? 'the property';
-            /**
-             * FIX P1-11: Returns a Date offset by N days from now, constructed in IST so that
-             * button labels reflect the correct calendar date regardless of server timezone.
-             * IST is UTC+5:30 (19 800 seconds ahead of UTC).
-             */
-            const getIstDatePlusDays = (days) => {
-                const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-                const DAY_MS = 24 * 60 * 60 * 1000;
-                const nowUtcMs = Date.now();
-                return new Date(nowUtcMs + IST_OFFSET_MS + days * DAY_MS - IST_OFFSET_MS);
-            };
-            const tomorrow = getIstDatePlusDays(1);
-            const dayAfter = getIstDatePlusDays(2);
-            const formatDate = (d) => d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
-            await this.sendInteractiveButtons(customerPhone, `📅 Let's find a new time for your visit to *${propName}*. When works best for you?`, [
-                { id: `visit-time-${propertyId ?? 'x'}-tomorrow-10am`, title: `${formatDate(tomorrow)} 10AM` },
-                { id: `visit-time-${propertyId ?? 'x'}-tomorrow-3pm`, title: `${formatDate(tomorrow)} 3PM` },
-                { id: `visit-time-${propertyId ?? 'x'}-dayafter`, title: `${formatDate(dayAfter)}` },
-            ], `📅 Reschedule Visit`, `Or type your preferred date and time`, whatsappConfig);
-            logger_1.default.info('Reschedule flow triggered via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
-            return { handled: true, action: 'visit-reschedule-initiated' };
-        }
-        // ---- Book Visit Action ----
-        if (interactiveId === 'book-visit' || interactiveId.startsWith('book-visit-')) {
-            const propertyId = interactiveId.replace('book-visit-', '') !== 'book-visit'
-                ? interactiveId.replace('book-visit-', '')
-                : conversation.selectedPropertyId;
-            // If no property selected, ask them to select first
-            if (!propertyId) {
-                await this.sendMessage(customerPhone, "I'd love to schedule a visit! Could you tell me which property you're interested in?", whatsappConfig);
-                return { handled: true, action: 'book-visit-no-property' };
-            }
-            // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
-            // findUnique without companyId would allow cross-tenant property access.
-            const property = await prisma_1.default.property.findFirst({ where: { id: propertyId, companyId: company.id } });
-            if (!property) {
-                await this.sendMessage(customerPhone, "I couldn't find that property. Let me show you our available options.", whatsappConfig);
-                return { handled: true, action: 'book-visit-invalid-property' };
-            }
-            /**
-             * FIX P1-11: Returns a Date offset by N days from now, constructed in IST so that
-             * button labels reflect the correct calendar date regardless of server timezone.
-             * IST is UTC+5:30 (19 800 seconds ahead of UTC).
-             */
-            const getIstDatePlusDaysForBooking = (days) => {
-                const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-                const DAY_MS = 24 * 60 * 60 * 1000;
-                const nowUtcMs = Date.now();
-                return new Date(nowUtcMs + IST_OFFSET_MS + days * DAY_MS - IST_OFFSET_MS);
-            };
-            // Send confirmation with visit scheduling buttons
-            const tomorrow = getIstDatePlusDaysForBooking(1);
-            const dayAfter = getIstDatePlusDaysForBooking(2);
-            const formatDate = (d) => d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
-            await this.sendInteractiveButtons(customerPhone, `Great choice! 🏠 Let's schedule your visit to *${property.name}*.\n\nWhen would you prefer to visit?`, [
-                { id: `visit-time-${propertyId}-tomorrow-10am`, title: `${formatDate(tomorrow)} 10AM` },
-                { id: `visit-time-${propertyId}-tomorrow-3pm`, title: `${formatDate(tomorrow)} 3PM` },
-                { id: `visit-time-${propertyId}-dayafter`, title: `${formatDate(dayAfter)}` },
-            ], `📅 Schedule Visit`, `Or tell me your preferred time`, whatsappConfig);
-            // Notify assigned agent
-            if (lead.assignedAgentId) {
-                await prisma_1.default.notification.create({
-                    data: {
-                        companyId: company.id,
-                        userId: lead.assignedAgentId,
-                        type: 'visit_scheduled', // Using visit_scheduled as closest match for visit interest
-                        title: '📅 Visit Interest - Action Required',
-                        message: `${lead.customerName || lead.phone} wants to visit ${property.name}`,
-                        data: {
-                            leadId: lead.id,
-                            propertyId: property.id,
-                            propertyName: property.name,
-                        },
-                    },
-                });
-            }
-            return {
-                handled: true,
-                action: 'book-visit-initiated',
-                newState: { stage: 'visit_booking', selectedPropertyId: propertyId },
-            };
-        }
-        // ---- Visit Time Selection ----
+        // ---- Visit Time Selection (legacy direct send — slot booking mutation) ----
         if (interactiveId.startsWith('visit-time-')) {
             const parsed = (0, visitBooking_service_1.parseVisitTimeInteractiveId)(interactiveId);
             if (!parsed) {
@@ -3046,132 +1878,6 @@ class WhatsAppService {
                 leadStatus: 'contacted',
             };
         }
-        // ---- Call Me / Callback Request ----
-        if (interactiveId === 'call-me' || interactiveId === 'callback-request') {
-            await this.sendMessage(customerPhone, `📞 Sure! Our sales representative will call you within the next 15 minutes.\n\nIn the meantime, feel free to ask me any questions about our properties! 😊`, whatsappConfig);
-            // Create urgent notification for assigned agent
-            if (lead.assignedAgentId) {
-                await prisma_1.default.notification.create({
-                    data: {
-                        companyId: company.id,
-                        userId: lead.assignedAgentId,
-                        type: 'agent_takeover', // Using agent_takeover for callback requests
-                        title: '📞 URGENT: Callback Requested',
-                        message: `${lead.customerName || lead.phone} requested a callback - call within 15 minutes!`,
-                        data: {
-                            leadId: lead.id,
-                            conversationId: conversation.id,
-                            requestedAt: new Date().toISOString(),
-                        },
-                    },
-                });
-            }
-            // Update lead status
-            return {
-                handled: true,
-                action: 'callback-requested',
-                leadStatus: 'contacted',
-            };
-        }
-        // ---- More Info Request ----
-        if (interactiveId === 'more-info' || interactiveId.startsWith('more-info-')) {
-            const propertyId = interactiveId.replace('more-info-', '') !== 'more-info'
-                ? interactiveId.replace('more-info-', '')
-                : conversation.selectedPropertyId;
-            if (!propertyId) {
-                // No property context - let AI handle it
-                return { handled: false };
-            }
-            // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
-            const property = await prisma_1.default.property.findFirst({ where: { id: propertyId, companyId: company.id } });
-            if (!property) {
-                return { handled: false };
-            }
-            // Format price range (using priceMin/priceMax from schema)
-            const formatPrice = (p) => {
-                const min = p.priceMin ? Number(p.priceMin) : null;
-                const max = p.priceMax ? Number(p.priceMax) : null;
-                if (min && max)
-                    return `₹${(min / 100000).toFixed(0)}L - ₹${(max / 100000).toFixed(0)}L`;
-                if (min)
-                    return `From ₹${(min / 100000).toFixed(0)} Lakhs`;
-                if (max)
-                    return `Up to ₹${(max / 100000).toFixed(0)} Lakhs`;
-                return 'Contact for price';
-            };
-            // Format location from locationCity/locationArea
-            const formatLocation = (p) => {
-                const parts = [p.locationArea, p.locationCity].filter(Boolean);
-                return parts.length > 0 ? parts.join(', ') : null;
-            };
-            // Send detailed property info
-            const details = [
-                `🏠 *${property.name}*`,
-                '',
-                property.description || '',
-                '',
-                `💰 Price: ${formatPrice(property)}`,
-                property.propertyType ? `🏢 Type: ${property.propertyType}` : '',
-                property.bedrooms ? `🛏️ Bedrooms: ${property.bedrooms}` : '',
-                formatLocation(property) ? `📍 Location: ${formatLocation(property)}` : '',
-                property.builder ? `🏗️ Builder: ${property.builder}` : '',
-            ].filter(Boolean).join('\n');
-            await this.sendMessage(customerPhone, details, whatsappConfig);
-            // Send brochure if available
-            const brochureUrl = property.brochureUrl;
-            if (brochureUrl) {
-                await this.sendPropertyBrochure(customerPhone, brochureUrl, property.name, whatsappConfig);
-            }
-            // Send images if available
-            const images = property.images;
-            if (images && images.length > 0) {
-                await this.sendPropertyImages(customerPhone, images, property.name, whatsappConfig);
-            }
-            // Check if lead already has an active visit before deciding what buttons to show.
-            // If so, show visit-management CTAs instead of 'Book Visit'.
-            const activeVisitForProperty = await prisma_1.default.visit.findFirst({
-                where: {
-                    leadId: lead.id,
-                    status: { in: ['scheduled', 'confirmed'] },
-                },
-                orderBy: { scheduledAt: 'asc' },
-                include: { property: { select: { name: true } } },
-            });
-            // Follow up with context-aware action buttons
-            if (activeVisitForProperty) {
-                const visitDate = new Date(activeVisitForProperty.scheduledAt).toLocaleString('en-IN', {
-                    timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric',
-                    month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
-                });
-                const visitPropName = activeVisitForProperty.property?.name ?? 'the property';
-                const visitAlreadyConfirmed = activeVisitForProperty.status === 'confirmed';
-                await this.sendInteractiveButtons(customerPhone, visitAlreadyConfirmed
-                    ? `Your visit for *${visitPropName}* on ${visitDate} is confirmed ✅`
-                    : `You already have a visit for *${visitPropName}* on ${visitDate} 🗓️`, visitAlreadyConfirmed
-                    ? [
-                        { id: 'visit-reschedule', title: '📅 Change Time' },
-                        { id: `more-info-${propertyId}`, title: '🏗️ Property Details' },
-                        { id: 'call-me', title: '📞 Call Agent' },
-                    ]
-                    : [
-                        { id: 'visit-confirm', title: '✅ Confirm Visit' },
-                        { id: 'visit-reschedule', title: '📅 Reschedule' },
-                        { id: 'call-me', title: '📞 Call Agent' },
-                    ], null, null, whatsappConfig);
-            }
-            else {
-                await this.sendInteractiveButtons(customerPhone, `Would you like to take the next step? 🚀`, [
-                    { id: `book-visit-${propertyId}`, title: 'Book Visit' },
-                    { id: 'call-me', title: 'Call Me' },
-                    { id: `location-${propertyId}`, title: 'Show Location' },
-                ], null, null, whatsappConfig);
-            }
-            return {
-                handled: true,
-                action: 'more-info-sent',
-                newState: { selectedPropertyId: propertyId },
-            };
-        }
         // ---- Property Selection from List ----
         if (interactiveId.startsWith('prop-')) {
             const propertyId = interactiveId.replace('prop-', '');
@@ -3181,196 +1887,7 @@ class WhatsAppService {
                 interactiveId: `more-info-${propertyId}`,
             });
         }
-        // ---- Property Filter Selection ----
-        // CHUNK 6: Enhanced with all 5 layers
-        if (interactiveId.startsWith('filter-')) {
-            const filterValue = interactiveId.replace('filter-', '');
-            // Layer 4 (Resilient): Prevent double-click/duplicate processing
-            const recentFilterAction = await prisma_1.default.message.findFirst({
-                where: {
-                    conversationId: conversation.id,
-                    content: { contains: `Filter applied: ${filterValue}` },
-                    createdAt: {
-                        gte: new Date(Date.now() - 30 * 1000), // Last 30 seconds
-                    },
-                },
-            });
-            if (recentFilterAction) {
-                logger_1.default.info('Filter already applied recently, skipping duplicate', {
-                    filter: filterValue,
-                    conversationId: conversation.id,
-                });
-                return { handled: true, action: 'filter-duplicate-prevented' };
-            }
-            // Map filter IDs to property types/preferences
-            const filterMap = {
-                '1bhk': { bedrooms: 1, displayName: '1 BHK' },
-                '2bhk': { bedrooms: 2, displayName: '2 BHK' },
-                '3bhk': { bedrooms: 3, displayName: '3 BHK' },
-                '4bhk': { bedrooms: 4, displayName: '4 BHK' },
-                '5bhk': { bedrooms: 5, displayName: '5 BHK' },
-                'villa': { propertyType: 'villa', displayName: 'Villa' },
-                'apartment': { propertyType: 'apartment', displayName: 'Apartment' },
-                'plot': { propertyType: 'plot', displayName: 'Plot' },
-                'commercial': { propertyType: 'commercial', displayName: 'Commercial' },
-            };
-            const filter = filterMap[filterValue.toLowerCase()];
-            if (!filter) {
-                // Unknown filter - let AI handle it
-                logger_1.default.warn('Unknown filter value', { filterValue });
-                return { handled: false };
-            }
-            try {
-                // Layer 3 (Operational): Update lead preferences in database
-                const updatedLead = await prisma_1.default.lead.update({
-                    where: { id: lead.id },
-                    data: {
-                        propertyType: filter.propertyType || lead.propertyType,
-                        ...(filter.bedrooms && {
-                            notes: lead.notes
-                                ? `${lead.notes}; Prefers ${filter.bedrooms} BHK`
-                                : `Prefers ${filter.bedrooms} BHK`
-                        }),
-                    },
-                });
-                // Layer 5 (Integrated): Update conversation state
-                await prisma_1.default.conversation.update({
-                    where: { id: conversation.id },
-                    data: {
-                        stage: 'shortlist', // Move to shortlist after filter selection
-                        stageEnteredAt: new Date(),
-                        stageMessageCount: 0,
-                    },
-                });
-                // Layer 3 (Operational): Log the filter action
-                await prisma_1.default.message.create({
-                    data: {
-                        conversationId: conversation.id,
-                        senderType: 'customer',
-                        content: `Filter applied: ${filter.displayName}`,
-                        status: 'sent',
-                    },
-                });
-                // Build property filter query with budget considerations
-                const propertyWhere = {
-                    companyId: company.id,
-                    status: 'available',
-                };
-                if (filter.propertyType)
-                    propertyWhere.propertyType = filter.propertyType;
-                if (filter.bedrooms)
-                    propertyWhere.bedrooms = filter.bedrooms;
-                // Apply budget filter if lead has budget preference
-                if (updatedLead.budgetMin || updatedLead.budgetMax) {
-                    propertyWhere.AND = [];
-                    if (updatedLead.budgetMin) {
-                        propertyWhere.AND.push({ priceMin: { gte: updatedLead.budgetMin } });
-                    }
-                    if (updatedLead.budgetMax) {
-                        propertyWhere.AND.push({ priceMax: { lte: updatedLead.budgetMax } });
-                    }
-                }
-                // Find matching properties
-                const properties = await prisma_1.default.property.findMany({
-                    where: propertyWhere,
-                    take: 10, // Get up to 10 matches
-                    orderBy: { createdAt: 'desc' },
-                });
-                if (properties.length === 0) {
-                    const tiers = await (0, alternativeInventory_service_2.searchAlternativeTiers)({
-                        companyId: company.id,
-                        bedrooms: filter.bedrooms,
-                        propertyType: filter.propertyType,
-                        locationPreference: updatedLead.locationPreference,
-                        budgetMin: updatedLead.budgetMin ? Number(updatedLead.budgetMin) : null,
-                        budgetMax: updatedLead.budgetMax ? Number(updatedLead.budgetMax) : null,
-                    });
-                    const topHint = tiers[0]?.messageHint ||
-                        `No ${filter.displayName} matches right now — I can add you to our waitlist or show nearby options.`;
-                    let body = topHint;
-                    const altProp = tiers[0]?.properties?.[0];
-                    if (altProp) {
-                        body += `\n\nClosest option: *${altProp.name}* (${altProp.locationArea || altProp.locationCity}).`;
-                    }
-                    body += '\n\nReply *WAITLIST* to get alerted when a match is listed, or tell me another area/BHK.';
-                    await this.sendMessage(customerPhone, body, whatsappConfig);
-                    await prisma_1.default.conversation.update({
-                        where: { id: conversation.id },
-                        data: {
-                            commitments: {
-                                ...(conversation.commitments || {}),
-                                waitlist: true,
-                                waitlistCriteria: filter.displayName,
-                            },
-                        },
-                    });
-                    await prisma_1.default.message.create({
-                        data: {
-                            conversationId: conversation.id,
-                            senderType: 'ai',
-                            content: `No ${filter.displayName} exact match; alternatives offered`,
-                            status: 'sent',
-                        },
-                    });
-                    return {
-                        handled: true,
-                        action: 'filter-no-results-alternatives',
-                        newState: { stage: 'qualify' },
-                    };
-                }
-                // Helper to format price for list row
-                const formatListPrice = (p) => {
-                    const min = p.priceMin ? Number(p.priceMin) : null;
-                    if (min)
-                        return `₹${(min / 100000).toFixed(0)}L`;
-                    return 'Call';
-                };
-                // Layer 1 (Visual): Send property list with interactive buttons
-                const sections = [{
-                        title: `${filter.displayName} Options (${properties.length})`,
-                        rows: properties.slice(0, 10).map((p) => ({
-                            id: `prop-${p.id}`,
-                            title: p.name.substring(0, 24),
-                            description: `${formatListPrice(p)} - ${p.locationArea || p.locationCity || 'TBD'}`.substring(0, 72),
-                        })),
-                    }];
-                await this.sendInteractiveList(customerPhone, `Great choice! Found ${properties.length} ${filter.displayName} ${properties.length === 1 ? 'property' : 'properties'} for you! 🏠✨`, 'View Properties', sections, `${filter.displayName} Properties`, `Select to know more`, whatsappConfig);
-                // Layer 5 (Integrated): Update conversation with recommended properties
-                await prisma_1.default.conversation.update({
-                    where: { id: conversation.id },
-                    data: {
-                        recommendedPropertyIds: properties.map(p => p.id),
-                    },
-                });
-                // Log success
-                logger_1.default.info('Filter applied successfully', {
-                    filter: filter.displayName,
-                    matchCount: properties.length,
-                    conversationId: conversation.id,
-                    leadId: lead.id,
-                });
-                return {
-                    handled: true,
-                    action: 'filter-applied',
-                    newState: {
-                        stage: 'shortlist',
-                        recommendedPropertyIds: properties.map(p => p.id),
-                    },
-                };
-            }
-            catch (error) {
-                // Layer 4 (Resilient): Handle all errors gracefully
-                logger_1.default.error('Filter application failed', {
-                    error: error.message,
-                    filter: filterValue,
-                    conversationId: conversation.id,
-                });
-                // Fallback message
-                await this.sendMessage(customerPhone, `I'm having trouble filtering properties right now. Let me help you manually - what specific ${filter.displayName} properties would you like to know about?`, whatsappConfig);
-                return { handled: true, action: 'filter-error' };
-            }
-        }
-        // ---- Show Location ----
+        // ---- Show Location (legacy direct send) ----
         if (interactiveId.startsWith('location-')) {
             const propertyId = interactiveId.replace('location-', '');
             // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
@@ -3431,395 +1948,6 @@ class WhatsAppService {
         // ---- Unrecognized action - let AI handle it ----
         logger_1.default.info('Unrecognized interactive action, passing to AI', { interactiveId });
         return { handled: false };
-    }
-    /**
-     * CHUNK 5: Determine if we should send property media based on conversation state
-     * Send media when:
-     * - AI is in 'shortlist' stage (presenting properties)
-     * - AI is in 'commitment' or 'visit_booking' stages (deepening engagement)
-     * - Recommended properties exist and have media
-     */
-    getRecommendedPropertyIds(state) {
-        if (state.recommendedProperties?.length) {
-            return state.recommendedProperties;
-        }
-        const alt = state.recommendedPropertyIds;
-        return alt?.length ? alt : [];
-    }
-    shouldSendPropertyMedia(state, action) {
-        const ids = this.getRecommendedPropertyIds(state);
-        if (state.stage === 'shortlist' && ids.length > 0) {
-            return true;
-        }
-        if (action?.action === 'advance_stage' && (action.targetStage === 'shortlist' || action.targetStage === 'commitment')) {
-            return ids.length > 0;
-        }
-        return false;
-    }
-    /**
-     * CHUNK 5: Send property media (images, brochure, floor plans, location)
-     * Implements progressive disclosure - don't overwhelm user with everything at once
-     *
-     * Layer 1 (Visual): Media is sent
-     * Layer 2 (Interactive): User can click on media
-     * Layer 3 (Operational): Media is logged in conversation
-     * Layer 4 (Resilient): Errors don't crash conversation, fallback to text
-     * Layer 5 (Integrated): State machine tracks what was sent
-     */
-    async sendPropertyMediaForStage(customerPhone, whatsappConfig, state, allProperties, lead, conversationId) {
-        try {
-            // Get properties that were recommended
-            const recommendedIds = this.getRecommendedPropertyIds(state);
-            if (recommendedIds.length === 0)
-                return;
-            // Limit to top 3 properties to avoid overwhelming user
-            const propertiesToShow = recommendedIds.slice(0, 3);
-            for (const propertyId of propertiesToShow) {
-                const property = allProperties.find(p => p.id === propertyId);
-                if (!property)
-                    continue;
-                await this.sendPropertyMediaSet(customerPhone, whatsappConfig, property, state, conversationId);
-                // Rate limit: 200ms between properties to avoid overwhelming WhatsApp API
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
-            logger_1.default.info('Property media sent successfully', {
-                conversationId,
-                propertyCount: propertiesToShow.length,
-                stage: state.stage,
-            });
-        }
-        catch (error) {
-            // Layer 4 (Resilient): Log error but don't crash the conversation
-            logger_1.default.error('Failed to send property media', {
-                error: error.message,
-                conversationId,
-                stage: state.stage,
-            });
-            // Fallback: Send a text message explaining media couldn't be sent
-            try {
-                await this.sendMessage(customerPhone, `_I'm having trouble sending the property images right now. You can view them at our website or I can send the details via text. Would you like that?_`, whatsappConfig);
-            }
-            catch (fallbackError) {
-                logger_1.default.error('Even fallback message failed', { error: fallbackError.message });
-            }
-        }
-    }
-    /**
-     * Send a complete media set for one property
-     * Progressive disclosure based on stage:
-     * - Initial presentation: Photos + basic brochure
-     * - Deeper interest: Floor plans + price list
-     * - Almost closing: Location pin
-     */
-    async sendPropertyMediaSet(customerPhone, whatsappConfig, property, state, conversationId) {
-        const mediasSent = [];
-        const errors = [];
-        // 1. ALWAYS send property photos (if available) - most engaging
-        if (property.images && Array.isArray(property.images) && property.images.length > 0) {
-            try {
-                // Send up to 3 photos
-                const imagesToSend = property.images.slice(0, 3);
-                const imageResult = await this.sendPropertyImages(customerPhone, imagesToSend, property.name, whatsappConfig);
-                if (imageResult.sent > 0) {
-                    mediasSent.push('images');
-                }
-                if (!imageResult.success) {
-                    errors.push(`images: ${imageResult.errors.join('; ')}`);
-                }
-            }
-            catch (error) {
-                errors.push(`images: ${error.message}`);
-                logger_1.default.error('Failed to send property images', {
-                    propertyId: property.id,
-                    error: error.message,
-                });
-            }
-        }
-        // 2. Send brochure if available (initial presentation or deeper interest)
-        if (property.brochureUrl && (state.stage === 'shortlist' || state.stage === 'commitment')) {
-            try {
-                const brochureResult = await this.sendPropertyBrochure(customerPhone, property.brochureUrl, property.name, whatsappConfig);
-                if (brochureResult.success) {
-                    mediasSent.push('brochure');
-                }
-                else {
-                    errors.push(`brochure: ${brochureResult.error || 'send failed'}`);
-                }
-            }
-            catch (error) {
-                errors.push(`brochure: ${error.message}`);
-                logger_1.default.error('Failed to send brochure', {
-                    propertyId: property.id,
-                    error: error.message,
-                });
-            }
-        }
-        // 3. Send floor plans if showing deeper interest
-        if (property.floorPlanUrls && Array.isArray(property.floorPlanUrls) && property.floorPlanUrls.length > 0) {
-            if (state.stage === 'commitment' || state.stage === 'visit_booking' || state.messageCount > 3) {
-                try {
-                    // Send floor plans as documents
-                    let floorPlansSent = 0;
-                    for (const floorPlanUrl of property.floorPlanUrls.slice(0, 3)) {
-                        const result = await this.sendDocument(customerPhone, floorPlanUrl, `${property.name} - Floor Plan.pdf`, `Floor plan for ${property.name}`, whatsappConfig);
-                        if (result.success) {
-                            floorPlansSent++;
-                        }
-                        else if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-                            const fallbackSent = await this.sendMessage(customerPhone, `Floor plan for ${property.name}: ${floorPlanUrl}`, whatsappConfig);
-                            if (fallbackSent) {
-                                floorPlansSent++;
-                            }
-                        }
-                    }
-                    if (floorPlansSent > 0) {
-                        mediasSent.push('floor_plans');
-                    }
-                }
-                catch (error) {
-                    errors.push(`floor_plans: ${error.message}`);
-                    logger_1.default.error('Failed to send floor plans', {
-                        propertyId: property.id,
-                        error: error.message,
-                    });
-                }
-            }
-        }
-        // 4. Send price list if available and appropriate stage
-        if (property.priceListUrl && (state.stage === 'commitment' || state.stage === 'visit_booking')) {
-            try {
-                const priceListResult = await this.sendDocument(customerPhone, property.priceListUrl, `${property.name} - Price List.pdf`, `Complete pricing details for ${property.name}`, whatsappConfig);
-                if (priceListResult.success) {
-                    mediasSent.push('price_list');
-                }
-                else if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-                    const fallbackSent = await this.sendMessage(customerPhone, `Complete pricing details for ${property.name}: ${property.priceListUrl}`, whatsappConfig);
-                    if (fallbackSent) {
-                        mediasSent.push('price_list');
-                    }
-                    else {
-                        errors.push(`price_list: ${priceListResult.error || 'send failed'}`);
-                    }
-                }
-                else {
-                    errors.push(`price_list: ${priceListResult.error || 'send failed'}`);
-                }
-            }
-            catch (error) {
-                errors.push(`price_list: ${error.message}`);
-                logger_1.default.error('Failed to send price list', {
-                    propertyId: property.id,
-                    error: error.message,
-                });
-            }
-        }
-        // 5. Send location pin if property has coordinates
-        if (property.latitude !== null && property.latitude !== undefined && property.longitude !== null && property.longitude !== undefined) {
-            try {
-                const latitude = Number(property.latitude);
-                const longitude = Number(property.longitude);
-                const address = [
-                    property.locationArea,
-                    property.locationCity,
-                    property.locationPincode
-                ].filter(Boolean).join(', ');
-                const locationResult = await this.sendLocation(customerPhone, latitude, longitude, property.name, address || 'Property Location', whatsappConfig);
-                if (locationResult.success) {
-                    mediasSent.push('location');
-                }
-                else if (this.resolveOutboundProviderName(whatsappConfig) !== 'meta') {
-                    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
-                    const fallbackSent = await this.sendMessage(customerPhone, `Location: ${property.name}\n${address || 'Property Location'}\n${mapsUrl}`, whatsappConfig);
-                    if (fallbackSent) {
-                        mediasSent.push('location');
-                    }
-                    else {
-                        errors.push(`location: ${locationResult.error || 'send failed'}`);
-                    }
-                }
-                else {
-                    errors.push(`location: ${locationResult.error || 'send failed'}`);
-                }
-            }
-            catch (error) {
-                errors.push(`location: ${error.message}`);
-                logger_1.default.error('Failed to send location', {
-                    propertyId: property.id,
-                    error: error.message,
-                });
-            }
-        }
-        // Log what was sent (for analytics and debugging)
-        logger_1.default.info('Property media set sent', {
-            conversationId,
-            propertyId: property.id,
-            propertyName: property.name,
-            mediasSent,
-            errors: errors.length > 0 ? errors : undefined,
-        });
-        // Store media sending event in conversation for tracking
-        if (mediasSent.length > 0) {
-            await prisma_1.default.message.create({
-                data: {
-                    conversationId,
-                    senderType: 'ai', // Use 'ai' instead of 'system'
-                    content: `📎 Sent media for ${property.name}: ${mediasSent.join(', ')}`,
-                    status: 'sent',
-                },
-            });
-        }
-    }
-    /**
-     * CHUNK 6: Send property type filter buttons to help qualify leads faster
-     * Layer 1 (Visual): WhatsApp interactive buttons appear
-     * Layer 2 (Interactive): Buttons trigger filter actions
-     * Layer 3 (Operational): Database tracks selections
-     * Layer 4 (Resilient): Handles errors, prevents double-clicks
-     * Layer 5 (Integrated): AI flow adapts based on selection
-     */
-    async sendPropertyTypeFilters(customerPhone, whatsappConfig, context) {
-        try {
-            // Check if we've already sent filters recently (prevent spam/double-click)
-            if (context?.conversationId) {
-                const recentFilterMessage = await prisma_1.default.message.findFirst({
-                    where: {
-                        conversationId: context.conversationId,
-                        content: { contains: 'property type are you looking for' },
-                        createdAt: {
-                            gte: new Date(Date.now() - 5 * 60 * 1000), // Last 5 minutes
-                        },
-                    },
-                    orderBy: { createdAt: 'desc' },
-                });
-                if (recentFilterMessage) {
-                    logger_1.default.info('Filters already sent recently, skipping', {
-                        conversationId: context.conversationId,
-                        lastSent: recentFilterMessage.createdAt,
-                    });
-                    return; // Prevent duplicate
-                }
-            }
-            // Get available property types from database for this company
-            const availableTypes = context?.companyId
-                ? await prisma_1.default.property.groupBy({
-                    by: ['propertyType', 'bedrooms'],
-                    where: {
-                        companyId: context.companyId,
-                        status: 'available',
-                    },
-                    _count: true,
-                })
-                : [];
-            // Build button list based on what's actually available
-            const buttons = [];
-            // BHK filters (WhatsApp allows max 3 buttons)
-            const bedroomCounts = availableTypes
-                .filter(t => t.bedrooms)
-                .map(t => t.bedrooms)
-                .filter((v, i, a) => a.indexOf(v) === i)
-                .sort((a, b) => a - b)
-                .slice(0, 3);
-            for (const bhk of bedroomCounts) {
-                buttons.push({
-                    id: `filter-${bhk}bhk`,
-                    title: `${bhk} BHK`,
-                });
-            }
-            // If less than 3 buttons, add property types
-            if (buttons.length < 3) {
-                const propertyTypes = ['villa', 'apartment', 'plot'];
-                for (const type of propertyTypes) {
-                    if (buttons.length >= 3)
-                        break;
-                    const hasType = availableTypes.some(t => t.propertyType === type);
-                    if (hasType) {
-                        buttons.push({
-                            id: `filter-${type}`,
-                            title: type.charAt(0).toUpperCase() + type.slice(1),
-                        });
-                    }
-                }
-            }
-            // Fallback if no properties available or can't determine
-            if (buttons.length === 0) {
-                buttons.push({ id: 'filter-2bhk', title: '2 BHK' }, { id: 'filter-3bhk', title: '3 BHK' }, { id: 'filter-villa', title: 'Villa' });
-            }
-            // Send interactive buttons
-            await this.sendInteractiveButtons(customerPhone, 'What type of property are you looking for? 🏠', buttons.slice(0, 3), // WhatsApp limit
-            null, null, whatsappConfig);
-            // Log the filter send in conversation (Layer 3: Operational)
-            if (context?.conversationId) {
-                await prisma_1.default.message.create({
-                    data: {
-                        conversationId: context.conversationId,
-                        senderType: 'ai',
-                        content: 'What type of property are you looking for? 🏠 [Filter buttons sent]',
-                        status: 'sent',
-                    },
-                });
-            }
-            logger_1.default.info('Property type filters sent', {
-                ...context,
-                buttonCount: buttons.length,
-                buttons: buttons.map(b => b.id),
-            });
-        }
-        catch (error) {
-            // Layer 4 (Resilient): Don't crash conversation if filters fail
-            logger_1.default.error('Failed to send property type filters', {
-                error: error.message,
-                ...context,
-            });
-            // Fallback to text question if buttons fail
-            try {
-                await this.sendMessage(customerPhone, 'What type of property are you looking for? (2BHK, 3BHK, Villa, Apartment, etc.)', whatsappConfig);
-            }
-            catch (fallbackError) {
-                logger_1.default.error('Filter fallback message also failed', {
-                    error: fallbackError.message,
-                });
-            }
-        }
-    }
-    /**
-     * Determines whether to send property type filter buttons after an AI response.
-     *
-     * Key rules:
-     * - NEVER fire in `rapport` stage — the stage-based CTA from `sendContextualQuickReplies`
-     *   already shows property-type options. Firing both creates a message storm.
-     * - Only fires in `qualify` stage (or when advancing into it) and the lead has no property
-     *   type preference yet.
-     * - The 5-minute dedup guard inside `sendPropertyTypeFilters` prevents repeat sends
-     *   within a conversation session.
-     *
-     * @param state - Current conversation state from the state machine
-     * @param lead - Lead record (used to check if property type is already known)
-     * @param action - Next best action from the policy brain (optional)
-     * @returns true when filter buttons should be sent this turn
-     */
-    shouldSendPropertyFilters(state, lead, action) {
-        // Don't send if already in shortlisting or later stages.
-        const laterStages = ['shortlist', 'commitment', 'visit_booking', 'confirmation', 'closed_won', 'closed_lost'];
-        if (laterStages.includes(state.stage)) {
-            return false;
-        }
-        // Don't send if lead already has a clear property type preference.
-        if (lead.propertyType && lead.propertyType !== 'any') {
-            return false;
-        }
-        // Never fire on rapport — sendContextualQuickReplies already shows type options there.
-        if (state.stage === 'rapport') {
-            return false;
-        }
-        // Fire on qualify stage — this is the right moment for structured type selection.
-        if (state.stage === 'qualify') {
-            return true;
-        }
-        // Fire when AI is explicitly advancing into the qualify stage.
-        if (action?.action === 'advance_stage' && action.targetStage === 'qualify') {
-            return true;
-        }
-        return false;
     }
 }
 exports.WhatsAppService = WhatsAppService;

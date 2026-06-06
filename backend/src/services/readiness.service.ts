@@ -27,15 +27,6 @@ function getWhatsAppSettings(settings: unknown): Record<string, unknown> {
 
 function hasWhatsAppCredentials(settings: unknown): boolean {
   const whatsapp = getWhatsAppSettings(settings);
-  const provider = String(whatsapp.provider || 'meta').toLowerCase();
-
-  if (provider === 'greenapi') {
-    const green = (whatsapp.greenapi as Record<string, unknown>) || {};
-    const idInstance = String(green.idInstance || whatsapp.phoneNumberId || '').trim();
-    const token = String(green.apiTokenInstance || whatsapp.apiTokenInstance || '').trim();
-    return Boolean(idInstance && token);
-  }
-
   const meta = (whatsapp.meta as Record<string, unknown>) || {};
   const phoneNumberId = String(meta.phoneNumberId || whatsapp.phoneNumberId || '').trim();
   const accessToken = String(meta.accessToken || whatsapp.accessToken || '').trim();

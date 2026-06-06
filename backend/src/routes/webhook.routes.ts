@@ -8,6 +8,7 @@ import { runEnterpriseAgent } from '../services/enterpriseAgentBridge';
 import { whatsappIpWhitelist } from '../middleware/whatsappSecurity';
 import { whatsappHealthService } from '../services/whatsappHealth.service';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
+import { extractCustomerMessage } from '../services/whatsapp/metaInboundParser.service';
 
 const router = Router();
 
@@ -444,54 +445,9 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
   return summary;
 }
 
-function extractCustomerMessage(message: any): { 
-  messageText: string; 
-  normalizedType: 'text' | 'interactive';
-  interactiveId?: string;
-  interactiveType?: 'button_reply' | 'list_reply';
-} | null {
-  if (message.type === 'text' && typeof message.text?.body === 'string') {
-    return {
-      messageText: message.text.body,
-      normalizedType: 'text',
-    };
-  }
-
-  if (message.type === 'interactive') {
-    // Handle button replies (quick reply buttons)
-    if (message.interactive?.button_reply) {
-      const buttonReply = message.interactive.button_reply;
-      return {
-        messageText: buttonReply.title || '',
-        normalizedType: 'interactive',
-        interactiveId: buttonReply.id,
-        interactiveType: 'button_reply',
-      };
-    }
-
-    // Handle list replies (scrollable list selections)
-    if (message.interactive?.list_reply) {
-      const listReply = message.interactive.list_reply;
-      // Use description if title is too short, otherwise title
-      const text = listReply.description || listReply.title || '';
-      return {
-        messageText: text,
-        normalizedType: 'interactive',
-        interactiveId: listReply.id,
-        interactiveType: 'list_reply',
-      };
-    }
-
-    return null;
-  }
-
-  return null;
-}
-
 export const webhookRouteInternals = {
   verifyWebhookSignature,
   processWebhook,
-  extractCustomerMessage,
 };
 
 /**
@@ -535,12 +491,8 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
 
   try {
     const prisma = await getPrisma();
-    const requestedProvider = req.body?.provider === 'greenapi' ? 'greenapi' : req.body?.provider === 'meta' ? 'meta' : null;
     const explicitPhoneNumberId = typeof req.body?.phoneNumberId === 'string' ? req.body.phoneNumberId.trim() : '';
     let resolvedPhoneNumberId = explicitPhoneNumberId || (config.whatsapp.phoneNumberId || '').trim();
-    let resolvedProvider: 'meta' | 'greenapi' =
-      requestedProvider || ((config as any)?.whatsapp?.provider === 'greenapi' ? 'greenapi' : 'meta');
-    let candidateDerivedFromGreenApi = false;
 
     if (!resolvedPhoneNumberId) {
       const activeCompanies = await prisma.company.findMany({
@@ -553,12 +505,10 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
           const settings = (company?.settings as any) || {};
           const whatsapp = (settings.whatsapp as any) || {};
           const meta = (whatsapp.meta as any) || whatsapp;
-          const greenapi = (whatsapp.greenapi as any) || whatsapp;
           return (
             (typeof meta.phoneNumberId === 'string' && meta.phoneNumberId.trim()) ||
             (typeof meta.phone_number_id === 'string' && meta.phone_number_id.trim()) ||
             (typeof whatsapp.phoneNumberId === 'string' && whatsapp.phoneNumberId.trim()) ||
-            (typeof greenapi.idInstance === 'string' && greenapi.idInstance.trim()) ||
             ''
           );
         })
@@ -566,23 +516,7 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
 
       if (candidateIds.length === 1) {
         resolvedPhoneNumberId = candidateIds[0];
-        const matchedCompany = activeCompanies.find((company: any) => {
-          const settings = (company?.settings as any) || {};
-          const whatsapp = (settings.whatsapp as any) || {};
-          const greenapi = (whatsapp.greenapi as any) || whatsapp;
-          const instanceId =
-            (typeof greenapi.idInstance === 'string' && greenapi.idInstance.trim()) ||
-            (typeof whatsapp.idInstance === 'string' && whatsapp.idInstance.trim()) ||
-            '';
-          return instanceId === resolvedPhoneNumberId;
-        });
-
-        candidateDerivedFromGreenApi = !!matchedCompany;
       }
-    }
-
-    if (!requestedProvider && candidateDerivedFromGreenApi) {
-      resolvedProvider = 'greenapi';
     }
 
     if (!resolvedPhoneNumberId) {
@@ -593,7 +527,7 @@ router.post('/test', express.json({ limit: '1mb' }), async (req: Request, res: R
     }
 
     await whatsappService.handleIncomingMessage({
-      provider: resolvedProvider,
+      provider: 'meta',
       phoneNumberId: resolvedPhoneNumberId,
       customerPhone: phone,
       customerName: name || 'Test Customer',

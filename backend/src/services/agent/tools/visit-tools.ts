@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
 import logger from '../../../config/logger';
-import { DEFAULT_LIST_LIMIT, LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
+import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { createPendingConfirmation } from '../confirmation.service';
+import { scheduleVisit } from '../../visitBooking.service';
+import { markVisitAttended, markVisitNoShow, rescheduleVisitById } from '../../visitState.service';
+import { buildVisitIdempotencyKey } from '../../visitBooking.service';
 import {
   buildVisitScopeFilter,
   formatDateIST,
@@ -101,35 +104,78 @@ export function createVisitTools(context: ToolContext): AgentTool[] {
       description: 'Schedule a site visit and update new/contacted lead to visit_scheduled.',
       schema: z.object({ leadId: z.string().uuid(), propertyId: z.string().uuid().optional(), scheduledAt: z.string(), notes: z.string().optional(), durationMinutes: z.number().int().min(15).max(480).default(60) }),
       func: async ({ leadId, propertyId, scheduledAt, notes, durationMinutes }) => {
-        const lead = await prisma.lead.findFirst({ where: { id: leadId, companyId: context.companyId }, select: { id: true, status: true } });
-        if (!lead) return 'Lead not found.';
-        const visit = await prisma.visit.create({
-          data: { companyId: context.companyId, leadId, propertyId: propertyId ?? null, agentId: context.userId, scheduledAt: new Date(scheduledAt), notes: notes ?? null, durationMinutes, status: 'scheduled' },
-          include,
+        if (!propertyId) return 'Which property should I schedule the visit for?';
+        const scheduledDate = new Date(scheduledAt);
+        if (Number.isNaN(scheduledDate.getTime())) return 'Invalid visit date/time.';
+        const booking = await scheduleVisit({
+          companyId: context.companyId,
+          leadId,
+          propertyId,
+          scheduledAt: scheduledDate,
+          notes,
+          durationMinutes,
+          agentId: context.userRole === 'sales_agent' ? context.userId : undefined,
+          idempotencyKey: buildVisitIdempotencyKey(
+            context.companyId,
+            leadId,
+            scheduledDate.toISOString(),
+          ),
         });
-        if (LEAD_STATUSES_FOR_AUTO_VISIT_UPGRADE.has(lead.status)) {
-          await prisma.lead.update({ where: { id: leadId }, data: { status: 'visit_scheduled' } });
+        if (!booking.success || !booking.visit) {
+          if (booking.error === 'past_date') return 'Cannot schedule a visit in the past.';
+          if (booking.error === 'agent_conflict') return 'That slot overlaps with another visit. Choose another time.';
+          if (booking.error === 'invalid_lead_transition') return 'This lead cannot be moved to visit scheduled from its current status.';
+          if (booking.error === 'property_not_found') return 'Property not found or not available.';
+          if (booking.error === 'no_agent') return 'No active agent is available for this visit.';
+          return 'Lead not found.';
         }
-        void import('../../visitNotificationBridge.service').then(({ notifyVisitScheduledFromTool }) =>
-          notifyVisitScheduledFromTool(visit.id),
-        );
+        const visit = await prisma.visit.findUnique({ where: { id: booking.visit.id }, include });
+        if (!visit) return 'Visit scheduled, but I could not load the visit details.';
         return `Visit scheduled.\n\n${formatVisit(visit)}`;
       },
     }),
     new DynamicStructuredTool({
       name: 'completeVisit',
-      description: 'Mark a visit completed and move lead to visited.',
+      description: 'Mark a visit completed and move lead to visited. Requires yes/no confirmation.',
       schema: z.object({ visitId: z.string().uuid(), notes: z.string().optional() }),
       func: async ({ visitId, notes }) => {
-        const visit = await prisma.visit.findFirst({ where: { id: visitId, ...visitScope(context) }, select: { id: true, leadId: true, status: true } });
+        const visit = await prisma.visit.findFirst({
+          where: { id: visitId, ...visitScope(context) },
+          include: { lead: { select: { customerName: true } }, property: { select: { name: true } } },
+        });
         if (!visit) return 'Visit not found or access denied.';
-        if (visit.status === 'cancelled') return 'Cannot complete a cancelled visit.';
-        const updated = await prisma.visit.update({ where: { id: visitId }, data: { status: 'completed', notes: notes ?? undefined }, include });
-        await prisma.lead.update({ where: { id: visit.leadId }, data: { status: 'visited', lastContactAt: new Date() } });
-        void import('../../visitNotificationBridge.service').then(({ notifyVisitStatusChangeFromTool }) =>
-          notifyVisitStatusChangeFromTool(visitId, visit.status, 'completed'),
-        );
-        return `Visit completed.\n\n${formatVisit(updated)}`;
+        if (visit.status === 'completed') {
+          return `Visit already completed.\n\n${formatVisit(visit)}`;
+        }
+        if (!context.sessionId) return 'Confirmation session unavailable.';
+        const message =
+          `Confirm marking ${visit.lead?.customerName ?? 'customer'}'s visit at ` +
+          `${visit.property?.name ?? 'the property'} (${formatDateIST(visit.scheduledAt)}) as completed?\n` +
+          `Reply "yes" to confirm or "no" to cancel.`;
+        await createPendingConfirmation(context.sessionId, 'completeVisit', { visitId, notes }, message);
+        return message;
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'markVisitNoShow',
+      description: 'Mark a visit as no-show. Requires yes/no confirmation.',
+      schema: z.object({ visitId: z.string().uuid(), notes: z.string().optional() }),
+      func: async ({ visitId, notes }) => {
+        const visit = await prisma.visit.findFirst({
+          where: { id: visitId, ...visitScope(context) },
+          include: { lead: { select: { customerName: true } }, property: { select: { name: true } } },
+        });
+        if (!visit) return 'Visit not found or access denied.';
+        if (visit.status === 'no_show') {
+          return `Visit already marked no-show.\n\n${formatVisit(visit)}`;
+        }
+        if (!context.sessionId) return 'Confirmation session unavailable.';
+        const message =
+          `Should I mark ${visit.lead?.customerName ?? 'customer'}'s visit at ` +
+          `${visit.property?.name ?? 'the property'} (${formatDateIST(visit.scheduledAt)}) as no-show?\n` +
+          `Reply "yes" to confirm or "no" to cancel.`;
+        await createPendingConfirmation(context.sessionId, 'markVisitNoShow', { visitId, notes }, message);
+        return message;
       },
     }),
     new DynamicStructuredTool({
@@ -156,12 +202,22 @@ export function createVisitTools(context: ToolContext): AgentTool[] {
           select: { id: true, status: true, scheduledAt: true },
         });
         if (!visit) return 'Visit not found or access denied.';
-        if (visit.status === 'completed' || visit.status === 'cancelled') return `Cannot reschedule a ${visit.status} visit.`;
-        const oldTime = visit.scheduledAt;
-        const updated = await prisma.visit.update({ where: { id: visitId }, data: { scheduledAt: new Date(newScheduledAt), reminderSent: false }, include });
-        void import('../../visitNotificationBridge.service').then(({ notifyVisitRescheduledFromTool }) =>
-          notifyVisitRescheduledFromTool(visitId, oldTime),
-        );
+        const scheduledDate = new Date(newScheduledAt);
+        if (Number.isNaN(scheduledDate.getTime())) return 'Invalid new visit date/time.';
+        const result = await rescheduleVisitById({
+          companyId: context.companyId,
+          visitId,
+          scheduledAt: scheduledDate,
+        });
+        if (!result.success) {
+          if (result.error === 'past_date') return 'Cannot reschedule a visit to the past.';
+          if (result.error === 'visit_completed' || result.error === 'visit_cancelled' || result.error === 'visit_no_show') {
+            return `Cannot reschedule a ${visit.status} visit.`;
+          }
+          return 'Visit not found or access denied.';
+        }
+        const updated = await prisma.visit.findUnique({ where: { id: visitId }, include });
+        if (!updated) return 'Visit rescheduled.';
         return `Visit rescheduled.\n\n${formatVisit(updated)}`;
       },
     }),

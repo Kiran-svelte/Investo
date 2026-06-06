@@ -165,17 +165,40 @@ const ConversationsPage: React.FC = () => {
       params.append('limit', '50');
       params.append('sort', 'desc');
       const res = await api.get(`/conversations/${convId}?${params.toString()}`);
-      const apiMessages = (res.data.data.messages || []).map((msg: any) => normalizeMessage(msg));
+      const convDetail = res.data.data as Conversation & { messages?: unknown[] };
+      const apiMessages = (convDetail.messages || []).map((msg: any) => normalizeMessage(msg));
       setMessages(apiMessages);
       setMsgTotalPages(res.data.pagination?.pages || 1);
+      if (convDetail?.id) {
+        setSelectedConv((prev) =>
+          prev?.id === convDetail.id
+            ? {
+                ...prev,
+                status: convDetail.status ?? prev.status,
+                ai_enabled: convDetail.ai_enabled ?? prev.ai_enabled,
+              }
+            : prev,
+        );
+      }
     } catch {
       // Message load failure is non-fatal — conversation view stays open
     }
   };
 
+  const applyConversationControlState = (
+    convId: string,
+    patch: Pick<Conversation, 'status' | 'ai_enabled'>,
+  ) => {
+    setSelectedConv((prev) => (prev?.id === convId ? { ...prev, ...patch } : prev));
+    setConversations((prev) =>
+      prev.map((conv) => (conv.id === convId ? { ...conv, ...patch } : conv)),
+    );
+  };
+
   const takeOver = async (convId: string) => {
     try {
       await api.patch(`/conversations/${convId}/takeover`);
+      applyConversationControlState(convId, { status: 'agent_active', ai_enabled: false });
       loadConversations();
     } catch (err: any) {
       setLoadError(err.response?.data?.error || 'Failed to take over conversation.');
@@ -208,6 +231,7 @@ const ConversationsPage: React.FC = () => {
   const release = async (convId: string) => {
     try {
       await api.patch(`/conversations/${convId}/release`);
+      applyConversationControlState(convId, { status: 'ai_active', ai_enabled: true });
       loadConversations();
     } catch (err: any) {
       setLoadError(err.response?.data?.error || 'Failed to release conversation.');
@@ -354,6 +378,10 @@ const ConversationsPage: React.FC = () => {
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   };
 
+  const isHumanTakeover = Boolean(
+    selectedConv && (selectedConv.status === 'agent_active' || !selectedConv.ai_enabled),
+  );
+
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] max-w-[100vw] overflow-hidden">
       {/* Conversation List */}
@@ -480,6 +508,23 @@ const ConversationsPage: React.FC = () => {
                   <p className="text-xs text-ink-muted">
                     {selectedConv.customer_phone} • {selectedConv.language.toUpperCase()}
                   </p>
+                  <span
+                    className={`inline-flex mt-1 text-xs px-2 py-0.5 rounded-full ${
+                      selectedConv.status === 'ai_active' && selectedConv.ai_enabled
+                        ? 'bg-green-100 text-green-700'
+                        : isHumanTakeover
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-surface-subtle text-ink-secondary'
+                    }`}
+                  >
+                    {selectedConv.status === 'ai_active' && selectedConv.ai_enabled
+                      ? 'AI active'
+                      : isHumanTakeover
+                      ? 'Human takeover'
+                      : selectedConv.status === 'closed'
+                      ? 'Closed'
+                      : selectedConv.status.replace('_', ' ')}
+                  </span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -517,6 +562,26 @@ const ConversationsPage: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {isHumanTakeover && (
+              <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-2 text-sm text-amber-900">
+                  <UserCheck className="h-4 w-4 flex-shrink-0 mt-0.5 sm:mt-0" />
+                  <span>
+                    Human takeover active — AI replies are paused until you release this conversation.
+                  </span>
+                </div>
+                {capabilities.canTakeoverConversation && (
+                  <button
+                    onClick={() => release(selectedConv.id)}
+                    className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center justify-center gap-1 self-start sm:self-auto"
+                  >
+                    <Bot className="h-4 w-4" />
+                    {t('conversations.release')}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">

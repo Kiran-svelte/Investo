@@ -1,0 +1,61 @@
+import {
+  buildBuyerHandoffTurnResult,
+  buildBuyerRapportTurnResult,
+  enforceTurnComponentBudget,
+  isHumanTakeoverActive,
+  resolveHeroMediaComponent,
+} from '../../services/whatsapp/whatsappTurnOrchestrator.service';
+
+describe('whatsappTurnOrchestrator.service', () => {
+  test('isHumanTakeoverActive when agent_active or ai disabled', () => {
+    expect(isHumanTakeoverActive({ status: 'agent_active', aiEnabled: true })).toBe(true);
+    expect(isHumanTakeoverActive({ status: 'ai_active', aiEnabled: false })).toBe(true);
+    expect(isHumanTakeoverActive({ status: 'ai_active', aiEnabled: true })).toBe(false);
+  });
+
+  test('buildBuyerHandoffTurnResult is terminal', () => {
+    const result = buildBuyerHandoffTurnResult();
+    expect(result.handled).toBe(true);
+    expect(result.terminal).toBe(true);
+  });
+
+  test('buildBuyerRapportTurnResult for returning buyer has no components', async () => {
+    const result = await buildBuyerRapportTurnResult({
+      companyName: 'Palm Realty',
+      messageText: 'Hi',
+      hasPriorOutbound: true,
+      stage: 'rapport',
+    });
+    expect(result?.handled).toBe(true);
+    expect(result?.text).toContain('Welcome back');
+    expect(result?.components).toEqual([]);
+  });
+
+  test('buildBuyerRapportTurnResult for stranger includes buttons', async () => {
+    const result = await buildBuyerRapportTurnResult({
+      companyName: 'Palm Realty',
+      messageText: 'Hi',
+      hasPriorOutbound: false,
+      stage: 'rapport',
+    });
+    expect(result?.components?.length).toBeGreaterThan(0);
+  });
+
+  test('resolveHeroMediaComponent caps to one image for shortlist', () => {
+    const hero = resolveHeroMediaComponent(
+      [{ id: 'p1', name: 'Lake Vista', images: ['https://cdn.example.com/1.jpg'] }],
+      { mediaComponent: null },
+      'shortlist',
+    );
+    expect(hero?.kind).toBe('media');
+    if (hero?.kind === 'media') expect(hero.mime).toBe('image/jpeg');
+  });
+
+  test('enforceTurnComponentBudget allows buttons + media', () => {
+    const budget = enforceTurnComponentBudget([
+      { kind: 'buttons', buttons: [{ id: 'book', title: 'Book' }] },
+      { kind: 'media', url: 'https://x.jpg', mime: 'image/jpeg' },
+    ]);
+    expect(budget).toHaveLength(2);
+  });
+});

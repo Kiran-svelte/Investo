@@ -322,7 +322,7 @@ describe('WhatsAppService inbound operational behavior', () => {
     });
   });
 
-  it('does not run interactive automation after agent takeover but re-enables AI for WhatsApp reply', async () => {
+  it('does not run interactive automation or re-enable AI after agent takeover — sends handoff only', async () => {
     mockPrisma.lead.findFirst.mockResolvedValueOnce({
       ...lead,
       assignedAgentId: 'agent-1',
@@ -332,11 +332,6 @@ describe('WhatsAppService inbound operational behavior', () => {
     mockPrisma.property.findMany.mockResolvedValue([]);
 
     const { aiService } = await import('../../services/ai.service');
-    (aiService.generateResponse as jest.Mock).mockResolvedValue({
-      text: 'Thanks! I can help book a visit.',
-      detectedLanguage: 'en',
-    });
-
     const interactiveSpy = jest.spyOn(service, 'handleInteractiveAction');
     const sendSpy = jest.spyOn(service, 'sendMessage').mockResolvedValue(true);
 
@@ -351,11 +346,12 @@ describe('WhatsAppService inbound operational behavior', () => {
     });
 
     expect(interactiveSpy).not.toHaveBeenCalled();
-    expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
-      where: { id: 'conv-1' },
-      data: { status: 'ai_active', aiEnabled: true },
-      select: { status: true, aiEnabled: true },
-    });
+    expect(aiService.generateResponse).not.toHaveBeenCalled();
+    expect(mockPrisma.conversation.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'ai_active', aiEnabled: true }),
+      }),
+    );
     expect(sendSpy).toHaveBeenCalled();
     expect(result.status).toBe('processed');
   });

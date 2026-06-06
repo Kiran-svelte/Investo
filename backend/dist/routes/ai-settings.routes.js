@@ -44,7 +44,6 @@ const audit_1 = require("../middleware/audit");
 const validate_1 = require("../middleware/validate");
 const featureGate_1 = require("../middleware/featureGate");
 const validation_1 = require("../models/validation");
-const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const aiKnowledgeStorage_service_1 = require("../services/aiKnowledgeStorage.service");
@@ -161,39 +160,6 @@ router.put('/', (0, rbac_1.authorize)('ai_settings', 'update'), (0, validate_1.v
 router.post('/whatsapp/test', (0, rbac_1.authorize)('ai_settings', 'update'), async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
-        const provider = req.body?.provider === 'greenapi' ? 'greenapi' : 'meta';
-        if (provider === 'greenapi') {
-            // Removed production restriction for GreenAPI
-            const idInstance = req.body?.id_instance || req.body?.idInstance || config_1.default?.greenapi?.idInstance || '';
-            const apiTokenInstance = req.body?.api_token_instance ||
-                req.body?.apiTokenInstance ||
-                config_1.default?.greenapi?.apiTokenInstance ||
-                '';
-            if (!idInstance || !apiTokenInstance) {
-                res.status(400).json({
-                    success: false,
-                    error: 'id_instance and api_token_instance are required',
-                });
-                return;
-            }
-            const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../services/whatsapp.service')));
-            const result = await whatsappService.testConnection({
-                provider: 'greenapi',
-                phoneNumberId: '',
-                accessToken: '',
-                verifyToken: '',
-                idInstance,
-                apiTokenInstance,
-            });
-            if (result.success) {
-                await markWhatsAppVerified(companyId);
-                res.json({ success: true, provider: 'greenapi', message: 'WhatsApp connection successful' });
-            }
-            else {
-                res.status(400).json({ success: false, provider: 'greenapi', error: result.error });
-            }
-            return;
-        }
         const { phone_number_id, access_token } = req.body;
         if (!phone_number_id || !access_token) {
             res.status(400).json({ success: false, error: 'phone_number_id and access_token are required' });

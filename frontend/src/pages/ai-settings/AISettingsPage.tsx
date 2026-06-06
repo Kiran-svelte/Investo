@@ -31,7 +31,7 @@ interface AISettings {
 }
 
 interface WhatsAppConfig {
-  provider: 'meta' | 'greenapi';
+  provider: 'meta';
   phoneNumberId: string;
   accessToken: string;
   verifyToken: string;
@@ -40,9 +40,6 @@ interface WhatsAppConfig {
   appId: string;
   appSecret: string;
   systemUserId: string;
-  idInstance: string;
-  apiTokenInstance: string;
-  webhookUrlToken: string;
   webhookUrl: string;
   isConnected: boolean;
 }
@@ -91,9 +88,6 @@ const AISettingsPage: React.FC = () => {
     appId: '',
     appSecret: '',
     systemUserId: '',
-    idInstance: '',
-    apiTokenInstance: '',
-    webhookUrlToken: '',
     webhookUrl: '',
     isConnected: false,
   });
@@ -109,9 +103,6 @@ const AISettingsPage: React.FC = () => {
   const [connectionVerified, setConnectionVerified] = useState(false);
   // true if credentials have been saved at least once (fields are non-empty after loading)
   const [credentialsSaved, setCredentialsSaved] = useState(false);
-  const isLocalWebhookUrl =
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(whatsappConfig.webhookUrl || '');
-
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
@@ -141,15 +132,10 @@ const AISettingsPage: React.FC = () => {
           const apiBaseUrl = (api.defaults.baseURL || '').replace('/api', '');
           const backendUrl = apiBaseUrl || window.location.origin;
           const metaWebhookUrl = `${backendUrl}/api/webhook`;
-          const greenApiWebhookUrl = user?.company_id
-            ? `${backendUrl}/api/greenapi/webhook/${user.company_id}`
-            : `${backendUrl}/api/greenapi/webhook`;
           
           if (companySettings.whatsapp) {
             const whatsapp = companySettings.whatsapp;
-            const provider: 'meta' | 'greenapi' = whatsapp.provider === 'greenapi' ? 'greenapi' : 'meta';
             const meta = whatsapp.meta || whatsapp;
-            const greenapi = whatsapp.greenapi || whatsapp;
 
             const phoneNumberId = meta.phoneNumberId || '';
             const accessToken = meta.accessToken || '';
@@ -160,18 +146,11 @@ const AISettingsPage: React.FC = () => {
             const appSecret = meta.appSecret || meta.app_secret || '';
             const systemUserId = meta.systemUserId || meta.system_user_id || '';
 
-            const idInstance = greenapi.idInstance || whatsapp.phoneNumberId || '';
-            const apiTokenInstance = greenapi.apiTokenInstance || whatsapp.apiTokenInstance || '';
-            const webhookUrlToken = greenapi.webhookUrlToken || whatsapp.webhookUrlToken || '';
-
-            const hasCreds =
-              provider === 'greenapi'
-                ? !!idInstance && !!apiTokenInstance
-                : !!accessToken && !!phoneNumberId;
+            const hasCreds = !!accessToken && !!phoneNumberId;
             setCredentialsSaved(hasCreds);
             setConnectionVerified(false);
             setWhatsappConfig({
-              provider,
+              provider: 'meta',
               phoneNumberId,
               accessToken,
               verifyToken,
@@ -180,10 +159,7 @@ const AISettingsPage: React.FC = () => {
               appId,
               appSecret,
               systemUserId,
-              idInstance,
-              apiTokenInstance,
-              webhookUrlToken,
-              webhookUrl: provider === 'greenapi' ? greenApiWebhookUrl : metaWebhookUrl,
+              webhookUrl: metaWebhookUrl,
               isConnected: false,
             });
           } else {
@@ -257,18 +233,6 @@ const AISettingsPage: React.FC = () => {
     setConnectionVerified(false);
     setWhatsappConfig(prev => {
       const next: WhatsAppConfig = { ...prev, [field]: value } as any;
-
-      if (field === 'provider') {
-        const apiBaseUrl = (api.defaults.baseURL || '').replace('/api', '');
-        const backendUrl = apiBaseUrl || window.location.origin;
-        next.webhookUrl =
-          value === 'greenapi'
-            ? (user?.company_id
-              ? `${backendUrl}/api/greenapi/webhook/${user.company_id}`
-              : `${backendUrl}/api/greenapi/webhook`)
-            : `${backendUrl}/api/webhook`;
-      }
-
       return { ...next, isConnected: false };
     });
   };
@@ -276,44 +240,25 @@ const AISettingsPage: React.FC = () => {
   const handleSaveWhatsApp = async () => {
     if (!user?.company_id) return;
 
-    // Validate required fields before saving to prevent partial/broken config
-    if (whatsappConfig.provider === 'greenapi') {
-      if (!whatsappConfig.idInstance) {
-        setWhatsappMessage('❌ Instance ID is required for Green-API');
-        return;
-      }
-      if (!whatsappConfig.apiTokenInstance) {
-        setWhatsappMessage('❌ API Token is required for Green-API');
-        return;
-      }
-      if (!whatsappConfig.webhookUrlToken) {
-        setWhatsappMessage('❌ Webhook Token is required for Green-API (used to authenticate inbound webhook calls)');
-        return;
-      }
-    } else {
-      if (!whatsappConfig.phoneNumberId) {
-        setWhatsappMessage('❌ Phone Number ID is required for Meta Cloud API');
-        return;
-      }
-      if (!whatsappConfig.accessToken) {
-        setWhatsappMessage('❌ Access Token is required for Meta Cloud API');
-        return;
-      }
-      if (!whatsappConfig.verifyToken) {
-        setWhatsappMessage('❌ Webhook Verify Token is required for Meta Cloud API');
-        return;
-      }
+    if (!whatsappConfig.phoneNumberId) {
+      setWhatsappMessage('Phone Number ID is required for Meta Cloud API');
+      return;
+    }
+    if (!whatsappConfig.accessToken) {
+      setWhatsappMessage('Access Token is required for Meta Cloud API');
+      return;
+    }
+    if (!whatsappConfig.verifyToken) {
+      setWhatsappMessage('Webhook Verify Token is required for Meta Cloud API');
+      return;
     }
 
     setSavingWhatsApp(true);
     setWhatsappMessage('');
     try {
-      // Get current company settings and merge with WhatsApp config
       const companyRes = await api.get(`/companies/${user.company_id}`);
       const currentSettings = companyRes.data.data?.settings || {};
-
       const existingWhatsApp = currentSettings.whatsapp || {};
-      const provider = whatsappConfig.provider;
       const metaSettings = {
         ...(existingWhatsApp.meta || {}),
         phoneNumberId: whatsappConfig.phoneNumberId,
@@ -325,23 +270,14 @@ const AISettingsPage: React.FC = () => {
         appSecret: whatsappConfig.appSecret,
         systemUserId: whatsappConfig.systemUserId,
       };
-      const greenApiSettings = {
-        ...(existingWhatsApp.greenapi || {}),
-        idInstance: whatsappConfig.idInstance,
-        apiTokenInstance: whatsappConfig.apiTokenInstance,
-        webhookUrlToken: whatsappConfig.webhookUrlToken,
-      };
-      
+
       const newSettings = {
         ...currentSettings,
         whatsapp: {
           ...existingWhatsApp,
-          provider,
+          provider: 'meta',
           meta: metaSettings,
-          greenapi: greenApiSettings,
-
-          // Legacy top-level mirrors for backward compatibility
-          phoneNumberId: provider === 'greenapi' ? greenApiSettings.idInstance : metaSettings.phoneNumberId,
+          phoneNumberId: metaSettings.phoneNumberId,
           accessToken: metaSettings.accessToken,
           verifyToken: metaSettings.verifyToken,
           businessAccountId: metaSettings.businessAccountId,
@@ -349,17 +285,11 @@ const AISettingsPage: React.FC = () => {
           appId: metaSettings.appId,
           appSecret: metaSettings.appSecret,
           systemUserId: metaSettings.systemUserId,
-          apiTokenInstance: greenApiSettings.apiTokenInstance,
-          webhookUrlToken: greenApiSettings.webhookUrlToken,
         },
       };
-      
+
       await api.put(`/companies/${user.company_id}`, { settings: newSettings });
-      const hasCreds =
-        whatsappConfig.provider === 'greenapi'
-          ? !!whatsappConfig.idInstance && !!whatsappConfig.apiTokenInstance
-          : !!whatsappConfig.accessToken && !!whatsappConfig.phoneNumberId;
-      setCredentialsSaved(hasCreds);
+      setCredentialsSaved(!!whatsappConfig.accessToken && !!whatsappConfig.phoneNumberId);
       setConnectionVerified(false);
       setWhatsappMessage((t('ai_settings.whatsapp_saved') || 'WhatsApp configuration saved. Use "Test Connection" to verify it works.'));
     } catch (err: any) {
@@ -370,46 +300,30 @@ const AISettingsPage: React.FC = () => {
   };
 
   const handleTestWhatsApp = async () => {
-    if (whatsappConfig.provider === 'greenapi') {
-      if (!whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance) {
-        setWhatsappMessage('Instance ID and API Token are required');
-        return;
-      }
-    } else {
-      if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
-        setWhatsappMessage(t('ai_settings.whatsapp_missing_fields') || 'Phone Number ID and Access Token are required');
-        return;
-      }
+    if (!whatsappConfig.phoneNumberId || !whatsappConfig.accessToken) {
+      setWhatsappMessage(t('ai_settings.whatsapp_missing_fields') || 'Phone Number ID and Access Token are required');
+      return;
     }
-    
+
     setTestingWhatsApp(true);
     setWhatsappMessage('');
     try {
-      const response = await api.post(
-        '/ai-settings/whatsapp/test',
-        whatsappConfig.provider === 'greenapi'
-          ? {
-              provider: 'greenapi',
-              id_instance: whatsappConfig.idInstance,
-              api_token_instance: whatsappConfig.apiTokenInstance,
-            }
-          : {
-              provider: 'meta',
-              phone_number_id: whatsappConfig.phoneNumberId,
-              access_token: whatsappConfig.accessToken,
-            },
-      );
-      
+      const response = await api.post('/ai-settings/whatsapp/test', {
+        provider: 'meta',
+        phone_number_id: whatsappConfig.phoneNumberId,
+        access_token: whatsappConfig.accessToken,
+      });
+
       if (response.data.success) {
         setConnectionVerified(true);
-        setWhatsappMessage(t('ai_settings.whatsapp_test_success') || '✅ WhatsApp connection test successful!');
+        setWhatsappMessage(t('ai_settings.whatsapp_test_success') || 'WhatsApp connection test successful!');
       } else {
         setConnectionVerified(false);
-        setWhatsappMessage(`❌ ${response.data.error || 'Connection test failed'}`);
+        setWhatsappMessage(response.data.error || 'Connection test failed');
       }
     } catch (err: any) {
       setConnectionVerified(false);
-      setWhatsappMessage(`❌ ${err.response?.data?.error || 'Failed to test WhatsApp connection'}`);
+      setWhatsappMessage(err.response?.data?.error || 'Failed to test WhatsApp connection');
     } finally {
       setTestingWhatsApp(false);
     }
@@ -679,218 +593,117 @@ const AISettingsPage: React.FC = () => {
             )}
 
             <div className="space-y-4">
+              <div className="bg-brand-50 border border-brand-100 rounded-lg p-4 text-sm text-brand-800">
+                <h4 className="font-medium mb-2">{t('ai_settings.whatsapp_setup_guide') || 'Meta Cloud API setup'}</h4>
+                <ol className="list-decimal list-inside space-y-1 text-brand-800">
+                  <li>{t('ai_settings.whatsapp_step1') || 'Go to Meta Business Suite and create a WhatsApp Business Account'}</li>
+                  <li>{t('ai_settings.whatsapp_step2') || 'Create a WhatsApp Business app and get your Phone Number ID'}</li>
+                  <li>{t('ai_settings.whatsapp_step3') || 'Generate a permanent access token from Meta developer console'}</li>
+                  <li>{t('ai_settings.whatsapp_step4') || 'Set up the webhook URL below in your Meta app settings'}</li>
+                </ol>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-ink-secondary mb-1">
-                  {t('ai_settings.whatsapp_provider') || 'Provider'}
+                  {t('ai_settings.phone_number_id') || 'Phone Number ID'}
                 </label>
-                <select
-                  value={whatsappConfig.provider}
-                  onChange={e => handleWhatsAppChange('provider', e.target.value)}
+                <input
+                  type="text"
+                  value={whatsappConfig.phoneNumberId}
+                  onChange={e => handleWhatsAppChange('phoneNumberId', e.target.value)}
+                  placeholder="e.g., 123456789012345"
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                >
-                  <option value="meta">Meta Cloud API</option>
-                  <option value="greenapi">Green-API</option>
-                </select>
+                />
               </div>
 
-              <div className="bg-brand-50 border border-brand-100 rounded-lg p-4 text-sm text-brand-800">
-                <h4 className="font-medium mb-2">{t('ai_settings.whatsapp_setup_guide') || 'Setup Guide:'}</h4>
-                {whatsappConfig.provider === 'greenapi' ? (
-                  <ol className="list-decimal list-inside space-y-1 text-brand-800">
-                    <li>Create a Green-API instance and copy your Instance ID + API Token</li>
-                    <li>Set the webhook URL to the value shown below</li>
-                    <li>Set the webhook Authorization header to <span className="font-mono">Bearer &lt;token&gt;</span> (use your Webhook Token below)</li>
-                  </ol>
-                ) : (
-                  <ol className="list-decimal list-inside space-y-1 text-brand-800">
-                    <li>{t('ai_settings.whatsapp_step1') || 'Go to Meta Business Suite and create a WhatsApp Business Account'}</li>
-                    <li>{t('ai_settings.whatsapp_step2') || 'Create a WhatsApp Business app and get your Phone Number ID'}</li>
-                    <li>{t('ai_settings.whatsapp_step3') || 'Generate a permanent access token from Meta developer console'}</li>
-                    <li>{t('ai_settings.whatsapp_step4') || 'Set up the webhook URL below in your Meta app settings'}</li>
-                  </ol>
-                )}
+              <div>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
+                  {t('ai_settings.access_token') || 'Access Token'}
+                  <button
+                    type="button"
+                    onClick={() => setShowWhatsAppTokens(!showWhatsAppTokens)}
+                    className="ml-2 text-xs text-brand-700 hover:underline"
+                  >
+                    {showWhatsAppTokens ? t('common.hide') || 'Hide' : t('common.show') || 'Show'}
+                  </button>
+                </label>
+                <input
+                  type={showWhatsAppTokens ? 'text' : 'password'}
+                  value={whatsappConfig.accessToken}
+                  onChange={e => handleWhatsAppChange('accessToken', e.target.value)}
+                  placeholder="EAAxxxxxx..."
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
+                />
               </div>
 
-              {whatsappConfig.provider === 'greenapi' && isLocalWebhookUrl && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                  Green-API cloud cannot call `localhost` webhook URLs. Expose this backend via a public HTTPS URL
-                  (for example ngrok/Cloudflare Tunnel/deployed backend) and use that URL in Green-API webhook settings.
+              <div>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">
+                  {t('ai_settings.verify_token') || 'Webhook Verify Token'}
+                </label>
+                <input
+                  type={showWhatsAppTokens ? 'text' : 'password'}
+                  value={whatsappConfig.verifyToken}
+                  onChange={e => handleWhatsAppChange('verifyToken', e.target.value)}
+                  placeholder={t('ai_settings.verify_token_placeholder') || 'Your custom verification token'}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+                <p className="text-xs text-ink-muted mt-1">
+                  {t('ai_settings.verify_token_help') || 'Create a secure random string. You will need to enter this same value in Meta webhook settings.'}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Meta Business Account ID</label>
+                  <input
+                    type="text"
+                    value={whatsappConfig.businessAccountId}
+                    onChange={e => handleWhatsAppChange('businessAccountId', e.target.value)}
+                    placeholder="e.g., 1029384756"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
                 </div>
-              )}
-
-              {whatsappConfig.provider === 'greenapi' ? (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-ink-secondary mb-1">
-                      Instance ID
-                    </label>
-                    <input
-                      type="text"
-                      value={whatsappConfig.idInstance}
-                      onChange={e => handleWhatsAppChange('idInstance', e.target.value)}
-                      placeholder="e.g., 1100000001"
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-ink-secondary mb-1">
-                      API Token
-                      <button 
-                        type="button"
-                        onClick={() => setShowWhatsAppTokens(!showWhatsAppTokens)}
-                        className="ml-2 text-xs text-brand-700 hover:underline"
-                      >
-                        {showWhatsAppTokens ? t('common.hide') || 'Hide' : t('common.show') || 'Show'}
-                      </button>
-                    </label>
-                    <input
-                      type={showWhatsAppTokens ? 'text' : 'password'}
-                      value={whatsappConfig.apiTokenInstance}
-                      onChange={e => handleWhatsAppChange('apiTokenInstance', e.target.value)}
-                      placeholder="token-abc"
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-ink-secondary mb-1">
-                      Webhook Token
-                      <button 
-                        type="button"
-                        onClick={() => setShowWhatsAppTokens(!showWhatsAppTokens)}
-                        className="ml-2 text-xs text-brand-700 hover:underline"
-                      >
-                        {showWhatsAppTokens ? t('common.hide') || 'Hide' : t('common.show') || 'Show'}
-                      </button>
-                    </label>
-                    <input
-                      type={showWhatsAppTokens ? 'text' : 'password'}
-                      value={whatsappConfig.webhookUrlToken}
-                      onChange={e => handleWhatsAppChange('webhookUrlToken', e.target.value)}
-                      placeholder="your-secret-token"
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
-                    />
-                    <p className="text-xs text-ink-muted mt-1">
-                      Set Green-API webhook Authorization header to <span className="font-mono">Bearer &lt;this token&gt;</span>.
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-ink-secondary mb-1">
-                      {t('ai_settings.phone_number_id') || 'Phone Number ID'}
-                    </label>
-                    <input
-                      type="text"
-                      value={whatsappConfig.phoneNumberId}
-                      onChange={e => handleWhatsAppChange('phoneNumberId', e.target.value)}
-                      placeholder="e.g., 123456789012345"
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-ink-secondary mb-1">
-                      {t('ai_settings.access_token') || 'Access Token'}
-                      <button 
-                        type="button"
-                        onClick={() => setShowWhatsAppTokens(!showWhatsAppTokens)}
-                        className="ml-2 text-xs text-brand-700 hover:underline"
-                      >
-                        {showWhatsAppTokens ? t('common.hide') || 'Hide' : t('common.show') || 'Show'}
-                      </button>
-                    </label>
-                    <input
-                      type={showWhatsAppTokens ? 'text' : 'password'}
-                      value={whatsappConfig.accessToken}
-                      onChange={e => handleWhatsAppChange('accessToken', e.target.value)}
-                      placeholder="EAAxxxxxx..."
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-ink-secondary mb-1">
-                      {t('ai_settings.verify_token') || 'Webhook Verify Token'}
-                    </label>
-                    <input
-                      type={showWhatsAppTokens ? 'text' : 'password'}
-                      value={whatsappConfig.verifyToken}
-                      onChange={e => handleWhatsAppChange('verifyToken', e.target.value)}
-                      placeholder={t('ai_settings.verify_token_placeholder') || 'Your custom verification token'}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    />
-                    <p className="text-xs text-ink-muted mt-1">
-                      {t('ai_settings.verify_token_help') || 'Create a secure random string. You\'ll need to enter this same value in Meta webhook settings.'}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-ink-secondary mb-1">
-                        Meta Business Account ID
-                      </label>
-                      <input
-                        type="text"
-                        value={whatsappConfig.businessAccountId}
-                        onChange={e => handleWhatsAppChange('businessAccountId', e.target.value)}
-                        placeholder="e.g., 1029384756"
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-ink-secondary mb-1">
-                        WABA ID
-                      </label>
-                      <input
-                        type="text"
-                        value={whatsappConfig.wabaId}
-                        onChange={e => handleWhatsAppChange('wabaId', e.target.value)}
-                        placeholder="e.g., 123456789012345"
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-ink-secondary mb-1">
-                        Meta App ID
-                      </label>
-                      <input
-                        type="text"
-                        value={whatsappConfig.appId}
-                        onChange={e => handleWhatsAppChange('appId', e.target.value)}
-                        placeholder="e.g., 987654321234567"
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-ink-secondary mb-1">
-                        Meta App Secret
-                      </label>
-                      <input
-                        type={showWhatsAppTokens ? 'text' : 'password'}
-                        value={whatsappConfig.appSecret}
-                        onChange={e => handleWhatsAppChange('appSecret', e.target.value)}
-                        placeholder="Meta app secret"
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-ink-secondary mb-1">
-                        System User ID
-                      </label>
-                      <input
-                        type="text"
-                        value={whatsappConfig.systemUserId}
-                        onChange={e => handleWhatsAppChange('systemUserId', e.target.value)}
-                        placeholder="e.g., 112233445566778"
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
+                <div>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">WABA ID</label>
+                  <input
+                    type="text"
+                    value={whatsappConfig.wabaId}
+                    onChange={e => handleWhatsAppChange('wabaId', e.target.value)}
+                    placeholder="e.g., 123456789012345"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Meta App ID</label>
+                  <input
+                    type="text"
+                    value={whatsappConfig.appId}
+                    onChange={e => handleWhatsAppChange('appId', e.target.value)}
+                    placeholder="e.g., 987654321234567"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Meta App Secret</label>
+                  <input
+                    type={showWhatsAppTokens ? 'text' : 'password'}
+                    value={whatsappConfig.appSecret}
+                    onChange={e => handleWhatsAppChange('appSecret', e.target.value)}
+                    placeholder="Meta app secret"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">System User ID</label>
+                  <input
+                    type="text"
+                    value={whatsappConfig.systemUserId}
+                    onChange={e => handleWhatsAppChange('systemUserId', e.target.value)}
+                    placeholder="e.g., 112233445566778"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-ink-secondary mb-1">
@@ -912,9 +725,7 @@ const AISettingsPage: React.FC = () => {
                   </button>
                 </div>
                 <p className="text-xs text-ink-muted mt-1">
-                  {whatsappConfig.provider === 'greenapi'
-                    ? 'Copy this URL and paste it in your Green-API webhook configuration.'
-                    : t('ai_settings.webhook_help') || 'Copy this URL and paste it in your Meta app webhook configuration.'}
+                  {t('ai_settings.webhook_help') || 'Copy this URL and paste it in your Meta app webhook configuration.'}
                 </p>
               </div>
             </div>
@@ -923,12 +734,7 @@ const AISettingsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleTestWhatsApp}
-                disabled={
-                  testingWhatsApp ||
-                  (whatsappConfig.provider === 'greenapi'
-                    ? !whatsappConfig.idInstance || !whatsappConfig.apiTokenInstance
-                    : !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken)
-                }
+                disabled={testingWhatsApp || !whatsappConfig.phoneNumberId || !whatsappConfig.accessToken}
                 className="px-6 py-2.5 investo-btn-primary disabled:opacity-50 flex items-center gap-2 font-medium"
               >
                 {testingWhatsApp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}

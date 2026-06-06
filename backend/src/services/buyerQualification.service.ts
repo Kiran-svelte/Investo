@@ -15,10 +15,28 @@ const QUALIFY_PATTERN =
 const EXPLICIT_INTENT =
   /\b(price|cost|how much|brochure|pdf|book|schedule|visit|available|amenities|discount|negotiat|human|call me|send me)\b/i;
 
-export function isBuyerRapportMessage(message: string): boolean {
+export type BuyerRapportContext = {
+  /** True when the conversation already has prior AI/staff outbound messages. */
+  hasPriorOutbound?: boolean;
+};
+
+export function isBuyerRapportMessage(message: string, ctx?: BuyerRapportContext): boolean {
   const t = message.trim();
   if (!t || EXPLICIT_INTENT.test(t)) return false;
-  return isRapportPhrase(t);
+  if (!isRapportPhrase(t)) return false;
+  // Bare greetings only trigger full welcome for strangers — returning buyers get short ack.
+  const isBareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(t);
+  if (isBareGreeting && ctx?.hasPriorOutbound) return true;
+  if (isBareGreeting && !ctx?.hasPriorOutbound) return true;
+  return !isBareGreeting;
+}
+
+export function isReturningBuyerGreeting(message: string, ctx?: BuyerRapportContext): boolean {
+  const t = message.trim();
+  return Boolean(
+    ctx?.hasPriorOutbound
+    && /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(t),
+  );
 }
 
 export function isBuyerQualificationStatement(message: string): boolean {
@@ -40,7 +58,15 @@ function formatBudgetLine(budget: LeadMemory['budget']): string | null {
   return budget.min ? `from ${fmt(budget.min)}` : null;
 }
 
-export function buildBuyerRapportReply(companyName: string): string {
+export function buildBuyerRapportReply(
+  companyName: string,
+  opts?: { isReturning?: boolean; locationPreference?: string | null },
+): string {
+  if (opts?.isReturning) {
+    const area = opts.locationPreference?.trim();
+    const areaHint = area ? `Still looking at *${area}*, or something new?` : 'Still exploring options, or something new?';
+    return `Welcome back! ${areaHint}`;
+  }
   return (
     `Hello! Welcome to *${companyName}*.\n\n` +
     `I can help you explore homes in Bangalore — share your budget, preferred area, and BHK, ` +
