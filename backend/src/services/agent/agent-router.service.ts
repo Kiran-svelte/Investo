@@ -144,10 +144,18 @@ async function handleAgentMessage(
 
   // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
   if (isCopilotGreeting(normalizedText)) {
-    return {
-      text: buildCopilotWelcomeMessage(user.userName, user.companyName),
-      replyKind: 'welcome',
-    };
+    const text = buildCopilotWelcomeMessage(user.userName, user.companyName);
+    const prisma = await getPrisma();
+    const { getOrCreateThreadId } = await import('./agent-memory.service');
+    const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
+    const threadId = await getOrCreateThreadId(user.userId, user.phone, user.companyId);
+    const session = await prisma.agentSession.findUnique({ where: { threadId }, select: { id: true } });
+    await recordAgentCopilotExchange({
+      sessionId: session?.id,
+      inboundText: resolvedCommand || messageText,
+      outboundText: text,
+    });
+    return { text, replyKind: 'welcome' };
   }
 
   const prisma = await getPrisma();

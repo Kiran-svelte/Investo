@@ -499,7 +499,7 @@ async function handleVisitCommitReplyTurn(
 
   void import('../clientMemory.service').then(({ syncLeadClientMemory }) => syncLeadClientMemory(ctx.input.leadId));
 
-  void logAgentAction({
+  await logAgentAction({
     companyId: ctx.companyId,
     triggeredBy: 'inbound_message',
     action:
@@ -930,6 +930,21 @@ async function persistNewConversationState(
 
   if (newState.stage === 'human_escalated' && lead.assignedAgentId) {
     await persistEscalationNotification(ctx.companyId, lead, newState, ctx.input.conversationId);
+  }
+
+  if (newState.stage === 'human_escalated') {
+    await logAgentAction({
+      companyId: ctx.companyId,
+      triggeredBy: 'inbound_message',
+      action: 'workflow_escalate_to_human',
+      resourceType: 'lead',
+      resourceId: ctx.input.leadId,
+      status: 'success',
+      inputs: {
+        reason: newState.escalationReason ?? null,
+        conversationId: ctx.input.conversationId,
+      },
+    });
   }
 }
 
