@@ -81,6 +81,21 @@ export async function sendBrochure(ctx: ActionContext) {
   }
 
   // No property could be resolved — clarify without failing the workflow.
+  // Log the inline clarification so it shows in AI-quality telemetry alongside
+  // confidence-gated clarifications.
+  {
+    const { logAgentAction } = await import('../../agent-action-log.service');
+    void logAgentAction({
+      companyId: ctx.run.toolContext.companyId,
+      triggeredBy: 'inbound_message',
+      action: 'workflow_clarification',
+      resourceType: 'lead',
+      resourceId: leadId ?? null,
+      inputs: { workflowId: 'brochure_request', channel: ctx.run.channel ?? 'buyer', source: 'inline_property_unresolved' },
+      status: 'success',
+      result: 'Asked which property for brochure',
+    });
+  }
   return ok(
     "I'd love to send you the brochure! Could you let me know which project you're interested in? " +
     'We have several properties available.',

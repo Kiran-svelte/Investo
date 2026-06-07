@@ -4,11 +4,17 @@ import { Bot, Send, Loader2 } from 'lucide-react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
+interface QuickAction {
+  id: string;
+  title: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   replyKind?: string;
+  quickActions?: QuickAction[];
 }
 
 const CopilotPage: React.FC = () => {
@@ -25,24 +31,54 @@ const CopilotPage: React.FC = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const sendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || sending) return;
+  // Load prior copilot turns so the chat shows continuity across reloads.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/copilot/history');
+        const history = res.data?.data?.messages as
+          | Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string }>
+          | undefined;
+        if (!cancelled && history?.length) {
+          setMessages(
+            history.map((m, idx) => ({
+              id: `h-${idx}-${m.timestamp ?? ''}`,
+              role: m.role,
+              text: m.content,
+            })),
+          );
+        }
+      } catch {
+        // History is best-effort; ignore load failures.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: 'user', text };
+  const submitMessage = async (text: string, interactiveId?: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
+
+    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: 'user', text: trimmed };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setSending(true);
     setError('');
 
     try {
-      const res = await api.post('/copilot/chat', { message: text });
+      const res = await api.post('/copilot/chat', {
+        message: trimmed,
+        ...(interactiveId ? { interactiveId } : {}),
+      });
       const reply = res.data?.data?.reply ?? 'No reply received.';
       const replyKind = res.data?.data?.replyKind;
+      const quickActions = (res.data?.data?.quickActions as QuickAction[] | undefined) ?? [];
       setMessages((prev) => [
         ...prev,
-        { id: `a-${Date.now()}`, role: 'assistant', text: reply, replyKind },
+        { id: `a-${Date.now()}`, role: 'assistant', text: reply, replyKind, quickActions },
       ]);
     } catch (err: unknown) {
       const msg =
@@ -52,6 +88,11 @@ const CopilotPage: React.FC = () => {
     } finally {
       setSending(false);
     }
+  };
+
+  const sendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitMessage(input);
   };
 
   return (
@@ -91,19 +132,33 @@ const CopilotPage: React.FC = () => {
         ) : (
           <div className="mx-auto flex max-w-2xl flex-col gap-4">
             {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
-                    msg.role === 'user'
-                      ? 'bg-brand-600 text-white'
-                      : 'border border-surface-border bg-surface text-ink-primary'
-                  }`}
-                >
-                  {msg.text}
+              <div key={msg.id} className="flex flex-col gap-2">
+                <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
+                      msg.role === 'user'
+                        ? 'bg-brand-600 text-white'
+                        : 'border border-surface-border bg-surface text-ink-primary'
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
                 </div>
+                {msg.role === 'assistant' && msg.quickActions?.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {msg.quickActions.map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        disabled={sending}
+                        onClick={() => void submitMessage(action.title, action.id)}
+                        className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-100 disabled:opacity-50"
+                      >
+                        {action.title}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ))}
             <div ref={bottomRef} />

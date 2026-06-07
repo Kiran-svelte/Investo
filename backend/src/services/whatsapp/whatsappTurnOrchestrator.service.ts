@@ -18,6 +18,10 @@ import { propertyToCompletenessInput } from '../propertyCompleteness.service';
 import { syncLeadScoreFromConversation } from '../leadScoring.service';
 import { transitionLeadStatus, transitionLeadToVisitScheduled } from '../leadTransition.service';
 import { logAgentAction } from '../agent-action-log.service';
+import {
+  inferBuyerPropertyContextFromOutbound,
+  resolveBuyerPropertyReference,
+} from '../buyerPropertyContext.service';
 import { aiService } from '../ai.service';
 import type { CompanyWhatsAppConfig } from '../whatsapp.service';
 
@@ -222,6 +226,58 @@ async function handleRapportTurn(
 }
 
 // ---------------------------------------------------------------------------
+// H2b: Returning buyer pivot ("something new" after welcome-back prompt)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic handler when a returning buyer chooses a fresh search.
+ * Avoids full LLM path for a common one-line reply to the rapport prompt.
+ */
+async function handleReturningBuyerPivotTurn(
+  ctx: BuyerTurnRuntimeContext,
+  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+): Promise<TurnResult | null> {
+  if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
+
+  const hasPriorOutbound = ctx.history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
+  if (!hasPriorOutbound) return null;
+
+  const { isReturningBuyerPivotReply, buildReturningBuyerPivotReply } =
+    await import('../buyerQualification.service');
+  if (!isReturningBuyerPivotReply(ctx.input.messageText)) return null;
+
+  // #region agent log
+  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44596a'},body:JSON.stringify({sessionId:'44596a',location:'whatsappTurnOrchestrator.service.ts:handleReturningBuyerPivotTurn',message:'returning_buyer_pivot_matched',data:{messagePreview:ctx.input.messageText.slice(0,40),conversationId:ctx.input.conversationId},timestamp:Date.now(),hypothesisId:'B',runId:'post-fix'})}).catch(()=>{});
+  // #endregion
+
+  logOutboundBranch('H2b', 'whatsappTurnOrchestrator:returningPivot', 'buyer_returning_pivot_fast_path', {
+    messagePreview: ctx.input.messageText.slice(0, 40),
+  });
+
+  const pivotReply = stripBuyerInternalMetadata(
+    buildReturningBuyerPivotReply(ctx.companyName),
+  );
+
+  await prisma.message.create({
+    data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: pivotReply, status: 'sent' },
+  });
+
+  await prisma.conversation.update({
+    where: { id: ctx.input.conversationId },
+    data: {
+      stage: 'qualify',
+      stageEnteredAt: new Date(),
+      stageMessageCount: 0,
+      recommendedPropertyIds: [],
+      selectedPropertyId: null,
+      escalationReason: null,
+    },
+  });
+
+  return { audience: 'buyer', handled: true, terminal: true, text: pivotReply };
+}
+
+// ---------------------------------------------------------------------------
 // H3: Memory recall
 // ---------------------------------------------------------------------------
 
@@ -364,6 +420,10 @@ async function handleVisitCommitWorkflowTurn(
   if (visitCommit.committed || !visitCommit.workflowSuggestion) return null;
 
   const { runWorkflow } = await import('../workflow/workflow-engine.service');
+  const suggestedPropertyId =
+    typeof visitCommit.workflowSuggestion.parameters.propertyId === 'string'
+      ? visitCommit.workflowSuggestion.parameters.propertyId
+      : selectedPropertyId;
   const wfResult = await runWorkflow(
     visitCommit.workflowSuggestion.workflowId,
     {
@@ -384,12 +444,18 @@ async function handleVisitCommitWorkflowTurn(
   await prisma.message.create({
     data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
   });
+  if (suggestedPropertyId && suggestedPropertyId !== selectedPropertyId) {
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: { selectedPropertyId: suggestedPropertyId },
+    }).catch(() => undefined);
+  }
 
   const visitTime = resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt);
   const components = resolveBuyerComponents({
     stage: conversationStage,
     outboundText: safeReply,
-    propertyId: selectedPropertyId,
+    propertyId: suggestedPropertyId,
     hasActiveVisit: Boolean(liveCtx.activeVisit),
     visitStatus: liveCtx.activeVisit?.status,
     visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
@@ -424,12 +490,19 @@ async function handleClassifierWorkflowTurn(
   if (visitCommit.committed) return null;
   if (shouldDeferToFullAiForExtraction(ctx.input.messageText)) return null;
 
+  const resolvedPropertyId = await resolveBuyerPropertyReference({
+    companyId: ctx.companyId,
+    messageText: ctx.input.messageText,
+    selectedPropertyId,
+    recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
+  });
+
   const { classifyAndRunBuyerWorkflow } = await import('../workflow/workflow-engine.service');
   const workflowReply = await classifyAndRunBuyerWorkflow({
     companyId: ctx.companyId,
     leadId: ctx.input.leadId,
     messageText: ctx.input.messageText,
-    propertyId: selectedPropertyId ?? undefined,
+    propertyId: resolvedPropertyId ?? undefined,
     companyName: ctx.companyName,
     sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
     activeVisit: liveCtx.activeVisit
@@ -443,12 +516,18 @@ async function handleClassifierWorkflowTurn(
   await prisma.message.create({
     data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
   });
+  if (resolvedPropertyId && resolvedPropertyId !== selectedPropertyId) {
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: { selectedPropertyId: resolvedPropertyId },
+    }).catch(() => undefined);
+  }
 
   const visitTime = resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt);
   const components = resolveBuyerComponents({
     stage: conversationStage,
     outboundText: safeReply,
-    propertyId: selectedPropertyId,
+    propertyId: resolvedPropertyId,
     hasActiveVisit: Boolean(liveCtx.activeVisit),
     visitStatus: liveCtx.activeVisit?.status,
     visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
@@ -562,6 +641,9 @@ async function handleFullAiTurn(
   conversationState: ConversationState,
 ): Promise<TurnResult> {
   const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: ctx.companyId } });
+  // #region agent log
+  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44596a'},body:JSON.stringify({sessionId:'44596a',location:'whatsappTurnOrchestrator.service.ts:handleFullAiTurn',message:'full_ai_turn_entered',data:{messagePreview:ctx.input.messageText.slice(0,40),stage:conversationState.stage,aiSettingsLoaded:Boolean(aiSettings)},timestamp:Date.now(),hypothesisId:'A',runId:'post-fix'})}).catch(()=>{});
+  // #endregion
 
   const lead = await prisma.lead.findUnique({
     where: { id: ctx.input.leadId },
@@ -688,6 +770,10 @@ async function handleFullAiTurn(
     properties: properties.map((p) => ({ id: p.id, name: p.name, brochureUrl: p.brochureUrl ?? null })),
   });
   outboundText = brochureResolution.cleanedText;
+  const propertyContextPatch = inferBuyerPropertyContextFromOutbound({
+    outboundText,
+    properties: properties.map((p) => ({ id: p.id, name: p.name })),
+  });
 
   await prisma.message.create({
     data: {
@@ -701,6 +787,16 @@ async function handleFullAiTurn(
 
   if (aiResponse.newState) {
     await persistNewConversationState(ctx, aiResponse, lead);
+  }
+
+  if (propertyContextPatch.recommendedPropertyIds?.length) {
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: {
+        recommendedPropertyIds: propertyContextPatch.recommendedPropertyIds,
+        selectedPropertyId: propertyContextPatch.selectedPropertyId ?? null,
+      },
+    });
   }
 
   if (aiResponse.detectedLanguage && aiResponse.detectedLanguage !== lead.language) {
@@ -717,6 +813,13 @@ async function handleFullAiTurn(
   }
 
   const recentAction = resolveRecentAction(visitCommit);
+  const hasPropertyContextPatch = Boolean(propertyContextPatch.recommendedPropertyIds?.length);
+  const componentPropertyId = hasPropertyContextPatch
+    ? propertyContextPatch.selectedPropertyId
+    : aiResponse.newState?.selectedPropertyId ?? ctx.input.conversationSelectedPropertyId;
+  const componentRecommendedPropertyIds = hasPropertyContextPatch
+    ? propertyContextPatch.recommendedPropertyIds
+    : aiResponse.newState?.recommendedProperties;
   const interactiveComponents = aiResponse.newState?.stage
     ? resolveBuyerComponents({
         stage: aiResponse.newState.stage,
@@ -724,8 +827,9 @@ async function handleFullAiTurn(
         nextAction: aiResponse.nextAction,
         recentAction,
         sentPropertyFilters: false,
-        propertyId: aiResponse.newState.selectedPropertyId ?? ctx.input.conversationSelectedPropertyId,
-        recommendedPropertyIds: aiResponse.newState.recommendedProperties,
+        propertyId: componentPropertyId,
+        recommendedPropertyIds: componentRecommendedPropertyIds,
+        properties: properties.map((p) => ({ id: p.id, name: p.name })),
         hasActiveVisit: Boolean(liveCtx.activeVisit),
         visitStatus: liveCtx.activeVisit?.status,
         visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
@@ -823,9 +927,18 @@ function shouldUseQualificationFastPath(messageText: string): boolean {
 }
 
 function shouldDeferToFullAiForExtraction(messageText: string): boolean {
+  if (isVisitActionRequest(messageText)) return false;
   if (!isRichBuyerRequirementRequest(messageText)) return false;
   if (isVisitSchedulingMessage(messageText) || isVisitCancelOrRescheduleMessage(messageText)) return false;
   return true;
+}
+
+function isVisitActionRequest(messageText: string): boolean {
+  return (
+    /\b(book|schedule|arrange)\b[\s\S]{0,80}\b(site\s*)?visit\b/i.test(messageText)
+    || /\b(site\s*)?visit\b[\s\S]{0,80}\b(book|schedule|arrange)\b/i.test(messageText)
+    || /\b(book|schedule|arrange)\b[\s\S]{0,80}\bappointment\b/i.test(messageText)
+  );
 }
 
 function isRichBuyerRequirementRequest(messageText: string): boolean {
@@ -1075,6 +1188,9 @@ export async function orchestrateWhatsAppBuyerTurn(
 
   const h2 = await handleRapportTurn(ctx, visitCommit, conversationState.stage);
   if (h2) return h2;
+
+  const h2b = await handleReturningBuyerPivotTurn(ctx, visitCommit);
+  if (h2b) return h2b;
 
   const h3 = await handleMemoryRecallTurn(ctx, visitCommit);
   if (h3) return h3;

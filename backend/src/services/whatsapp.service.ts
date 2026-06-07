@@ -1061,6 +1061,9 @@ export class WhatsAppService {
       },
       conversationState,
     ).catch(async (err: unknown) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44596a'},body:JSON.stringify({sessionId:'44596a',location:'whatsapp.service.ts:orchestratorCatch',message:'orchestrator_threw',data:{error:err instanceof Error ? err.message : String(err),messagePreview:msg.messageText.slice(0,40),conversationId:conversation.id},timestamp:Date.now(),hypothesisId:'A',runId:'post-fix'})}).catch(()=>{});
+      // #endregion
       logOutboundBranch('H9', 'whatsapp.service.ts:orchestratorCatch', 'buyer_ai_catch_fallback', {
         error: err instanceof Error ? err.message : String(err),
       });

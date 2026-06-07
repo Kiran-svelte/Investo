@@ -90,7 +90,16 @@ const AUTHORITY_LIMIT_MODIFIERS: Record<AuthorityLimitTopic, string> = {
 
 export function detectAuthorityLimitTopic(message: string): AuthorityLimitTopic | null {
   const m = message.toLowerCase().trim();
+  const siteVisitIntent = /\b(site\s*)?visit\b|\bappointment\b/i.test(m);
+  const priceOrDealFinalization =
+    /\b(finalize|lock|confirm)\b.*\b(price|deal|flat|unit|villa|apartment|property|plot)\b/i.test(m)
+    || /\b(at|for)\s*(?:₹|rs\.?|inr|â‚¹)?\s*[\d,.]+\s*(lakh|lac|cr|crore)?\b/i.test(m)
+    || /\b(token|booking amount|payment|pay now)\b/i.test(m);
   if (!m) {
+    return null;
+  }
+
+  if (siteVisitIntent && !priceOrDealFinalization) {
     return null;
   }
 

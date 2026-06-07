@@ -17,9 +17,14 @@ import logger from '../../config/logger';
 import { logAgentAction } from '../agent-action-log.service';
 import type { WorkflowState } from './workflow.types';
 
-/** DB writes that need compensation on downstream failure. cancelVisitSlot is preparatory only. */
+/**
+ * DB writes that need compensation on downstream failure.
+ * cancelVisitSlot frees the old slot during a reschedule; if the subsequent
+ * bookVisit fails it must be restored, so it is a tracked mutation.
+ */
 const MUTATION_ACTIONS = new Set([
   'bookVisit',
+  'cancelVisitSlot',
   'cancelVisit',
   'updateLeadStatus',
   'updateLeadStatusVisitScheduled',
@@ -67,6 +72,43 @@ export async function compensateBookVisit(visitId: string, companyId?: string): 
     logger.error('Compensator: compensateBookVisit failed', {
       visitId,
       companyId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/**
+ * Restores a visit to the status it held before it was cancelled, used to roll
+ * back `cancelVisitSlot` (reschedule prep) or `cancelVisit` when a downstream
+ * non-optional step fails. No-op if no prior status was captured.
+ *
+ * @param visitId - ID of the visit to restore.
+ * @param priorStatus - Status captured before the cancel (e.g. 'scheduled').
+ * @param companyId - Tenant scope for cross-tenant safety.
+ * @returns true if restored or nothing to do, false on DB error.
+ * @throws Never — all errors are caught and logged.
+ */
+export async function compensateCancelVisit(
+  visitId: string,
+  priorStatus: string | undefined,
+  companyId?: string,
+): Promise<boolean> {
+  if (!priorStatus || priorStatus === 'cancelled') return true;
+  try {
+    const whereClause: Record<string, unknown> = { id: visitId, status: 'cancelled' };
+    if (companyId) whereClause['companyId'] = companyId;
+    await prisma.visit.updateMany({
+      where: whereClause as any,
+      data: { status: priorStatus as any, updatedAt: new Date() },
+    });
+    logger.info('Compensator: cancelled visit restored', { visitId, companyId, restoredTo: priorStatus });
+    return true;
+  } catch (err: unknown) {
+    logger.error('Compensator: compensateCancelVisit failed', {
+      visitId,
+      companyId,
+      priorStatus,
       error: err instanceof Error ? err.message : String(err),
     });
     return false;
@@ -183,6 +225,46 @@ export async function runCompensators(input: CompensatorInput): Promise<boolean>
       }
     }
 
+    if (action === 'cancelVisitSlot' && typeof state.cancelledSlotVisitId === 'string') {
+      const ok = await compensateCancelVisit(
+        state.cancelledSlotVisitId,
+        state.cancelledSlotPriorStatus,
+        companyId,
+      );
+      allOk = ok && allOk;
+      if (ok) {
+        void logAgentAction({
+          companyId,
+          triggeredBy: 'inbound_message',
+          action: 'compensate_cancel_visit_slot',
+          resourceType: 'visit',
+          resourceId: state.cancelledSlotVisitId,
+          inputs: { workflowRunId: input.workflowRunId, restoredTo: state.cancelledSlotPriorStatus },
+          status: 'success',
+        });
+      }
+    }
+
+    if (action === 'cancelVisit' && typeof state.cancelledVisitId === 'string') {
+      const ok = await compensateCancelVisit(
+        state.cancelledVisitId,
+        state.cancelledVisitPriorStatus,
+        companyId,
+      );
+      allOk = ok && allOk;
+      if (ok) {
+        void logAgentAction({
+          companyId,
+          triggeredBy: 'inbound_message',
+          action: 'compensate_cancel_visit',
+          resourceType: 'visit',
+          resourceId: state.cancelledVisitId,
+          inputs: { workflowRunId: input.workflowRunId, restoredTo: state.cancelledVisitPriorStatus },
+          status: 'success',
+        });
+      }
+    }
+
     if (
       (action === 'updateLeadStatus' || action === 'updateLeadStatusVisitScheduled')
       && typeof state.leadId === 'string'
@@ -212,6 +294,26 @@ export async function runCompensators(input: CompensatorInput): Promise<boolean>
     finalStatus,
     input.workflowRunId,
   ).catch(() => undefined);
+
+  // Always leave a DB trace of the partial failure so ops can audit/reconcile:
+  // 'success' when fully compensated (rolled back), 'failed' when manual
+  // reconciliation is required.
+  void logAgentAction({
+    companyId,
+    triggeredBy: 'inbound_message',
+    action: allOk ? 'workflow_partial_rollback' : 'workflow_needs_reconciliation',
+    resourceType: 'workflow_run',
+    resourceId: input.workflowRunId,
+    inputs: {
+      workflowRunId: input.workflowRunId,
+      failedStep: input.failedStep,
+      completedSteps: input.completedSteps,
+    },
+    status: allOk ? 'success' : 'failed',
+    result: allOk
+      ? 'Mutations compensated and rolled back'
+      : 'Compensation incomplete; needs manual reconciliation',
+  });
 
   if (!allOk) {
     await markRunNeedsReconciliation(input.workflowRunId);

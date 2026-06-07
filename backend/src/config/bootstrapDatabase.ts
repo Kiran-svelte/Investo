@@ -336,6 +336,14 @@ async function applyCompatibilityPatches(): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS inbound_whatsapp_dedup_company_id_whatsapp_message_id_key ON inbound_whatsapp_dedup (company_id, whatsapp_message_id)`,
   );
 
+  // ai_settings columns required by Prisma AiSetting model (orchestrator H9 crashes without these).
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS auto_confirm_visits BOOLEAN NOT NULL DEFAULT false
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS agent_name VARCHAR(50) NOT NULL DEFAULT 'Riya'
+  `);
+
   // Workflow saga + centralized lead memory (A+ gate).
   await prisma.$executeRawUnsafe(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_memory JSONB`);
   await prisma.$executeRawUnsafe(`

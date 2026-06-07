@@ -6,6 +6,10 @@ const COUNTERS = [
   'ai_replies',
   'workflow_runs',
   'workflow_idempotency_hits',
+  // AI quality signals: how often the classifier asked to clarify vs fell
+  // through to the language brain. Used to measure routing accuracy.
+  'workflow_clarification',
+  'workflow_fallthrough',
   'whatsapp_outbound',
   'errors_5xx',
   'rate_limited',

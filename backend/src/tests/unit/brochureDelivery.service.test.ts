@@ -37,4 +37,13 @@ describe('brochureDelivery.service', () => {
     });
     expect(selected).toHaveLength(0);
   });
+
+  test('plain details request is not treated as brochure intent', () => {
+    const selected = selectPropertiesForBrochureDelivery({
+      customerMessage: 'Need more details on option 1',
+      aiText: 'Palm villa has plots and pricing details.',
+      properties,
+    });
+    expect(selected).toHaveLength(0);
+  });
 });

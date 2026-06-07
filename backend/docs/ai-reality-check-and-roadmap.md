@@ -284,7 +284,7 @@ One canonical blob per lead:
 | **Unified memory** | 8 stores; not always in sync | AI repeats questions; weak continuity | **C+** |
 | **Workflow rollback** | Compensators exist; full saga imperfect | Partial failure → inconsistent state (visit booked, no confirmation) | **B-** |
 | **Buyer memory write** | Buyer reads `lead_memory`; rarely writes systematically | Prospect continuity weaker than staff side | **C** |
-| **Dashboard AI chat** | Does not exist | Power users expect browser copilot | **F** (gap) |
+| **Dashboard AI chat** | Shipped (`/dashboard/copilot` → `POST /api/copilot/chat` → `handleAgentMessage`); parity-pending | Power users expect browser copilot | **C** (parity-pending) |
 | **Intent edge cases** | 5 classifiers; thresholds 0.55–0.75 | “Push my visit” → wrong workflow | **B-** |
 | **Transparency** | `agent_action_logs` exist; no dashboard UI | Admins cannot debug AI decisions easily | **C** |
 | **Takeover semantics** | Dashboard takeover not sticky on WhatsApp inbound | Human thinks they “own” chat; AI resumes | **C** (product surprise) |
@@ -300,7 +300,7 @@ One canonical blob per lead:
 | Transactional rollback | **B-** |
 | Covers all intent variations | **B-** |
 | Transparent (shows what it did) | **C** |
-| Dashboard AI copilot | **F** (not built) |
+| Dashboard AI copilot | **C** (shipped, parity-pending) |
 
 ---
 
@@ -424,7 +424,7 @@ Choose one and implement consistently:
 
 ### Gap 5 — Dashboard AI chat (Priority 5 — later sprint)
 
-**Problem:** No browser copilot.
+**Status (updated):** Shipped. Browser copilot exists at `/dashboard/copilot` → `POST /api/copilot/chat` → `handleAgentMessage`. Remaining work is WhatsApp parity (quick-action chips, history load, kill-switch + rate-limit hardening), not initial build.
 
 **Fix (minimal viable):**
 

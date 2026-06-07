@@ -233,6 +233,48 @@ describe('workflow-engine.service', () => {
     expect(classified.parameters.scheduledAt).toBe('2026-06-06T10:30:00+05:30');
   });
 
+  it('post-processes plain details misclassification away from brochure_request', async () => {
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'brochure_request',
+        confidence: 0.92,
+        parameters: { propertyId },
+      }),
+    );
+
+    const classified = await classifyWorkflowMessage(
+      {
+        messageText: 'Need more details on option 4',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+      },
+      llm,
+    );
+
+    expect(classified.workflowId).toBe('price_inquiry');
+  });
+
+  it('post-processes plain site visit booking away from human escalation', async () => {
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'escalate_to_human',
+        confidence: 0.91,
+        parameters: { propertyId },
+      }),
+    );
+
+    const classified = await classifyWorkflowMessage(
+      {
+        messageText: 'I want to book visit for Commercial Hub',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+      },
+      llm,
+    );
+
+    expect(classified.workflowId).toBe('schedule_visit');
+  });
+
   it('returns cached workflow idempotency reply without executing handlers', async () => {
     (cacheGet as jest.Mock).mockResolvedValueOnce('Cached: visit already scheduled.');
     (getToolsForRole as jest.Mock).mockReturnValue([
@@ -349,6 +391,40 @@ describe('workflow-engine.service', () => {
     expect((reply?.match(/Price:/g) ?? [])).toHaveLength(1);
   });
 
+  it('routes buyer details follow-up to property details instead of brochure delivery', async () => {
+    const detailsTool = {
+      name: 'getPropertyDetails',
+      schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
+      func: jest.fn().mockResolvedValue([
+        '🏠 *Commercial Hub*',
+        'Type: commercial | Status: available',
+        'Price: From INR 1,40,00,000',
+        `ID: ${propertyId}`,
+        'Visits: 0',
+      ].join('\n')),
+    };
+    const brochureTool = {
+      name: 'sendBrochureToClient',
+      schema: { safeParse: jest.fn((input) => ({ success: true, data: input })) },
+      func: jest.fn().mockResolvedValue('should not send brochure'),
+    };
+    (getToolsForRole as jest.Mock).mockReturnValue([detailsTool, brochureTool]);
+
+    const reply = await tryRunBuyerWorkflow({
+      companyId: 'company-1',
+      leadId: kannadaLeadId,
+      propertyId,
+      messageText: 'Need more details on option 4',
+      companyName: 'Demo Realty',
+    });
+
+    expect(detailsTool.func).toHaveBeenCalledWith({ propertyId });
+    expect(brochureTool.func).not.toHaveBeenCalled();
+    expect(reply).toContain('Commercial Hub');
+    expect(reply).not.toContain('ID:');
+    expect(reply).not.toContain('Visits:');
+  });
+
   it('runs buyer schedule_visit workflow via channel-aware bookVisit', async () => {
     (getToolsForRole as jest.Mock).mockReturnValue([]);
     (scheduleVisit as jest.Mock).mockResolvedValue({
@@ -386,6 +462,22 @@ describe('workflow-engine.service', () => {
 
     expect(reply).toContain('Visit scheduled');
     expect(scheduleVisit).toHaveBeenCalled();
+  });
+
+  it('asks for visit date/time when buyer visit intent has property but no slot', async () => {
+    (getToolsForRole as jest.Mock).mockReturnValue([]);
+    (scheduleVisit as jest.Mock).mockClear();
+
+    const reply = await tryRunBuyerWorkflow({
+      companyId: 'company-1',
+      leadId: kannadaLeadId,
+      propertyId,
+      messageText: 'I want to book visit for Commercial Hub',
+      companyName: 'Demo Realty',
+    });
+
+    expect(reply).toMatch(/date and time|site visit/i);
+    expect(scheduleVisit).not.toHaveBeenCalled();
   });
 
   it('detectActiveVisitMutationBias maps push appointment to reschedule_visit', () => {
@@ -477,7 +569,7 @@ describe('workflow-engine.service', () => {
     expect(reply).not.toContain('agents notified');
   });
 
-  it('logs workflow_clarification for staff mutation in clarification band (0.65–0.75)', async () => {
+  it('logs workflow_clarification for staff mutation in clarification band (0.70–0.80)', async () => {
     const llm = jest.fn().mockResolvedValue(
       JSON.stringify({
         workflow: 'cancel_visit',
@@ -511,7 +603,42 @@ describe('workflow-engine.service', () => {
     );
   });
 
-  it('logs workflow_clarification for buyer mutation in clarification band (0.65–0.75)', async () => {
+  it('logs workflow_fallthrough for staff mutation below the clarification band', async () => {
+    const llm = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        workflow: 'cancel_visit',
+        confidence: 0.4,
+        parameters: { visitId: 'visit-1' },
+      }),
+    );
+
+    const reply = await classifyAndRunWorkflow(
+      {
+        toolContext: ctx,
+        messageText: 'hmm something about a visit',
+        recentMessages: [],
+        companyName: 'Demo Realty',
+        sessionLeadId: kannadaLeadId,
+        staffPhone: '+919999999999',
+      },
+      { llm },
+    );
+
+    expect(reply).toBeNull();
+    expect(logAgentAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'workflow_fallthrough',
+        inputs: expect.objectContaining({
+          workflowId: 'cancel_visit',
+          confidence: 0.4,
+          channel: 'staff',
+          reason: 'low_confidence',
+        }),
+      }),
+    );
+  });
+
+  it('logs workflow_clarification for buyer mutation in clarification band (0.70–0.80)', async () => {
     const llm = jest.fn().mockResolvedValue(
       JSON.stringify({
         workflow: 'cancel_visit',

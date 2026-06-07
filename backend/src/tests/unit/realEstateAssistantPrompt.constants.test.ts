@@ -12,6 +12,10 @@ describe('realEstateAssistantPrompt.constants', () => {
     expect(detectAuthorityLimitTopic('Is unit 304 still available?')).toBe('confirm_availability');
   });
 
+  test('does not treat normal site visit booking as price finalization', () => {
+    expect(detectAuthorityLimitTopic('I want to book visit for Commercial Hub')).toBeNull();
+  });
+
   test('detects loan eligibility questions', () => {
     expect(detectAuthorityLimitTopic('Am I eligible for a home loan with 15L income?')).toBe('loan_eligibility');
   });

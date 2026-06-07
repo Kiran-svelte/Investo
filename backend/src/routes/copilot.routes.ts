@@ -19,6 +19,7 @@
  */
 
 import { Router, Response } from 'express';
+import config from '../config';
 import logger from '../config/logger';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
@@ -33,6 +34,14 @@ const ALLOWED_COPILOT_ROLES = new Set([
 
 /** Maximum message length accepted (mirrors workflow engine guard). */
 const MAX_MESSAGE_LENGTH = 1200;
+
+/**
+ * Same kill-switch the WhatsApp copilot honors (AGENT_AI_COPILOT_ENABLED).
+ * When disabled, the dashboard copilot returns 503 instead of running the pipeline.
+ */
+function isCopilotEnabled(): boolean {
+  return config.agentAi?.enabled !== false && config.agentAi?.copilotEnabled !== false;
+}
 
 const router = Router();
 
@@ -62,6 +71,11 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Prom
     return;
   }
 
+  if (!isCopilotEnabled()) {
+    res.status(503).json({ error: { code: 'COPILOT_DISABLED', message: 'The copilot is temporarily unavailable. Please use the dashboard.', details: null, requestId: (req as any).requestId } });
+    return;
+  }
+
   const rawMessage = req.body?.message;
   if (typeof rawMessage !== 'string' || !rawMessage.trim()) {
     res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'message is required and must be a non-empty string', details: null, requestId: (req as any).requestId } });
@@ -74,6 +88,10 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Prom
   }
 
   const messageText = rawMessage.trim();
+  const interactiveId =
+    typeof req.body?.interactiveId === 'string' && req.body.interactiveId.trim()
+      ? req.body.interactiveId.trim()
+      : undefined;
 
   try {
     // Resolve company + user metadata needed by the copilot pipeline.
@@ -111,9 +129,16 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Prom
       companyName: company.name,
     };
 
-    const { text: reply, replyKind } = await handleAgentMessage(copilotUser, messageText);
+    const { text: reply, replyKind } = await handleAgentMessage(copilotUser, messageText, interactiveId);
 
-    res.status(200).json({ data: { reply, replyKind } });
+    // Mirror the WhatsApp copilot's contextual quick-action buttons so the
+    // dashboard chat can render the same shortcut chips.
+    const { resolveCopilotComponents } = await import('../services/copilot/copilotButtonPolicy.service');
+    const components = resolveCopilotComponents({ replyKind, outboundText: reply });
+    const quickActions =
+      components[0]?.kind === 'buttons' ? components[0].buttons : [];
+
+    res.status(200).json({ data: { reply, replyKind, quickActions } });
   } catch (err: unknown) {
     const requestId = (req as any).requestId as string | undefined;
     logger.error('Dashboard copilot chat failed', {
@@ -129,6 +154,75 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Prom
         details: null,
         requestId,
       },
+    });
+  }
+});
+
+/**
+ * GET /api/copilot/history
+ *
+ * Returns the recent turns of the staff copilot session for this user so the
+ * dashboard chat shows continuity instead of starting empty on every load.
+ * Reads the same `agent_session_messages` thread the WhatsApp copilot uses
+ * (session keyed on userId + registered phone).
+ *
+ * @returns 200 { data: { messages: Array<{ role, content, timestamp }> } }
+ */
+router.get('/history', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required', details: null, requestId: (req as any).requestId } });
+    return;
+  }
+
+  if (!ALLOWED_COPILOT_ROLES.has(user.role)) {
+    res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Your role does not have access to the copilot', details: null, requestId: (req as any).requestId } });
+    return;
+  }
+
+  try {
+    const prisma = (await import('../config/prisma')).default;
+    const companyUser = await prisma.user.findFirst({
+      where: { id: user.id, status: 'active' },
+      select: { id: true, phone: true },
+    });
+
+    if (!companyUser) {
+      res.status(200).json({ data: { messages: [] } });
+      return;
+    }
+
+    // Resolve the active copilot session for this user, sharing the same key
+    // (userId + phone) the WhatsApp pipeline uses via getOrCreateThreadId.
+    const session = await prisma.agentSession.findFirst({
+      where: { userId: companyUser.id, phone: companyUser.phone ?? '', status: 'active' },
+      orderBy: { lastActiveAt: 'desc' },
+      select: { id: true },
+    });
+
+    if (!session) {
+      res.status(200).json({ data: { messages: [] } });
+      return;
+    }
+
+    const { getRecentAgentSessionMessages } = await import('../services/agent/agent-session-messages.service');
+    const recent = await getRecentAgentSessionMessages(session.id, 20);
+    const messages = recent.map((m) => ({
+      role: m.role === 'staff' ? 'user' : 'assistant',
+      content: m.content,
+      timestamp: m.createdAt.toISOString(),
+    }));
+
+    res.status(200).json({ data: { messages } });
+  } catch (err: unknown) {
+    const requestId = (req as any).requestId as string | undefined;
+    logger.error('Dashboard copilot history failed', {
+      userId: user.id,
+      requestId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Could not load history.', details: null, requestId },
     });
   }
 });

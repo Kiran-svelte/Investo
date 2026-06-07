@@ -11,7 +11,7 @@ export type PropertyBrochureSource = {
 };
 
 const BROCHURE_INTENT =
-  /\b(brochure|brochures|pdf|broucher|details\s*pdf|send\s+me|share|document)\b/i;
+  /\b(brochure|brochures|pdf|broucher|details\s*pdf|document)\b|\b(send|share)\b[\s\S]{0,40}\b(brochure|pdf|document)\b/i;
 
 const MARKDOWN_LINK_RE = /\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi;
 const BARE_PDF_URL_RE = /https?:\/\/[^\s)\]]+\.pdf[^\s)\]]*/gi;

@@ -252,29 +252,21 @@ export class AIService {
 
     if (request.companyId && request.lead?.id) {
       try {
-        const { buildPromptMemoryBlock } = await import('./lead-memory.service');
-        leadMemoryBlock = await buildPromptMemoryBlock(request.lead.id);
+        const { buildUnifiedMemoryContextBlock } = await import('./unifiedMemory.service');
+        const unified = await buildUnifiedMemoryContextBlock({
+          leadId: request.lead.id,
+          conversationId: conversationContextBlock ? undefined : request.conversationId,
+          companyId: request.companyId,
+        });
+        leadMemoryBlock = unified.leadMemoryBlock;
+        if (!conversationContextBlock && unified.conversationContextBlock) {
+          conversationContextBlock = unified.conversationContextBlock;
+        }
       } catch (err: unknown) {
-        logger.warn('Lead memory block failed', {
+        logger.warn('Unified memory block failed', {
           leadId: request.lead.id,
           error: err instanceof Error ? err.message : String(err),
         });
-      }
-
-      if (!conversationContextBlock && request.conversationId) {
-        try {
-          const { buildConversationContextBlock } = await import('./conversation-summary.service');
-          conversationContextBlock = await buildConversationContextBlock(
-            request.conversationId,
-            request.lead.id,
-            request.companyId,
-          );
-        } catch (err: unknown) {
-          logger.warn('Conversation context block failed', {
-            leadId: request.lead.id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
       }
 
       try {

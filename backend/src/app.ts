@@ -45,6 +45,8 @@ import propertyImportBulkRoutes from './routes/property-import-bulk.routes';
 import financeRoutes from './routes/finance.routes';
 import { isAllowedCorsOrigin } from './config';
 import copilotRoutes from './routes/copilot.routes';
+import { authenticate } from './middleware/auth';
+import { requireFeature } from './middleware/featureGate';
 
 const app = express();
 
@@ -116,7 +118,17 @@ app.use('/api/features', companyRateLimiter, featureRoutes);
 app.use('/api/onboarding', companyRateLimiter, onboardingRoutes);
 app.use('/api/audit', companyRateLimiter, auditRoutes);
 app.use('/api/agent-action-logs', companyRateLimiter, agentActionLogRoutes);
-app.use('/api/copilot', companyRateLimiter, companyAiRateLimiter, copilotRoutes);
+// authenticate runs first so the per-company AI rate limiters (which key on
+// req.user.company_id) actually take effect; requireFeature gates on ai_bot.
+app.use(
+  '/api/copilot',
+  authenticate,
+  companyRateLimiter,
+  userAiRateLimiter,
+  companyAiRateLimiter,
+  requireFeature('ai_bot'),
+  copilotRoutes,
+);
 app.use('/api/error-logs', companyRateLimiter, errorLogRoutes);
 app.use('/api/assignment-settings', companyRateLimiter, assignmentSettingsRoutes);
 app.use('/api', financeRoutes);

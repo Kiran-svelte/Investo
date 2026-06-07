@@ -171,6 +171,31 @@ function normalizeWorkflowId(value: unknown): WorkflowId | 'unknown' {
   return (allWorkflowIds() as readonly string[]).includes(raw) ? (raw as WorkflowId) : 'unknown';
 }
 
+function isExplicitBrochureRequest(messageText: string): boolean {
+  return (
+    /\b(brochure|brochures|pdf|broucher|document)\b/i.test(messageText)
+    || /\b(send|share)\b[\s\S]{0,40}\b(brochure|pdf|document)\b/i.test(messageText)
+  );
+}
+
+function isPropertyDetailsRequest(messageText: string): boolean {
+  return /\b(details?|info|about)\b/i.test(messageText);
+}
+
+function isPlainSiteVisitBookingRequest(messageText: string): boolean {
+  const siteVisit =
+    /\b(book|schedule|arrange)\b[\s\S]{0,80}\b(site\s*)?visit\b/i.test(messageText)
+    || /\b(site\s*)?visit\b[\s\S]{0,80}\b(book|schedule|arrange)\b/i.test(messageText)
+    || /\b(book|schedule|arrange)\b[\s\S]{0,80}\bappointment\b/i.test(messageText);
+  if (!siteVisit) return false;
+
+  return !(
+    /\b(finalize|lock|confirm)\b.*\b(price|deal|flat|unit|villa|apartment|property|plot)\b/i.test(messageText)
+    || /\b(at|for)\s*(?:₹|rs\.?|inr|â‚¹)?\s*[\d,.]+\s*(lakh|lac|cr|crore)?\b/i.test(messageText)
+    || /\b(token|booking amount|payment|pay now)\b/i.test(messageText)
+  );
+}
+
 /**
  * Post-processes LLM-extracted workflow parameters.
  * Coerces scheduledAt/newScheduledAt to ISO strings even if the LLM
@@ -489,6 +514,41 @@ function evaluateMutationConfidence(
 }
 
 /**
+ * Records a classifier "fallthrough" (confidence below threshold, or unknown
+ * workflow) to `agent_action_logs` + an ops metric, so AI routing quality is
+ * measurable instead of silently dropping to the language brain.
+ */
+function recordWorkflowFallthrough(params: {
+  companyId: string;
+  workflowId: string;
+  confidence: number;
+  channel: 'buyer' | 'staff';
+  reason: 'unknown' | 'low_confidence';
+  leadId?: string | null;
+  actorId?: string;
+  actorRole?: string;
+}): void {
+  incrementOpsMetric('workflow_fallthrough');
+  void logAgentAction({
+    companyId: params.companyId,
+    triggeredBy: 'inbound_message',
+    action: 'workflow_fallthrough',
+    actorId: params.actorId,
+    actorRole: params.actorRole,
+    resourceType: 'lead',
+    resourceId: params.leadId ?? null,
+    inputs: {
+      workflowId: params.workflowId,
+      confidence: params.confidence,
+      channel: params.channel,
+      reason: params.reason,
+    },
+    status: 'skipped',
+    result: 'Classifier below threshold; routed to language brain',
+  });
+}
+
+/**
  * Execute ordered workflow steps. Stops on first failure or `stop: true`.
  * Wraps idempotency claim, saga step tracking, and compensators.
  */
@@ -653,11 +713,18 @@ export async function runWorkflow(
           resourceId: state.leadId ?? run.sessionLeadId ?? null,
           actorId: run.toolContext.userId,
           actorRole: run.toolContext.userRole,
-          inputs: { workflowId, channel: runChannel, failedStep: step.action, completedSteps },
-          status: 'failed',
-          errorMessage: detail,
-          result: buyerReply.slice(0, 500),
-        });
+        inputs: {
+          workflowId,
+          channel: runChannel,
+          failedStep: step.action,
+          completedSteps,
+          confidence: run.classifierConfidence,
+          gateSource: run.classifierSource,
+        },
+        status: 'failed',
+        errorMessage: detail,
+        result: buyerReply.slice(0, 500),
+      });
       }
       return {
         ok: false,
@@ -705,7 +772,13 @@ export async function runWorkflow(
       resourceId: state.leadId ?? run.sessionLeadId ?? null,
       actorId: run.toolContext.userId,
       actorRole: run.toolContext.userRole,
-      inputs: { workflowId, channel: runChannel, completedSteps },
+      inputs: {
+        workflowId,
+        channel: runChannel,
+        completedSteps,
+        confidence: run.classifierConfidence,
+        gateSource: run.classifierSource,
+      },
       status: 'success',
       result: reply.slice(0, 500),
     });
@@ -803,8 +876,11 @@ Rules:
 - Use exact workflow ids. Use unknown if none fit.
 - "update lead X status to visited" => update_status (NOT new_lead or list workflows).
 - Messages with "today" about lead STATUS are update_status, not schedule_visit.
+- "book/schedule a site visit" => schedule_visit. If date/time is missing, leave scheduledAt empty and let the workflow ask for it.
 - "liked it", "not interested", "will decide later" after a visit => mark_visit_outcome.
 - "when is my visit booked" => agent_availability context; prefer listing next visit.
+- "more details", "property details", "tell me about option 2" => price_inquiry unless the user explicitly asks for a brochure/PDF/document.
+- Use brochure_request only for explicit brochure, PDF, document, send/share brochure language.
 - Put customer feedback in note; preserve questions in message.
 - Extract: leadId, leadName, visitId, status, note, scheduledAt, newScheduledAt, propertyId, agentName, customerName, phone, outcome.
 
@@ -838,7 +914,17 @@ Today in IST is: ${todayIST}
     return { workflowId: 'unknown', confidence: 0, parameters: {} };
   }
 
-  const workflowId = normalizeWorkflowId(parsed.workflow);
+  let workflowId = normalizeWorkflowId(parsed.workflow);
+  if (workflowId === 'escalate_to_human' && isPlainSiteVisitBookingRequest(input.messageText)) {
+    workflowId = 'schedule_visit';
+  }
+  if (
+    workflowId === 'brochure_request'
+    && isPropertyDetailsRequest(input.messageText)
+    && !isExplicitBrochureRequest(input.messageText)
+  ) {
+    workflowId = 'price_inquiry';
+  }
   const parameters = normalizeWorkflowParameters(parsed.parameters ?? {}, input.messageText);
   return {
     workflowId,
@@ -951,14 +1037,35 @@ export async function classifyAndRunWorkflow(
     );
 
     if (classified.workflowId === 'unknown') {
+      recordWorkflowFallthrough({
+        companyId: run.toolContext.companyId,
+        workflowId: 'unknown',
+        confidence: classified.confidence,
+        channel: 'staff',
+        reason: 'unknown',
+        leadId: run.sessionLeadId ?? null,
+        actorId: run.toolContext.userId,
+        actorRole: run.toolContext.userRole,
+      });
       return null;
     }
 
     const confidenceAction = evaluateMutationConfidence(classified.workflowId, classified.confidence);
     if (confidenceAction === 'fallthrough') {
+      recordWorkflowFallthrough({
+        companyId: run.toolContext.companyId,
+        workflowId: classified.workflowId,
+        confidence: classified.confidence,
+        channel: 'staff',
+        reason: 'low_confidence',
+        leadId: classified.parameters.leadId ?? run.sessionLeadId ?? null,
+        actorId: run.toolContext.userId,
+        actorRole: run.toolContext.userRole,
+      });
       return null;
     }
     if (confidenceAction === 'clarify') {
+      incrementOpsMetric('workflow_clarification');
       await storePendingClarification(
         classified.parameters.leadId ?? run.sessionLeadId ?? undefined,
         classified.workflowId,
@@ -991,6 +1098,8 @@ export async function classifyAndRunWorkflow(
       // No visits on that date — continue to book/reschedule via workflow (do not return null).
     }
 
+    run.classifierConfidence = classified.confidence;
+    run.classifierSource = 'classifier';
     const result = await runWorkflow(classified.workflowId, run, classified.parameters);
     const label = getWorkflowDefinition(classified.workflowId)?.label ?? classified.workflowId;
     if (!result.ok) {
@@ -1073,7 +1182,8 @@ export async function tryRunBuyerWorkflow(input: {
   else if (/\b(reschedule|move|push|change)\b.*\b(visit|appointment|slot)\b/.test(text)) workflowId = 'reschedule_visit';
   else if (/\b(book|schedule)\b.*\b(visit|appointment|site\s+visit)\b/.test(text)) workflowId = 'schedule_visit';
   else if (/\b(site\s+visit|property\s+visit)\b/.test(text)) workflowId = 'schedule_visit';
-  else if (/\b(brochure|pdf|details|share)\b/.test(text)) workflowId = 'brochure_request';
+  else if (isExplicitBrochureRequest(input.messageText)) workflowId = 'brochure_request';
+  else if (isPropertyDetailsRequest(input.messageText)) workflowId = 'price_inquiry';
   else if (
     /\b(discount|negotiat|%\s*off|best price|final price|counter offer|lower the price)\b/.test(text)
     || /\bcan you (do|give)\s+\d+\s*%/.test(text)
@@ -1270,9 +1380,30 @@ export async function classifyAndRunBuyerWorkflow(
   if (pending && isBuyerWorkflowId(pending.workflowId)) {
     const gate = evaluateMutationGate(pending.workflowId, 1, 'pending_clarification');
     if (gate === 'clarify') {
+      incrementOpsMetric('workflow_clarification');
+      void logAgentAction({
+        companyId: input.companyId,
+        triggeredBy: 'inbound_message',
+        action: 'workflow_clarification',
+        resourceType: 'lead',
+        resourceId: input.leadId,
+        inputs: { workflowId: pending.workflowId, channel: 'buyer', source: 'pending_clarification_reask' },
+        status: 'success',
+        result: 'Clarification re-asked',
+      });
       return buildClarificationReply(pending.workflowId as MutationWorkflowId);
     }
     if (gate === 'execute') {
+      void logAgentAction({
+        companyId: input.companyId,
+        triggeredBy: 'inbound_message',
+        action: 'workflow_clarification_resolved',
+        resourceType: 'lead',
+        resourceId: input.leadId,
+        inputs: { workflowId: pending.workflowId, channel: 'buyer' },
+        status: 'success',
+        result: 'Pending clarification resolved; executing workflow',
+      });
       const params: WorkflowParams = {
         ...pending.parameters,
         leadId: pending.parameters.leadId ?? input.leadId,
@@ -1280,6 +1411,7 @@ export async function classifyAndRunBuyerWorkflow(
         visitId: pending.parameters.visitId ?? input.sessionVisitId ?? undefined,
         message: input.messageText,
       };
+      run.classifierSource = 'pending_clarification';
       const result = await runWorkflow(pending.workflowId, run, params);
       if (result.reply?.trim()) return formatBuyerWorkflowReply(pending.workflowId, result.reply);
     }
@@ -1302,6 +1434,14 @@ export async function classifyAndRunBuyerWorkflow(
     );
 
     if (classified.workflowId === 'unknown' || !isBuyerWorkflowId(classified.workflowId)) {
+      recordWorkflowFallthrough({
+        companyId: input.companyId,
+        workflowId: String(classified.workflowId),
+        confidence: classified.confidence,
+        channel: 'buyer',
+        reason: 'unknown',
+        leadId: input.leadId,
+      });
       return tryRunBuyerWorkflow(input);
     }
 
@@ -1318,9 +1458,18 @@ export async function classifyAndRunBuyerWorkflow(
 
     const confidenceAction = evaluateMutationGate(classified.workflowId, classified.confidence, 'classifier');
     if (confidenceAction === 'fallthrough') {
+      recordWorkflowFallthrough({
+        companyId: input.companyId,
+        workflowId: classified.workflowId,
+        confidence: classified.confidence,
+        channel: 'buyer',
+        reason: 'low_confidence',
+        leadId: input.leadId,
+      });
       return tryRunBuyerWorkflow(input);
     }
     if (confidenceAction === 'clarify') {
+      incrementOpsMetric('workflow_clarification');
       await storePendingClarification(input.leadId, classified.workflowId, classified.parameters);
       // G5: Log clarification event for transparency in /dashboard/ai-action-logs.
       void logAgentAction({
@@ -1355,6 +1504,8 @@ export async function classifyAndRunBuyerWorkflow(
       message: input.messageText,
     };
 
+    run.classifierConfidence = classified.confidence;
+    run.classifierSource = 'classifier';
     const result = await runWorkflow(classified.workflowId, run, params);
     const label = getWorkflowDefinition(classified.workflowId)?.label ?? classified.workflowId;
 

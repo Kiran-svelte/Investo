@@ -1,7 +1,9 @@
 import {
   buildBuyerRapportReply,
+  buildReturningBuyerPivotReply,
   isBuyerRapportMessage,
   isReturningBuyerGreeting,
+  isReturningBuyerPivotReply,
 } from '../../services/buyerQualification.service';
 
 describe('buyerQualification returning buyer rapport', () => {
@@ -21,5 +23,12 @@ describe('buyerQualification returning buyer rapport', () => {
     expect(reply).toContain('Welcome back');
     expect(reply).toContain('Whitefield');
     expect(reply).not.toContain('Welcome to *Palm Realty*');
+  });
+
+  test('returning buyer "Something new" pivot is detected', () => {
+    expect(isReturningBuyerPivotReply('Something new')).toBe(true);
+    expect(isReturningBuyerPivotReply('new search')).toBe(true);
+    expect(isReturningBuyerPivotReply('3 BHK Whitefield')).toBe(false);
+    expect(buildReturningBuyerPivotReply('Palm Realty')).toContain('start fresh');
   });
 });

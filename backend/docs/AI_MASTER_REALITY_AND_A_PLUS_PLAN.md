@@ -108,7 +108,7 @@ routeCompanyScopedInbound → copilot role
 | Contextual intent (“push visit”) | **B+** | **A+** | 100% clarification or correct mutation on handset matrix |
 | Covers intent variations | **B-** | **A+** | Expand scenario matrix + live phrase bank |
 | Transparent (what AI did) | **C+** | **A+** | Action logs + per-lead memory panel + clarification events logged |
-| Staff dashboard copilot | **F** | **A** (optional for WhatsApp A+) | `POST /api/copilot/chat` — product parity |
+| Staff dashboard copilot | **C** (shipped, parity-pending) | **A** (optional for WhatsApp A+) | `POST /api/copilot/chat` → `handleAgentMessage` shipped; needs quick-actions, history, kill-switch/rate-limit parity |
 | Unified memory (1 truth) | **C+** | **A+** | `lead_memory` sole source; RAG derived; buyer patch → `syncLeadClientMemory` |
 | Takeover semantics | **C** | **A** | Product decision + sticky takeover or documented always-on |
 
@@ -118,7 +118,7 @@ routeCompanyScopedInbound → copilot role
 |---------|-------|------------------|
 | Buyer WhatsApp | **B** | Strong happy paths; memory write-back shipped but **not prod-validated on real handset**; edge mutations still risky |
 | Staff WhatsApp | **B+** | Best-in-codebase surface; LangGraph is fallback; viewer role excluded |
-| Dashboard AI | **D** | Action logs yes; **no browser copilot** |
+| Dashboard AI | **C** | Action logs yes; browser copilot **shipped** (`/dashboard/copilot` → `POST /api/copilot/chat`), parity-pending |
 | **Composite WhatsApp agentic** | **B** | Not A+. Not “fullest ever.” Solid foundation, incomplete hardening + proof. |
 
 ---

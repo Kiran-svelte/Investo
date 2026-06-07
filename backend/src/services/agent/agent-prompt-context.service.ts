@@ -1,6 +1,7 @@
 import prisma from '../../config/prisma';
 import { ToolContext } from './agent-state';
 import { getRecentAgentSessionMessages } from './agent-session-messages.service';
+import { getUnifiedLeadMemory } from '../unifiedMemory.service';
 import { formatDateIST } from './tools/format-helpers';
 
 const FAILURE_RESPONSE_PATTERN =
@@ -136,12 +137,18 @@ export async function buildAgentPromptContext(input: {
 
     if (lead) {
       const lastInteraction = lead.lastContactAt ?? lead.updatedAt;
+      // Source budget/location from the unified canonical memory so staff and
+      // buyer surfaces agree on the same known facts (falls back to columns).
+      const unified = await getUnifiedLeadMemory(lead.id, input.toolContext.companyId);
+      const budgetRange =
+        formatBudgetRange(unified.resolved.budget?.min, unified.resolved.budget?.max) ??
+        formatBudgetRange(lead.budgetMin, lead.budgetMax);
       leadStatus = {
         id: lead.id,
         status: lead.status,
         lastInteraction: formatDateIST(lastInteraction),
-        interestedProject: lead.locationPreference ?? undefined,
-        budgetRange: formatBudgetRange(lead.budgetMin, lead.budgetMax),
+        interestedProject: unified.resolved.locationPreference ?? lead.locationPreference ?? undefined,
+        budgetRange,
       };
 
       const visits = await prisma.visit.findMany({

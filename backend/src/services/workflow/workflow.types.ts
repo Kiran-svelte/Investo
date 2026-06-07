@@ -57,6 +57,10 @@ export interface WorkflowRunContext {
   channel?: 'staff' | 'buyer';
   /** Set by runWorkflow after idempotency claim. */
   workflowRunId?: string;
+  /** Classifier confidence that selected this workflow (telemetry on success/fail logs). */
+  classifierConfidence?: number;
+  /** Where the gate decision came from (classifier | bias_detector | pending_clarification). */
+  classifierSource?: string;
 }
 
 export interface WorkflowState {
@@ -71,6 +75,14 @@ export interface WorkflowState {
   newStatus?: string;
   /** Pre-mutation visit id captured for compensators. */
   priorVisitId?: string;
+  /** Visit whose slot was freed by cancelVisitSlot (reschedule prep) — for rollback. */
+  cancelledSlotVisitId?: string;
+  /** Status the freed slot held before cancelVisitSlot, so it can be restored. */
+  cancelledSlotPriorStatus?: string;
+  /** Visit cancelled by cancelVisit — for rollback. */
+  cancelledVisitId?: string;
+  /** Status the visit held before cancelVisit, so it can be restored. */
+  cancelledVisitPriorStatus?: string;
 }
 
 export interface ActionResult {

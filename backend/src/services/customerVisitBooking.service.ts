@@ -11,6 +11,7 @@ import {
 import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
 import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
 import { createVisitApprovalRequest } from './visitPendingApproval.service';
+import { resolveBuyerPropertyReference } from './buyerPropertyContext.service';
 import type { WorkflowId } from '../constants/workflow.constants';
 import type { WorkflowParams } from './workflow/workflow.types';
 
@@ -80,31 +81,16 @@ function resolvePropertyId(
   conversation: CommitCustomerVisitInput['conversation'],
   message: string,
 ): Promise<string | null> {
-  if (conversation.selectedPropertyId) {
-    return Promise.resolve(conversation.selectedPropertyId);
-  }
-
   const recommended = Array.isArray(conversation.recommendedPropertyIds)
     ? (conversation.recommendedPropertyIds as string[])
     : [];
 
-  if (recommended.length === 1) {
-    return Promise.resolve(recommended[0]);
-  }
-
-  const lower = message.toLowerCase();
-  return prisma.property
-    .findMany({
-      where: { companyId, status: 'available' },
-      select: { id: true, name: true },
-      take: 50,
-    })
-    .then((rows) => {
-      const hit = rows.find((p) => p.name && lower.includes(p.name.toLowerCase().slice(0, 12)));
-      if (hit) return hit.id;
-      if (recommended.length > 0) return recommended[0];
-      return rows[0]?.id ?? null;
-    });
+  return resolveBuyerPropertyReference({
+    companyId,
+    messageText: message,
+    selectedPropertyId: conversation.selectedPropertyId,
+    recommendedPropertyIds: recommended,
+  });
 }
 
 function resolveScheduledAt(

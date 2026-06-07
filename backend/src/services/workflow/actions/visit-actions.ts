@@ -2,7 +2,7 @@ import prisma from '../../../config/prisma';
 import logger from '../../../config/logger';
 import { logAgentAction } from '../../agent-action-log.service';
 import { applyVisitMutationFromChat } from '../../visitMutationFromChat.service';
-import { scheduleVisit } from '../../visitBooking.service';
+import { scheduleVisit, buildVisitIdempotencyKey } from '../../visitBooking.service';
 import { cancelVisitById, rescheduleVisitById } from '../../visitState.service';
 import { buildVisitScopeFilter } from '../../agent/tools/format-helpers';
 import type { ActionContext } from './action-helpers';
@@ -164,6 +164,13 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
     propertyId,
     scheduledAt,
     notes: 'Booked via WhatsApp buyer workflow',
+    // Explicit shared key so buyer workflow, customer fast-path, and staff tool
+    // all dedup against the same canonical visit_book namespace.
+    idempotencyKey: buildVisitIdempotencyKey(
+      ctx.run.toolContext.companyId,
+      leadId,
+      scheduledAt.toISOString(),
+    ),
   });
 
   if (!booking.success || !booking.visit) {
@@ -238,13 +245,23 @@ export async function cancelVisitSlot(ctx: ActionContext) {
   const visitId = requireVisitId(ctx);
   if (!visitId) return skip();
   try {
+    // Capture the prior status BEFORE freeing the slot so a downstream
+    // bookVisit failure can be rolled back (saga compensation).
+    const existing = await prisma.visit.findFirst({
+      where: { id: visitId, status: { in: ['scheduled', 'confirmed'] } },
+      select: { status: true },
+    });
+    if (!existing) return skip();
     await prisma.visit.updateMany({
       where: { id: visitId, status: { in: ['scheduled', 'confirmed'] } },
       // 'rescheduled' is not in the VisitStatus enum; use 'cancelled' to free
       // the old slot so it no longer appears as an active booking.
       data: { status: 'cancelled', updatedAt: new Date() },
     });
-    return ok('Old visit slot freed.');
+    return ok('Old visit slot freed.', {
+      cancelledSlotVisitId: visitId,
+      cancelledSlotPriorStatus: existing.status,
+    });
   } catch (err: unknown) {
     logger.warn('cancelVisitSlot failed', { visitId, error: err instanceof Error ? err.message : String(err) });
     return skip();
@@ -351,6 +368,10 @@ export async function cancelVisit(ctx: ActionContext) {
   if (existing?.status === 'cancelled') {
     return ok('That visit is already cancelled.');
   }
+  // Capture prior status so a downstream non-optional failure can be rolled back.
+  const cancelRollback = existing
+    ? { cancelledVisitId: existing.id, cancelledVisitPriorStatus: existing.status }
+    : undefined;
   if (ctx.run.channel === 'buyer') {
     if (!existing || (ctx.state.leadId && existing.leadId !== ctx.state.leadId)) {
       return fail("I couldn't find an upcoming site visit to cancel.");
@@ -364,7 +385,7 @@ export async function cancelVisit(ctx: ActionContext) {
     return ok(
       `Your site visit for *${existing.property?.name ?? 'Property'}* has been *cancelled*.\n\n` +
       `Reply with a new date and time if you'd like to book again.`,
-      { visitId: existing.id, leadId: existing.leadId },
+      { visitId: existing.id, leadId: existing.leadId, ...cancelRollback },
     );
   }
 
@@ -373,7 +394,7 @@ export async function cancelVisit(ctx: ActionContext) {
     reason: ctx.params.note,
   });
   if (result.ok === false) return failToolResult(result);
-  return ok(result.text, undefined, result.text.toLowerCase().includes('confirm'));
+  return ok(result.text, cancelRollback, result.text.toLowerCase().includes('confirm'));
 }
 
 export async function completeVisit(ctx: ActionContext) {

@@ -39,6 +39,21 @@ export function isReturningBuyerGreeting(message: string, ctx?: BuyerRapportCont
   );
 }
 
+/** Reply to "Welcome back… or something new?" — pivot to a fresh search (no LLM). */
+const RETURNING_PIVOT_PATTERN =
+  /^(something\s+new|new\s+search|start\s+(?:over|fresh|again)|explore\s+(?:something\s+)?(?:new|else|different)|different\s+(?:property|project|area)|fresh\s+start|yes\s+something\s+new)[\s.!?]*$/i;
+
+export function isReturningBuyerPivotReply(message: string): boolean {
+  return RETURNING_PIVOT_PATTERN.test(message.trim());
+}
+
+export function buildReturningBuyerPivotReply(companyName: string): string {
+  return (
+    `Great — let's start fresh! 🏡\n\n` +
+    `Share your *budget*, preferred *area*, and *BHK* (or property type) and I'll shortlist the best matches from *${companyName}*.`
+  );
+}
+
 export function isBuyerQualificationStatement(message: string): boolean {
   const t = message.trim();
   if (!t || EXPLICIT_INTENT.test(t)) return false;
