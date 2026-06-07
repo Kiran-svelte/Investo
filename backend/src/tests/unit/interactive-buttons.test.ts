@@ -92,6 +92,20 @@ jest.mock('../../services/visitPendingApproval.service', () => ({
   createVisitApprovalRequest: jest.fn().mockResolvedValue({ approvalId: 'approval-1' }),
 }));
 
+jest.mock('../../services/callRequest.service', () => ({
+  scheduleCallRequest: jest.fn().mockResolvedValue({
+    success: true,
+    call: { id: 'call-1', agent_id: 'agent-1' },
+  }),
+  formatBuyerCallReply: jest.fn(
+    (title: string) => `*${title}*\n\nWhen: soon\n\nOur specialist will confirm the call time.`,
+  ),
+}));
+
+jest.mock('../../utils/callIntentFromMessage.util', () => ({
+  resolveCallScheduledAt: jest.fn(() => new Date('2026-06-09T10:00:00.000Z')),
+}));
+
 // Now import after mocks are set up
 import { WhatsAppService } from '../../services/whatsapp.service';
 import prisma from '../../config/prisma';

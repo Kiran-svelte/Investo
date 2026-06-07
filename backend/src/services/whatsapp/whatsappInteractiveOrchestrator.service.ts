@@ -221,32 +221,38 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
 }
 
 async function handleCallMe(params: InteractiveActionParams): Promise<InteractiveActionResult> {
-  const { lead, conversation, company } = params;
+  const { lead, company } = params;
+  const { scheduleCallRequest, formatBuyerCallReply } = await import('../callRequest.service');
+  const { resolveCallScheduledAt } = await import('../../utils/callIntentFromMessage.util');
 
-  if (lead.assignedAgentId) {
-    await prisma.notification.create({
-      data: {
-        companyId: company.id,
-        userId: lead.assignedAgentId,
-        type: 'agent_takeover',
-        title: '📞 URGENT: Callback Requested',
-        message: `${lead.customerName || lead.phone} requested a callback - call within 15 minutes!`,
-        data: {
-          leadId: lead.id,
-          conversationId: conversation.id,
-          requestedAt: new Date().toISOString(),
-        },
-      },
-    });
+  const scheduledAt = resolveCallScheduledAt('call me');
+  const booked = await scheduleCallRequest({
+    companyId: company.id,
+    leadId: lead.id,
+    scheduledAt,
+    notes: 'Call Me button',
+    agentId: lead.assignedAgentId ?? undefined,
+  });
+
+  if (!booked.success || !booked.call) {
+    return {
+      handled: true,
+      action: 'callback-requested',
+      turnResult: buyerTurn(
+        `📞 I'll ask our team to call you — please share a good time if you have one (e.g. *tomorrow 3pm*).`,
+      ),
+    };
   }
+
+  const agent = booked.call
+    ? await prisma.user.findUnique({ where: { id: booked.call.agent_id }, select: { name: true } })
+    : null;
 
   return {
     handled: true,
     action: 'callback-requested',
     leadStatus: 'contacted',
-    turnResult: buyerTurn(
-      `📞 Sure! Our sales representative will call you within the next 15 minutes.\n\nIn the meantime, feel free to ask me any questions about our properties! 😊`,
-    ),
+    turnResult: buyerTurn(formatBuyerCallReply('Callback scheduled', scheduledAt, agent?.name)),
   };
 }
 

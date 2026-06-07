@@ -507,33 +507,65 @@ export class WhatsAppService {
 
     if (
       msg.interactiveId &&
-      (msg.interactiveId.startsWith('visit-approve-') || msg.interactiveId.startsWith('visit-decline-'))
+      (msg.interactiveId.startsWith('visit-approve-') ||
+        msg.interactiveId.startsWith('visit-decline-') ||
+        msg.interactiveId.startsWith('call-approve-') ||
+        msg.interactiveId.startsWith('call-decline-'))
     ) {
       const { findCompanyUserByPhone } = await import('./inboundWhatsAppRouting.service');
-      const { tryHandleVisitApprovalInteractive } = await import('./visitPendingApproval.service');
       const companyUser = await findCompanyUserByPhone(customerPhone, companyId);
       if (companyUser) {
-        const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
-          userId: companyUser.userId,
-          companyId: companyUser.companyId,
-          phone: companyUser.phone,
-        });
-        if (handled) {
-          void logAgentAction({
-            companyId,
-            triggeredBy: 'inbound_message',
-            action: 'visitApprovalInteractive',
-            actorId: companyUser.userId,
-            resourceType: 'visit',
-            status: 'success',
-            inputs: { interactiveId: msg.interactiveId },
+        if (
+          msg.interactiveId.startsWith('visit-approve-') ||
+          msg.interactiveId.startsWith('visit-decline-')
+        ) {
+          const { tryHandleVisitApprovalInteractive } = await import('./visitPendingApproval.service');
+          const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
+            userId: companyUser.userId,
+            companyId: companyUser.companyId,
+            phone: companyUser.phone,
           });
-          return {
-            status: 'processed',
-            reason: 'visit_approval_handled',
-            companyId,
-            propagation: notAttempted,
-          };
+          if (handled) {
+            void logAgentAction({
+              companyId,
+              triggeredBy: 'inbound_message',
+              action: 'visitApprovalInteractive',
+              actorId: companyUser.userId,
+              resourceType: 'visit',
+              status: 'success',
+              inputs: { interactiveId: msg.interactiveId },
+            });
+            return {
+              status: 'processed',
+              reason: 'visit_approval_handled',
+              companyId,
+              propagation: notAttempted,
+            };
+          }
+        } else {
+          const { tryHandleCallApprovalInteractive } = await import('./callRequest.service');
+          const handled = await tryHandleCallApprovalInteractive(msg.interactiveId, {
+            userId: companyUser.userId,
+            companyId: companyUser.companyId,
+            phone: companyUser.phone,
+          });
+          if (handled) {
+            void logAgentAction({
+              companyId,
+              triggeredBy: 'inbound_message',
+              action: 'callApprovalInteractive',
+              actorId: companyUser.userId,
+              resourceType: 'call_request',
+              status: 'success',
+              inputs: { interactiveId: msg.interactiveId },
+            });
+            return {
+              status: 'processed',
+              reason: 'call_approval_handled',
+              companyId,
+              propagation: notAttempted,
+            };
+          }
         }
       }
     }

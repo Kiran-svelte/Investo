@@ -25,6 +25,20 @@ jest.mock('../../services/alternativeInventory.service', () => ({
   searchAlternativeTiers: jest.fn(async () => []),
 }));
 
+jest.mock('../../services/callRequest.service', () => ({
+  scheduleCallRequest: jest.fn(async () => ({
+    success: true,
+    call: { agent_id: 'agent-1' },
+  })),
+  formatBuyerCallReply: jest.fn(
+    (title: string) => `*${title}*\n\nWhen: Mon, 9 Jun 2026, 3:30 pm\n\nOur specialist will confirm the call time with you shortly.`,
+  ),
+}));
+
+jest.mock('../../utils/callIntentFromMessage.util', () => ({
+  resolveCallScheduledAt: jest.fn(() => new Date('2026-06-09T10:00:00.000Z')),
+}));
+
 jest.mock('../../services/whatsapp.service', () => ({
   whatsappService: { sendCompanyTextMessage: jest.fn() },
 }));
@@ -73,13 +87,14 @@ describe('whatsappInteractiveOrchestrator.service', () => {
   });
 
   test('call-me returns unified TurnResult', async () => {
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue({ name: 'Kiran' });
     const result = await tryOrchestratedInteractiveAction({
       ...baseParams,
       interactiveId: 'call-me',
     });
     expect(result?.handled).toBe(true);
     expect(result?.action).toBe('callback-requested');
-    expect(result?.turnResult?.text).toContain('15 minutes');
+    expect(result?.turnResult?.text).toContain('Callback scheduled');
     expect(result?.turnResult?.components).toBeUndefined();
   });
 

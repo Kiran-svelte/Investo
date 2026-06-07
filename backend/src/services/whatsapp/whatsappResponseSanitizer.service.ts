@@ -35,6 +35,8 @@ export type SanitizeStaffOutboundInput = {
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 const BUYER_INTERNAL_LINE =
   /^(ID:|Match score:|Workflow|grounded|propertyId:|handler not configured|Confidence:|Sources:)/i;
+// Strip trailing LLM-hallucinated signatures like "— Palm via Investo" or "— Riya"
+const TRAILING_SIGNATURE_RE = /\s*—\s*[\w\s]+(\s+via\s+[\w\s]+)?\s*$/i;
 
 /**
  * Strip UUIDs, internal metadata, and workflow leakage from buyer-facing text.
@@ -51,6 +53,7 @@ export function stripBuyerInternalMetadata(text: string): string {
     .replace(/\bWorkflow\s+"[^"]+"/gi, '')
     .replace(/\bgrounded\b/gi, '')
     .replace(/\n{3,}/g, '\n\n')
+    .replace(TRAILING_SIGNATURE_RE, '')
     .trim();
   return out;
 }
@@ -71,6 +74,12 @@ export async function sanitizeBuyerOutbound(input: SanitizeBuyerOutboundInput): 
   });
 
   let text = stripBuyerInternalMetadata(guarded.text);
+
+  // Strip robotic capability-listing openers the LLM sometimes generates despite instructions.
+  text = text
+    .replace(/^I['']?m here to (assist|help) you with[^.!?]*[.!?]\s*/i, '')
+    .replace(/^Here['']?s (what|how) I can (help|do)[^.!?]*[.!?]\s*/i, '')
+    .trim();
 
   const polished = await polishOutboundMessage({
     rawText: text,

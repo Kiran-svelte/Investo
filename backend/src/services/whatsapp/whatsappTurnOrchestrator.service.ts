@@ -7,6 +7,7 @@ import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import { logOutboundBranch } from '../outboundTurnDebug.service';
 import { tryCommitCustomerVisitBooking } from '../customerVisitBooking.service';
+import { tryCommitCustomerCallBooking } from '../customerCallBooking.service';
 import { getLiveLeadContext } from '../liveLeadContext.service';
 import { buildBuyerVisitStatusReply, isBuyerVisitStatusQuery } from '../buyerVisitQuery.service';
 import { isVisitCancelOrRescheduleMessage, isVisitSchedulingMessage } from '../visitIntentFromMessage.service';
@@ -172,6 +173,51 @@ async function handleHumanTakeoverTurn(ctx: BuyerTurnRuntimeContext): Promise<Tu
   });
 
   return { audience: 'buyer', handled: true, terminal: true, text: handoffText };
+}
+
+// ---------------------------------------------------------------------------
+// H1b: Buyer dismissal fast-path
+// ---------------------------------------------------------------------------
+
+const DISMISSAL_RE =
+  /^(no\s*thanks?|no+|nope|nah|not\s+now|not\s+interested|later|maybe\s+later|not\s+today|no\s+need|i[' ]?m\s+okay|i[' ]?m\s+fine|ok(ay)?|alright|fine|sure\s+thanks?|got\s+it|understood|i\s+know|thanks?\s*[!.]*|thank\s+you[!.]*|thx)[\s!.]*$/i;
+
+const DISMISSAL_ACKS = [
+  'No worries! Just reach out when you\'re ready. 😊',
+  'Understood — I\'ll be here when you need me!',
+  'Alright! Feel free to message anytime.',
+  'Got it! Whenever you\'re ready, just drop a message.',
+];
+
+function pickDismissalAck(companyName: string): string {
+  const idx = Math.floor(Math.random() * DISMISSAL_ACKS.length);
+  void companyName;
+  return DISMISSAL_ACKS[idx];
+}
+
+async function handleDismissalTurn(
+  ctx: BuyerTurnRuntimeContext,
+  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+): Promise<TurnResult | null> {
+  if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
+  const t = ctx.input.messageText.trim();
+  if (!DISMISSAL_RE.test(t)) return null;
+
+  const hasPriorOutbound = ctx.history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
+  if (!hasPriorOutbound) return null;
+
+  const ack = pickDismissalAck(ctx.companyName);
+
+  await prisma.message.create({
+    data: {
+      conversationId: ctx.input.conversationId,
+      senderType: 'ai',
+      content: ack,
+      status: 'sent',
+    },
+  });
+
+  return { audience: 'buyer', handled: true, terminal: true, text: ack };
 }
 
 // ---------------------------------------------------------------------------
@@ -350,6 +396,38 @@ async function handleQualificationTurn(
 // ---------------------------------------------------------------------------
 // H5: Visit status query
 // ---------------------------------------------------------------------------
+
+async function handleCallCommitReplyTurn(
+  ctx: BuyerTurnRuntimeContext,
+  callCommit: Awaited<ReturnType<typeof tryCommitCustomerCallBooking>>,
+  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+): Promise<TurnResult | null> {
+  if (visitCommit.committed || !callCommit.committed || !callCommit.customerReply) return null;
+
+  await prisma.message.create({
+    data: {
+      conversationId: ctx.input.conversationId,
+      senderType: 'ai',
+      content: callCommit.customerReply,
+      status: 'sent',
+    },
+  });
+
+  const components = resolveBuyerComponents({
+    stage: 'confirmation',
+    outboundText: callCommit.customerReply,
+    propertyId: ctx.input.conversationSelectedPropertyId,
+    hasActiveVisit: false,
+  });
+
+  return {
+    audience: 'buyer',
+    handled: true,
+    terminal: true,
+    text: callCommit.customerReply,
+    components,
+  };
+}
 
 /**
  * Deterministically resolves visit status without invoking the LLM.
@@ -1181,10 +1259,22 @@ export async function orchestrateWhatsAppBuyerTurn(
     recentCustomerMessages,
   });
 
+  const callCommit = await tryCommitCustomerCallBooking({
+    companyId: ctx.companyId,
+    customerMessage: ctx.input.messageText,
+    lead: { id: ctx.input.leadId, assignedAgentId: ctx.input.leadAssignedAgentId },
+  });
+
   const liveCtx = await getLiveLeadContext(ctx.input.leadId, ctx.companyId);
 
   const h1 = await handleHumanTakeoverTurn(ctx);
   if (h1) return h1;
+
+  const hCall = await handleCallCommitReplyTurn(ctx, callCommit, visitCommit);
+  if (hCall) return hCall;
+
+  const h1b = await handleDismissalTurn(ctx, visitCommit);
+  if (h1b) return h1b;
 
   const h2 = await handleRapportTurn(ctx, visitCommit, conversationState.stage);
   if (h2) return h2;
