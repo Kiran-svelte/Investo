@@ -44,7 +44,12 @@ async function loadVisit(companyId: string, visitId: string) {
   });
 }
 
-async function notifyStatusChange(visitId: string, oldStatus: string, newStatus: string): Promise<void> {
+async function notifyStatusChange(
+  visitId: string,
+  oldStatus: string,
+  newStatus: string,
+  suppressCustomerNotification = false,
+): Promise<void> {
   try {
     const visit = await prisma.visit.findUnique({
       where: { id: visitId },
@@ -56,7 +61,7 @@ async function notifyStatusChange(visitId: string, oldStatus: string, newStatus:
     if (!visit?.lead) return;
     const company = await prisma.company.findUnique({ where: { id: visit.companyId } });
     if (!company) return;
-    await notificationEngine.onVisitStatusChange(visit, oldStatus, newStatus, visit.lead, company);
+    await notificationEngine.onVisitStatusChange(visit, oldStatus, newStatus, visit.lead, company, suppressCustomerNotification);
   } catch (err: unknown) {
     logger.warn('visitState notification failed', {
       visitId,
@@ -188,6 +193,7 @@ export async function cancelVisitById(input: {
   companyId: string;
   visitId: string;
   notes?: string;
+  suppressCustomerNotification?: boolean;
 }): Promise<VisitStateResult> {
   const visit = await loadVisit(input.companyId, input.visitId);
   if (!visit) return { success: false, error: 'visit_not_found' };
@@ -215,7 +221,7 @@ export async function cancelVisitById(input: {
     await transitionLeadStatus(updated.leadId, 'contacted', { force: false });
   }
 
-  await notifyStatusChange(updated.id, oldStatus, 'cancelled');
+  await notifyStatusChange(updated.id, oldStatus, 'cancelled', Boolean(input.suppressCustomerNotification));
   return { success: true, visit: updated, oldStatus };
 }
 

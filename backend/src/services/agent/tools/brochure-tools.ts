@@ -53,7 +53,13 @@ export function createBrochureTools(context: ToolContext): AgentTool[] {
         });
         if (!property) return 'Property not found.';
         if (!property.brochureUrl) {
-          return `No brochure is uploaded for ${property.name} yet. Upload one in the property settings.`;
+          if (context.staffPhone) {
+            return `No brochure file for *${property.name}* yet. Upload one in the Investo dashboard (Properties), then I can send it to the customer.`;
+          }
+          return (
+            `I don't have a digital brochure for *${property.name}* yet. ` +
+            `I can share pricing, photos, or help you book a site visit — what would you prefer?`
+          );
         }
 
         const conversation = await prisma.conversation.findFirst({

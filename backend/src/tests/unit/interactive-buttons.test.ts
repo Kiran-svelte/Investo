@@ -400,7 +400,8 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
       });
 
       expect(result.handled).toBe(true);
-      expect(result.action).toBe('emi-calculated');
+      // No property selected → emi-no-property (single TurnResult, no direct sends)
+      expect(result.action).toBe('emi-no-property');
     });
   });
 

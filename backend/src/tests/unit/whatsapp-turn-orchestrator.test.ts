@@ -1,5 +1,4 @@
 import {
-  buildBuyerHandoffTurnResult,
   buildBuyerRapportTurnResult,
   enforceTurnComponentBudget,
   isHumanTakeoverActive,
@@ -11,12 +10,6 @@ describe('whatsappTurnOrchestrator.service', () => {
     expect(isHumanTakeoverActive({ status: 'agent_active', aiEnabled: true })).toBe(true);
     expect(isHumanTakeoverActive({ status: 'ai_active', aiEnabled: false })).toBe(true);
     expect(isHumanTakeoverActive({ status: 'ai_active', aiEnabled: true })).toBe(false);
-  });
-
-  test('buildBuyerHandoffTurnResult is terminal', () => {
-    const result = buildBuyerHandoffTurnResult();
-    expect(result.handled).toBe(true);
-    expect(result.terminal).toBe(true);
   });
 
   test('buildBuyerRapportTurnResult for returning buyer has no components', async () => {

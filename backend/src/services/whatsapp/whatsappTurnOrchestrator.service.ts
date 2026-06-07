@@ -293,10 +293,6 @@ async function handleReturningBuyerPivotTurn(
     await import('../buyerQualification.service');
   if (!isReturningBuyerPivotReply(ctx.input.messageText)) return null;
 
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44596a'},body:JSON.stringify({sessionId:'44596a',location:'whatsappTurnOrchestrator.service.ts:handleReturningBuyerPivotTurn',message:'returning_buyer_pivot_matched',data:{messagePreview:ctx.input.messageText.slice(0,40),conversationId:ctx.input.conversationId},timestamp:Date.now(),hypothesisId:'B',runId:'post-fix'})}).catch(()=>{});
-  // #endregion
-
   logOutboundBranch('H2b', 'whatsappTurnOrchestrator:returningPivot', 'buyer_returning_pivot_fast_path', {
     messagePreview: ctx.input.messageText.slice(0, 40),
   });
@@ -726,9 +722,6 @@ async function handleFullAiTurn(
   }
 
   const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: ctx.companyId } });
-  // #region agent log
-  fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44596a'},body:JSON.stringify({sessionId:'44596a',location:'whatsappTurnOrchestrator.service.ts:handleFullAiTurn',message:'full_ai_turn_entered',data:{messagePreview:ctx.input.messageText.slice(0,40),stage:conversationState.stage,aiSettingsLoaded:Boolean(aiSettings)},timestamp:Date.now(),hypothesisId:'A',runId:'post-fix'})}).catch(()=>{});
-  // #endregion
 
   const lead = await prisma.lead.findUnique({
     where: { id: ctx.input.leadId },
@@ -1244,6 +1237,11 @@ export async function orchestrateWhatsAppBuyerTurn(
   ctx: BuyerTurnRuntimeContext,
   conversationState: ConversationState,
 ): Promise<TurnResult> {
+  // H1 must run before any booking commits — human takeover is terminal and must
+  // never trigger side-effect DB mutations for a conversation owned by a live agent.
+  const h1 = await handleHumanTakeoverTurn(ctx);
+  if (h1) return h1;
+
   const recentCustomerMessages = ctx.history
     .filter((m) => m.senderType === 'customer')
     .map((m) => m.content)
@@ -1275,9 +1273,6 @@ export async function orchestrateWhatsAppBuyerTurn(
   });
 
   const liveCtx = await getLiveLeadContext(ctx.input.leadId, ctx.companyId);
-
-  const h1 = await handleHumanTakeoverTurn(ctx);
-  if (h1) return h1;
 
   const hCall = await handleCallCommitReplyTurn(ctx, callCommit, visitCommit);
   if (hCall) return hCall;
@@ -1349,22 +1344,3 @@ export async function buildBuyerRapportTurnResult(input: {
   return { audience: 'buyer', handled: true, terminal: true, text, components };
 }
 
-// ---------------------------------------------------------------------------
-// Legacy stubs
-// ---------------------------------------------------------------------------
-
-/** @deprecated Use orchestrateWhatsAppBuyerTurn instead. */
-export function buildBuyerHandoffTurnResult(): TurnResult {
-  return { audience: 'buyer', handled: true, terminal: true };
-}
-
-/** @deprecated Use orchestrateWhatsAppBuyerTurn instead. */
-export async function handleWhatsAppTurn(ctx: { humanTakeover: boolean }): Promise<TurnResult | null> {
-  if (ctx.humanTakeover) return buildBuyerHandoffTurnResult();
-  return null;
-}
-
-/** @deprecated Use orchestrateWhatsAppBuyerTurn instead. */
-export async function handleBuyerTurn(ctx: { humanTakeover: boolean }): Promise<TurnResult | null> {
-  return handleWhatsAppTurn(ctx);
-}

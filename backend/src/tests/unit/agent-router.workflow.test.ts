@@ -39,6 +39,7 @@ jest.mock('../../services/whatsapp.service', () => ({
 
 jest.mock('../../services/agent/agent-memory.service', () => ({
   getOrCreateThreadId: jest.fn(),
+  getOrCreateAgentSession: jest.fn(),
 }));
 
 jest.mock('../../services/agent/confirmation.service', () => ({
@@ -86,7 +87,7 @@ jest.mock('../../services/agent/agent-intent-orchestrator.service', () => ({
 }));
 
 import { routeIfInternalUserForCompany } from '../../services/agent/agent-router.service';
-import { getOrCreateThreadId } from '../../services/agent/agent-memory.service';
+import { getOrCreateAgentSession } from '../../services/agent/agent-memory.service';
 import { checkAndResolvePendingConfirmation } from '../../services/agent/confirmation.service';
 import { invokeAgent } from '../../services/agent/agent-graph.service';
 import { getAgentSessionContext } from '../../services/clientMemory.service';
@@ -113,7 +114,7 @@ describe('agent-router workflow orchestration', () => {
       id: 'session-1',
       threadId: 'thread-1',
     });
-    (getOrCreateThreadId as jest.Mock).mockResolvedValue('thread-1');
+    (getOrCreateAgentSession as jest.Mock).mockResolvedValue({ id: 'session-1', threadId: 'thread-1' });
     (checkAndResolvePendingConfirmation as jest.Mock).mockResolvedValue({
       hasPending: false,
       isConfirmed: false,

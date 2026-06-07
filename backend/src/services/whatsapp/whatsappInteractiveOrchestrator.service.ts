@@ -604,6 +604,29 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
 }
 
 /**
+ * Route generic visit-slot-morning / visit-slot-afternoon buttons to the proper
+ * visit-time slot using the conversation's selectedPropertyId.
+ * These buttons come from buyerButtonPolicy visit_booking stage.
+ */
+async function handleGenericVisitSlot(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const { interactiveId, conversation } = params;
+  const propertyId = conversation.selectedPropertyId;
+
+  if (!propertyId) {
+    return {
+      handled: true,
+      action: 'generic-slot-no-property',
+      turnResult: buyerTurn(
+        "Which property would you like to visit? Share the project name and I'll get you some time slots.",
+      ),
+    };
+  }
+
+  // Reroute as canonical book-visit for this property — presents the IST date/time buttons
+  return handleBookVisit({ ...params, interactiveId: `book-visit-${propertyId}` });
+}
+
+/**
  * Try orchestrated interactive handlers that return a unified TurnResult.
  * Returns null when the interactiveId should fall through to legacy handlers in whatsapp.service.ts.
  */
@@ -616,6 +639,10 @@ export async function tryOrchestratedInteractiveAction(
   if (interactiveId === 'visit-reschedule') return handleVisitReschedule(params);
   if (interactiveId === 'book-visit' || interactiveId.startsWith('book-visit-')) {
     return handleBookVisit(params);
+  }
+  // Generic slot buttons (visit_booking stage policy) — route via book-visit
+  if (interactiveId === 'visit-slot-morning' || interactiveId === 'visit-slot-afternoon') {
+    return handleGenericVisitSlot(params);
   }
   if (interactiveId === 'call-me' || interactiveId === 'callback-request') return handleCallMe(params);
   if (interactiveId === 'call-cancel') return handleCallCancel(params);

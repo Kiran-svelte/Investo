@@ -54,4 +54,16 @@ describe('copilotShortcut.util', () => {
       'copilot-complete-visit',
     ]);
   });
+
+  it('returns visit shortcuts after visit list CRM replies', () => {
+    const actions = resolveStaffCopilotQuickActions({
+      replyKind: 'crm',
+      outboundText: "*Today's visits (2026-06-07)*\n\n1 visit",
+    });
+    expect(actions?.map((a) => a.id)).toEqual([
+      'copilot-visits-tomorrow',
+      'copilot-new-leads',
+      'copilot-confirm-visit',
+    ]);
+  });
 });

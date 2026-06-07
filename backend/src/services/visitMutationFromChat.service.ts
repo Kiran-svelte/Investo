@@ -2,6 +2,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { formatDateIST, getISTDayBounds, getTomorrowIST } from './agent/tools/format-helpers';
 import { cancelVisitById, rescheduleVisitById } from './visitState.service';
+import { formatBuyerVisitScheduled, formatBuyerVisitCancelled } from '../utils/visitFormat.util';
 import {
   isVisitCancelOrRescheduleMessage,
   isVisitListQueryMessage,
@@ -58,27 +59,8 @@ function formatCustomerVisitConfirmation(
   propertyName: string,
   prefix: 'rescheduled' | 'scheduled' | 'cancelled',
 ): string {
-  const when = scheduledAt.toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  if (prefix === 'cancelled') {
-    return (
-      `Your site visit for *${propertyName}* (${when}) has been *cancelled*.\n\n` +
-      `Reply with a new date and time if you'd like to book again.`
-    );
-  }
-  const title = prefix === 'rescheduled' ? 'Visit rescheduled' : 'Visit scheduled';
-  return (
-    `*${title}*\n\n` +
-    `Property: *${propertyName}*\n` +
-    `Date: ${when}\n\n` +
-    `Our team will confirm details before the visit. See you then!`
-  );
+  if (prefix === 'cancelled') return formatBuyerVisitCancelled(scheduledAt, propertyName);
+  return formatBuyerVisitScheduled(scheduledAt, propertyName, null, prefix);
 }
 /**
  * Find the visit the user intends to mutate (cancel or reschedule).

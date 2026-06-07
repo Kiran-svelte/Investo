@@ -12,6 +12,7 @@ import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
 import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
 import { createVisitApprovalRequest } from './visitPendingApproval.service';
 import { resolveBuyerPropertyReference } from './buyerPropertyContext.service';
+import { formatBuyerVisitScheduled, formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
 import type { WorkflowId } from '../constants/workflow.constants';
 import type { WorkflowParams } from './workflow/workflow.types';
 
@@ -108,26 +109,8 @@ function resolveScheduledAt(
   return parseVisitDateTimeFromHistory(recentCustomerMessages);
 }
 
-function formatVisitConfirmation(
-  scheduledAt: Date,
-  propertyName: string,
-  agentName: string | null,
-): string {
-  const when = scheduledAt.toLocaleString('en-IN', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Kolkata',
-  });
-  return (
-    `*Visit scheduled*\n\n` +
-    `Property: *${propertyName}*\n` +
-    `Date: ${when}\n\n` +
-    `Our specialist${agentName ? ` *${agentName}*` : ''} will call you about an hour before the visit to confirm. See you then!`
-  );
-}
+const formatVisitConfirmation = (scheduledAt: Date, propertyName: string, agentName: string | null) =>
+  formatBuyerVisitScheduled(scheduledAt, propertyName, agentName, 'scheduled');
 /**
  * Handles customer cancel / reschedule requests (buyer WhatsApp).
  */
@@ -382,13 +365,13 @@ export async function tryCommitCustomerVisitBooking(
         customerPhone,
         customerName: lead.customerName,
         propertyName: property?.name,
+        suppressCustomerMessage: true,
       });
       return {
         committed: true,
         mode: 'pending_approval',
         scheduledAt,
-        customerReply:
-          `Thanks! That time may overlap with another visit. I've sent the slot to our specialist for quick confirmation. You'll get a WhatsApp update shortly.`,
+        customerReply: formatBuyerVisitPendingApproval(),
         leadStatus: 'contacted',
       };
     }
@@ -407,14 +390,14 @@ export async function tryCommitCustomerVisitBooking(
     customerPhone,
     customerName: lead.customerName,
     propertyName: property?.name,
+    suppressCustomerMessage: true,
   });
 
   return {
     committed: true,
     mode: 'pending_approval',
     scheduledAt,
-    customerReply:
-      `Thanks! I've shared your preferred visit time with our sales specialist. You'll receive WhatsApp confirmation once they approve the slot.`,
+    customerReply: formatBuyerVisitPendingApproval(),
     leadStatus: 'contacted',
   };
 }

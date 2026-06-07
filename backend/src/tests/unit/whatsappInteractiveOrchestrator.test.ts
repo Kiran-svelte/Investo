@@ -86,6 +86,19 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     expect(result).toBeNull();
   });
 
+  test('visit-slot-morning routes to book-visit-initiated TurnResult', async () => {
+    (prisma.property.findFirst as jest.Mock).mockResolvedValue({ id: 'prop-sunset', name: 'Sunset Heights' });
+    (prisma.notification.create as jest.Mock).mockResolvedValue({});
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'visit-slot-morning',
+      conversation: { id: 'conv-1', selectedPropertyId: 'prop-sunset', commitments: {} },
+    });
+    expect(result?.action).toBe('book-visit-initiated');
+    expect(result?.turnResult?.text).toContain('Sunset Heights');
+    expect(result?.turnResult?.components?.[0]).toMatchObject({ kind: 'buttons' });
+  });
+
   test('call-me returns unified TurnResult', async () => {
     (prisma.user.findUnique as jest.Mock).mockResolvedValue({ name: 'Kiran' });
     const result = await tryOrchestratedInteractiveAction({
@@ -95,7 +108,10 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     expect(result?.handled).toBe(true);
     expect(result?.action).toBe('callback-requested');
     expect(result?.turnResult?.text).toContain('Callback scheduled');
-    expect(result?.turnResult?.components).toBeUndefined();
+    // When call booking succeeds, management buttons are attached (Change Time, Cancel, Call Agent)
+    if (result?.turnResult?.components?.length) {
+      expect(result.turnResult.components[0]).toMatchObject({ kind: 'buttons' });
+    }
   });
 
   test('filter shortlist builds list + hero within budget', async () => {

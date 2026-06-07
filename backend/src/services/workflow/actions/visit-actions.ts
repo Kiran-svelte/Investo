@@ -5,6 +5,7 @@ import { applyVisitMutationFromChat } from '../../visitMutationFromChat.service'
 import { scheduleVisit, buildVisitIdempotencyKey } from '../../visitBooking.service';
 import { cancelVisitById, rescheduleVisitById } from '../../visitState.service';
 import { buildVisitScopeFilter } from '../../agent/tools/format-helpers';
+import { formatBuyerVisitScheduled, formatBuyerVisitCancelled } from '../../../utils/visitFormat.util';
 import type { ActionContext } from './action-helpers';
 import { fail, failToolResult, ok, requireLeadId, requireVisitId, runNamedTool, skip, mergeStateFromToolOutput } from './action-helpers';
 
@@ -91,20 +92,8 @@ function formatBuyerVisitReply(
   propertyName?: string | null,
   agentName?: string | null,
 ): string {
-  const when = scheduledAt.toLocaleString('en-IN', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Kolkata',
-  });
-  return (
-    `*${title}*\n\n` +
-    `Property: *${propertyName || 'Property'}*\n` +
-    `Date: ${when}\n\n` +
-    `Our specialist${agentName ? ` *${agentName}*` : ''} will confirm details before the visit.`
-  );
+  const mode: 'scheduled' | 'rescheduled' = title.toLowerCase().includes('reschedule') ? 'rescheduled' : 'scheduled';
+  return formatBuyerVisitScheduled(scheduledAt, propertyName || 'Property', agentName, mode);
 }
 
 async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
@@ -134,6 +123,7 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
       companyId: ctx.run.toolContext.companyId,
       visitId: existingVisitId,
       scheduledAt,
+      suppressCustomerNotification: ctx.run.channel === 'buyer',
     });
     if (!result.success) {
       if (result.error === 'past_date') return fail('That time is in the past. Please share a future date and time.');
@@ -380,11 +370,11 @@ export async function cancelVisit(ctx: ActionContext) {
       companyId: ctx.run.toolContext.companyId,
       visitId: existing.id,
       notes: 'Cancelled via WhatsApp buyer workflow',
+      suppressCustomerNotification: true,
     });
     if (!result.success) return fail("I couldn't cancel that visit. Please ask for an agent.");
     return ok(
-      `Your site visit for *${existing.property?.name ?? 'Property'}* has been *cancelled*.\n\n` +
-      `Reply with a new date and time if you'd like to book again.`,
+      formatBuyerVisitCancelled(existing.scheduledAt, existing.property?.name ?? 'Property'),
       { visitId: existing.id, leadId: existing.leadId, ...cancelRollback },
     );
   }

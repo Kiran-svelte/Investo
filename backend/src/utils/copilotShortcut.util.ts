@@ -117,6 +117,14 @@ export function resolveStaffCopilotQuickActions(
     ];
   }
 
+  if (input.replyKind === 'crm' && /\bvisit/i.test(text)) {
+    return [
+      { id: 'copilot-visits-tomorrow', title: 'Visits tomorrow' },
+      { id: 'copilot-new-leads', title: 'New leads today' },
+      { id: 'copilot-confirm-visit', title: 'Confirm visit' },
+    ];
+  }
+
   return null;
 }
 

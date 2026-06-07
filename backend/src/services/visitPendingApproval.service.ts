@@ -5,6 +5,7 @@ import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
 import { scheduleVisit } from './visitBooking.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
+import { formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 
 export interface VisitApprovalPayload {
@@ -94,6 +95,8 @@ export async function createVisitApprovalRequest(input: {
   customerPhone: string;
   customerName?: string | null;
   propertyName?: string;
+  /** When true, skip sending WhatsApp to customer (caller owns the reply). */
+  suppressCustomerMessage?: boolean;
 }): Promise<VisitApprovalPayload> {
   const approvalId = randomUUID();
   const payload: VisitApprovalPayload = {
@@ -148,11 +151,13 @@ export async function createVisitApprovalRequest(input: {
     );
   }
 
-  await whatsappService.sendCompanyTextMessage(
-    payload.customerPhone,
-    `Thanks! I've shared your preferred visit time with our sales specialist *${agent?.name || 'team'}*. You'll receive WhatsApp confirmation once they approve the slot. 🙂`,
-    input.companyId,
-  );
+  if (!input.suppressCustomerMessage) {
+    await whatsappService.sendCompanyTextMessage(
+      payload.customerPhone,
+      formatBuyerVisitPendingApproval(agent?.name),
+      input.companyId,
+    );
+  }
 
   logger.info('Visit approval requested', {
     approvalId,

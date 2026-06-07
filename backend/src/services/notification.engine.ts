@@ -304,7 +304,8 @@ class NotificationEngine {
     oldStatus: string,
     newStatus: string,
     lead: any,
-    company: any
+    company: any,
+    suppressCustomerNotification = false,
   ): Promise<void> {
     const visitTime = new Date(visit.scheduledAt);
     const timeStr = visitTime.toLocaleString('en-IN', {
@@ -352,8 +353,8 @@ class NotificationEngine {
       void sendWhatsAppToUser(agentRecord.phone, visit.companyId, agentMsg);
     }
 
-    // Send WhatsApp to customer
-    if (lead?.phone) {
+    // Send WhatsApp to customer (skip when buyer-initiated cancel/reschedule owns the reply)
+    if (!suppressCustomerNotification && lead?.phone) {
       const whatsappConfig = getCompanyWhatsAppConfig(company);
       if (
         !whatsappConfig.isCompanyConfigured ||

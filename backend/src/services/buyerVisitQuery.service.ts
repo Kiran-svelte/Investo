@@ -7,13 +7,7 @@ import prisma from '../config/prisma';
 import { formatDateIST } from './agent/tools/format-helpers';
 
 function formatVisitWhen(date: Date): string {
-  const time = date.toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
-  return `${formatDateIST(date)} ${time}`;
+  return formatDateIST(date);
 }
 
 const BUYER_VISIT_STATUS_PATTERN = /\b(any\s+visits?|visits?\s+(booked|scheduled|for\s+me|for\s+(?:today|tomorrow|this\s+week)|today|tomorrow|this\s+week|on\b)|(do\s+i|have\s+i|did\s+i)\s+(have\s+)?(any\s+)?(a\s+)?(visit|booking)s?|when\s+(is|was|am\s+i)\s+(my\s+)?(visit|site\s+visit|appointment|booking)|what\s+time\s+(am\s+i|is\s+my\s+visit)|my\s+visit\s+details?|show\s+(my\s+)?visits?|list\s+(my\s+)?visits?|get\s+(my\s+)?visits?|check\s+(my\s+)?visits?|visit\s+status|upcoming\s+visits?|booked\s+for\s+me)\b/i;
@@ -109,11 +103,10 @@ export async function buildBuyerVisitStatusReply(input: {
       `*YOUR VISIT*`,
       '',
       `Property: *${prop}*`,
-      `Date: ${when}`,
+      `When: ${when}`,
       `Status: *${statusLabel(v.status)}*${agentLine}`,
       '',
-      `Would you like to:`,
-      `Confirm | Reschedule | Cancel`,
+      `Tap a button below to *confirm*, *reschedule*, or *call your agent*.`,
     ].join('\n');
   }
 

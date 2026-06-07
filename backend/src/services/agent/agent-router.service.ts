@@ -12,7 +12,6 @@ import { resolveAttendanceButtonCommand } from '../attendanceWorkflow.service';
 import {
   claimStaffCopilotTurn,
   releaseStaffCopilotTurn,
-  claimStaffInboundFingerprint,
   claimStaffCopilotOutboundReply,
 } from '../inboundMessageGuard.service';
 import {
@@ -145,13 +144,11 @@ async function handleAgentMessage(
   // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
   if (isCopilotGreeting(normalizedText)) {
     const text = buildCopilotWelcomeMessage(user.userName, user.companyName);
-    const prisma = await getPrisma();
-    const { getOrCreateThreadId } = await import('./agent-memory.service');
+    const { getOrCreateAgentSession } = await import('./agent-memory.service');
     const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
-    const threadId = await getOrCreateThreadId(user.userId, user.phone, user.companyId);
-    const session = await prisma.agentSession.findUnique({ where: { threadId }, select: { id: true } });
+    const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
     await recordAgentCopilotExchange({
-      sessionId: session?.id,
+      sessionId: agentSession.id,
       inboundText: resolvedCommand || messageText,
       outboundText: text,
     });
@@ -159,11 +156,29 @@ async function handleAgentMessage(
   }
 
   const prisma = await getPrisma();
-  const { getOrCreateThreadId } = await import('./agent-memory.service');
+  const { getOrCreateAgentSession } = await import('./agent-memory.service');
   const { checkAndResolvePendingConfirmation, executePendingAction } = await import('./confirmation.service');
   const { invokeAgent } = await import('./agent-graph.service');
-  const threadId = await getOrCreateThreadId(user.userId, user.phone, user.companyId);
-  const session = await prisma.agentSession.findUnique({ where: { threadId } });
+  const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
+  const threadId = agentSession.threadId;
+  const session = { id: agentSession.id };
+
+  if (!isViewer) {
+    const { tryStaffMessageForward } = await import('../staffMessageForward.service');
+    const forwarded = await tryStaffMessageForward({
+      user,
+      messageText: resolvedCommand || messageText,
+    });
+    if (forwarded.handled) {
+      const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
+      await recordAgentCopilotExchange({
+        sessionId: agentSession.id,
+        inboundText: resolvedCommand || messageText,
+        outboundText: forwarded.text,
+      });
+      return { text: forwarded.text, replyKind: 'workflow' };
+    }
+  }
 
   if (session && attendanceCommand === 'reschedule') {
     const pendingAttendance = await prisma.pendingAction.findFirst({
@@ -188,6 +203,48 @@ async function handleAgentMessage(
         replyKind: 'confirmation',
       };
     }
+  }
+
+  const { getAgentSessionContext } = await import('../clientMemory.service');
+  const sessionCtx = await getAgentSessionContext(session?.id);
+
+  const toolContext: ToolContext = {
+    userId: user.userId,
+    companyId: user.companyId,
+    userRole: user.userRole,
+    userName: user.userName,
+    sessionId: session?.id,
+    staffPhone: user.phone,
+    companyName: user.companyName,
+    sessionLeadId: sessionCtx.lastLeadId,
+    sessionVisitId: sessionCtx.lastVisitId,
+  };
+  const { getRecentAgentSessionMessages } = await import('./agent-session-messages.service');
+  const { classifyAndRunWorkflow } = await import('../workflow/workflow-engine.service');
+  const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } =
+    await import('./agent-intent-orchestrator.service');
+  const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
+
+  // Deterministic CRM before pending confirmations — stale attendance checks must not block "visits today".
+  const { tryDeterministicAgentCrmReply } = await import('./agent-crm-query.service');
+  const crmReply = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
+    sessionLeadId: sessionCtx.lastLeadId,
+  });
+  if (crmReply) {
+    await recordAgentCopilotExchange({
+      sessionId: session.id,
+      inboundText: resolvedCommand || messageText,
+      outboundText: crmReply,
+    });
+    if (!isViewer) {
+      await patchStaffCopilotLeadMemory(
+        sessionCtx.lastLeadId,
+        'staff_copilot_crm',
+        normalizedText,
+        crmReply,
+      );
+    }
+    return { text: crmReply, replyKind: 'crm' };
   }
 
   if (session) {
@@ -215,50 +272,6 @@ async function handleAgentMessage(
         replyKind: 'confirmation',
       };
     }
-  }
-
-  const { getAgentSessionContext } = await import('../clientMemory.service');
-  const sessionCtx = await getAgentSessionContext(session?.id);
-
-  const toolContext: ToolContext = {
-    userId: user.userId,
-    companyId: user.companyId,
-    userRole: user.userRole,
-    userName: user.userName,
-    sessionId: session?.id,
-    staffPhone: user.phone,
-    companyName: user.companyName,
-    sessionLeadId: sessionCtx.lastLeadId,
-    sessionVisitId: sessionCtx.lastVisitId,
-  };
-  const { getRecentAgentSessionMessages } = await import('./agent-session-messages.service');
-  const { classifyAndRunWorkflow } = await import('../workflow/workflow-engine.service');
-  const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } =
-    await import('./agent-intent-orchestrator.service');
-  const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
-
-  // Deterministic CRM before workflow LLM (avoids misclassifying "update status … today" as list leads)
-  const { tryDeterministicAgentCrmReply } = await import('./agent-crm-query.service');
-  const crmReply = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
-    sessionLeadId: sessionCtx.lastLeadId,
-  });
-  if (crmReply) {
-    if (session?.id) {
-      await recordAgentCopilotExchange({
-        sessionId: session.id,
-        inboundText: resolvedCommand || messageText,
-        outboundText: crmReply,
-      });
-      if (!isViewer) {
-        await patchStaffCopilotLeadMemory(
-          sessionCtx.lastLeadId,
-          'staff_copilot_crm',
-          normalizedText,
-          crmReply,
-        );
-      }
-    }
-    return { text: crmReply, replyKind: 'crm' };
   }
 
   if (!isViewer) {
@@ -476,17 +489,19 @@ export async function routeIfInternalUserForCompany(
     config.agentAi?.enabled !== false && config.agentAi?.copilotEnabled !== false;
   if (!copilotActive || !resolvedText.trim()) return false;
 
-  const fingerprintClaimed = await claimStaffInboundFingerprint(
-    user.companyId,
-    user.userId,
-    resolvedText,
-  );
-  if (!fingerprintClaimed) {
-    return true;
-  }
+  // Inbound messageId dedup (claimInboundMessageFull) already prevents Meta retries.
+  // Do not fingerprint by text — staff legitimately repeat "visits today" etc.
 
   const turnClaimed = await claimStaffCopilotTurn(user.companyId, user.userId);
   if (!turnClaimed) {
+    const normalizedPhone = normalizeInboundWhatsAppPhone(senderPhone);
+    if (await claimStaffCopilotOutboundReply(user.companyId, inboundMessageId)) {
+      await sendWhatsAppResponse(
+        normalizedPhone,
+        user.companyId,
+        'Still working on your last message — please wait a moment, then try again.',
+      );
+    }
     return true;
   }
 

@@ -14,7 +14,9 @@ import {
 import {
   buildAgentScopeFilter,
   buildVisitScopeFilter,
+  CRM_WHATSAPP_LIST_LIMIT,
   formatDateIST,
+  formatStatusLabel,
   getISTDayBounds,
   getStatusEmoji,
   getTodayIST,
@@ -130,10 +132,21 @@ function formatVisitLine(visit: {
   return [
     `${getStatusEmoji(visit.status)} *${visit.lead?.customerName ?? 'Unknown'}* (${maskPhone(visit.lead?.phone)})`,
     `Property: ${visit.property?.name ?? 'TBD'}`,
-    `Time: ${formatDateIST(visit.scheduledAt)} | Status: ${visit.status}`,
+    `Time: ${formatDateIST(visit.scheduledAt)} | Status: ${formatStatusLabel(visit.status)}`,
     `Agent: ${visit.agent?.name ?? 'Unassigned'}`,
-    `ID: ${visit.id}`,
   ].join('\n');
+}
+
+function formatListWithCap<T>(items: T[], format: (item: T, index: number) => string, emptyMessage: string): string {
+  if (!items.length) return emptyMessage;
+  const shown = items.slice(0, CRM_WHATSAPP_LIST_LIMIT);
+  const lines = shown.map(format);
+  if (items.length > CRM_WHATSAPP_LIST_LIMIT) {
+    lines.push(
+      `_+${items.length - CRM_WHATSAPP_LIST_LIMIT} more — open the Investo dashboard for the full list._`,
+    );
+  }
+  return lines.join('\n\n');
 }
 
 async function fetchVisitsForDate(
@@ -155,7 +168,12 @@ async function fetchVisitsForDate(
     return `No visits scheduled for ${label.toLowerCase()} (${date}).`;
   }
   const heading = label === 'Today' || label === 'Tomorrow' ? `*${label}'s visits (${date})*` : `*Visits on ${label} (${date})*`;
-  return [heading, ...visits.map(formatVisitLine)].join('\n\n');
+  const body = formatListWithCap(
+    visits,
+    (visit) => formatVisitLine(visit),
+    '',
+  );
+  return `${heading}\n\n${body}`;
 }
 
 async function fetchLeadsAddedToday(context: ToolContext): Promise<string> {
@@ -165,20 +183,26 @@ async function fetchLeadsAddedToday(context: ToolContext): Promise<string> {
       ...buildAgentScopeFilter(context.companyId, context.userRole, context.userId),
       createdAt: { gte: start, lte: end },
     },
-    include: { assignedAgent: { select: { name: true } } },
+    select: {
+      id: true,
+      customerName: true,
+      phone: true,
+      status: true,
+      assignedAgent: { select: { name: true } },
+    },
     orderBy: { createdAt: 'desc' },
     take: 25,
   });
   if (!leads.length) {
     return `No new leads were added today (${getTodayIST()}) in your scope.`;
   }
-  return [
-    `*New leads today (${getTodayIST()})*`,
-    ...leads.map(
-      (lead, i) =>
-        `${i + 1}. ${getStatusEmoji(lead.status)} *${lead.customerName ?? 'Unknown'}* ${maskPhone(lead.phone)}\n   Status: ${lead.status} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}\n   ID: ${lead.id}`,
-    ),
-  ].join('\n\n');
+  const body = formatListWithCap(
+    leads,
+    (lead, i) =>
+      `${i + 1}. ${getStatusEmoji(lead.status)} *${lead.customerName ?? 'Unknown'}* ${maskPhone(lead.phone)}\n   Status: ${formatStatusLabel(lead.status)} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}`,
+    '',
+  );
+  return `*New leads today (${getTodayIST()})*\n\n${body}`;
 }
 
 function wantsVisitTomorrow(text: string): boolean {

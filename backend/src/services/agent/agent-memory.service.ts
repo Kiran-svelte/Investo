@@ -26,6 +26,16 @@ export async function getCheckpointer(): Promise<Checkpointer | null> {
 }
 
 export async function getOrCreateThreadId(userId: string, phone: string, companyId: string): Promise<string> {
+  const session = await getOrCreateAgentSession(userId, phone, companyId);
+  return session.threadId;
+}
+
+/** Returns stable agent session ids for copilot exchange logging. */
+export async function getOrCreateAgentSession(
+  userId: string,
+  phone: string,
+  companyId: string,
+): Promise<{ id: string; threadId: string }> {
   const existing = await prisma.agentSession.findFirst({
     where: { userId, phone, status: 'active' },
     select: { id: true, threadId: true },
@@ -37,14 +47,15 @@ export async function getOrCreateThreadId(userId: string, phone: string, company
       where: { id: existing.id },
       data: { lastActiveAt: new Date() },
     });
-    return existing.threadId;
+    return { id: existing.id, threadId: existing.threadId };
   }
 
   const threadId = `agent-${userId}-${Date.now()}`;
-  await prisma.agentSession.create({
+  const created = await prisma.agentSession.create({
     data: { userId, phone, companyId, threadId, status: 'active' },
+    select: { id: true, threadId: true },
   });
-  return threadId;
+  return created;
 }
 
 export async function destroyCheckpointer(): Promise<void> {

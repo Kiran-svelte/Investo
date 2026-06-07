@@ -1,4 +1,5 @@
 import prisma from '../config/prisma';
+import logger from '../config/logger';
 
 export type BuyerPropertyContextProperty = {
   id: string;
@@ -60,6 +61,17 @@ async function findPropertyMentionedByName(
   return matches[0]?.property.id ?? null;
 }
 
+/**
+ * Returns true when the message explicitly names a property (proper noun or project keyword)
+ * that is NOT just a follow-up on a prior context. When the user says "book visit for
+ * Commercial Hub" we must not fall back to a stale selectedPropertyId (e.g. Sunset Heights).
+ */
+function hasExplicitPropertyNameIntent(messageText: string): boolean {
+  // Detect "for <PropertyName>", "at <PropertyName>", "of <PropertyName>", "<PropertyName> visit"
+  return /\b(for|at|of|in)\s+[A-Z][a-z]+/i.test(messageText) ||
+    /\b(villa|heights|hub|gardens?|residenc|enclave|court|towers?|park|valley|grove|estate|square|city|bay|lake|phase)\b/i.test(messageText);
+}
+
 export async function resolveBuyerPropertyReference(input: {
   companyId: string;
   messageText: string;
@@ -68,6 +80,17 @@ export async function resolveBuyerPropertyReference(input: {
 }): Promise<string | null> {
   const byName = await findPropertyMentionedByName(input.companyId, input.messageText);
   if (byName) return byName;
+
+  // If the message explicitly names a specific property that isn't in the catalog,
+  // do NOT silently fall back to selectedPropertyId — that would book the wrong property.
+  // Return null and let the orchestrator ask the user to clarify.
+  if (hasExplicitPropertyNameIntent(input.messageText)) {
+    logger.info('resolveBuyerPropertyReference: explicit name intent but no DB match — returning null to avoid wrong-property fallback', {
+      messageText: input.messageText.slice(0, 80),
+      selectedPropertyId: input.selectedPropertyId,
+    });
+    return null;
+  }
 
   const recommended = [...(input.recommendedPropertyIds ?? [])].filter(Boolean);
   const ordinal = resolveOrdinalReference(input.messageText);

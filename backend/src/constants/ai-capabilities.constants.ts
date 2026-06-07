@@ -20,7 +20,7 @@ export const AI_STACK_CAPABILITIES = {
     staff: 'agent-router → buildClientMemoryContextForAgent → invokeAgent',
   },
   whatsapp_interactive: {
-    quick_reply_buttons: { wired: true, note: 'sendContextualQuickReplies after buyer AI turn' },
+    quick_reply_buttons: { wired: true, note: 'resolveBuyerComponents in whatsappTurnOrchestrator — attached via TurnResult components' },
     interactive_buttons: { wired: true, note: 'sendInteractiveButtons via Meta Cloud API' },
     interactive_list: { wired: true, note: 'Property filter dropdown' },
     catalog_cards: { wired: true, note: 'sendCatalogMessage (image + CTA buttons)' },

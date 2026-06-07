@@ -46,6 +46,30 @@ export function getStatusEmoji(status: string): string {
   return STATUS_EMOJI[status] ?? '';
 }
 
+/** Human-readable pipeline / visit status for WhatsApp (no snake_case). */
+export function formatStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    new: 'New',
+    contacted: 'Contacted',
+    qualified: 'Qualified',
+    visit_scheduled: 'Visit scheduled',
+    visited: 'Visited',
+    negotiation: 'Negotiation',
+    closed_won: 'Closed won',
+    closed_lost: 'Closed lost',
+    scheduled: 'Scheduled',
+    confirmed: 'Confirmed',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+    no_show: 'No-show',
+    rescheduled: 'Rescheduled',
+  };
+  return map[status] ?? status.replace(/_/g, ' ');
+}
+
+/** Max rows in a single staff CRM WhatsApp list before truncating. */
+export const CRM_WHATSAPP_LIST_LIMIT = 8;
+
 export function getISTDayBounds(dateString: string): [Date, Date] {
   return [
     new Date(`${dateString}T00:00:00+05:30`),

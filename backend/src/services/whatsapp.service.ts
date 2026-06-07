@@ -15,7 +15,6 @@ import { simulateHumanReplyPacing } from './whatsappPresence.service';
 import { withRetry } from '../utils/retry';
 import { buildGroundedFactsBlock } from './groundingGuard.service';
 import { propertyToCompletenessInput } from './propertyCompleteness.service';
-import { matchCatalogPropertiesForQuery } from './propertyKnowledge.service';
 import { normalizeInboundWhatsAppPhone, phonesMatchLast10 } from '../utils/phoneMatch';
 import {
   routeCompanyScopedInbound,
@@ -1093,9 +1092,6 @@ export class WhatsAppService {
       },
       conversationState,
     ).catch(async (err: unknown) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44596a'},body:JSON.stringify({sessionId:'44596a',location:'whatsapp.service.ts:orchestratorCatch',message:'orchestrator_threw',data:{error:err instanceof Error ? err.message : String(err),messagePreview:msg.messageText.slice(0,40),conversationId:conversation.id},timestamp:Date.now(),hypothesisId:'A',runId:'post-fix'})}).catch(()=>{});
-      // #endregion
       logOutboundBranch('H9', 'whatsapp.service.ts:orchestratorCatch', 'buyer_ai_catch_fallback', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -2158,58 +2154,6 @@ export class WhatsAppService {
   }
 
   /**
-   * When the customer names a type + area (e.g. "villa near Anekal"), send brochure for the best catalog match.
-   */
-  private async maybeSendCatalogBrochureForQuery(input: {
-    companyId: string;
-    customerPhone: string;
-    messageText: string;
-    whatsappConfig: CompanyWhatsAppConfig;
-  }): Promise<void> {
-    const text = input.messageText.trim();
-    if (!text || text.length < 8) {
-      return;
-    }
-
-    const wantsBrochure = /\b(brochure|pdf|details|send|share)\b/i.test(text);
-    const hasTypeOrLocation = /\b(villa|apartment|flat|plot|commercial|near|in)\b/i.test(text);
-    if (!wantsBrochure && !hasTypeOrLocation) {
-      return;
-    }
-
-    try {
-      const matches = await matchCatalogPropertiesForQuery({
-        companyId: input.companyId,
-        query: text,
-        limit: 3,
-      });
-      const top = matches.find((m) => m.brochureUrl && m.score >= 3) ?? matches.find((m) => m.brochureUrl);
-      if (!top?.brochureUrl) {
-        return;
-      }
-
-      const locationLabel = [top.locationArea, top.locationCity].filter(Boolean).join(', ');
-      const intro = locationLabel
-        ? `Here is the project for *${top.name}* (${top.propertyType}) near ${locationLabel}:`
-        : `Here is the project for *${top.name}* (${top.propertyType}):`;
-
-      await this.sendMessage(input.customerPhone, intro, input.whatsappConfig);
-      await this.sendPropertyBrochure(
-        input.customerPhone,
-        top.brochureUrl,
-        top.name,
-        input.whatsappConfig,
-      );
-      // Intro only — PDF is sent by sendPropertyBrochure (no link in chat)
-    } catch (err: unknown) {
-      logger.warn('Catalog brochure auto-send skipped', {
-        companyId: input.companyId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  /**
    * Send property brochure if available.
    * @param to - Recipient phone number
    * @param brochureUrl - URL to brochure PDF
@@ -2477,7 +2421,6 @@ export class WhatsAppService {
     // ---- EMI Calculator Request ----
     if (interactiveId === 'emi-calculator' || interactiveId === 'calculate-emi') {
       const propertyId = conversation.selectedPropertyId;
-      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
       const property = propertyId
         ? await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } })
         : null;
@@ -2493,33 +2436,36 @@ export class WhatsAppService {
           tenureMonths: 240,
         });
 
-        await this.sendMessage(
-          customerPhone,
-          `📊 *EMI Estimate for ${property.name}*\n\n💰 Property Price: ₹${(emi.principal / 100000).toFixed(2)} Lakhs\n📉 Down Payment (20%): ₹${(emi.downPayment / 100000).toFixed(2)} Lakhs\n📈 Loan Amount: ₹${(emi.loanAmount / 100000).toFixed(2)} Lakhs\n💳 EMI (20 yrs @ 8.5%): ₹${Math.round(emi.monthlyEmi).toLocaleString('en-IN')}/month\n\nThis is an estimate. You can fine-tune values in the dashboard EMI calculator for exact planning.`,
-          whatsappConfig
-        );
-
-        await this.sendInteractiveButtons(
-          customerPhone,
-          'Would you like to continue?',
-          [
-            { id: `book-visit-${property.id}`, title: 'Book Visit' },
-            { id: 'call-me', title: 'Call Me' },
-            { id: `more-info-${property.id}`, title: 'More Info' },
-          ],
-          null,
-          null,
-          whatsappConfig
-        );
-      } else {
-        await this.sendMessage(
-          customerPhone,
-          'I can help you calculate EMI. Please select a property first, or share your budget and down payment.',
-          whatsappConfig
-        );
+        // Return as TurnResult (single outbound: body = EMI text, buttons = next steps)
+        const emiText = `📊 *EMI Estimate for ${property.name}*\n\n💰 Property Price: ₹${(emi.principal / 100000).toFixed(2)} Lakhs\n📉 Down Payment (20%): ₹${(emi.downPayment / 100000).toFixed(2)} Lakhs\n📈 Loan Amount: ₹${(emi.loanAmount / 100000).toFixed(2)} Lakhs\n💳 EMI (20 yrs @ 8.5%): ₹${Math.round(emi.monthlyEmi).toLocaleString('en-IN')}/month\n\nThis is an estimate. What would you like to do next?`;
+        return {
+          handled: true,
+          action: 'emi-calculated',
+          turnResult: {
+            audience: 'buyer',
+            handled: true,
+            text: emiText,
+            components: [{
+              kind: 'buttons' as const,
+              buttons: [
+                { id: `book-visit-${property.id}`, title: 'Book Visit' },
+                { id: 'call-me', title: 'Call Me' },
+                { id: `more-info-${property.id}`, title: 'More Info' },
+              ],
+            }],
+          },
+        };
       }
 
-      return { handled: true, action: 'emi-calculated' };
+      return {
+        handled: true,
+        action: 'emi-no-property',
+        turnResult: {
+          audience: 'buyer',
+          handled: true,
+          text: 'I can help you calculate EMI. Please select a property first, or share your budget and down payment.',
+        },
+      };
     }
 
     // ---- Unrecognized action - let AI handle it ----

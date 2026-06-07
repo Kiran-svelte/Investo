@@ -79,6 +79,41 @@ describe('tryDeterministicAgentCrmReply', () => {
         assignedAgent: { name: 'Agent' },
       },
     ]);
+    const result = await tryDeterministicAgentCrmReply(ctx, 'new leads today');
+    expect(result).toContain('New leads today');
+    expect(result).toContain('Priya');
+    expect(result).not.toMatch(/\bID:\s*[0-9a-f-]/i);
+  });
+
+  it('caps long visit lists and omits internal IDs', async () => {
+    const visits = Array.from({ length: 12 }, (_, i) => ({
+      id: `v-${i}`,
+      status: 'no_show',
+      scheduledAt: new Date(),
+      lead: { customerName: `User ${i}`, phone: '+919999999999' },
+      property: { name: 'Sunset Heights' },
+      agent: { name: 'Agent' },
+    }));
+    mockPrisma.visit.findMany.mockResolvedValue(visits);
+    const result = await tryDeterministicAgentCrmReply(ctx, 'visits today');
+    expect(result).toContain("Today's visits");
+    expect(result).toContain('+4 more');
+    expect(result).not.toMatch(/\bID:\s*[0-9a-f-]/i);
+    expect(result).toContain('No-show');
+    expect(result).not.toContain('no_show');
+  });
+
+  it('returns new leads today (alternate phrasing)', async () => {
+    mockPrisma.lead.findMany.mockResolvedValue([
+      {
+        id: 'l1',
+        status: 'new',
+        customerName: 'Priya',
+        phone: '+919888888888',
+        source: 'whatsapp',
+        assignedAgent: { name: 'Agent' },
+      },
+    ]);
     const result = await tryDeterministicAgentCrmReply(
       ctx,
       'Which are the new leads we got today',
