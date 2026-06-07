@@ -367,6 +367,25 @@ export async function tryHandleCallApprovalInteractive(
   return true;
 }
 
+/** Text-based call approval reply — agent types "approve", "decline", etc. */
+export async function tryHandleAgentCallApprovalReply(
+  user: { userId: string; companyId: string; phone: string },
+  messageText: string,
+): Promise<boolean> {
+  const text = messageText.trim().toLowerCase().replace(/^[^a-z]+/, ''); // strip emoji prefix
+  const isYes = /^(yes|y|confirm|approved|ok|okay|approve)\b/.test(text);
+  const isNo = /^(no|n|decline|reject|cancel)\b/.test(text);
+  if (!isYes && !isNo) return false;
+
+  const pending = await findPendingCallApproval({ companyId: user.companyId, agentId: user.userId });
+  if (!pending) return false;
+
+  const result = await resolveCallApproval(pending.callId, isYes, user.companyId, user.userId);
+  const { whatsappService } = await import('./whatsapp.service');
+  await whatsappService.sendCompanyTextMessage(user.phone, result.message, user.companyId);
+  return true;
+}
+
 export async function buildBuyerCallStatusReply(input: {
   companyId: string;
   leadId: string;

@@ -35,8 +35,8 @@ export type SanitizeStaffOutboundInput = {
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 const BUYER_INTERNAL_LINE =
   /^(ID:|Match score:|Workflow|grounded|propertyId:|handler not configured|Confidence:|Sources:)/i;
-// Strip trailing LLM-hallucinated signatures like "— Palm via Investo" or "— Riya"
-const TRAILING_SIGNATURE_RE = /\s*—\s*[\w\s]+(\s+via\s+[\w\s]+)?\s*$/i;
+// Strip trailing LLM-hallucinated signatures like "— Palm via Investo", "— *Palm* via Investo", "— Riya"
+const TRAILING_SIGNATURE_RE = /\s*—\s*[\w\s*_]+(\s+via\s+[\w\s*_]+)?\s*$/i;
 
 /**
  * Strip UUIDs, internal metadata, and workflow leakage from buyer-facing text.

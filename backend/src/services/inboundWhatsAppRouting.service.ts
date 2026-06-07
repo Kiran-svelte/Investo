@@ -140,6 +140,15 @@ export async function routeCompanyScopedInbound(params: {
       };
     }
 
+    const { tryHandleAgentCallApprovalReply } = await import('./callRequest.service');
+    const callApprovalHandled = await tryHandleAgentCallApprovalReply(companyUser, params.messageText);
+    if (callApprovalHandled) {
+      return {
+        handled: true,
+        route: { kind: 'agent_copilot', userId: companyUser.userId, companyId: companyUser.companyId },
+      };
+    }
+
     const copilotActive =
       config.agentAi?.enabled !== false && config.agentAi?.copilotEnabled !== false;
 
