@@ -31,6 +31,7 @@ import { resolveBuyerComponents } from './buyer/buyerButtonPolicy.service';
 import {
   beginOutboundTurn,
   claimPrimaryOutboundSend,
+  releasePrimaryOutboundClaim,
   endOutboundTurn,
   logOutboundBranch,
   logOutboundSend,
@@ -943,9 +944,6 @@ export class WhatsAppService {
 
     // 3.5. Handle interactive button/list responses
     if (msg.interactiveId && conversation.status === 'ai_active' && conversation.aiEnabled) {
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H1',location:'whatsapp.service.ts:interactiveBranch',message:'interactive_path_enter',data:{interactiveId:msg.interactiveId,conversationId:conversation.id},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       const actionResult = await this.handleInteractiveAction({
         interactiveId: msg.interactiveId,
         interactiveType: msg.interactiveType,
@@ -984,10 +982,8 @@ export class WhatsAppService {
               },
             });
           }
-          if (await claimOutboundAiReply(companyId, msg.messageId)) {
-            // #region agent log
-            fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H2',location:'whatsapp.service.ts:interactiveSend',message:'interactive_sendTurnResult',data:{action:actionResult.action,hasButtons:Boolean(actionResult.turnResult.components?.length),preview:outboundText?.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
+          const outboundClaimed = await claimOutboundAiReply(companyId, msg.messageId);
+          if (outboundClaimed) {
             await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig!);
             incrementOpsMetric('whatsapp_outbound');
           }
@@ -1025,12 +1021,6 @@ export class WhatsAppService {
     }
 
     // 4. Any non-staff WhatsApp sender is a prospect — AI state already refreshed above for interactive routing.
-    if (msg.interactiveId) {
-      // #region agent log
-      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H1',location:'whatsapp.service.ts:interactiveSkipped',message:'interactive_not_handled',data:{interactiveId:msg.interactiveId,status:conversation.status,aiEnabled:conversation.aiEnabled},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-    }
-
     const history = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: 'asc' },
@@ -1116,7 +1106,8 @@ export class WhatsAppService {
     });
 
     if (turnResult.text?.trim()) {
-      if (await claimOutboundAiReply(companyId, msg.messageId)) {
+      const orchestratorClaimed = await claimOutboundAiReply(companyId, msg.messageId);
+      if (orchestratorClaimed) {
         await simulateHumanReplyPacing({
           to: customerPhone,
           whatsappConfig: whatsappConfig!,
@@ -1630,6 +1621,7 @@ export class WhatsAppService {
       if (!response.ok) {
         const errorText = await response.text();
         logger.error('WhatsApp sendInteractiveButtons API error', { status: response.status, error: errorText });
+        releasePrimaryOutboundClaim('H5', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons_api_fail');
         return { success: false, error: `API Error: ${response.status}` };
       }
 
@@ -1644,6 +1636,7 @@ export class WhatsAppService {
       logger.info('WhatsApp interactive buttons sent', { messageId, to, buttonCount: buttons.length });
       return { success: true, messageId };
     } catch (err: any) {
+      releasePrimaryOutboundClaim('H5', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons_exception');
       logger.error('Failed to send WhatsApp interactive buttons', { error: err.message });
       return { success: false, error: err.message };
     }
@@ -1690,6 +1683,11 @@ export class WhatsAppService {
       return { success: false, error: 'Maximum 10 rows allowed' };
     }
 
+    if (!claimPrimaryOutboundSend('H4', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList', to)) {
+      logger.warn('Blocked duplicate primary WhatsApp list send for this inbound turn');
+      return { success: false, error: 'Duplicate primary outbound blocked' };
+    }
+
     try {
       const payload = buildListMessage(bodyText, buttonText, sections, to, headerText, footerText);
 
@@ -1705,14 +1703,20 @@ export class WhatsAppService {
       if (!response.ok) {
         const errorText = await response.text();
         logger.error('WhatsApp sendInteractiveList API error', { status: response.status, error: errorText });
+        releasePrimaryOutboundClaim('H5', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList_api_fail');
         return { success: false, error: `API Error: ${response.status}` };
       }
 
       const result = await response.json() as { messages?: Array<{ id: string }> };
       const messageId = result.messages?.[0]?.id;
+      logOutboundSend('H4', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList', bodyText, {
+        sectionCount: sections.length,
+        rowCount: totalRows,
+      });
       logger.info('WhatsApp interactive list sent', { messageId, to, sections: sections.length, rows: totalRows });
       return { success: true, messageId };
     } catch (err: any) {
+      releasePrimaryOutboundClaim('H5', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList_exception');
       logger.error('Failed to send WhatsApp interactive list', { error: err.message });
       return { success: false, error: err.message };
     }
@@ -1940,6 +1944,9 @@ export class WhatsAppService {
       );
       if (result.success) return true;
 
+      if (result.error !== 'Duplicate primary outbound blocked') {
+        releasePrimaryOutboundClaim('H5', 'whatsapp.service.ts:sendPrimaryTurnPayload', 'buttons_failed_fallback');
+      }
       logger.warn('Primary interactive button send failed; falling back to text', {
         to: maskPhoneNumberForLogs(to),
         error: result.error,
@@ -1961,18 +1968,34 @@ export class WhatsAppService {
       );
       if (result.success) return true;
 
+      if (result.error !== 'Duplicate primary outbound blocked') {
+        releasePrimaryOutboundClaim('H5', 'whatsapp.service.ts:sendPrimaryTurnPayload', 'list_failed_fallback');
+      }
       logger.warn('Primary interactive list send failed; falling back to text', {
         to: maskPhoneNumberForLogs(to),
         error: result.error,
       });
     }
 
+    logOutboundBranch('H4', 'whatsapp.service.ts:primaryPayload', 'primary_text', {
+      hadInteractive: Boolean(interactive),
+    });
     logOutboundSend('H4', 'whatsapp.service.ts:primaryPayload', 'primary_text', body);
     return this.sendMessage(to, body, whatsappConfig);
   }
 
+  private appendFoldedMediaToBody(body: string, media: { url: string; mime: string; caption?: string }): string {
+    if (!media.url || body.includes(media.url)) return body;
+    if (media.mime.startsWith('image/')) {
+      const label = media.caption ? `📷 ${media.caption}` : '📷 Photo';
+      return `${body}\n\n${label}\n${media.url}`;
+    }
+    const label = media.caption ? `📄 ${media.caption}` : '📄 Document';
+    return `${body}\n\n${label}\n${media.url}`;
+  }
+
   /**
-   * Send a complete buyer/staff turn: one primary payload, then optional media.
+   * Send a complete buyer/staff turn: exactly one customer-visible WhatsApp message.
    */
   async sendTurnResult(
     to: string,
@@ -1981,32 +2004,28 @@ export class WhatsAppService {
   ): Promise<void> {
     if (!result.handled) return;
 
-    // #region agent log
-    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H4',location:'whatsapp.service.ts:sendTurnResult',message:'sendTurnResult_enter',data:{hasText:Boolean(result.text?.trim()),componentKinds:result.components?.map((c)=>c.kind),preview:result.text?.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-
     const hasText = Boolean(result.text?.trim());
     const media = result.components?.find((c) => c.kind === 'media');
     const nonMediaComponents = result.components?.filter((c) => c.kind !== 'media');
 
     if (!hasText && !media) return;
 
-    if (hasText) {
-      const primarySent = await this.sendPrimaryTurnPayload(
-        to,
-        result.text!,
-        nonMediaComponents,
-        whatsappConfig,
-      );
-      if (!primarySent && !media) return;
-    }
-
-    if (media?.kind === 'media' && media.url) {
+    // Media-only turn (e.g. brochure PDF as the sole payload)
+    if (!hasText && media?.kind === 'media' && media.url) {
       if (media.mime.startsWith('image/')) {
         await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig).catch(() => undefined);
       } else {
         await this.sendDocument(to, media.url, 'document.pdf', media.caption ?? null, whatsappConfig).catch(() => undefined);
       }
+      return;
+    }
+
+    if (hasText) {
+      let body = result.text!.trim();
+      if (media?.kind === 'media' && media.url) {
+        body = this.appendFoldedMediaToBody(body, media);
+      }
+      await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);
     }
   }
 
@@ -2252,54 +2271,48 @@ export class WhatsAppService {
       });
     }
 
-    // ---- Show Location (legacy direct send) ----
+    // ---- Show Location (TurnResult — single dispatch via sendTurnResult) ----
     if (interactiveId.startsWith('location-')) {
       const propertyId = interactiveId.replace('location-', '');
-      // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
       const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
 
       if (!property) {
         return { handled: false };
       }
 
-      // Use latitude/longitude from schema
       const lat = property.latitude !== null && property.latitude !== undefined ? Number(property.latitude) : null;
       const lng = property.longitude !== null && property.longitude !== undefined ? Number(property.longitude) : null;
 
-      // Format address from available fields
-      const formatAddress = (p: any) => {
+      const formatAddress = (p: typeof property) => {
         const parts = [p.locationArea, p.locationCity, p.locationPincode].filter(Boolean);
         return parts.length > 0 ? parts.join(', ') : '';
       };
 
+      const addressText = formatAddress(property) || 'Address not available';
+      let locationText: string;
       if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
-        const locationResult = await this.sendLocation(
-          customerPhone,
-          lat,
-          lng,
-          property.name,
-          formatAddress(property),
-          whatsappConfig
-        );
-        if (!locationResult.success) {
-          const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-          await this.sendMessage(
-            customerPhone,
-            `Location: ${property.name}\n${formatAddress(property) || 'Address not available'}\n${mapsUrl}`,
-            whatsappConfig,
-          );
-        }
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+        locationText = `📍 *${property.name}*\n\n${addressText}\n\nOpen in Maps: ${mapsUrl}`;
       } else {
-        // No coordinates - send address as text
-        const addressText = formatAddress(property) || 'Address not available';
-        await this.sendMessage(
-          customerPhone,
-          `📍 *${property.name}*\n\n${addressText}\n\nPlease contact us for directions.`,
-          whatsappConfig
-        );
+        locationText = `📍 *${property.name}*\n\n${addressText}\n\nPlease contact us for directions.`;
       }
 
-      return { handled: true, action: 'location-sent' };
+      return {
+        handled: true,
+        action: 'location-sent',
+        turnResult: {
+          audience: 'buyer',
+          handled: true,
+          text: locationText,
+          components: [{
+            kind: 'buttons' as const,
+            buttons: [
+              { id: `book-visit-${property.id}`, title: 'Book Visit' },
+              { id: `more-info-${property.id}`, title: 'More Info' },
+            ],
+          }],
+        },
+      };
     }
 
     // ---- EMI Calculator Request ----

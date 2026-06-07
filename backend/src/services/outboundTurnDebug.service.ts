@@ -4,7 +4,7 @@
  */
 
 const DEBUG_ENDPOINT = 'http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e';
-const DEBUG_SESSION = 'b06f20';
+const DEBUG_SESSION = '44596a';
 
 export type OutboundTurnChannel = 'buyer' | 'staff' | 'system';
 
@@ -22,28 +22,12 @@ export interface OutboundTurnContext {
 let activeTurn: OutboundTurnContext | null = null;
 
 function emit(
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown>,
+  _hypothesisId: string,
+  _location: string,
+  _message: string,
+  _data: Record<string, unknown>,
 ): void {
-  // #region agent log
-  fetch(DEBUG_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': DEBUG_SESSION,
-    },
-    body: JSON.stringify({
-      sessionId: DEBUG_SESSION,
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => undefined);
-  // #endregion
+  // Debug ingest disabled — claimPrimaryOutboundSend / turn budget remain active.
 }
 
 export function beginOutboundTurn(ctx: Omit<OutboundTurnContext, 'sendCount' | 'primarySendCount'>): void {
@@ -98,6 +82,7 @@ export function endOutboundTurn(status: string): void {
   emit('H1', 'outboundTurnDebug.service.ts:endOutboundTurn', 'inbound_turn_finished', {
     status,
     totalSends: activeTurn?.sendCount ?? 0,
+    primarySendCount: activeTurn?.primarySendCount ?? 0,
     inboundMessageId: activeTurn?.inboundMessageId ?? null,
     channel: activeTurn?.channel ?? null,
     route: activeTurn?.route ?? null,
@@ -134,4 +119,19 @@ export function claimPrimaryOutboundSend(
   }
   activeTurn.primarySendCount += 1;
   return true;
+}
+
+/** Release a primary claim when interactive API fails so text fallback can send. */
+export function releasePrimaryOutboundClaim(
+  hypothesisId: string,
+  location: string,
+  source: string,
+): void {
+  if (!activeTurn || activeTurn.primarySendCount < 1) return;
+  activeTurn.primarySendCount -= 1;
+  emit(hypothesisId, location, 'primary_outbound_claim_released', {
+    source,
+    primarySendCount: activeTurn.primarySendCount,
+    inboundMessageId: activeTurn.inboundMessageId ?? null,
+  });
 }

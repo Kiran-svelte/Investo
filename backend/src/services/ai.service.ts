@@ -30,6 +30,7 @@ import {
 import { fetchOpenAi, OPENAI_CHAT_URL } from './openaiStatus.service';
 import {
   formatKnowledgeContextForPrompt,
+  getPropertyKnowledgeForProperty,
   searchPropertyKnowledge,
 } from './propertyKnowledge.service';
 import {
@@ -38,6 +39,13 @@ import {
 } from './clientMemory.service';
 import { stripInternalCustomerMeta } from './aiTransparency.service';
 import { extractDateTimeIso } from '../utils/parseDateTimeFromMessage.util';
+import { AI_GLOBAL_RULES_BLOCK } from '../constants/aiGlobalRules.constants';
+import { withBuyerLlmSafeParams } from '../constants/llmSafeParams.constants';
+import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
+import {
+  formatPropertyCatalogLine,
+  type PropertyAiPromptInput,
+} from './propertyAiContext.service';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
 
@@ -84,20 +92,8 @@ interface AiLeadInput {
   status?: string;
 }
 
-/** Minimum shape of a Property record the AI service reads. */
-interface AiPropertyInput {
-  id?: string;
-  name?: string;
-  status?: string;
-  locationArea?: string;
-  locationCity?: string;
-  priceMin?: { toNumber: () => number } | number;
-  priceMax?: { toNumber: () => number } | number;
-  bedrooms?: number;
-  propertyType?: string;
-  amenities?: string | string[] | unknown;
-  brochureUrl?: string | null;
-}
+/** Property catalog row for buyer LLM — see propertyAiContext.service. */
+type AiPropertyInput = PropertyAiPromptInput;
 
 interface AIRequest {
   companyId?: string;
@@ -132,6 +128,9 @@ interface AIRequest {
   messageId?: string;
   /** Pre-extracted datetime from deterministic parser (ISO, no ms). */
   extractedDateTime?: string | null;
+  /** Expanded facts for the property the buyer is currently discussing. */
+  focusedPropertyBlock?: string;
+  focusedPropertyId?: string;
 }
 
 interface AIResponse {
@@ -262,22 +261,47 @@ export class AIService {
       upcomingVisit: request.activeVisit ?? null,
     });
     if (fastPath) {
-      return {
-        text: fastPath.text,
-        detectedLanguage: fastPath.detectedLanguage,
-        newState,
-        nextAction,
-      };
+      const hasPriorOutbound = (request.conversationHistory ?? []).some(
+        (m) => m.senderType === 'ai' || m.senderType === 'agent',
+      );
+      const { containsBannedBuyerPhrase } = await import('../utils/buyerBannedPhraseFilter.util');
+      if (!containsBannedBuyerPhrase(fastPath.text, { hasPriorOutbound, stage: newState.stage })) {
+        return {
+          text: fastPath.text,
+          detectedLanguage: fastPath.detectedLanguage,
+          newState,
+          nextAction,
+        };
+      }
     }
 
-    const knowledgeChunks =
-      request.companyId && !shouldSkipKnowledgeSearchForMessage(
+    const shouldSearchKnowledge =
+      Boolean(request.companyId)
+      && !shouldSkipKnowledgeSearchForMessage(
         request.customerMessage,
         (request.conversationHistory ?? []).length,
-      )
-        ? await searchPropertyKnowledge(request.companyId, request.customerMessage, 8)
-        : [];
-    const knowledgeContext = formatKnowledgeContextForPrompt(knowledgeChunks);
+      );
+
+    const knowledgeQuery = request.focusedPropertyId
+      ? `${request.customerMessage} ${request.properties.find((p) => p.id === request.focusedPropertyId)?.name ?? ''}`.trim()
+      : request.customerMessage;
+
+    const [vectorChunks, focusedChunks] = await Promise.all([
+      shouldSearchKnowledge && request.companyId
+        ? searchPropertyKnowledge(request.companyId, knowledgeQuery, request.focusedPropertyId ? 10 : 8)
+        : Promise.resolve([]),
+      request.companyId && request.focusedPropertyId
+        ? getPropertyKnowledgeForProperty(request.companyId, request.focusedPropertyId, 5)
+        : Promise.resolve([]),
+    ]);
+
+    const mergedChunks = [...focusedChunks];
+    for (const chunk of vectorChunks) {
+      if (!mergedChunks.some((existing) => existing.content === chunk.content)) {
+        mergedChunks.push(chunk);
+      }
+    }
+    const knowledgeContext = formatKnowledgeContextForPrompt(mergedChunks.slice(0, 10));
 
     let clientMemoryContext = '';
     let leadMemoryBlock = '';
@@ -452,6 +476,8 @@ export class AIService {
     const recentConversationBlock = this.formatRecentConversationBlock(conversationHistory);
 
     return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
+${AI_GLOBAL_RULES_BLOCK}
+
 ${liveLeadContextBlock ? `\n${liveLeadContextBlock}\n` : ''}
 ## YOUR MISSION
 You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.
@@ -496,6 +522,8 @@ ${this.disclaimerPromptLine(request)}
 - Persuasion Level: ${aiSettings.persuasionLevel || 7}/10
 - Be helpful, not pushy
 - Empathize before addressing objections
+
+${request.focusedPropertyBlock ? `\n${request.focusedPropertyBlock}\n` : ''}
 
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
@@ -666,16 +694,15 @@ ${PERSONALITY_BLOCK}`;
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.ai.kimiApiKey}`,
       },
-      body: JSON.stringify({
-        model: config.ai.kimi25Model,
-        max_tokens: 1024,
-        temperature: BUYER_LLM_TEMPERATURE,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
-        ],
-      }),
+      body: JSON.stringify(
+        withBuyerLlmSafeParams({
+          model: config.ai.kimi25Model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
+          ],
+        }),
+      ),
     });
 
     if (!response.ok) {
@@ -706,13 +733,12 @@ ${PERSONALITY_BLOCK}`;
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.ai.openaiApiKey}`,
         },
-        body: JSON.stringify({
-          model: config.ai.openaiModel,
-          messages: allMessages,
-          max_tokens: 1024,
-          temperature: BUYER_LLM_TEMPERATURE,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(
+          withBuyerLlmSafeParams({
+            model: config.ai.openaiModel,
+            messages: allMessages,
+          }),
+        ),
       },
       { retries: 2, label: 'whatsapp_ai_chat' },
     );
@@ -770,7 +796,7 @@ ${PERSONALITY_BLOCK}`;
     const historyLength = (request.conversationHistory ?? []).length;
     if (historyLength >= 2) {
       return {
-        text: `I'm temporarily unable to generate a full response right now. Please try again in a few seconds, or type *Talk to agent* for immediate help.`,
+        text: buildSafeBuyerFallback({ activeVisit: request.activeVisit ?? null }),
         detectedLanguage: 'en',
       };
     }

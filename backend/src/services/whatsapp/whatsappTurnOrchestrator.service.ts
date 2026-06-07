@@ -17,6 +17,10 @@ import { criteriaFromLead } from '../alternativeInventory.service';
 import { sanitizeBuyerOutbound } from './whatsappResponseSanitizer.service';
 import { buildGroundedFactsBlock } from '../groundingGuard.service';
 import { propertyToCompletenessInput } from '../propertyCompleteness.service';
+import {
+  buildFocusedPropertyPromptBlock,
+  propertyToAiPromptInput,
+} from '../propertyAiContext.service';
 import { syncLeadScoreFromConversation } from '../leadScoring.service';
 import { transitionLeadStatus, transitionLeadToVisitScheduled } from '../leadTransition.service';
 import { logAgentAction } from '../agent-action-log.service';
@@ -78,11 +82,12 @@ export function isHumanTakeoverActive(conversation: { status: string; aiEnabled:
  * @param stage - Current conversation stage.
  * @returns A single media component, or undefined.
  */
-/** Cap turn components to at most one interactive + one media. */
+/** Cap turn components to one customer-visible payload: interactive wins over separate media. */
 export function enforceTurnComponentBudget(components: WhatsAppComponent[]): WhatsAppComponent[] {
   const interactive = components.find((c) => c.kind === 'buttons' || c.kind === 'list');
+  if (interactive) return [interactive];
   const media = components.find((c) => c.kind === 'media');
-  return [interactive, media].filter((c): c is WhatsAppComponent => Boolean(c));
+  return media ? [media] : [];
 }
 
 export function resolveHeroMediaComponent(
@@ -816,13 +821,44 @@ async function handleFullAiTurn(
     },
   );
 
-  const propertyIdSet = [...new Set([...neverSayNoCtx.exactPropertyIds, ...neverSayNoCtx.alternativePropertyIds])];
+  const resolvedPropertyId = await resolveBuyerPropertyReference({
+    companyId: ctx.companyId,
+    messageText: ctx.input.messageText,
+    selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+    recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
+  });
+
+  const propertyIdSet = [
+    ...new Set([
+      ...neverSayNoCtx.exactPropertyIds,
+      ...neverSayNoCtx.alternativePropertyIds,
+      ...(resolvedPropertyId ? [resolvedPropertyId] : []),
+    ]),
+  ];
   const rawProperties =
     propertyIdSet.length > 0
       ? await prisma.property.findMany({ where: { companyId: ctx.companyId, id: { in: propertyIdSet } } })
       : await prisma.property.findMany({ where: { companyId: ctx.companyId, status: 'available' }, take: 20 });
 
-  const properties: PropertySummary[] = rawProperties.map((p) => ({
+  let allRawProperties = rawProperties;
+  if (resolvedPropertyId && !rawProperties.some((p) => p.id === resolvedPropertyId)) {
+    const focusedRow = await prisma.property.findFirst({
+      where: { id: resolvedPropertyId, companyId: ctx.companyId },
+    });
+    if (focusedRow) {
+      allRawProperties = [focusedRow, ...rawProperties];
+    }
+  }
+
+  const aiProperties = allRawProperties.map(propertyToAiPromptInput);
+  const focusedAiProperty = resolvedPropertyId
+    ? aiProperties.find((p) => p.id === resolvedPropertyId)
+    : undefined;
+  const focusedPropertyBlock = focusedAiProperty
+    ? buildFocusedPropertyPromptBlock(focusedAiProperty)
+    : undefined;
+
+  const properties: PropertySummary[] = allRawProperties.map((p) => ({
     id: p.id,
     name: p.name,
     brochureUrl: p.brochureUrl,
@@ -853,7 +889,7 @@ async function handleFullAiTurn(
       customerMessage: ctx.input.messageText,
       conversationHistory: ctx.history,
       lead,
-      properties,
+      properties: aiProperties,
       aiSettings: aiSettings || {},
       companyName: ctx.companyName,
       conversationState,
@@ -867,13 +903,15 @@ async function handleFullAiTurn(
       activeVisit: liveCtx.activeVisit,
       messageId: ctx.messageId,
       extractedDateTime: extractDateTimeIso(ctx.input.messageText) ?? undefined,
+      focusedPropertyBlock,
+      focusedPropertyId: resolvedPropertyId ?? undefined,
     }),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('AI response timed out after 28s')), 28_000),
     ),
   ]);
 
-  const groundedProperties = rawProperties.map((p) => propertyToCompletenessInput(p));
+  const groundedProperties = allRawProperties.map((p) => propertyToCompletenessInput(p));
   const groundedFactsBlock = buildGroundedFactsBlock(groundedProperties, neverSayNoCtx.promptBlock);
 
   let outboundCandidate = aiResponse.text;
@@ -888,7 +926,8 @@ async function handleFullAiTurn(
 
   const hasPriorOutbound = ctx.history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
   const selectedPropertyName =
-    rawProperties.find((p) => p.id === ctx.input.conversationSelectedPropertyId)?.name ?? null;
+    allRawProperties.find((p) => p.id === (resolvedPropertyId ?? ctx.input.conversationSelectedPropertyId))?.name
+    ?? null;
 
   let outboundText = await sanitizeBuyerOutbound({
     text: outboundCandidate,
@@ -1356,19 +1395,9 @@ export async function orchestrateWhatsAppBuyerTurn(
     recentCustomerMessages,
   });
 
-  const callCommit = await tryCommitCustomerCallBooking({
-    companyId: ctx.companyId,
-    customerMessage: ctx.input.messageText,
-    conversationId: ctx.input.conversationId,
-    lead: { id: ctx.input.leadId, assignedAgentId: ctx.input.leadAssignedAgentId },
-    interactiveId: ctx.input.interactiveId,
-  });
-
   const liveCtx = await getLiveLeadContext(ctx.input.leadId, ctx.companyId);
 
-  const hCall = await handleCallCommitReplyTurn(ctx, callCommit, visitCommit);
-  if (hCall) return hCall;
-
+  // Rapport/dismissal before call commit — bare "Hi" must not fall through to LLM greeting templates.
   const h1b = await handleDismissalTurn(ctx, visitCommit);
   if (h1b) return h1b;
 
@@ -1377,6 +1406,17 @@ export async function orchestrateWhatsAppBuyerTurn(
 
   const h2b = await handleReturningBuyerPivotTurn(ctx, visitCommit);
   if (h2b) return h2b;
+
+  const callCommit = await tryCommitCustomerCallBooking({
+    companyId: ctx.companyId,
+    customerMessage: ctx.input.messageText,
+    conversationId: ctx.input.conversationId,
+    lead: { id: ctx.input.leadId, assignedAgentId: ctx.input.leadAssignedAgentId },
+    interactiveId: ctx.input.interactiveId,
+  });
+
+  const hCall = await handleCallCommitReplyTurn(ctx, callCommit, visitCommit);
+  if (hCall) return hCall;
 
   const h3 = await handleMemoryRecallTurn(ctx, visitCommit);
   if (h3) return h3;

@@ -45,14 +45,12 @@ const emi_service_1 = require("./emi.service");
 const metaMessageBuilder_service_1 = require("./whatsapp/metaMessageBuilder.service");
 const opsMetrics_service_1 = require("./opsMetrics.service");
 const whatsappPresence_service_1 = require("./whatsappPresence.service");
-const propertyKnowledge_service_1 = require("./propertyKnowledge.service");
 const phoneMatch_1 = require("../utils/phoneMatch");
 const inboundWhatsAppRouting_service_1 = require("./inboundWhatsAppRouting.service");
 const inboundMessageGuard_service_1 = require("./inboundMessageGuard.service");
 const buyerButtonPolicy_service_1 = require("./buyer/buyerButtonPolicy.service");
 const outboundTurnDebug_service_1 = require("./outboundTurnDebug.service");
-const visitBooking_service_1 = require("./visitBooking.service");
-const leadTransition_service_1 = require("./leadTransition.service");
+const safeBuyerFallback_util_1 = require("../utils/safeBuyerFallback.util");
 const socket_service_1 = require("./socket.service");
 const leadAssignment_service_1 = require("./leadAssignment.service");
 const leadRouting_service_1 = require("./leadRouting.service");
@@ -370,32 +368,63 @@ class WhatsAppService {
             }
         }
         if (msg.interactiveId &&
-            (msg.interactiveId.startsWith('visit-approve-') || msg.interactiveId.startsWith('visit-decline-'))) {
+            (msg.interactiveId.startsWith('visit-approve-') ||
+                msg.interactiveId.startsWith('visit-decline-') ||
+                msg.interactiveId.startsWith('call-approve-') ||
+                msg.interactiveId.startsWith('call-decline-'))) {
             const { findCompanyUserByPhone } = await Promise.resolve().then(() => __importStar(require('./inboundWhatsAppRouting.service')));
-            const { tryHandleVisitApprovalInteractive } = await Promise.resolve().then(() => __importStar(require('./visitPendingApproval.service')));
             const companyUser = await findCompanyUserByPhone(customerPhone, companyId);
             if (companyUser) {
-                const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
-                    userId: companyUser.userId,
-                    companyId: companyUser.companyId,
-                    phone: companyUser.phone,
-                });
-                if (handled) {
-                    void (0, agent_action_log_service_1.logAgentAction)({
-                        companyId,
-                        triggeredBy: 'inbound_message',
-                        action: 'visitApprovalInteractive',
-                        actorId: companyUser.userId,
-                        resourceType: 'visit',
-                        status: 'success',
-                        inputs: { interactiveId: msg.interactiveId },
+                if (msg.interactiveId.startsWith('visit-approve-') ||
+                    msg.interactiveId.startsWith('visit-decline-')) {
+                    const { tryHandleVisitApprovalInteractive } = await Promise.resolve().then(() => __importStar(require('./visitPendingApproval.service')));
+                    const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
+                        userId: companyUser.userId,
+                        companyId: companyUser.companyId,
+                        phone: companyUser.phone,
                     });
-                    return {
-                        status: 'processed',
-                        reason: 'visit_approval_handled',
-                        companyId,
-                        propagation: notAttempted,
-                    };
+                    if (handled) {
+                        void (0, agent_action_log_service_1.logAgentAction)({
+                            companyId,
+                            triggeredBy: 'inbound_message',
+                            action: 'visitApprovalInteractive',
+                            actorId: companyUser.userId,
+                            resourceType: 'visit',
+                            status: 'success',
+                            inputs: { interactiveId: msg.interactiveId },
+                        });
+                        return {
+                            status: 'processed',
+                            reason: 'visit_approval_handled',
+                            companyId,
+                            propagation: notAttempted,
+                        };
+                    }
+                }
+                else {
+                    const { tryHandleCallApprovalInteractive } = await Promise.resolve().then(() => __importStar(require('./callRequest.service')));
+                    const handled = await tryHandleCallApprovalInteractive(msg.interactiveId, {
+                        userId: companyUser.userId,
+                        companyId: companyUser.companyId,
+                        phone: companyUser.phone,
+                    });
+                    if (handled) {
+                        void (0, agent_action_log_service_1.logAgentAction)({
+                            companyId,
+                            triggeredBy: 'inbound_message',
+                            action: 'callApprovalInteractive',
+                            actorId: companyUser.userId,
+                            resourceType: 'call_request',
+                            status: 'success',
+                            inputs: { interactiveId: msg.interactiveId },
+                        });
+                        return {
+                            status: 'processed',
+                            reason: 'call_approval_handled',
+                            companyId,
+                            propagation: notAttempted,
+                        };
+                    }
                 }
             }
         }
@@ -450,6 +479,7 @@ class WhatsAppService {
             channel: 'buyer',
             inboundMessageId: msg.messageId,
             companyId,
+            customerPhone,
             route: 'buyer_inbound',
         });
         try {
@@ -719,6 +749,27 @@ class WhatsAppService {
                 leadId: lead.id,
                 trigger: 'customer_message',
             });
+            // Reactivate AI before interactive routing — button taps must not fall through to the LLM
+            // because conversation was still agent_active when loaded from DB.
+            const aiReady = await this.ensureProspectConversationAiActive(conversation);
+            conversation = { ...conversation, status: aiReady.status, aiEnabled: aiReady.aiEnabled };
+            if (conversation.status === 'ai_active'
+                && conversation.aiEnabled
+                && conversationState.stage === 'human_escalated') {
+                const resetState = conversationStateMachine_1.conversationStateManager.createInitialState();
+                Object.assign(conversationState, {
+                    stage: 'rapport',
+                    previousStage: 'human_escalated',
+                    stageEnteredAt: new Date(),
+                    messageCount: 0,
+                    consecutiveObjections: 0,
+                    escalationReason: null,
+                    commitments: resetState.commitments,
+                });
+                logger_1.default.info('In-memory conversationState reset from human_escalated to rapport', {
+                    conversationId: conversation.id,
+                });
+            }
             // 3.5. Handle interactive button/list responses
             if (msg.interactiveId && conversation.status === 'ai_active' && conversation.aiEnabled) {
                 const actionResult = await this.handleInteractiveAction({
@@ -739,26 +790,8 @@ class WhatsAppService {
                         conversationId: conversation.id,
                     });
                     // Update conversation state if action provided new state
-                    if (actionResult.newState) {
-                        await prisma_1.default.conversation.update({
-                            where: { id: conversation.id },
-                            data: {
-                                stage: actionResult.newState.stage,
-                                selectedPropertyId: actionResult.newState.selectedPropertyId || conversation.selectedPropertyId,
-                                proposedVisitTime: actionResult.newState.proposedVisitTime || conversation.proposedVisitTime,
-                                ...(actionResult.newState.recommendedPropertyIds && {
-                                    recommendedPropertyIds: actionResult.newState.recommendedPropertyIds,
-                                }),
-                            },
-                        });
-                    }
-                    // Update lead status if action provided new status (state machine)
-                    if (actionResult.leadStatus === 'visit_scheduled') {
-                        await (0, leadTransition_service_1.transitionLeadToVisitScheduled)(lead.id);
-                    }
-                    else if (actionResult.leadStatus) {
-                        await (0, leadTransition_service_1.transitionLeadStatus)(lead.id, actionResult.leadStatus);
-                    }
+                    const { applyInteractiveActionSideEffects } = await Promise.resolve().then(() => __importStar(require('./whatsapp/whatsappInteractivePersist.service')));
+                    await applyInteractiveActionSideEffects(actionResult, lead.id, conversation.id, conversation);
                     // Unified TurnResult dispatch (interactive orchestrator + sendTurnResult)
                     if (actionResult.turnResult) {
                         const outboundText = actionResult.turnResult.text?.trim();
@@ -772,7 +805,8 @@ class WhatsAppService {
                                 },
                             });
                         }
-                        if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                        const outboundClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
+                        if (outboundClaimed) {
                             await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig);
                             (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
                         }
@@ -805,31 +839,7 @@ class WhatsAppService {
                     };
                 }
             }
-            // 4. Any non-staff WhatsApp sender is a prospect — resume AI only when not in human takeover
-            const aiReady = await this.ensureProspectConversationAiActive(conversation);
-            conversation = { ...conversation, status: aiReady.status, aiEnabled: aiReady.aiEnabled };
-            // CRITICAL: If the stage was 'human_escalated' and we just reset it to 'rapport' in the DB,
-            // we must also reset the in-memory conversationState — it was built before the DB update.
-            // Without this, the AI still sees stage='human_escalated' this turn and generates
-            // "A human specialist will assist you" again, which is the bug we are fixing.
-            if (conversation.status === 'ai_active'
-                && conversation.aiEnabled
-                && conversationState.stage === 'human_escalated') {
-                const resetState = conversationStateMachine_1.conversationStateManager.createInitialState();
-                // Preserve any commitments already collected — don't wipe their budget/location data.
-                Object.assign(conversationState, {
-                    stage: 'rapport',
-                    previousStage: 'human_escalated',
-                    stageEnteredAt: new Date(),
-                    messageCount: 0,
-                    consecutiveObjections: 0,
-                    escalationReason: null,
-                    commitments: resetState.commitments,
-                });
-                logger_1.default.info('In-memory conversationState reset from human_escalated to rapport', {
-                    conversationId: conversation.id,
-                });
-            }
+            // 4. Any non-staff WhatsApp sender is a prospect — AI state already refreshed above for interactive routing.
             const history = await prisma_1.default.message.findMany({
                 where: { conversationId: conversation.id },
                 orderBy: { createdAt: 'asc' },
@@ -898,23 +908,18 @@ class WhatsAppService {
                             /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
                     });
                 }
-                try {
-                    await prisma_1.default.message.create({
-                        data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'sent' },
-                    });
-                    if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
-                        await this.sendMessage(customerPhone, fallbackText, whatsappConfig);
-                    }
-                }
-                catch (sendErr) {
-                    logger_1.default.error('Failed to send AI fallback WhatsApp message', {
+                await prisma_1.default.message.create({
+                    data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'sent' },
+                }).catch((sendErr) => {
+                    logger_1.default.error('Failed to persist AI fallback message', {
                         error: sendErr instanceof Error ? sendErr.message : String(sendErr),
                     });
-                }
+                });
                 return { audience: 'buyer', handled: true, terminal: true, text: fallbackText };
             });
             if (turnResult.text?.trim()) {
-                if (await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId)) {
+                const orchestratorClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
+                if (orchestratorClaimed) {
                     await (0, whatsappPresence_service_1.simulateHumanReplyPacing)({
                         to: customerPhone,
                         whatsappConfig: whatsappConfig,
@@ -1072,6 +1077,10 @@ class WhatsAppService {
     async sendMessage(to, text, whatsappConfig) {
         if (!text.trim()) {
             logger_1.default.error('Refusing to send empty WhatsApp message');
+            return false;
+        }
+        if (!(0, outboundTurnDebug_service_1.claimPrimaryOutboundSend)('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', to)) {
+            logger_1.default.warn('Blocked duplicate primary WhatsApp text send for this inbound turn');
             return false;
         }
         (0, outboundTurnDebug_service_1.logOutboundSend)('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', text, {
@@ -1301,6 +1310,10 @@ class WhatsAppService {
             logger_1.default.error('Invalid buttons array', { count: buttons?.length });
             return { success: false, error: 'Must have 1-3 buttons' };
         }
+        if (!(0, outboundTurnDebug_service_1.claimPrimaryOutboundSend)('H4', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons', to)) {
+            logger_1.default.warn('Blocked duplicate primary WhatsApp interactive send for this inbound turn');
+            return { success: false, error: 'Duplicate primary outbound blocked' };
+        }
         try {
             const payload = (0, metaMessageBuilder_service_1.buildButtonMessage)(bodyText, buttons, to, headerText, footerText);
             const response = await fetch(`${config_1.default.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
@@ -1314,14 +1327,22 @@ class WhatsAppService {
             if (!response.ok) {
                 const errorText = await response.text();
                 logger_1.default.error('WhatsApp sendInteractiveButtons API error', { status: response.status, error: errorText });
+                (0, outboundTurnDebug_service_1.releasePrimaryOutboundClaim)('H5', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons_api_fail');
                 return { success: false, error: `API Error: ${response.status}` };
             }
             const result = await response.json();
             const messageId = result.messages?.[0]?.id;
+            (0, outboundTurnDebug_service_1.logOutboundSend)('H4', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons', bodyText, {
+                buttonCount: buttons.length,
+                buttonIds: buttons.map((b) => b.id),
+                hasHeader: Boolean(headerText),
+                hasFooter: Boolean(footerText),
+            });
             logger_1.default.info('WhatsApp interactive buttons sent', { messageId, to, buttonCount: buttons.length });
             return { success: true, messageId };
         }
         catch (err) {
+            (0, outboundTurnDebug_service_1.releasePrimaryOutboundClaim)('H5', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons_exception');
             logger_1.default.error('Failed to send WhatsApp interactive buttons', { error: err.message });
             return { success: false, error: err.message };
         }
@@ -1352,6 +1373,10 @@ class WhatsAppService {
             logger_1.default.error('Too many rows in interactive list', { totalRows });
             return { success: false, error: 'Maximum 10 rows allowed' };
         }
+        if (!(0, outboundTurnDebug_service_1.claimPrimaryOutboundSend)('H4', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList', to)) {
+            logger_1.default.warn('Blocked duplicate primary WhatsApp list send for this inbound turn');
+            return { success: false, error: 'Duplicate primary outbound blocked' };
+        }
         try {
             const payload = (0, metaMessageBuilder_service_1.buildListMessage)(bodyText, buttonText, sections, to, headerText, footerText);
             const response = await fetch(`${config_1.default.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
@@ -1365,14 +1390,20 @@ class WhatsAppService {
             if (!response.ok) {
                 const errorText = await response.text();
                 logger_1.default.error('WhatsApp sendInteractiveList API error', { status: response.status, error: errorText });
+                (0, outboundTurnDebug_service_1.releasePrimaryOutboundClaim)('H5', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList_api_fail');
                 return { success: false, error: `API Error: ${response.status}` };
             }
             const result = await response.json();
             const messageId = result.messages?.[0]?.id;
+            (0, outboundTurnDebug_service_1.logOutboundSend)('H4', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList', bodyText, {
+                sectionCount: sections.length,
+                rowCount: totalRows,
+            });
             logger_1.default.info('WhatsApp interactive list sent', { messageId, to, sections: sections.length, rows: totalRows });
             return { success: true, messageId };
         }
         catch (err) {
+            (0, outboundTurnDebug_service_1.releasePrimaryOutboundClaim)('H5', 'whatsapp.service.ts:sendInteractiveList', 'sendInteractiveList_exception');
             logger_1.default.error('Failed to send WhatsApp interactive list', { error: err.message });
             return { success: false, error: err.message };
         }
@@ -1537,6 +1568,9 @@ class WhatsAppService {
             const result = await this.sendInteractiveButtons(to, body, interactive.buttons, null, null, whatsappConfig);
             if (result.success)
                 return true;
+            if (result.error !== 'Duplicate primary outbound blocked') {
+                (0, outboundTurnDebug_service_1.releasePrimaryOutboundClaim)('H5', 'whatsapp.service.ts:sendPrimaryTurnPayload', 'buttons_failed_fallback');
+            }
             logger_1.default.warn('Primary interactive button send failed; falling back to text', {
                 to: (0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(to),
                 error: result.error,
@@ -1549,16 +1583,32 @@ class WhatsAppService {
             const result = await this.sendInteractiveList(to, body, interactive.title, interactive.sections, null, null, whatsappConfig);
             if (result.success)
                 return true;
+            if (result.error !== 'Duplicate primary outbound blocked') {
+                (0, outboundTurnDebug_service_1.releasePrimaryOutboundClaim)('H5', 'whatsapp.service.ts:sendPrimaryTurnPayload', 'list_failed_fallback');
+            }
             logger_1.default.warn('Primary interactive list send failed; falling back to text', {
                 to: (0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(to),
                 error: result.error,
             });
         }
+        (0, outboundTurnDebug_service_1.logOutboundBranch)('H4', 'whatsapp.service.ts:primaryPayload', 'primary_text', {
+            hadInteractive: Boolean(interactive),
+        });
         (0, outboundTurnDebug_service_1.logOutboundSend)('H4', 'whatsapp.service.ts:primaryPayload', 'primary_text', body);
         return this.sendMessage(to, body, whatsappConfig);
     }
+    appendFoldedMediaToBody(body, media) {
+        if (!media.url || body.includes(media.url))
+            return body;
+        if (media.mime.startsWith('image/')) {
+            const label = media.caption ? `📷 ${media.caption}` : '📷 Photo';
+            return `${body}\n\n${label}\n${media.url}`;
+        }
+        const label = media.caption ? `📄 ${media.caption}` : '📄 Document';
+        return `${body}\n\n${label}\n${media.url}`;
+    }
     /**
-     * Send a complete buyer/staff turn: one primary payload, then optional media.
+     * Send a complete buyer/staff turn: exactly one customer-visible WhatsApp message.
      */
     async sendTurnResult(to, result, whatsappConfig) {
         if (!result.handled)
@@ -1568,18 +1618,22 @@ class WhatsAppService {
         const nonMediaComponents = result.components?.filter((c) => c.kind !== 'media');
         if (!hasText && !media)
             return;
-        if (hasText) {
-            const primarySent = await this.sendPrimaryTurnPayload(to, result.text, nonMediaComponents, whatsappConfig);
-            if (!primarySent && !media)
-                return;
-        }
-        if (media?.kind === 'media' && media.url) {
+        // Media-only turn (e.g. brochure PDF as the sole payload)
+        if (!hasText && media?.kind === 'media' && media.url) {
             if (media.mime.startsWith('image/')) {
                 await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig).catch(() => undefined);
             }
             else {
                 await this.sendDocument(to, media.url, 'document.pdf', media.caption ?? null, whatsappConfig).catch(() => undefined);
             }
+            return;
+        }
+        if (hasText) {
+            let body = result.text.trim();
+            if (media?.kind === 'media' && media.url) {
+                body = this.appendFoldedMediaToBody(body, media);
+            }
+            await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);
         }
     }
     /**
@@ -1688,44 +1742,6 @@ class WhatsAppService {
         return { success: errors.length === 0, sent, errors };
     }
     /**
-     * When the customer names a type + area (e.g. "villa near Anekal"), send brochure for the best catalog match.
-     */
-    async maybeSendCatalogBrochureForQuery(input) {
-        const text = input.messageText.trim();
-        if (!text || text.length < 8) {
-            return;
-        }
-        const wantsBrochure = /\b(brochure|pdf|details|send|share)\b/i.test(text);
-        const hasTypeOrLocation = /\b(villa|apartment|flat|plot|commercial|near|in)\b/i.test(text);
-        if (!wantsBrochure && !hasTypeOrLocation) {
-            return;
-        }
-        try {
-            const matches = await (0, propertyKnowledge_service_1.matchCatalogPropertiesForQuery)({
-                companyId: input.companyId,
-                query: text,
-                limit: 3,
-            });
-            const top = matches.find((m) => m.brochureUrl && m.score >= 3) ?? matches.find((m) => m.brochureUrl);
-            if (!top?.brochureUrl) {
-                return;
-            }
-            const locationLabel = [top.locationArea, top.locationCity].filter(Boolean).join(', ');
-            const intro = locationLabel
-                ? `Here is the project for *${top.name}* (${top.propertyType}) near ${locationLabel}:`
-                : `Here is the project for *${top.name}* (${top.propertyType}):`;
-            await this.sendMessage(input.customerPhone, intro, input.whatsappConfig);
-            await this.sendPropertyBrochure(input.customerPhone, top.brochureUrl, top.name, input.whatsappConfig);
-            // Intro only — PDF is sent by sendPropertyBrochure (no link in chat)
-        }
-        catch (err) {
-            logger_1.default.warn('Catalog brochure auto-send skipped', {
-                companyId: input.companyId,
-                error: err instanceof Error ? err.message : String(err),
-            });
-        }
-    }
-    /**
      * Send property brochure if available.
      * @param to - Recipient phone number
      * @param brochureUrl - URL to brochure PDF
@@ -1778,106 +1794,6 @@ class WhatsAppService {
         if (orchestrated !== null) {
             return orchestrated;
         }
-        // ---- Visit Time Selection (legacy direct send — slot booking mutation) ----
-        if (interactiveId.startsWith('visit-time-')) {
-            const parsed = (0, visitBooking_service_1.parseVisitTimeInteractiveId)(interactiveId);
-            if (!parsed) {
-                await this.sendMessage(customerPhone, 'Sorry, I could not read that time slot. Please tap a visit time button again or tell me your preferred date.', whatsappConfig);
-                return { handled: true, action: 'visit-time-parse-failed' };
-            }
-            const { propertyId, slot } = parsed;
-            const proposedTime = (0, visitBooking_service_1.resolveVisitSlotToDate)(slot);
-            const property = await prisma_1.default.property.findFirst({
-                where: { id: propertyId, companyId: company.id },
-            });
-            let agentId = lead.assignedAgentId;
-            if (!agentId) {
-                agentId = await this.assignRoundRobin(company.id);
-                if (agentId) {
-                    await prisma_1.default.lead.update({ where: { id: lead.id }, data: { assignedAgentId: agentId } });
-                }
-            }
-            if (!agentId) {
-                await this.sendMessage(customerPhone, 'Thanks for choosing a time! Our sales team will call you shortly to confirm your visit.', whatsappConfig);
-                return { handled: true, action: 'visit-no-agent', leadStatus: 'contacted' };
-            }
-            // P0-4: Read autoConfirmVisits from DB (aiSettings) instead of the previously undocumented
-            // env var WHATSAPP_AUTO_CONFIRM_VISITS that defaulted to TRUE.
-            // New DB field defaults to FALSE \u2014 agents must explicitly enable auto-confirm per company.
-            const aiSettings = await prisma_1.default.aiSetting.findUnique({ where: { companyId: company.id } });
-            const autoConfirm = aiSettings?.autoConfirmVisits === true;
-            if (autoConfirm) {
-                const { scheduleVisit } = await Promise.resolve().then(() => __importStar(require('./visitBooking.service')));
-                const booking = await scheduleVisit({
-                    companyId: company.id,
-                    leadId: lead.id,
-                    propertyId,
-                    scheduledAt: proposedTime,
-                    agentId,
-                    notes: 'Booked via WhatsApp visit button',
-                });
-                if (booking.success && booking.visit) {
-                    const when = proposedTime.toLocaleString('en-IN', {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        timeZone: 'Asia/Kolkata',
-                    });
-                    await this.sendMessage(customerPhone, `✅ *Visit confirmed!*\n\n📍 *${property?.name || 'Property'}*\n📅 ${when} IST\n\nOur team will call you about an hour before the visit.`, whatsappConfig);
-                    // Notify assigned agent immediately via WhatsApp
-                    if (agentId) {
-                        try {
-                            const agentRecord = await prisma_1.default.user.findUnique({ where: { id: agentId }, select: { phone: true, name: true } });
-                            if (agentRecord?.phone) {
-                                const agentMsg = `📅 *New Visit Booked!*\n\n👤 ${lead.customerName || lead.phone}\n🏠 ${property?.name || 'Property'}\n🕐 ${when} IST\n\nCustomer booked via WhatsApp. Please confirm availability.`;
-                                void this.sendMessage(agentRecord.phone, agentMsg, whatsappConfig);
-                            }
-                        }
-                        catch (notifyErr) {
-                            logger_1.default.warn('Failed to notify agent of auto-confirmed visit', {
-                                agentId,
-                                visitId: booking.visit.id,
-                                error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
-                            });
-                        }
-                    }
-                    return {
-                        handled: true,
-                        action: 'visit-scheduled',
-                        newState: {
-                            stage: 'confirmation',
-                            selectedPropertyId: propertyId,
-                            proposedVisitTime: proposedTime,
-                        },
-                        leadStatus: 'visit_scheduled',
-                    };
-                }
-            }
-            const { createVisitApprovalRequest } = await Promise.resolve().then(() => __importStar(require('./visitPendingApproval.service')));
-            await createVisitApprovalRequest({
-                companyId: company.id,
-                leadId: lead.id,
-                propertyId,
-                scheduledAt: proposedTime,
-                agentId,
-                conversationId: conversation.id,
-                customerPhone,
-                customerName: lead.customerName,
-                propertyName: property?.name,
-            });
-            return {
-                handled: true,
-                action: 'visit-pending-agent-approval',
-                newState: {
-                    stage: 'visit_booking',
-                    selectedPropertyId: propertyId,
-                    proposedVisitTime: proposedTime,
-                },
-                leadStatus: 'contacted',
-            };
-        }
         // ---- Property Selection from List ----
         if (interactiveId.startsWith('prop-')) {
             const propertyId = interactiveId.replace('prop-', '');
@@ -1887,40 +1803,48 @@ class WhatsAppService {
                 interactiveId: `more-info-${propertyId}`,
             });
         }
-        // ---- Show Location (legacy direct send) ----
+        // ---- Show Location (TurnResult — single dispatch via sendTurnResult) ----
         if (interactiveId.startsWith('location-')) {
             const propertyId = interactiveId.replace('location-', '');
-            // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
             const property = await prisma_1.default.property.findFirst({ where: { id: propertyId, companyId: company.id } });
             if (!property) {
                 return { handled: false };
             }
-            // Use latitude/longitude from schema
             const lat = property.latitude !== null && property.latitude !== undefined ? Number(property.latitude) : null;
             const lng = property.longitude !== null && property.longitude !== undefined ? Number(property.longitude) : null;
-            // Format address from available fields
             const formatAddress = (p) => {
                 const parts = [p.locationArea, p.locationCity, p.locationPincode].filter(Boolean);
                 return parts.length > 0 ? parts.join(', ') : '';
             };
+            const addressText = formatAddress(property) || 'Address not available';
+            let locationText;
             if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
-                const locationResult = await this.sendLocation(customerPhone, lat, lng, property.name, formatAddress(property), whatsappConfig);
-                if (!locationResult.success) {
-                    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-                    await this.sendMessage(customerPhone, `Location: ${property.name}\n${formatAddress(property) || 'Address not available'}\n${mapsUrl}`, whatsappConfig);
-                }
+                const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+                locationText = `📍 *${property.name}*\n\n${addressText}\n\nOpen in Maps: ${mapsUrl}`;
             }
             else {
-                // No coordinates - send address as text
-                const addressText = formatAddress(property) || 'Address not available';
-                await this.sendMessage(customerPhone, `📍 *${property.name}*\n\n${addressText}\n\nPlease contact us for directions.`, whatsappConfig);
+                locationText = `📍 *${property.name}*\n\n${addressText}\n\nPlease contact us for directions.`;
             }
-            return { handled: true, action: 'location-sent' };
+            return {
+                handled: true,
+                action: 'location-sent',
+                turnResult: {
+                    audience: 'buyer',
+                    handled: true,
+                    text: locationText,
+                    components: [{
+                            kind: 'buttons',
+                            buttons: [
+                                { id: `book-visit-${property.id}`, title: 'Book Visit' },
+                                { id: `more-info-${property.id}`, title: 'More Info' },
+                            ],
+                        }],
+                },
+            };
         }
         // ---- EMI Calculator Request ----
         if (interactiveId === 'emi-calculator' || interactiveId === 'calculate-emi') {
             const propertyId = conversation.selectedPropertyId;
-            // FIX P0-3: Use findFirst with companyId to enforce tenant isolation.
             const property = propertyId
                 ? await prisma_1.default.property.findFirst({ where: { id: propertyId, companyId: company.id } })
                 : null;
@@ -1933,17 +1857,35 @@ class WhatsAppService {
                     interestRate: 8.5,
                     tenureMonths: 240,
                 });
-                await this.sendMessage(customerPhone, `📊 *EMI Estimate for ${property.name}*\n\n💰 Property Price: ₹${(emi.principal / 100000).toFixed(2)} Lakhs\n📉 Down Payment (20%): ₹${(emi.downPayment / 100000).toFixed(2)} Lakhs\n📈 Loan Amount: ₹${(emi.loanAmount / 100000).toFixed(2)} Lakhs\n💳 EMI (20 yrs @ 8.5%): ₹${Math.round(emi.monthlyEmi).toLocaleString('en-IN')}/month\n\nThis is an estimate. You can fine-tune values in the dashboard EMI calculator for exact planning.`, whatsappConfig);
-                await this.sendInteractiveButtons(customerPhone, 'Would you like to continue?', [
-                    { id: `book-visit-${property.id}`, title: 'Book Visit' },
-                    { id: 'call-me', title: 'Call Me' },
-                    { id: `more-info-${property.id}`, title: 'More Info' },
-                ], null, null, whatsappConfig);
+                // Return as TurnResult (single outbound: body = EMI text, buttons = next steps)
+                const emiText = `📊 *EMI Estimate for ${property.name}*\n\n💰 Property Price: ₹${(emi.principal / 100000).toFixed(2)} Lakhs\n📉 Down Payment (20%): ₹${(emi.downPayment / 100000).toFixed(2)} Lakhs\n📈 Loan Amount: ₹${(emi.loanAmount / 100000).toFixed(2)} Lakhs\n💳 EMI (20 yrs @ 8.5%): ₹${Math.round(emi.monthlyEmi).toLocaleString('en-IN')}/month\n\nThis is an estimate. What would you like to do next?`;
+                return {
+                    handled: true,
+                    action: 'emi-calculated',
+                    turnResult: {
+                        audience: 'buyer',
+                        handled: true,
+                        text: emiText,
+                        components: [{
+                                kind: 'buttons',
+                                buttons: [
+                                    { id: `book-visit-${property.id}`, title: 'Book Visit' },
+                                    { id: 'call-me', title: 'Call Me' },
+                                    { id: `more-info-${property.id}`, title: 'More Info' },
+                                ],
+                            }],
+                    },
+                };
             }
-            else {
-                await this.sendMessage(customerPhone, 'I can help you calculate EMI. Please select a property first, or share your budget and down payment.', whatsappConfig);
-            }
-            return { handled: true, action: 'emi-calculated' };
+            return {
+                handled: true,
+                action: 'emi-no-property',
+                turnResult: {
+                    audience: 'buyer',
+                    handled: true,
+                    text: 'I can help you calculate EMI. Please select a property first, or share your budget and down payment.',
+                },
+            };
         }
         // ---- Unrecognized action - let AI handle it ----
         logger_1.default.info('Unrecognized interactive action, passing to AI', { interactiveId });
@@ -2005,18 +1947,20 @@ function normalizeLeadPropertyType(value) {
  * @param input.isVisitQuery - Whether the customer was asking about their visit.
  */
 function buildAiFallbackMessage(input) {
-    const salutation = (0, customerMessageFastPath_service_1.formatCustomerSalutation)(input.customerName);
     if (input.activeVisitPropertyName) {
-        const prop = `*${input.activeVisitPropertyName}*`;
-        return (`I had a brief connection issue, but here's what I know${salutation}: ` +
-            `your visit to ${prop} is on record 🗓️\n\n` +
-            `Reply *Confirm*, *Reschedule*, or *Cancel* and I'll handle it right away. ✅`);
+        return (0, safeBuyerFallback_util_1.buildSafeBuyerFallback)({
+            activeVisit: {
+                propertyName: input.activeVisitPropertyName,
+                scheduledAt: new Date(),
+                status: 'scheduled',
+            },
+        });
     }
     if (input.isVisitQuery) {
-        return (`I ran into a brief issue fetching your visit details${salutation}. ` +
-            `Could you give me a moment and try again? I'll pull up your booking status right away. 🙏`);
+        const salutation = (0, customerMessageFastPath_service_1.formatCustomerSalutation)(input.customerName);
+        return (`I could not fetch your visit details just now${salutation}. ` +
+            `Please try again in a moment, or type *Talk to agent* for help.`);
     }
-    return (`I had a brief technical issue${salutation}. ` +
-        `Please resend your message and I'll respond immediately — no need to start over! 🙏`);
+    return (0, safeBuyerFallback_util_1.buildSafeBuyerFallback)();
 }
 exports.whatsappService = new WhatsAppService();

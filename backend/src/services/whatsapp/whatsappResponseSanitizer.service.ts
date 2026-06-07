@@ -1,10 +1,20 @@
 import { stripInternalCustomerMeta } from '../aiTransparency.service';
 import { enforceNeverSayNoResponse } from '../neverSayNoResponseGuard.service';
 import { polishOutboundMessage } from '../messagePolish.service';
-import { sanitizeStaffInstructionsForBuyer } from '../utils/buyerStaffCopyGuard.util';
+import { sanitizeStaffInstructionsForBuyer } from '../../utils/buyerStaffCopyGuard.util';
 import type { PropertyLike } from '../propertyCompleteness.service';
 import type { MutationLanguageTurnContext } from './mutationLanguageGuard.service';
 import { guardBookingClaims } from './mutationLanguageGuard.service';
+import {
+  containsBannedBuyerPhrase,
+  logBannedPhraseBlocked,
+  type BannedPhraseContext,
+} from '../../utils/buyerBannedPhraseFilter.util';
+import {
+  buildSafeBuyerFallback,
+  buildVisitBookingStageSafeReply,
+  type SafeBuyerFallbackContext,
+} from '../../utils/safeBuyerFallback.util';
 
 export type SanitizeChannel = 'buyer' | 'staff';
 
@@ -24,6 +34,10 @@ export type SanitizeBuyerOutboundInput = {
   maxLength?: number;
   /** mutation language guard */
   turnContext?: MutationLanguageTurnContext;
+  /** Post-filter context (fix.md §6) */
+  bannedPhraseContext?: BannedPhraseContext;
+  activeVisit?: SafeBuyerFallbackContext['activeVisit'];
+  selectedPropertyName?: string | null;
 };
 
 export type SanitizeStaffOutboundInput = {
@@ -62,7 +76,22 @@ export function stripBuyerInternalMetadata(text: string): string {
 /**
  * Full buyer outbound pipeline: neverSayNo → internal strip → polish → mutation guard.
  */
+function resolveBannedPhraseFallback(input: SanitizeBuyerOutboundInput): string {
+  if (
+    input.bannedPhraseContext?.stage === 'visit_booking' ||
+    input.bannedPhraseContext?.stage === 'confirmation'
+  ) {
+    return buildVisitBookingStageSafeReply(input.selectedPropertyName);
+  }
+  return buildSafeBuyerFallback({ activeVisit: input.activeVisit ?? null });
+}
+
 export async function sanitizeBuyerOutbound(input: SanitizeBuyerOutboundInput): Promise<string> {
+  if (containsBannedBuyerPhrase(input.text, input.bannedPhraseContext)) {
+    logBannedPhraseBlocked('pre_pipeline', input.text);
+    return resolveBannedPhraseFallback(input);
+  }
+
   const fallbackCta = input.fallbackCta ?? 'Share your budget and preferred area, and I will shortlist options.';
 
   const guarded = enforceNeverSayNoResponse({
@@ -95,6 +124,11 @@ export async function sanitizeBuyerOutbound(input: SanitizeBuyerOutboundInput): 
 
   if (input.turnContext) {
     text = guardBookingClaims(text, input.turnContext);
+  }
+
+  if (containsBannedBuyerPhrase(text, input.bannedPhraseContext)) {
+    logBannedPhraseBlocked('post_pipeline', text);
+    text = resolveBannedPhraseFallback(input);
   }
 
   return text.trim();

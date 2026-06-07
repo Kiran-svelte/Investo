@@ -14,6 +14,15 @@ describe('whatsappResponseSanitizer.service', () => {
     expect(clean).toContain('Great option');
   });
 
+  test('sanitizeBuyerOutbound replaces banned connection-issue phrase', async () => {
+    const text = await sanitizeBuyerOutbound({
+      text: 'I had a brief connection issue. Please wait.',
+      bannedPhraseContext: { hasPriorOutbound: true, stage: 'shortlist' },
+    });
+    expect(text.toLowerCase()).not.toContain('connection issue');
+    expect(text).toContain('Talk to agent');
+  });
+
   test('sanitizeBuyerOutbound runs full pipeline without false booking claims', async () => {
     const text = await sanitizeBuyerOutbound({
       text: 'Your visit is booked for tomorrow at 4pm.',

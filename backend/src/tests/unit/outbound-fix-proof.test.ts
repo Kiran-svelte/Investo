@@ -258,6 +258,32 @@ describe('PROOF Area 9 — one customer reply per inbound turn', () => {
     expect(wa).not.toContain('// ---- Visit Time Selection (legacy direct send');
   });
 
+  test('location handled via TurnResult, not legacy direct sendLocation', () => {
+    const wa = read('services/whatsapp.service.ts');
+    const locationBlock = wa.slice(
+      wa.indexOf("// ---- Show Location"),
+      wa.indexOf('// ---- EMI Calculator Request'),
+    );
+    expect(locationBlock).toContain('turnResult');
+    expect(locationBlock).not.toContain('await this.sendLocation(');
+    expect(locationBlock).not.toContain('await this.sendMessage(');
+  });
+
+  test('orchestrator passes full property catalog to AI, not stripped PropertySummary', () => {
+    const orch = read('services/whatsapp/whatsappTurnOrchestrator.service.ts');
+    expect(orch).toContain('propertyToAiPromptInput');
+    expect(orch).toContain('buildFocusedPropertyPromptBlock');
+    expect(orch).toContain('properties: aiProperties');
+    expect(orch).toContain('focusedPropertyBlock');
+  });
+
+  test('sendTurnResult folds media into text instead of second bubble', () => {
+    const wa = read('services/whatsapp.service.ts');
+    expect(wa).toContain('appendFoldedMediaToBody');
+    expect(wa).toContain('sendTurnResult_media_folded_into_text');
+    expect(wa).not.toContain('sendTurnResult_media_addon');
+  });
+
   test('orchestrator catch does not sendMessage — single dispatch via sendTurnResult', () => {
     const wa = read('services/whatsapp.service.ts');
     const catchBlock = wa.slice(wa.indexOf('orchestratorCatch'), wa.indexOf('if (turnResult.text?.trim())'));

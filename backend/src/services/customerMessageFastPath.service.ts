@@ -19,6 +19,12 @@ import { buildVisitAwareGreeting } from './liveLeadContext.service';
  */
 const RETURNING_CLIENT_HISTORY_THRESHOLD = 2;
 
+function hasPriorAiOutbound(
+  history: Array<{ senderType?: string; content?: string }>,
+): boolean {
+  return history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
+}
+
 /**
  * Matches messages that are simple greetings with no meaningful content.
  * The trailing group includes U+00A0 (non-breaking space) which WhatsApp
@@ -102,12 +108,20 @@ export function isIdentityQuestionMessage(message: string): boolean {
  * @param conversationHistoryLength - Number of prior messages in the thread
  * @returns true if knowledge search should be bypassed
  */
+/** Property-specific questions must always hit the knowledge index. */
+export function isPropertyInquiryMessage(message: string): boolean {
+  return /\b(property|project|amenit|brochure|price|cost|bhk|bedroom|rera|builder|location|villa|apartment|plot|commercial|details?|tell me about|more info|describe|specs?|configuration|possession|floor plan|highlights?|features?|sq\.?\s*ft|square feet|units?)\b/i.test(
+    message,
+  );
+}
+
 export function shouldSkipKnowledgeSearchForMessage(
   message: string,
   conversationHistoryLength = 0,
 ): boolean {
   const trimmed = message.trim();
   if (!trimmed) return true;
+  if (isPropertyInquiryMessage(trimmed)) return false;
   if (conversationHistoryLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
     // Returning client: let LLM search knowledge base even for greetings
     return isConversationAcknowledgmentMessage(trimmed) || isVisitSchedulingMessage(trimmed);
@@ -191,8 +205,8 @@ export function buildFastPathCustomerReply(input: {
       };
     }
 
-    // Priority 2: Returning client with prior history — let LLM continue naturally.
-    if (historyLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
+    // Priority 2: Returning client — never replay first-contact greeting template.
+    if (hasPriorAiOutbound(input.conversationHistory ?? []) || historyLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
       return null;
     }
 

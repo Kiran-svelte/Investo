@@ -18,6 +18,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyBrain = exports.conversationStateManager = exports.ConversationStateManager = exports.PolicyBrain = void 0;
 exports.classifyMessageIntent = classifyMessageIntent;
+exports.isAllowedStageTransition = isAllowedStageTransition;
 exports.getStageConfig = getStageConfig;
 exports.getObjectionPlaybook = getObjectionPlaybook;
 const logger_1 = __importDefault(require("../config/logger"));
@@ -266,6 +267,12 @@ function classifyMessageIntent(message, currentStage, context) {
             return { intent: 'on_path', confidence: 0.75 };
         }
     }
+    // Bare greetings during active booking are adjacent (not off-path bridge-back).
+    const bareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(message.trim());
+    if (bareGreeting &&
+        (currentStage === 'visit_booking' || currentStage === 'confirmation' || currentStage === 'commitment')) {
+        return { intent: 'adjacent', confidence: 0.85 };
+    }
     // Check for off-path (distraction)
     const offPathPatterns = [
         /weather|cricket|movie|politics|news|joke/i,
@@ -289,6 +296,18 @@ function classifyMessageIntent(message, currentStage, context) {
     }
     // Default: assume on-path if nothing else matches
     return { intent: 'on_path', confidence: 0.5 };
+}
+const PROTECTED_BOOKING_STAGES = ['visit_booking', 'confirmation', 'commitment'];
+const EARLY_FUNNEL_STAGES = ['rapport', 'qualify', 'shortlist'];
+const START_OVER_RE = /^(start\s+over|something\s+new|new\s+search|fresh\s+start|explore\s+something|yes\s+something\s+new)[\s.!?]*$/i;
+/**
+ * Prevents stage bleed: visit_booking cannot regress to rapport/qualify unless user pivots.
+ */
+function isAllowedStageTransition(from, to, customerMessage) {
+    if (PROTECTED_BOOKING_STAGES.includes(from) && EARLY_FUNNEL_STAGES.includes(to)) {
+        return START_OVER_RE.test(customerMessage.trim());
+    }
+    return true;
 }
 // ─── Policy Brain ──────────────────────────────────────────────────────
 class PolicyBrain {
@@ -422,7 +441,25 @@ class PolicyBrain {
                 ],
             };
         }
-        // 8. Default: continue in current stage
+        // 8. Visit booking — one action only; time-slot buttons are sent by the system separately.
+        if (state.stage === 'visit_booking') {
+            const bareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test((customerMessage || '').trim());
+            return {
+                action: 'continue',
+                promptModifiers: bareGreeting
+                    ? [
+                        'VISIT BOOKING ACTIVE: customer sent a greeting mid-booking.',
+                        'Reply with ONE short line only — acknowledge and ask them to pick a visit time.',
+                        'Do NOT re-welcome, ask for area/budget/BHK, or send a second follow-up message.',
+                    ]
+                    : [
+                        'VISIT BOOKING: ONE message only — confirm date/time/property.',
+                        'Time-slot buttons are sent by the system — do NOT duplicate scheduling prompts.',
+                        'Do NOT send a separate welcome or intro.',
+                    ],
+            };
+        }
+        // 9. Default: continue in current stage
         return {
             action: 'continue',
             promptModifiers: [
@@ -558,12 +595,26 @@ class ConversationStateManager {
         const newState = this.updateState(currentState, intent, objectionType, extractedInfo);
         // Get next action from policy brain
         const nextAction = this.policyBrain.decideNextAction(newState, intent, objectionType, message);
-        // Apply stage transition if needed
+        // Apply stage transition if needed (block backward bleed from visit_booking)
         if (nextAction.action === 'advance_stage' && nextAction.targetStage) {
-            newState.previousStage = newState.stage;
-            newState.stage = nextAction.targetStage;
-            newState.stageEnteredAt = new Date();
-            newState.messageCount = 0;
+            if (!isAllowedStageTransition(newState.stage, nextAction.targetStage, message)) {
+                logger_1.default.warn('Blocked invalid stage regression', {
+                    from: newState.stage,
+                    to: nextAction.targetStage,
+                });
+                nextAction.action = 'continue';
+                nextAction.targetStage = undefined;
+                nextAction.promptModifiers = [
+                    'VISIT BOOKING ACTIVE: do not reset to onboarding.',
+                    'Ask for visit time confirmation only.',
+                ];
+            }
+            else {
+                newState.previousStage = newState.stage;
+                newState.stage = nextAction.targetStage;
+                newState.stageEnteredAt = new Date();
+                newState.messageCount = 0;
+            }
         }
         if (nextAction.action === 'escalate' && nextAction.targetStage) {
             newState.previousStage = newState.stage;

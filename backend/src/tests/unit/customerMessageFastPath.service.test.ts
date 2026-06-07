@@ -45,6 +45,19 @@ describe('customerMessageFastPath.service', () => {
     expect(reply?.text).not.toMatch(/Welcome to Palm/i);
   });
 
+  it('skips first-contact greeting when any prior AI outbound exists', () => {
+    const reply = buildFastPathCustomerReply({
+      customerMessage: 'Hi',
+      companyName: 'Palm',
+      aiSettings: {
+        defaultLanguage: 'en',
+        greetingTemplate: 'Hello! Welcome to {business_name}. How can I help you find your dream property today?',
+      },
+      conversationHistory: [{ senderType: 'ai', content: 'Welcome back! Still exploring?' }],
+    });
+    expect(reply).toBeNull();
+  });
+
   it('skips greeting fast path during visit_booking stage', () => {
     const reply = buildFastPathCustomerReply({
       customerMessage: 'Hi',

@@ -48,6 +48,10 @@ const openaiStatus_service_1 = require("./openaiStatus.service");
 const propertyKnowledge_service_1 = require("./propertyKnowledge.service");
 const clientMemory_service_1 = require("./clientMemory.service");
 const aiTransparency_service_1 = require("./aiTransparency.service");
+const parseDateTimeFromMessage_util_1 = require("../utils/parseDateTimeFromMessage.util");
+const aiGlobalRules_constants_1 = require("../constants/aiGlobalRules.constants");
+const llmSafeParams_constants_1 = require("../constants/llmSafeParams.constants");
+const safeBuyerFallback_util_1 = require("../utils/safeBuyerFallback.util");
 /** Maximum determinism for buyer LLM — prevents hallucinated errors and repetition. */
 const BUYER_LLM_TEMPERATURE = 0;
 /** Recent turns injected into system prompt + chat messages (not only RAG). */
@@ -65,6 +69,8 @@ const SUPPORTED_LANGUAGES = {
     pa: 'Punjabi',
     or: 'Odia',
 };
+/** In-memory LLM idempotency (single instance). */
+const processedLlmMessageIds = new Map();
 class AIService {
     /**
      * Generate an AI response using the goal-directed state machine.
@@ -74,6 +80,28 @@ class AIService {
      * 2. Language Brain (LLM): Generates HOW to say it (natural language)
      */
     async generateResponse(request) {
+        const messageId = request.messageId;
+        if (messageId) {
+            const lastProcessed = processedLlmMessageIds.get(messageId);
+            if (lastProcessed && Date.now() - lastProcessed < 60000) {
+                logger_1.default.warn('Duplicate LLM request blocked', { messageId });
+                return {
+                    text: "I'm already working on your last request. Please wait a moment.",
+                    detectedLanguage: 'en',
+                };
+            }
+            processedLlmMessageIds.set(messageId, Date.now());
+            setTimeout(() => processedLlmMessageIds.delete(messageId), 60000);
+        }
+        // Deterministic date/time extraction — runs before LLM to prevent date hallucinations.
+        let extractedDateTime = request.extractedDateTime ?? null;
+        if (!extractedDateTime && request.customerMessage) {
+            extractedDateTime = (0, parseDateTimeFromMessage_util_1.extractDateTimeIso)(request.customerMessage);
+            if (extractedDateTime) {
+                logger_1.default.info('Deterministic date extraction succeeded', { extractedDateTime });
+                request.extractedDateTime = extractedDateTime;
+            }
+        }
         // Initialize or use existing state
         let state = request.conversationState || conversationStateMachine_1.conversationStateManager.createInitialState();
         // POLICY BRAIN: Process message and decide next action
@@ -122,47 +150,64 @@ class AIService {
             aiSettings: request.aiSettings,
             conversationHistory: request.conversationHistory,
             propertyNames: request.properties?.map((p) => p.name).filter(Boolean),
+            conversationStage: newState.stage,
             // Visit-aware greeting: if the client has an active visit, the fast path
             // returns visit summary instead of the first-time-buyer welcome message.
             upcomingVisit: request.activeVisit ?? null,
         });
         if (fastPath) {
-            return {
-                text: fastPath.text,
-                detectedLanguage: fastPath.detectedLanguage,
-                newState,
-                nextAction,
-            };
+            const hasPriorOutbound = (request.conversationHistory ?? []).some((m) => m.senderType === 'ai' || m.senderType === 'agent');
+            const { containsBannedBuyerPhrase } = await Promise.resolve().then(() => __importStar(require('../utils/buyerBannedPhraseFilter.util')));
+            if (!containsBannedBuyerPhrase(fastPath.text, { hasPriorOutbound, stage: newState.stage })) {
+                return {
+                    text: fastPath.text,
+                    detectedLanguage: fastPath.detectedLanguage,
+                    newState,
+                    nextAction,
+                };
+            }
         }
-        const knowledgeChunks = request.companyId && !(0, customerMessageFastPath_service_1.shouldSkipKnowledgeSearchForMessage)(request.customerMessage, (request.conversationHistory ?? []).length)
-            ? await (0, propertyKnowledge_service_1.searchPropertyKnowledge)(request.companyId, request.customerMessage, 8)
-            : [];
-        const knowledgeContext = (0, propertyKnowledge_service_1.formatKnowledgeContextForPrompt)(knowledgeChunks);
+        const shouldSearchKnowledge = Boolean(request.companyId)
+            && !(0, customerMessageFastPath_service_1.shouldSkipKnowledgeSearchForMessage)(request.customerMessage, (request.conversationHistory ?? []).length);
+        const knowledgeQuery = request.focusedPropertyId
+            ? `${request.customerMessage} ${request.properties.find((p) => p.id === request.focusedPropertyId)?.name ?? ''}`.trim()
+            : request.customerMessage;
+        const [vectorChunks, focusedChunks] = await Promise.all([
+            shouldSearchKnowledge && request.companyId
+                ? (0, propertyKnowledge_service_1.searchPropertyKnowledge)(request.companyId, knowledgeQuery, request.focusedPropertyId ? 10 : 8)
+                : Promise.resolve([]),
+            request.companyId && request.focusedPropertyId
+                ? (0, propertyKnowledge_service_1.getPropertyKnowledgeForProperty)(request.companyId, request.focusedPropertyId, 5)
+                : Promise.resolve([]),
+        ]);
+        const mergedChunks = [...focusedChunks];
+        for (const chunk of vectorChunks) {
+            if (!mergedChunks.some((existing) => existing.content === chunk.content)) {
+                mergedChunks.push(chunk);
+            }
+        }
+        const knowledgeContext = (0, propertyKnowledge_service_1.formatKnowledgeContextForPrompt)(mergedChunks.slice(0, 10));
         let clientMemoryContext = '';
         let leadMemoryBlock = '';
         let conversationContextBlock = request.conversationContextBlock ?? '';
         if (request.companyId && request.lead?.id) {
             try {
-                const { buildPromptMemoryBlock } = await Promise.resolve().then(() => __importStar(require('./lead-memory.service')));
-                leadMemoryBlock = await buildPromptMemoryBlock(request.lead.id);
+                const { buildUnifiedMemoryContextBlock } = await Promise.resolve().then(() => __importStar(require('./unifiedMemory.service')));
+                const unified = await buildUnifiedMemoryContextBlock({
+                    leadId: request.lead.id,
+                    conversationId: conversationContextBlock ? undefined : request.conversationId,
+                    companyId: request.companyId,
+                });
+                leadMemoryBlock = unified.leadMemoryBlock;
+                if (!conversationContextBlock && unified.conversationContextBlock) {
+                    conversationContextBlock = unified.conversationContextBlock;
+                }
             }
             catch (err) {
-                logger_1.default.warn('Lead memory block failed', {
+                logger_1.default.warn('Unified memory block failed', {
                     leadId: request.lead.id,
                     error: err instanceof Error ? err.message : String(err),
                 });
-            }
-            if (!conversationContextBlock && request.conversationId) {
-                try {
-                    const { buildConversationContextBlock } = await Promise.resolve().then(() => __importStar(require('./conversation-summary.service')));
-                    conversationContextBlock = await buildConversationContextBlock(request.conversationId, request.lead.id, request.companyId);
-                }
-                catch (err) {
-                    logger_1.default.warn('Conversation context block failed', {
-                        leadId: request.lead.id,
-                        error: err instanceof Error ? err.message : String(err),
-                    });
-                }
             }
             try {
                 const clientChunks = await (0, clientMemory_service_1.searchClientMemory)({
@@ -292,6 +337,8 @@ class AIService {
         ].join(' | ');
         const recentConversationBlock = this.formatRecentConversationBlock(conversationHistory);
         return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
+${aiGlobalRules_constants_1.AI_GLOBAL_RULES_BLOCK}
+
 ${liveLeadContextBlock ? `\n${liveLeadContextBlock}\n` : ''}
 ## YOUR MISSION
 You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.
@@ -320,8 +367,10 @@ ${(0, realEstateAssistantPrompt_constants_1.buildRealEstateAssistantPolicyPrompt
 5. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
 6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
 6b. When a listing shows Brochure PDF on file, offer to share it; the system sends the PDF attachment after your message. Never paste URLs or markdown links for brochures.
-6c. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
+6c. If no brochure exists, tell the customer our team will share it — NEVER ask them to upload files or use property settings / dashboard (those are staff-only).
+6d. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
 7. ONE clear call-to-action per message.
+7b. NEVER send more than one message per user turn. If buttons are needed, the system attaches them to the same interactive message — do NOT write a separate follow-up.
 8. Keep responses under 200 words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
 8c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".
@@ -335,6 +384,8 @@ ${this.disclaimerPromptLine(request)}
 - Be helpful, not pushy
 - Empathize before addressing objections
 
+${request.focusedPropertyBlock ? `\n${request.focusedPropertyBlock}\n` : ''}
+
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}
 
@@ -345,6 +396,8 @@ ${clientMemoryContext ? `\n${clientMemoryContext}\n` : ''}
 ${recentConversationBlock ? `\n${recentConversationBlock}\n` : ''}
 
 ${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
+
+${request.extractedDateTime ? `\n## PARSED CUSTOMER DATETIME (use this exact slot — do NOT invent another date/time): ${request.extractedDateTime}\n` : ''}
 
 ## CUSTOMER INFO
 - Name: ${lead.customerName || 'Unknown'}
@@ -368,6 +421,9 @@ Return ONLY valid JSON (no markdown fences, no extra text):
 
 ⚠️ NEVER emit a numbered capability menu ("Here's how I can help: 1. Answer questions 2. Compare...")
 ⚠️ NEVER start with "I'm here to assist you with" or "Here's what I can do" — that is robotic.
+⚠️ NEVER end your message with a signature like "— Palm via Investo", "— Team", "— Riya", "— Palm" or any dash-name footer. Just end naturally.
+⚠️ NEVER repeat the same offer or question if the customer just declined it (e.g. said "no", "not now", "not interested").
+✅ If customer said "no" or "not now": acknowledge warmly ("Understood! I'm here when you need me.") and STOP — no new CTA.
 ✅ Instead: ask ONE warm question, or make ONE specific property observation relevant to their message.
 ✅ Use emojis sparingly (1-2 per message) to match WhatsApp's natural tone: 🏡 💬 ✅ 🗓️
 ✅ Put only confident fields in extract; use null for unknown values.
@@ -483,16 +539,13 @@ ${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${config_1.default.ai.kimiApiKey}`,
             },
-            body: JSON.stringify({
+            body: JSON.stringify((0, llmSafeParams_constants_1.withBuyerLlmSafeParams)({
                 model: config_1.default.ai.kimi25Model,
-                max_tokens: 1024,
-                temperature: BUYER_LLM_TEMPERATURE,
-                response_format: { type: 'json_object' },
                 messages: [
                     { role: 'system', content: systemPrompt },
                     ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
                 ],
-            }),
+            })),
         });
         if (!response.ok) {
             const error = await response.text();
@@ -516,13 +569,10 @@ ${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${config_1.default.ai.openaiApiKey}`,
             },
-            body: JSON.stringify({
+            body: JSON.stringify((0, llmSafeParams_constants_1.withBuyerLlmSafeParams)({
                 model: config_1.default.ai.openaiModel,
                 messages: allMessages,
-                max_tokens: 1024,
-                temperature: BUYER_LLM_TEMPERATURE,
-                response_format: { type: 'json_object' },
-            }),
+            })),
         }, { retries: 2, label: 'whatsapp_ai_chat' });
         const data = await response.json();
         const text = data.choices?.[0]?.message?.content || '';
@@ -547,11 +597,9 @@ ${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
     mockResponse(request) {
         const salutation = (0, customerMessageFastPath_service_1.formatCustomerSalutation)(request.lead?.customerName);
         const company = request.companyName || 'us';
-        // Priority 0: Visit-status query — answer from context even when LLM is down.
         if ((0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(request.customerMessage)
             && request.companyId
             && request.lead?.id) {
-            // sync path only — caller should have handled async; use activeVisit snapshot if present.
             if (request.activeVisit) {
                 const prop = request.activeVisit.propertyName ?? 'your property';
                 const when = request.activeVisit.scheduledAt.toLocaleString('en-IN', {
@@ -564,43 +612,21 @@ ${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
                     hour12: true,
                 });
                 return {
-                    text: `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\n` +
-                        `Reply *Confirm*, *Reschedule*, or *Cancel*.`,
+                    text: `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\nReply *Confirm*, *Reschedule*, or *Cancel*.`,
                     detectedLanguage: 'en',
                 };
             }
         }
-        // Priority 1: Visit-aware fallback — never ignore an active visit.
-        if (request.activeVisit) {
-            const { propertyName, status } = request.activeVisit;
-            const prop = propertyName ? `*${propertyName}*` : 'your property';
-            const statusLine = status === 'confirmed'
-                ? `Your visit to ${prop} is confirmed.`
-                : `You have an upcoming visit to ${prop}.`;
-            return {
-                text: `${statusLine}\n\nI'm having a brief connection issue but I'll be right back.\n\n` +
-                    `Reply *Confirm*, *Reschedule*, or *Call Agent* and I'll take care of it.`,
-                detectedLanguage: 'en',
-                extractedInfo: undefined,
-            };
-        }
-        // Priority 2: Returning customer (has conversation history) — do not greet again.
         const historyLength = (request.conversationHistory ?? []).length;
         if (historyLength >= 2) {
             return {
-                text: `Apologies${salutation}, I'm experiencing a brief technical issue. ` +
-                    `I'll respond to your query in a moment. Please bear with me.`,
+                text: (0, safeBuyerFallback_util_1.buildSafeBuyerFallback)({ activeVisit: request.activeVisit ?? null }),
                 detectedLanguage: 'en',
-                extractedInfo: undefined,
             };
         }
-        // Priority 3: First contact only — minimal, non-robotic greeting.
         return {
-            text: `*Hey${salutation}!* Welcome to *${company}*.\n\n` +
-                `What area are you exploring, and what's your budget range? ` +
-                `I'll match you with the right properties right away.`,
+            text: `*Hey${salutation}!* Welcome to *${company}*.\n\nWhat area are you exploring, and what's your budget range? I'll match you with the right properties right away.`,
             detectedLanguage: 'en',
-            extractedInfo: undefined,
         };
     }
     /**
