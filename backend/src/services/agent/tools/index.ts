@@ -4,6 +4,7 @@ import { createAdminTools } from './admin-tools';
 import { createAdminLogTools } from './admin-log-tools';
 import { createAnalyticsTools } from './analytics-tools';
 import { createBrochureTools } from './brochure-tools';
+import { createBulkMessageTools } from './bulk-message-tools';
 import { createCalendarTools } from './calendar-tools';
 import { createConversationTools } from './conversation-tools';
 import { createEmiTools } from './emi-tools';
@@ -52,6 +53,7 @@ export function getToolsForRole(context: ToolContext): AgentTool[] {
       ...createVisitTools(context),
       ...createLeadTools(context),
       ...createConversationTools(context),
+      ...createBulkMessageTools(context),
       ...createCalendarTools(context),
       ...createAnalyticsTools(context),
     );

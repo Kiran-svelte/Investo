@@ -57,8 +57,10 @@ export const AGENT_INTENTS = [
   'get_audit_logs',
   'get_ai_action_log',
   'bulk_forward',
+  'bulk_send_to_phones',
   'unknown',
 ] as const;
+
 
 export type AgentIntent = (typeof AGENT_INTENTS)[number];
 

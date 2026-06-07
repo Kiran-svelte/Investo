@@ -142,6 +142,9 @@ const INTENT_TOOL_MAP: Partial<Record<AgentIntent, string>> = {
   get_readiness_score: 'getReadinessScore',
   get_audit_logs: 'getAuditLogs',
   get_ai_action_log: 'getAiActionLog',
+  // Bulk send — both intent names route to the same tool.
+  bulk_forward: 'sendBulkMessages',
+  bulk_send_to_phones: 'sendBulkMessages',
 };
 
 function parseJsonObject<T>(raw: string): T | null {
@@ -490,7 +493,7 @@ Disambiguation rules (apply in order, use the FIRST matching rule):
 - "bulk reassign visits" / "move all visits" => bulk_reassign_visits.
 - "delete lead" / "remove lead" => delete_lead.
 - "update lead details" / "change lead phone" (not status) => update_lead.
-- "bulk forward [message] to [numbers]" / "forward this to [phone]" / "send this to [numbers]" => bulk_forward (parameters: message = text to forward, phones = list of numbers).
+- "bulk forward [message] to [numbers]" / "forward this to [phone]" / "send this to [numbers]" / "send [message] to [phone1],[phone2]" => bulk_send_to_phones (parameters: message = text to send, phoneNumbers = array of phone number strings as provided by the user).
 - For CRM actions, set toolName to the exact matching handler name from the available list.
 - Never invent a toolName that is not in the available list.
 - Partial parameters OK (leadName, status, visitId, propertyName, agentName).
