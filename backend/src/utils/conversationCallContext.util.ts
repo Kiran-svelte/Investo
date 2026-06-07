@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../config/prisma';
 
 export function isConversationAwaitingCallTime(commitments: unknown): boolean {
@@ -23,7 +24,7 @@ export async function setConversationAwaitingCallTime(conversationId: string): P
       commitments: {
         ...existing,
         awaitingCallTime: true,
-      },
+      } as Prisma.InputJsonValue,
     },
   });
 }
@@ -42,6 +43,6 @@ export async function clearConversationAwaitingCallTime(conversationId: string):
 
   await prisma.conversation.update({
     where: { id: conversationId },
-    data: { commitments: existing },
+    data: { commitments: existing as Prisma.InputJsonValue },
   });
 }
