@@ -17,6 +17,7 @@ describe('callIntentFromMessage.util', () => {
     expect(isCallBookingIntent('cancel my call')).toBe(false);
     expect(isCallBookingIntent('reschedule my callback to Friday')).toBe(false);
     expect(isCallBookingIntent('when is my call?')).toBe(false);
+    expect(isCallBookingIntent('call me at 6pm')).toBe(true);
   });
 
   test('detects cancel, reschedule, and status', () => {

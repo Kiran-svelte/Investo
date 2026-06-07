@@ -252,7 +252,44 @@ async function handleCallMe(params: InteractiveActionParams): Promise<Interactiv
     handled: true,
     action: 'callback-requested',
     leadStatus: 'contacted',
-    turnResult: buyerTurn(formatBuyerCallReply('Callback scheduled', scheduledAt, agent?.name)),
+    turnResult: buyerTurn(formatBuyerCallReply('Callback scheduled', scheduledAt, agent?.name), [
+      { kind: 'buttons', buttons: [
+        { id: 'call-reschedule', title: '📅 Change Time' },
+        { id: 'call-cancel', title: '❌ Cancel Call' },
+        { id: 'call-me', title: '📞 Call Agent' },
+      ]},
+    ]),
+  };
+}
+
+async function handleCallCancel(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const { lead, company } = params;
+  const { findActiveCallRequest, cancelCallRequest } = await import('../callRequest.service');
+  const active = await findActiveCallRequest({ companyId: company.id, leadId: lead.id });
+  if (!active) {
+    return {
+      handled: true,
+      action: 'callback-cancelled',
+      turnResult: buyerTurn("I couldn't find a scheduled callback to cancel."),
+    };
+  }
+  await cancelCallRequest({ companyId: company.id, callId: active.id });
+  return {
+    handled: true,
+    action: 'callback-cancelled',
+    turnResult: buyerTurn(
+      `*Callback cancelled*\n\nReply anytime if you'd like to schedule a new call with our team.`,
+    ),
+  };
+}
+
+async function handleCallReschedule(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  return {
+    handled: true,
+    action: 'callback-reschedule-prompt',
+    turnResult: buyerTurn(
+      `Sure — share your preferred call time (e.g. *tomorrow 6pm*, *Friday 4pm*, or *next Saturday 11am*).`,
+    ),
   };
 }
 
@@ -581,6 +618,8 @@ export async function tryOrchestratedInteractiveAction(
     return handleBookVisit(params);
   }
   if (interactiveId === 'call-me' || interactiveId === 'callback-request') return handleCallMe(params);
+  if (interactiveId === 'call-cancel') return handleCallCancel(params);
+  if (interactiveId === 'call-reschedule') return handleCallReschedule(params);
   if (interactiveId === 'more-info' || interactiveId.startsWith('more-info-')) {
     return handleMoreInfo(params);
   }

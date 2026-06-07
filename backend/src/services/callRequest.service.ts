@@ -183,7 +183,53 @@ export async function cancelCallRequest(input: {
     input.callId,
     input.companyId,
   );
-  return rows[0] ? { success: true, call: rows[0] } : { success: false, error: 'not_found' };
+  const call = rows[0];
+  if (call) {
+    await notifyAgentCallCancelled(call);
+  }
+  return call ? { success: true, call } : { success: false, error: 'not_found' };
+}
+
+async function notifyAgentCallCancelled(call: CallRequestRow): Promise<void> {
+  const lead = await prisma.lead.findUnique({
+    where: { id: call.lead_id },
+    select: { customerName: true, phone: true },
+  });
+  const when = formatDateIST(call.scheduled_at);
+  await prisma.notification.create({
+    data: {
+      companyId: call.company_id,
+      userId: call.agent_id,
+      type: 'system_alert',
+      title: '📞 Callback cancelled by customer',
+      message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} cancelled their callback (${when}).`,
+      data: {
+        kind: 'call_cancelled',
+        callId: call.id,
+        leadId: call.lead_id,
+        scheduledAt: call.scheduled_at.toISOString(),
+      },
+    },
+  });
+
+  try {
+    const agent = await prisma.user.findUnique({
+      where: { id: call.agent_id },
+      select: { phone: true },
+    });
+    if (agent?.phone) {
+      const { whatsappService } = await import('./whatsapp.service');
+      await whatsappService.sendCompanyTextMessage(
+        agent.phone,
+        `📞 *Callback cancelled*\n\nCustomer: *${lead?.customerName ?? 'Buyer'}*\nWas scheduled: ${when}`,
+        call.company_id,
+      );
+    }
+  } catch (err: unknown) {
+    logger.warn('callRequest: agent cancel notification failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function confirmCallRequest(input: {

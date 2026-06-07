@@ -49,8 +49,9 @@ export function resolveCustomerQuickActions(input: {
   recommendedPropertyIds?: string[];
   properties?: CustomerQuickActionProperty[];
   hasActiveVisit?: boolean;
+  hasActiveCall?: boolean;
 }): CustomerQuickActions | null {
-  if (input.hasActiveVisit) return null;
+  if (input.hasActiveVisit || input.hasActiveCall) return null;
 
   const actionableStages = new Set(['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation']);
   if (!actionableStages.has(input.stage)) return null;

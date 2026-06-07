@@ -37,6 +37,7 @@ import {
   searchClientMemory,
 } from './clientMemory.service';
 import { stripInternalCustomerMeta } from './aiTransparency.service';
+import { extractDateTimeIso } from '../utils/parseDateTimeFromMessage.util';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
 
@@ -127,6 +128,10 @@ interface AIRequest {
    */
   activeVisit?: import('./liveLeadContext.service').ActiveVisitContext | null;
   conversationId?: string;
+  /** WhatsApp inbound message id — used for LLM idempotency. */
+  messageId?: string;
+  /** Pre-extracted datetime from deterministic parser (ISO, no ms). */
+  extractedDateTime?: string | null;
 }
 
 interface AIResponse {
@@ -157,6 +162,9 @@ const SUPPORTED_LANGUAGES: Record<string, string> = {
   or: 'Odia',
 };
 
+/** In-memory LLM idempotency (single instance). */
+const processedLlmMessageIds = new Map<string, number>();
+
 export class AIService {
   /**
    * Generate an AI response using the goal-directed state machine.
@@ -166,6 +174,30 @@ export class AIService {
    * 2. Language Brain (LLM): Generates HOW to say it (natural language)
    */
   async generateResponse(request: AIRequest): Promise<AIResponse> {
+    const messageId = request.messageId;
+    if (messageId) {
+      const lastProcessed = processedLlmMessageIds.get(messageId);
+      if (lastProcessed && Date.now() - lastProcessed < 60_000) {
+        logger.warn('Duplicate LLM request blocked', { messageId });
+        return {
+          text: "I'm already working on your last request. Please wait a moment.",
+          detectedLanguage: 'en',
+        };
+      }
+      processedLlmMessageIds.set(messageId, Date.now());
+      setTimeout(() => processedLlmMessageIds.delete(messageId), 60_000);
+    }
+
+    // Deterministic date/time extraction — runs before LLM to prevent date hallucinations.
+    let extractedDateTime: string | null = request.extractedDateTime ?? null;
+    if (!extractedDateTime && request.customerMessage) {
+      extractedDateTime = extractDateTimeIso(request.customerMessage);
+      if (extractedDateTime) {
+        logger.info('Deterministic date extraction succeeded', { extractedDateTime });
+        request.extractedDateTime = extractedDateTime;
+      }
+    }
+
     // Initialize or use existing state
     let state = request.conversationState || conversationStateManager.createInitialState();
     
@@ -473,6 +505,8 @@ ${recentConversationBlock ? `\n${recentConversationBlock}\n` : ''}
 
 ${request.conversionPromptBlock ? `\n${request.conversionPromptBlock}\n` : ''}
 
+${request.extractedDateTime ? `\n## PARSED CUSTOMER DATETIME (use this exact slot — do NOT invent another date/time): ${request.extractedDateTime}\n` : ''}
+
 ## CUSTOMER INFO
 - Name: ${lead.customerName || 'Unknown'}
 - Budget: ${lead.budgetMin ? `₹${formatPrice(lead.budgetMin)}-₹${formatPrice(lead.budgetMax)}` : 'Not shared yet'}
@@ -707,13 +741,11 @@ ${PERSONALITY_BLOCK}`;
     const salutation = formatCustomerSalutation(request.lead?.customerName);
     const company = request.companyName || 'us';
 
-    // Priority 0: Visit-status query — answer from context even when LLM is down.
     if (
       isBuyerVisitStatusQuery(request.customerMessage)
       && request.companyId
       && request.lead?.id
     ) {
-      // sync path only — caller should have handled async; use activeVisit snapshot if present.
       if (request.activeVisit) {
         const prop = request.activeVisit.propertyName ?? 'your property';
         const when = request.activeVisit.scheduledAt.toLocaleString('en-IN', {
@@ -726,51 +758,23 @@ ${PERSONALITY_BLOCK}`;
           hour12: true,
         });
         return {
-          text:
-            `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\n` +
-            `Reply *Confirm*, *Reschedule*, or *Cancel*.`,
+          text: `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\nReply *Confirm*, *Reschedule*, or *Cancel*.`,
           detectedLanguage: 'en',
         };
       }
     }
 
-    // Priority 1: Visit-aware fallback — never ignore an active visit.
-    if (request.activeVisit) {
-      const { propertyName, status } = request.activeVisit;
-      const prop = propertyName ? `*${propertyName}*` : 'your property';
-      const statusLine =
-        status === 'confirmed'
-          ? `Your visit to ${prop} is confirmed.`
-          : `You have an upcoming visit to ${prop}.`;
-      return {
-        text:
-          `${statusLine}\n\nI'm having a brief connection issue but I'll be right back.\n\n` +
-          `Reply *Confirm*, *Reschedule*, or *Call Agent* and I'll take care of it.`,
-        detectedLanguage: 'en',
-        extractedInfo: undefined,
-      };
-    }
-
-    // Priority 2: Returning customer (has conversation history) — do not greet again.
     const historyLength = (request.conversationHistory ?? []).length;
     if (historyLength >= 2) {
       return {
-        text:
-          `Apologies${salutation}, I'm experiencing a brief technical issue. ` +
-          `I'll respond to your query in a moment. Please bear with me.`,
+        text: `I'm temporarily unable to generate a full response right now. Please try again in a few seconds, or type *Talk to agent* for immediate help.`,
         detectedLanguage: 'en',
-        extractedInfo: undefined,
       };
     }
 
-    // Priority 3: First contact only — minimal, non-robotic greeting.
     return {
-      text:
-        `*Hey${salutation}!* Welcome to *${company}*.\n\n` +
-        `What area are you exploring, and what's your budget range? ` +
-        `I'll match you with the right properties right away.`,
+      text: `*Hey${salutation}!* Welcome to *${company}*.\n\nWhat area are you exploring, and what's your budget range? I'll match you with the right properties right away.`,
       detectedLanguage: 'en',
-      extractedInfo: undefined,
     };
   }
 

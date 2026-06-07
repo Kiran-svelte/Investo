@@ -8,6 +8,7 @@ import logger from '../../config/logger';
 import { logOutboundBranch } from '../outboundTurnDebug.service';
 import { tryCommitCustomerVisitBooking } from '../customerVisitBooking.service';
 import { tryCommitCustomerCallBooking } from '../customerCallBooking.service';
+import { extractDateTimeIso } from '../../utils/parseDateTimeFromMessage.util';
 import { getLiveLeadContext } from '../liveLeadContext.service';
 import { buildBuyerVisitStatusReply, isBuyerVisitStatusQuery } from '../buyerVisitQuery.service';
 import { isVisitCancelOrRescheduleMessage, isVisitSchedulingMessage } from '../visitIntentFromMessage.service';
@@ -400,9 +401,9 @@ async function handleQualificationTurn(
 async function handleCallCommitReplyTurn(
   ctx: BuyerTurnRuntimeContext,
   callCommit: Awaited<ReturnType<typeof tryCommitCustomerCallBooking>>,
-  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+  _visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
 ): Promise<TurnResult | null> {
-  if (visitCommit.committed || !callCommit.committed || !callCommit.customerReply) return null;
+  if (!callCommit.committed || !callCommit.customerReply) return null;
 
   await prisma.message.create({
     data: {
@@ -417,7 +418,7 @@ async function handleCallCommitReplyTurn(
     stage: 'confirmation',
     outboundText: callCommit.customerReply,
     propertyId: ctx.input.conversationSelectedPropertyId,
-    hasActiveVisit: false,
+    hasActiveCall: true,
   });
 
   return {
@@ -715,9 +716,15 @@ async function handleVisitCommitReplyTurn(
 async function handleFullAiTurn(
   ctx: BuyerTurnRuntimeContext,
   visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+  callCommit: Awaited<ReturnType<typeof tryCommitCustomerCallBooking>>,
   liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
   conversationState: ConversationState,
 ): Promise<TurnResult> {
+  if (callCommit.committed && callCommit.customerReply) {
+    const replay = await handleCallCommitReplyTurn(ctx, callCommit, visitCommit);
+    if (replay) return replay;
+  }
+
   const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: ctx.companyId } });
   // #region agent log
   fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44596a'},body:JSON.stringify({sessionId:'44596a',location:'whatsappTurnOrchestrator.service.ts:handleFullAiTurn',message:'full_ai_turn_entered',data:{messagePreview:ctx.input.messageText.slice(0,40),stage:conversationState.stage,aiSettingsLoaded:Boolean(aiSettings)},timestamp:Date.now(),hypothesisId:'A',runId:'post-fix'})}).catch(()=>{});
@@ -800,6 +807,8 @@ async function handleFullAiTurn(
       conversationContextBlock,
       liveLeadContextBlock: liveCtx.promptBlock || undefined,
       activeVisit: liveCtx.activeVisit,
+      messageId: ctx.messageId,
+      extractedDateTime: extractDateTimeIso(ctx.input.messageText) ?? undefined,
     }),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('AI response timed out after 28s')), 28_000),
@@ -1233,7 +1242,7 @@ function buildOperatorHandoffLine(operatorContact: unknown): string | null {
  */
 export async function orchestrateWhatsAppBuyerTurn(
   ctx: BuyerTurnRuntimeContext,
-  conversationState: Parameters<typeof handleFullAiTurn>[3],
+  conversationState: ConversationState,
 ): Promise<TurnResult> {
   const recentCustomerMessages = ctx.history
     .filter((m) => m.senderType === 'customer')
@@ -1300,7 +1309,7 @@ export async function orchestrateWhatsAppBuyerTurn(
   const h8 = await handleVisitCommitReplyTurn(ctx, visitCommit, liveCtx);
   if (h8) return h8;
 
-  return handleFullAiTurn(ctx, visitCommit, liveCtx, conversationState);
+  return handleFullAiTurn(ctx, visitCommit, callCommit, liveCtx, conversationState);
 }
 
 // ---------------------------------------------------------------------------

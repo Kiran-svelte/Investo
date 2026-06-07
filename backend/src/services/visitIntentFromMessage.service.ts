@@ -9,6 +9,8 @@
  * server local time and silently shifts by 5:30h on UTC servers.
  */
 
+import { parseDateTimeFromNaturalLanguage } from '../utils/parseDateTimeFromMessage.util';
+
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 
 const VISIT_SCHEDULING_HINT =
@@ -229,12 +231,25 @@ export function parseVisitDateTimeFromMessage(message: string, reference = new D
   if (!text) return null;
 
   const timeMatch = text.match(TIME_PATTERN);
-  if (!timeMatch) return null;
+  if (!timeMatch) {
+    const fromChrono = parseDateTimeFromNaturalLanguage(message, reference);
+    if (fromChrono && fromChrono > reference) return fromChrono;
+    return null;
+  }
   const hm = parseHourMinute(timeMatch);
   if (!hm) return null;
 
   const dayMatch = text.match(DAY_PATTERN);
-  if (!dayMatch) return null;
+  if (!dayMatch) {
+    const todayISTStr = toISTDateString(reference);
+    let d = buildISTDate(todayISTStr, hm.hour, hm.minute);
+    if (d <= reference) {
+      const tomorrow = new Date(reference);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      d = buildISTDate(toISTDateString(tomorrow), hm.hour, hm.minute);
+    }
+    return d;
+  }
 
   const dayToken = dayMatch[1].toLowerCase();
 

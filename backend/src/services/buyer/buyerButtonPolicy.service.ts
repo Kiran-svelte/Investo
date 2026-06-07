@@ -13,6 +13,7 @@ export type BuyerButtonContext = {
   recommendedPropertyIds?: string[];
   properties?: Array<{ id: string; name: string }>;
   hasActiveVisit?: boolean;
+  hasActiveCall?: boolean;
   visitStatus?: string;
   visitProperty?: string;
   visitTime?: string;
@@ -85,6 +86,17 @@ function withPropertyIds(
   });
 }
 
+function resolveCallButtons(_ctx: BuyerButtonContext): WhatsAppComponent {
+  return {
+    kind: 'buttons',
+    buttons: [
+      { id: 'call-reschedule', title: '📅 Change Time' },
+      { id: 'call-cancel', title: '❌ Cancel Call' },
+      { id: 'call-me', title: '📞 Call Agent' },
+    ],
+  };
+}
+
 function resolveVisitButtons(ctx: BuyerButtonContext): WhatsAppComponent | null {
   const pid = ctx.propertyId ?? '';
   const visitBody = ctx.visitProperty
@@ -144,6 +156,10 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
   }
 
   const visitStages = ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation', 'visit_booking'];
+  if (ctx.hasActiveCall && visitStages.includes(ctx.stage)) {
+    return [resolveCallButtons(ctx)];
+  }
+
   if (ctx.hasActiveVisit && visitStages.includes(ctx.stage)) {
     return [resolveVisitButtons(ctx)!];
   }

@@ -14,6 +14,7 @@ import {
   scheduleCallRequest,
 } from './callRequest.service';
 import { parseVisitDateTimeFromMessage } from './visitIntentFromMessage.service';
+import { parseDateTimeFromNaturalLanguage } from '../utils/parseDateTimeFromMessage.util';
 import prisma from '../config/prisma';
 
 export { isCallStatusQuery };
@@ -73,7 +74,10 @@ export async function tryCommitCustomerCallBooking(
         customerReply: "I couldn't find a scheduled callback. Share a date and time (e.g. *tomorrow 3pm*) to book one.",
       };
     }
-    const newTime = parseVisitDateTimeFromMessage(msg) ?? resolveCallScheduledAt(msg);
+    const newTime =
+      parseDateTimeFromNaturalLanguage(msg)
+      ?? parseVisitDateTimeFromMessage(msg)
+      ?? resolveCallScheduledAt(msg);
     const rescheduled = await rescheduleCallRequest({
       companyId: input.companyId,
       callId: active.id,
