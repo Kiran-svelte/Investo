@@ -215,6 +215,14 @@ export class AIService {
     // Initialize or use existing state
     let state = request.conversationState || conversationStateManager.createInitialState();
     
+    // If this conversation was previously escalated but AI is still active (conversation.status = ai_active),
+    // the state machine stage may still be 'human_escalated' in the DB — reset it to rapport so the
+    // policy brain and LLM don't inherit the escalation prompt focus that says 'DO NOT handle further'.
+    // This happens when: (a) agent didn't take over, (b) AI re-engaged automatically, (c) test conversations.
+    if (state.stage === 'human_escalated') {
+      state = { ...state, stage: 'rapport', escalationReason: null };
+    }
+
     // POLICY BRAIN: Process message and decide next action
     const { newState, nextAction } = conversationStateManager.processMessage(
       state,
@@ -262,6 +270,7 @@ export class AIService {
         'Customer re-engaged after escalation. Continue naturally — do NOT say a specialist will assist.',
       ];
     }
+
 
     const fastPath = buildFastPathCustomerReply({
       customerMessage: request.customerMessage,

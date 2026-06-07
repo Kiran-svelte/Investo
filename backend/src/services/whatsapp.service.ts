@@ -1,4 +1,4 @@
-﻿import prisma from '../config/prisma';
+import prisma from '../config/prisma';
 import { Prisma } from '@prisma/client';
 import config from '../config';
 import logger from '../config/logger';
@@ -1280,8 +1280,34 @@ export class WhatsAppService {
     aiEnabled: boolean;
     stage?: string | null;
   }): Promise<{ status: string; aiEnabled: boolean }> {
+    // If the conversation is agent_active or aiEnabled is false, check whether a human agent
+    // actually replied recently. If no agent reply in the last 30 minutes, auto-reactivate AI
+    // so buyers don't get permanently stuck in the 'human will take over' loop.
     if (conversation.status === 'agent_active' || !conversation.aiEnabled) {
-      return { status: conversation.status, aiEnabled: conversation.aiEnabled };
+      const STALE_TAKEOVER_MINUTES = 30;
+      const staleThreshold = new Date(Date.now() - STALE_TAKEOVER_MINUTES * 60 * 1000);
+      const lastAgentMessage = await prisma.message.findFirst({
+        where: {
+          conversation: { id: conversation.id },
+          senderType: 'agent',
+          createdAt: { gte: staleThreshold },
+        },
+        select: { id: true },
+      });
+      if (lastAgentMessage) {
+        // Agent is actively engaged — keep human takeover.
+        return { status: conversation.status, aiEnabled: conversation.aiEnabled };
+      }
+      // Stale takeover — no agent reply in 30 min. Auto-reactivate AI so buyer is not ignored.
+      logger.info('Stale agent_active conversation auto-reactivated (no agent reply in 30 min)', {
+        conversationId: conversation.id,
+      });
+      const reactivated = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { status: 'ai_active', aiEnabled: true, stage: 'rapport', stageEnteredAt: new Date(), escalationReason: null },
+        select: { status: true, aiEnabled: true },
+      });
+      return { status: reactivated.status, aiEnabled: reactivated.aiEnabled };
     }
 
     const isAlreadyActive = conversation.status === 'ai_active' && conversation.aiEnabled;
