@@ -13,6 +13,9 @@ describe('visitIntentFromMessage.service', () => {
   it('detects visit scheduling phrases', () => {
     expect(isVisitSchedulingMessage('This Saturday 12 pm okay ??')).toBe(true);
     expect(isVisitSchedulingMessage('hello')).toBe(false);
+    expect(isVisitSchedulingMessage('9 pm today ?')).toBe(false);
+    expect(isVisitSchedulingMessage('9 pm today ?', { awaitingCallTime: true })).toBe(false);
+    expect(isVisitSchedulingMessage('tomorrow 3pm', { visitBookingStage: true })).toBe(true);
   });
 
   it('parses Saturday 12 pm from message', () => {

@@ -13,6 +13,7 @@ import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service'
 import { createVisitApprovalRequest } from './visitPendingApproval.service';
 import { resolveBuyerPropertyReference } from './buyerPropertyContext.service';
 import { formatBuyerVisitScheduled, formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
+import { isConversationAwaitingCallTime } from '../utils/conversationCallContext.util';
 import type { WorkflowId } from '../constants/workflow.constants';
 import type { WorkflowParams } from './workflow/workflow.types';
 
@@ -191,7 +192,19 @@ export async function tryCommitCustomerVisitBooking(
     return tryCustomerVisitCancelReschedule(input);
   }
 
-  if (!isVisitSchedulingMessage(customerMessage) && !isShortVisitConfirmation(customerMessage)) {
+  const conversationRow = await prisma.conversation.findUnique({
+    where: { id: conversation.id },
+    select: { commitments: true, stage: true },
+  });
+  const visitSchedulingContext = {
+    awaitingCallTime: isConversationAwaitingCallTime(conversationRow?.commitments),
+    visitBookingStage: conversationRow?.stage === 'visit_booking',
+  };
+
+  if (
+    !isVisitSchedulingMessage(customerMessage, visitSchedulingContext)
+    && !isShortVisitConfirmation(customerMessage)
+  ) {
     return { committed: false };
   }
 

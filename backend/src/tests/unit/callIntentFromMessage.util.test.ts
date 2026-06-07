@@ -3,6 +3,7 @@ import {
   isCallCancelIntent,
   isCallRescheduleIntent,
   isCallStatusQuery,
+  isBareSchedulingTimeReply,
   resolveCallScheduledAt,
 } from '../../utils/callIntentFromMessage.util';
 
@@ -30,5 +31,11 @@ describe('callIntentFromMessage.util', () => {
     const ref = new Date('2026-06-07T10:00:00.000Z');
     const at = resolveCallScheduledAt('call me', ref);
     expect(at.getTime()).toBe(ref.getTime() + 15 * 60 * 1000);
+  });
+
+  test('isBareSchedulingTimeReply detects time-only answers', () => {
+    expect(isBareSchedulingTimeReply('9 pm today ?')).toBe(true);
+    expect(isBareSchedulingTimeReply('book visit tomorrow 3pm')).toBe(false);
+    expect(isBareSchedulingTimeReply('call me at 6pm')).toBe(false);
   });
 });

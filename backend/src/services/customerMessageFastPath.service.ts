@@ -159,6 +159,7 @@ export function buildFastPathCustomerReply(input: {
   aiSettings?: { defaultLanguage?: string | null; greetingTemplate?: string | null } | null;
   conversationHistory?: Array<{ senderType?: string; content?: string }>;
   propertyNames?: string[];
+  conversationStage?: string | null;
   /** If provided and client sends a greeting, returns a visit-aware reply instead. */
   upcomingVisit?: ActiveVisitContext | null;
 }): { text: string; detectedLanguage: string } | null {
@@ -173,6 +174,13 @@ export function buildFastPathCustomerReply(input: {
 
   if (isSimpleGreetingMessage(trimmed)) {
     const historyLength = (input.conversationHistory ?? []).length;
+    const bookingStage = input.conversationStage === 'visit_booking'
+      || input.conversationStage === 'confirmation'
+      || input.conversationStage === 'commitment';
+
+    if (bookingStage) {
+      return null;
+    }
 
     // Priority 1: Visit-aware greeting whenever the client has an active visit.
     // Per ai.md — returning clients with a booking should see visit context, not onboarding.

@@ -48,6 +48,7 @@ import PropertyImportKnowledgeWizard from './PropertyImportKnowledgeWizard';
 import PropertyImportMappingReview from './PropertyImportMappingReview';
 import PropertyImportBatchProgress from './PropertyImportBatchProgress';
 import PropertyImportSpreadsheetPanel from './PropertyImportSpreadsheetPanel';
+import PropertyImportLocationFields from './PropertyImportLocationFields';
 import PropertyUnitConfigurationEditor from './PropertyUnitConfigurationEditor';
 import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
 import { getPropertyImportReviewMetadata } from './propertyImport.utils';
@@ -463,6 +464,22 @@ export default function PropertyImportSimplePage() {
     if (draft) {
       setDraft({ ...draft, draftData: next.draftData });
     }
+  };
+
+  const handleLocationFieldChange = (
+    field: 'location_city' | 'location_area' | 'location_pincode',
+    value: string,
+  ) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleLocationBlur = (
+    field: 'location_city' | 'location_area' | 'location_pincode',
+    value: string,
+  ) => {
+    const nextFormValues = { ...formValues, [field]: value };
+    setFormValues(nextFormValues);
+    void persistDraft(nextFormValues);
   };
 
   const handlePublish = async () => {
@@ -885,6 +902,17 @@ export default function PropertyImportSimplePage() {
                   </button>
                 </div>
               </div>
+              <PropertyImportLocationFields
+                values={{
+                  location_city: formValues.location_city,
+                  location_area: formValues.location_area,
+                  location_pincode: formValues.location_pincode,
+                }}
+                disabled={isPublishing || loadingDraft}
+                isSaving={isSaving}
+                onChange={handleLocationFieldChange}
+                onBlur={handleLocationBlur}
+              />
               {publishReadiness.warnings.length > 0 && (
                 <ul className="mt-2 list-disc pl-5 text-sm text-amber-800">
                   {publishReadiness.warnings.map((w) => (

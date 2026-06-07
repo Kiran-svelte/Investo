@@ -241,3 +241,53 @@ describe('PROOF Area 8 — dead code and debug instrumentation removed', () => {
     expect(wa).not.toContain("location:'whatsapp.service.ts:orchestratorCatch'");
   });
 });
+
+// ── Area 9: Multi-reply syndrome (fix.md) ──────────────────────────────────
+describe('PROOF Area 9 — one customer reply per inbound turn', () => {
+  const read = (rel: string) => {
+    const fs = require('fs');
+    const path = require('path');
+    return fs.readFileSync(path.join(__dirname, '../..', rel), 'utf8');
+  };
+
+  test('visit-time handled via orchestrator TurnResult, not legacy direct send', () => {
+    const orch = read('services/whatsapp/whatsappInteractiveOrchestrator.service.ts');
+    const wa = read('services/whatsapp.service.ts');
+    expect(orch).toContain('handleVisitTimeSlot');
+    expect(orch).toContain("interactiveId.startsWith('visit-time-')");
+    expect(wa).not.toContain('// ---- Visit Time Selection (legacy direct send');
+  });
+
+  test('orchestrator catch does not sendMessage — single dispatch via sendTurnResult', () => {
+    const wa = read('services/whatsapp.service.ts');
+    const catchBlock = wa.slice(wa.indexOf('orchestratorCatch'), wa.indexOf('if (turnResult.text?.trim())'));
+    expect(catchBlock).not.toContain('await this.sendMessage(');
+  });
+
+  test('primary outbound budget enforced on customer sends', () => {
+    const wa = read('services/whatsapp.service.ts');
+    expect(wa).toContain('claimPrimaryOutboundSend');
+    expect(wa).toContain('Blocked duplicate primary WhatsApp');
+  });
+
+  test('H2 rapport skipped during visit_booking stage', () => {
+    const orch = read('services/whatsapp/whatsappTurnOrchestrator.service.ts');
+    expect(orch).toMatch(/visit_booking.*confirmation.*commitment/s);
+  });
+
+  test('fast path skips greeting during booking stages', () => {
+    const fp = read('services/customerMessageFastPath.service.ts');
+    expect(fp).toContain('conversationStage');
+    expect(fp).toContain("input.conversationStage === 'visit_booking'");
+  });
+
+  test('policy brain visit_booking returns single continue action', () => {
+    const sm = read('services/conversationStateMachine.ts');
+    expect(sm).toContain('VISIT BOOKING: ONE message only');
+  });
+
+  test('LLM prompt forbids multi-message replies', () => {
+    const ai = read('services/ai.service.ts');
+    expect(ai).toContain('NEVER send more than one message per user turn');
+  });
+});

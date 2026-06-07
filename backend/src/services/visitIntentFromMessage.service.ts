@@ -13,8 +13,11 @@ import { parseDateTimeFromNaturalLanguage } from '../utils/parseDateTimeFromMess
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 
-const VISIT_SCHEDULING_HINT =
-  /\b(visit|site\s*visit|come\s+and\s+see|see\s+the\s+property|schedule|book\s+a\s+visit|this\s+saturday|this\s+sunday|tomorrow|today)\b/i;
+const VISIT_EXPLICIT_HINT =
+  /\b(visit|site\s*visit|come\s+and\s+see|see\s+the\s+property|book\s+a\s+visit)\b/i;
+
+/** Weekend day anchors — still imply visit scheduling when paired with a time. */
+const VISIT_WEEKEND_ANCHOR = /\b(this\s+saturday|this\s+sunday)\b/i;
 
 const TIME_PATTERN =
   /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b|\b(\d{1,2})\s*(am|pm)\b/i;
@@ -115,12 +118,34 @@ export function messageReferencesVisitTomorrow(message: string): boolean {
   );
 }
 
-export function isVisitSchedulingMessage(message: string): boolean {
+export interface VisitSchedulingContext {
+  /** Buyer was asked for a callback time — must not steal the slot as a site visit. */
+  awaitingCallTime?: boolean;
+  /** Conversation is in visit_booking — "tomorrow 3pm" can mean visit time. */
+  visitBookingStage?: boolean;
+}
+
+export function isVisitSchedulingMessage(
+  message: string,
+  context: VisitSchedulingContext = {},
+): boolean {
   const t = message.trim();
   if (!t) return false;
+  if (context.awaitingCallTime) return false;
   if (isVisitCancelOrRescheduleMessage(t)) return false;
   if (SHORT_CONFIRM.test(t)) return true;
-  return VISIT_SCHEDULING_HINT.test(t) && (DAY_PATTERN.test(t) || TIME_PATTERN.test(t));
+
+  const hasTime = TIME_PATTERN.test(t) || DAY_PATTERN.test(t);
+  if (!hasTime) return false;
+
+  if (VISIT_EXPLICIT_HINT.test(t)) return true;
+  if (/\b(book|schedule)\b/i.test(t)) return true;
+  if (VISIT_WEEKEND_ANCHOR.test(t)) return true;
+
+  // "today/tomorrow 9pm" alone is ambiguous — only treat as visit when actively booking one.
+  if (context.visitBookingStage && /\b(today|tomorrow)\b/i.test(t)) return true;
+
+  return false;
 }
 
 export function isShortVisitConfirmation(message: string): boolean {

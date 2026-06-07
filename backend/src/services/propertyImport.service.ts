@@ -15,6 +15,7 @@ import {
   assertPublishStorageReady,
   indexPropertyKnowledge,
 } from './propertyKnowledge.service';
+import { buildAddressFromProperty, geocodingService } from './geocoding.service';
 import {
   normalizePropertyImportDraftData,
   normalizePropertyImportMappingProfile,
@@ -169,6 +170,44 @@ function mapDraftToPropertyData(
     images: mediaUrls.images,
     brochureUrl: mediaUrls.brochureUrl,
   };
+}
+
+async function enrichPropertyDataWithGeocoding(
+  propertyData: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const address = buildAddressFromProperty({
+    locationArea: asNullableString(propertyData.locationArea),
+    locationCity: asNullableString(propertyData.locationCity),
+    locationPincode: asNullableString(propertyData.locationPincode),
+    name: asNullableString(propertyData.name),
+  });
+
+  if (!address) {
+    return propertyData;
+  }
+
+  try {
+    const geocoded = await geocodingService.geocodeAddress(address);
+    if (geocoded) {
+      logger.info('Auto-geocoded property import publish', {
+        address: address.substring(0, 80),
+        lat: geocoded.latitude,
+        lng: geocoded.longitude,
+        confidence: geocoded.confidence,
+      });
+      return {
+        ...propertyData,
+        latitude: geocoded.latitude,
+        longitude: geocoded.longitude,
+      };
+    }
+  } catch (error) {
+    logger.warn('Geocoding failed during property import publish', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return propertyData;
 }
 
 export class PropertyImportService {
@@ -875,10 +914,10 @@ export class PropertyImportService {
       );
     }
 
-    const propertyData = mapDraftToPropertyData(draftData, {
+    const propertyData = await enrichPropertyDataWithGeocoding(mapDraftToPropertyData(draftData, {
       images,
       brochureUrl: brochure?.publicUrl || null,
-    });
+    }));
 
     const published = await prisma.$transaction(async (tx) => {
       let propertyId = draft.publishedPropertyId;
@@ -1036,7 +1075,7 @@ export class PropertyImportService {
         unitData.name = unit.label;
       }
 
-      const propertyData = mapDraftToPropertyData(unitData, mediaUrls);
+      const propertyData = await enrichPropertyDataWithGeocoding(mapDraftToPropertyData(unitData, mediaUrls));
 
       const property = await prisma.$transaction(async (tx) => {
         if (unit.publishedPropertyId && unit.status === 'published' && !forceRepublish) {

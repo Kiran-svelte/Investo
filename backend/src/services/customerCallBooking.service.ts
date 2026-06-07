@@ -3,8 +3,13 @@ import {
   isCallCancelIntent,
   isCallRescheduleIntent,
   isCallStatusQuery,
+  isBareSchedulingTimeReply,
   resolveCallScheduledAt,
 } from '../utils/callIntentFromMessage.util';
+import {
+  clearConversationAwaitingCallTime,
+  isConversationAwaitingCallTime,
+} from '../utils/conversationCallContext.util';
 import {
   buildBuyerCallStatusReply,
   cancelCallRequest,
@@ -22,6 +27,7 @@ export { isCallStatusQuery };
 export interface CommitCustomerCallInput {
   companyId: string;
   customerMessage: string;
+  conversationId?: string;
   lead: { id: string; assignedAgentId?: string | null };
 }
 
@@ -98,7 +104,24 @@ export async function tryCommitCustomerCallBooking(
     };
   }
 
-  if (!isCallBookingIntent(msg)) return { committed: false };
+  if (!isCallBookingIntent(msg)) {
+    let awaitingCallTime = false;
+    if (input.conversationId) {
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: input.conversationId },
+        select: { commitments: true },
+      });
+      awaitingCallTime = isConversationAwaitingCallTime(conversation?.commitments);
+    }
+
+    const bareTimeReply = isBareSchedulingTimeReply(msg);
+    if (!awaitingCallTime && !active) {
+      return { committed: false };
+    }
+    if (!bareTimeReply) {
+      return { committed: false };
+    }
+  }
 
   const scheduledAt = resolveCallScheduledAt(msg);
   if (active) {
@@ -108,6 +131,9 @@ export async function tryCommitCustomerCallBooking(
       scheduledAt,
     });
     if (rescheduled.success && rescheduled.call) {
+      if (input.conversationId) {
+        await clearConversationAwaitingCallTime(input.conversationId).catch(() => undefined);
+      }
       const agent = rescheduled.call
         ? await prisma.user.findUnique({ where: { id: rescheduled.call.agent_id }, select: { name: true } })
         : null;
@@ -130,6 +156,9 @@ export async function tryCommitCustomerCallBooking(
       committed: true,
       customerReply: "I couldn't schedule that callback right now. Please share another time or ask for an agent.",
     };
+  }
+  if (input.conversationId) {
+    await clearConversationAwaitingCallTime(input.conversationId).catch(() => undefined);
   }
   const agent = await prisma.user.findUnique({
     where: { id: booked.call.agent_id },

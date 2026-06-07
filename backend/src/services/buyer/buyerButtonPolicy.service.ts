@@ -128,8 +128,17 @@ function resolveVisitButtons(ctx: BuyerButtonContext): WhatsAppComponent | null 
  * Resolve at most one interactive component for a buyer turn.
  * Returns empty array when no buttons should be sent.
  */
+const BARE_GREETING_OUTBOUND =
+  /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i;
+
 export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
   if (ctx.isReturningGreeting) return [];
+
+  const outbound = ctx.outboundText.trim();
+  if (BARE_GREETING_OUTBOUND.test(outbound)) return [];
+
+  // Visit time-slot buttons are sent only by the interactive book-visit handler.
+  if (ctx.stage === 'visit_booking') return [];
 
   if (
     !shouldAttachContextualQuickReplies({

@@ -382,6 +382,15 @@ export function classifyMessageIntent(
     }
   }
 
+  // Bare greetings during active booking are adjacent (not off-path bridge-back).
+  const bareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(message.trim());
+  if (
+    bareGreeting &&
+    (currentStage === 'visit_booking' || currentStage === 'confirmation' || currentStage === 'commitment')
+  ) {
+    return { intent: 'adjacent', confidence: 0.85 };
+  }
+
   // Check for off-path (distraction)
   const offPathPatterns = [
     /weather|cricket|movie|politics|news|joke/i,
@@ -556,7 +565,28 @@ export class PolicyBrain {
       };
     }
 
-    // 8. Default: continue in current stage
+    // 8. Visit booking — one action only; time-slot buttons are sent by the system separately.
+    if (state.stage === 'visit_booking') {
+      const bareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(
+        (customerMessage || '').trim(),
+      );
+      return {
+        action: 'continue',
+        promptModifiers: bareGreeting
+          ? [
+              'VISIT BOOKING ACTIVE: customer sent a greeting mid-booking.',
+              'Reply with ONE short line only — acknowledge and ask them to pick a visit time.',
+              'Do NOT re-welcome, ask for area/budget/BHK, or send a second follow-up message.',
+            ]
+          : [
+              'VISIT BOOKING: ONE message only — confirm date/time/property.',
+              'Time-slot buttons are sent by the system — do NOT duplicate scheduling prompts.',
+              'Do NOT send a separate welcome or intro.',
+            ],
+      };
+    }
+
+    // 9. Default: continue in current stage
     return {
       action: 'continue',
       promptModifiers: [

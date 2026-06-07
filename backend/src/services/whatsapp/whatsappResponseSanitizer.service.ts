@@ -1,6 +1,7 @@
 import { stripInternalCustomerMeta } from '../aiTransparency.service';
 import { enforceNeverSayNoResponse } from '../neverSayNoResponseGuard.service';
 import { polishOutboundMessage } from '../messagePolish.service';
+import { sanitizeStaffInstructionsForBuyer } from '../utils/buyerStaffCopyGuard.util';
 import type { PropertyLike } from '../propertyCompleteness.service';
 import type { MutationLanguageTurnContext } from './mutationLanguageGuard.service';
 import { guardBookingClaims } from './mutationLanguageGuard.service';
@@ -74,6 +75,7 @@ export async function sanitizeBuyerOutbound(input: SanitizeBuyerOutboundInput): 
   });
 
   let text = stripBuyerInternalMetadata(guarded.text);
+  text = sanitizeStaffInstructionsForBuyer(text);
 
   // Strip robotic capability-listing openers the LLM sometimes generates despite instructions.
   text = text

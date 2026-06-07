@@ -4,7 +4,7 @@
  */
 
 const DEBUG_ENDPOINT = 'http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e';
-const DEBUG_SESSION = '00edec';
+const DEBUG_SESSION = '44596a';
 
 export type OutboundTurnChannel = 'buyer' | 'staff' | 'system';
 
@@ -13,7 +13,10 @@ export interface OutboundTurnContext {
   inboundMessageId?: string | null;
   companyId?: string;
   route?: string;
+  /** E.164 buyer phone — only outbound to this recipient counts against the one-reply budget. */
+  customerPhone?: string | null;
   sendCount: number;
+  primarySendCount: number;
 }
 
 let activeTurn: OutboundTurnContext | null = null;
@@ -43,8 +46,8 @@ function emit(
   // #endregion
 }
 
-export function beginOutboundTurn(ctx: Omit<OutboundTurnContext, 'sendCount'>): void {
-  activeTurn = { ...ctx, sendCount: 0 };
+export function beginOutboundTurn(ctx: Omit<OutboundTurnContext, 'sendCount' | 'primarySendCount'>): void {
+  activeTurn = { ...ctx, sendCount: 0, primarySendCount: 0 };
   emit('H2', 'outboundTurnDebug.service.ts:beginOutboundTurn', 'inbound_turn_started', {
     channel: ctx.channel,
     inboundMessageId: ctx.inboundMessageId ?? null,
@@ -104,4 +107,31 @@ export function endOutboundTurn(status: string): void {
 
 export function getActiveTurnSendCount(): number {
   return activeTurn?.sendCount ?? 0;
+}
+
+function normalizePhoneTail(value: string | null | undefined): string {
+  return (value ?? '').replace(/\D/g, '').slice(-10);
+}
+
+/** At most one primary text/interactive bubble per inbound turn (media addon is separate). */
+export function claimPrimaryOutboundSend(
+  hypothesisId: string,
+  location: string,
+  source: string,
+  recipient?: string | null,
+): boolean {
+  if (!activeTurn) return true;
+  const buyerTail = normalizePhoneTail(activeTurn.customerPhone);
+  const recipientTail = normalizePhoneTail(recipient);
+  if (buyerTail && recipientTail && buyerTail !== recipientTail) return true;
+  if (activeTurn.primarySendCount >= 1) {
+    emit(hypothesisId, location, 'primary_outbound_blocked', {
+      source,
+      primarySendCount: activeTurn.primarySendCount,
+      inboundMessageId: activeTurn.inboundMessageId ?? null,
+    });
+    return false;
+  }
+  activeTurn.primarySendCount += 1;
+  return true;
 }

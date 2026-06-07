@@ -28,6 +28,7 @@ import type { AgentIntent } from '../../constants/agent-intent.constants';
 import { fetchOpenAi, OPENAI_CHAT_URL, openAiKeyProblem } from '../openaiStatus.service';
 import { setAgentSessionClientContext } from '../clientMemory.service';
 import type { ToolContext } from '../agent/agent-state';
+import { sanitizeStaffInstructionsForBuyer } from '../../utils/buyerStaffCopyGuard.util';
 import type { AgentSessionMessage } from '../agent/agent-session-messages.service';
 import { WORKFLOW_ACTION_HANDLERS } from './actions';
 import { enrichWorkflowParams } from './actions/action-helpers';
@@ -957,7 +958,7 @@ export function buildBuyerWorkflowFailureReply(
   failedStep: string | undefined,
   detail: string | undefined,
 ): string {
-  const raw = (detail ?? '').trim();
+  const raw = sanitizeStaffInstructionsForBuyer((detail ?? '').trim());
   if (raw && !INTERNAL_WORKFLOW_LEAK.test(raw)) {
     return raw;
   }
@@ -1164,7 +1165,8 @@ function formatBuyerWorkflowReply(workflowId: WorkflowId, reply: string): string
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return text || reply.trim();
+  const safe = sanitizeStaffInstructionsForBuyer(text || reply.trim());
+  return safe || reply.trim();
 }
 
 /** Regex fallback when LLM classifier is unavailable or low-confidence. */
@@ -1227,6 +1229,7 @@ function buildBuyerWorkflowRun(input: {
       companyId: input.companyId,
       userRole: 'company_admin',
       userName: 'System',
+      channel: 'buyer',
     },
     messageText: input.messageText,
     recentMessages: [],

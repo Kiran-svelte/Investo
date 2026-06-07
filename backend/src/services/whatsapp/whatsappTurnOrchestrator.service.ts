@@ -240,6 +240,9 @@ async function handleRapportTurn(
 ): Promise<TurnResult | null> {
   if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
 
+  // Mid-booking stages: never send a parallel welcome/intro — one reply per turn.
+  if (['visit_booking', 'confirmation', 'commitment'].includes(conversationStage)) return null;
+
   const { isBuyerRapportMessage, isReturningBuyerGreeting, buildBuyerRapportReply } =
     await import('../buyerQualification.service');
 
@@ -502,7 +505,7 @@ async function handleVisitCommitWorkflowTurn(
   const wfResult = await runWorkflow(
     visitCommit.workflowSuggestion.workflowId,
     {
-      toolContext: { userId: 'system', companyId: ctx.companyId, userRole: 'company_admin', userName: 'System' },
+      toolContext: { userId: 'system', companyId: ctx.companyId, userRole: 'company_admin', userName: 'System', channel: 'buyer' },
       messageText: ctx.input.messageText,
       recentMessages: [],
       companyName: ctx.companyName,
@@ -1269,6 +1272,7 @@ export async function orchestrateWhatsAppBuyerTurn(
   const callCommit = await tryCommitCustomerCallBooking({
     companyId: ctx.companyId,
     customerMessage: ctx.input.messageText,
+    conversationId: ctx.input.conversationId,
     lead: { id: ctx.input.leadId, assignedAgentId: ctx.input.leadAssignedAgentId },
   });
 

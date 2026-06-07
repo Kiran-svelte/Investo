@@ -58,6 +58,25 @@ jest.mock('../../services/propertyKnowledge.service', () => ({
   }),
 }));
 
+jest.mock('../../services/geocoding.service', () => ({
+  buildAddressFromProperty: jest.fn((property: {
+    locationArea?: string | null;
+    locationCity?: string | null;
+    locationPincode?: string | null;
+  }) => {
+    const parts = [property.locationArea, property.locationCity, property.locationPincode].filter(Boolean);
+    return parts.length > 0 ? `${parts.join(', ')}, India` : null;
+  }),
+  geocodingService: {
+    geocodeAddress: jest.fn().mockResolvedValue({
+      latitude: 12.9716,
+      longitude: 77.5946,
+      confidence: 'high',
+      source: 'nominatim',
+    }),
+  },
+}));
+
 import { PropertyImportError, propertyImportService } from '../../services/propertyImport.service';
 
 describe('Property Import Service publish gate', () => {
@@ -285,6 +304,64 @@ describe('Property Import Service publish gate', () => {
     }));
     expect(result.draft).toBeDefined();
     expect(result.draft?.status).toBe('published');
+  });
+
+  test('geocodes location on publish when city or area is present', async () => {
+    mockPrisma.propertyImportDraft.findFirst.mockResolvedValue({
+      id: 'draft-1',
+      companyId: 'company-1',
+      status: 'publish_ready',
+      extractionStatus: 'extracted',
+      publishedPropertyId: null,
+      projectId: null,
+      draftData: {
+        name: 'Sunrise Residences',
+        property_type: 'apartment',
+        location_city: 'Bengaluru',
+        location_area: 'Whitefield',
+        type_knowledge: {
+          carpet_area_sqft: '1200 sq ft',
+          bhk: '3 BHK',
+          price: '₹80 L – ₹1.2 Cr',
+          floor_number: 'Mid rise',
+          tower_name: 'Tower A',
+          possession_date: 'Within 12 months',
+          maintenance_fee: '₹3/sqft',
+          facing: 'East',
+          parking: '1 covered',
+          amenities: 'Pool, Gym',
+          anything_else: 'Nothing else',
+        },
+      },
+      mediaAssets: [],
+    });
+
+    mockPrisma.property.create.mockResolvedValue({
+      id: 'property-1',
+      companyId: 'company-1',
+      name: 'Sunrise Residences',
+      propertyType: 'apartment',
+    });
+
+    mockPrisma.propertyImportDraft.update.mockResolvedValue({
+      id: 'draft-1',
+      status: 'published',
+      extractionStatus: 'extracted',
+      publishedPropertyId: 'property-1',
+    });
+
+    await propertyImportService.publishDraft('company-1', 'draft-1', 'user-1', false);
+
+    const { geocodingService } = require('../../services/geocoding.service');
+    expect(geocodingService.geocodeAddress).toHaveBeenCalledWith('Whitefield, Bengaluru, India');
+    expect(mockPrisma.property.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        locationCity: 'Bengaluru',
+        locationArea: 'Whitefield',
+        latitude: 12.9716,
+        longitude: 77.5946,
+      }),
+    }));
   });
 
   test('rejects publishing when AI knowledge gaps remain', async () => {

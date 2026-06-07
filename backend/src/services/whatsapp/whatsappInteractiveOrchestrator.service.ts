@@ -10,6 +10,18 @@ import {
   resolveHeroMediaComponentFromPropertyIds,
 } from './whatsappTurnOrchestrator.service';
 import { searchAlternativeTiers } from '../alternativeInventory.service';
+import { setConversationAwaitingCallTime } from '../../utils/conversationCallContext.util';
+import {
+  parseVisitTimeInteractiveId,
+  resolveVisitSlotToDate,
+  scheduleVisit,
+} from '../visitBooking.service';
+import { createVisitApprovalRequest } from '../visitPendingApproval.service';
+import { assignLeadRoundRobin } from '../leadAssignment.service';
+import {
+  formatBuyerVisitPendingApproval,
+  formatBuyerVisitScheduled,
+} from '../../utils/visitFormat.util';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -235,6 +247,7 @@ async function handleCallMe(params: InteractiveActionParams): Promise<Interactiv
   });
 
   if (!booked.success || !booked.call) {
+    await setConversationAwaitingCallTime(params.conversation.id).catch(() => undefined);
     return {
       handled: true,
       action: 'callback-requested',
@@ -284,6 +297,7 @@ async function handleCallCancel(params: InteractiveActionParams): Promise<Intera
 }
 
 async function handleCallReschedule(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  await setConversationAwaitingCallTime(params.conversation.id).catch(() => undefined);
   return {
     handled: true,
     action: 'callback-reschedule-prompt',
@@ -604,6 +618,136 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
 }
 
 /**
+ * Book a visit from a visit-time-{propertyId}-{slot} button.
+ * Returns a single TurnResult — caller dispatches via sendTurnResult only.
+ */
+async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const { interactiveId, lead, conversation, company } = params;
+  const parsed = parseVisitTimeInteractiveId(interactiveId);
+  if (!parsed) {
+    return {
+      handled: true,
+      action: 'visit-time-parse-failed',
+      turnResult: buyerTurn(
+        'Sorry, I could not read that time slot. Please tap a visit time button again or tell me your preferred date.',
+      ),
+    };
+  }
+
+  const { propertyId, slot } = parsed;
+  const proposedTime = resolveVisitSlotToDate(slot);
+  const property = await prisma.property.findFirst({
+    where: { id: propertyId, companyId: company.id },
+  });
+
+  let agentId = lead.assignedAgentId ?? null;
+  if (!agentId) {
+    agentId = await assignLeadRoundRobin(company.id, lead.id);
+    if (agentId) {
+      await prisma.lead.update({ where: { id: lead.id }, data: { assignedAgentId: agentId } });
+    }
+  }
+
+  if (!agentId) {
+    return {
+      handled: true,
+      action: 'visit-no-agent',
+      leadStatus: 'contacted',
+      turnResult: buyerTurn(
+        'Thanks for choosing a time! Our sales team will call you shortly to confirm your visit.',
+      ),
+    };
+  }
+
+  const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: company.id } });
+  const autoConfirm = aiSettings?.autoConfirmVisits === true;
+  const propertyName = property?.name ?? 'Property';
+
+  if (autoConfirm) {
+    const booking = await scheduleVisit({
+      companyId: company.id,
+      leadId: lead.id,
+      propertyId,
+      scheduledAt: proposedTime,
+      agentId,
+      notes: 'Booked via WhatsApp visit button',
+    });
+
+    if (booking.success && booking.visit) {
+      const agentRecord = await prisma.user.findUnique({
+        where: { id: agentId },
+        select: { phone: true, name: true },
+      });
+      if (agentRecord?.phone) {
+        const when = proposedTime.toLocaleString('en-IN', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Asia/Kolkata',
+        });
+        const agentMsg =
+          `📅 *New Visit Booked!*\n\n👤 ${lead.customerName || lead.phone}\n🏠 ${propertyName}\n🕐 ${when} IST\n\nCustomer booked via WhatsApp. Please confirm availability.`;
+        try {
+          const { whatsappService } = await import('../whatsapp.service');
+          await whatsappService.sendCompanyTextMessage(agentRecord.phone, agentMsg, company.id);
+        } catch (notifyErr: unknown) {
+          logger.warn('Failed to notify agent of auto-confirmed visit', {
+            agentId,
+            visitId: booking.visit.id,
+            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          });
+        }
+      }
+
+      return {
+        handled: true,
+        action: 'visit-scheduled',
+        leadStatus: 'visit_scheduled',
+        newState: {
+          stage: 'confirmation',
+          selectedPropertyId: propertyId,
+          proposedVisitTime: proposedTime,
+        },
+        turnResult: buyerTurn(
+          formatBuyerVisitScheduled(proposedTime, propertyName, agentRecord?.name ?? null),
+        ),
+      };
+    }
+  }
+
+  const agent = await prisma.user.findUnique({
+    where: { id: agentId },
+    select: { name: true },
+  });
+  await createVisitApprovalRequest({
+    companyId: company.id,
+    leadId: lead.id,
+    propertyId,
+    scheduledAt: proposedTime,
+    agentId,
+    conversationId: conversation.id,
+    customerPhone: lead.phone,
+    customerName: lead.customerName,
+    propertyName: property?.name,
+    suppressCustomerMessage: true,
+  });
+
+  return {
+    handled: true,
+    action: 'visit-pending-agent-approval',
+    leadStatus: 'contacted',
+    newState: {
+      stage: 'visit_booking',
+      selectedPropertyId: propertyId,
+      proposedVisitTime: proposedTime,
+    },
+    turnResult: buyerTurn(formatBuyerVisitPendingApproval(agent?.name)),
+  };
+}
+
+/**
  * Route generic visit-slot-morning / visit-slot-afternoon buttons to the proper
  * visit-time slot using the conversation's selectedPropertyId.
  * These buttons come from buyerButtonPolicy visit_booking stage.
@@ -637,6 +781,7 @@ export async function tryOrchestratedInteractiveAction(
 
   if (interactiveId === 'visit-confirm') return handleVisitConfirm(params);
   if (interactiveId === 'visit-reschedule') return handleVisitReschedule(params);
+  if (interactiveId.startsWith('visit-time-')) return handleVisitTimeSlot(params);
   if (interactiveId === 'book-visit' || interactiveId.startsWith('book-visit-')) {
     return handleBookVisit(params);
   }

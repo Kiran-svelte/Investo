@@ -256,6 +256,7 @@ export class AIService {
       aiSettings: request.aiSettings,
       conversationHistory: request.conversationHistory,
       propertyNames: request.properties?.map((p: { name?: string }) => p.name).filter(Boolean),
+      conversationStage: newState.stage,
       // Visit-aware greeting: if the client has an active visit, the fast path
       // returns visit summary instead of the first-time-buyer welcome message.
       upcomingVisit: request.activeVisit ?? null,
@@ -479,8 +480,10 @@ ${buildRealEstateAssistantPolicyPrompt()}
 5. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
 6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
 6b. When a listing shows Brochure PDF on file, offer to share it; the system sends the PDF attachment after your message. Never paste URLs or markdown links for brochures.
-6c. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
+6c. If no brochure exists, tell the customer our team will share it — NEVER ask them to upload files or use property settings / dashboard (those are staff-only).
+6d. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
 7. ONE clear call-to-action per message.
+7b. NEVER send more than one message per user turn. If buttons are needed, the system attaches them to the same interactive message — do NOT write a separate follow-up.
 8. Keep responses under 200 words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
 8c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".

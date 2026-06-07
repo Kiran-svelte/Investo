@@ -8,6 +8,8 @@ export interface ToolContext {
   sessionId?: string;
   /** Staff WhatsApp phone — used by workflow session context updates. */
   staffPhone?: string;
+  /** buyer vs staff tool routing (e.g. brochure missing copy). */
+  channel?: 'buyer' | 'staff';
   companyName?: string;
   sessionLeadId?: string | null;
   sessionVisitId?: string | null;

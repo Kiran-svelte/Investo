@@ -28,4 +28,22 @@ describe('buyerButtonPolicy.service', () => {
       }),
     ).toEqual([]);
   });
+
+  test('never attaches visit_booking stage buttons on LLM turns', () => {
+    expect(
+      resolveBuyerComponents({
+        stage: 'visit_booking',
+        outboundText: 'Pick a time that works for you 🗓️',
+      }),
+    ).toEqual([]);
+  });
+
+  test('blocks buttons when outbound is a bare greeting', () => {
+    expect(
+      resolveBuyerComponents({
+        stage: 'rapport',
+        outboundText: 'Hi',
+      }),
+    ).toEqual([]);
+  });
 });

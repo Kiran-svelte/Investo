@@ -30,16 +30,13 @@ import { type QuickReplyRecentAction } from '../utils/contextQuickReplies.util';
 import { resolveBuyerComponents } from './buyer/buyerButtonPolicy.service';
 import {
   beginOutboundTurn,
+  claimPrimaryOutboundSend,
   endOutboundTurn,
   logOutboundBranch,
   logOutboundSend,
 } from './outboundTurnDebug.service';
 
-import {
-  parseVisitTimeInteractiveId,
-  resolveVisitSlotToDate,
-  scheduleVisitFromWhatsApp,
-} from './visitBooking.service';
+import { scheduleVisitFromWhatsApp } from './visitBooking.service';
 import { transitionLeadStatus, transitionLeadToVisitScheduled } from './leadTransition.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { notifyAgentOfNewLead } from './leadAssignment.service';
@@ -628,6 +625,7 @@ export class WhatsAppService {
       channel: 'buyer',
       inboundMessageId: msg.messageId,
       companyId,
+      customerPhone,
       route: 'buyer_inbound',
     });
 
@@ -1114,18 +1112,13 @@ export class WhatsAppService {
             /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
         });
       }
-      try {
-        await prisma.message.create({
-          data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'sent' },
-        });
-        if (await claimOutboundAiReply(companyId, msg.messageId)) {
-          await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
-        }
-      } catch (sendErr: unknown) {
-        logger.error('Failed to send AI fallback WhatsApp message', {
+      await prisma.message.create({
+        data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'sent' },
+      }).catch((sendErr: unknown) => {
+        logger.error('Failed to persist AI fallback message', {
           error: sendErr instanceof Error ? sendErr.message : String(sendErr),
         });
-      }
+      });
       return { audience: 'buyer' as const, handled: true, terminal: true, text: fallbackText };
     });
 
@@ -1333,6 +1326,11 @@ export class WhatsAppService {
   async sendMessage(to: string, text: string, whatsappConfig: CompanyWhatsAppConfig): Promise<boolean> {
     if (!text.trim()) {
       logger.error('Refusing to send empty WhatsApp message');
+      return false;
+    }
+
+    if (!claimPrimaryOutboundSend('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', to)) {
+      logger.warn('Blocked duplicate primary WhatsApp text send for this inbound turn');
       return false;
     }
 
@@ -1619,6 +1617,11 @@ export class WhatsAppService {
       return { success: false, error: 'Must have 1-3 buttons' };
     }
 
+    if (!claimPrimaryOutboundSend('H4', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons', to)) {
+      logger.warn('Blocked duplicate primary WhatsApp interactive send for this inbound turn');
+      return { success: false, error: 'Duplicate primary outbound blocked' };
+    }
+
     try {
       const payload = buildButtonMessage(bodyText, buttons, to, headerText, footerText);
 
@@ -1639,6 +1642,12 @@ export class WhatsAppService {
 
       const result = await response.json() as { messages?: Array<{ id: string }> };
       const messageId = result.messages?.[0]?.id;
+      logOutboundSend('H4', 'whatsapp.service.ts:sendInteractiveButtons', 'sendInteractiveButtons', bodyText, {
+        buttonCount: buttons.length,
+        buttonIds: buttons.map((b) => b.id),
+        hasHeader: Boolean(headerText),
+        hasFooter: Boolean(footerText),
+      });
       logger.info('WhatsApp interactive buttons sent', { messageId, to, buttonCount: buttons.length });
       return { success: true, messageId };
     } catch (err: any) {
@@ -2233,128 +2242,6 @@ export class WhatsAppService {
     });
     if (orchestrated !== null) {
       return orchestrated;
-    }
-
-    // ---- Visit Time Selection (legacy direct send — slot booking mutation) ----
-    if (interactiveId.startsWith('visit-time-')) {
-      const parsed = parseVisitTimeInteractiveId(interactiveId);
-      if (!parsed) {
-        await this.sendMessage(
-          customerPhone,
-          'Sorry, I could not read that time slot. Please tap a visit time button again or tell me your preferred date.',
-          whatsappConfig,
-        );
-        return { handled: true, action: 'visit-time-parse-failed' };
-      }
-
-      const { propertyId, slot } = parsed;
-      const proposedTime = resolveVisitSlotToDate(slot);
-      const property = await prisma.property.findFirst({
-        where: { id: propertyId, companyId: company.id },
-      });
-
-      let agentId = lead.assignedAgentId;
-      if (!agentId) {
-        agentId = await this.assignRoundRobin(company.id);
-        if (agentId) {
-          await prisma.lead.update({ where: { id: lead.id }, data: { assignedAgentId: agentId } });
-        }
-      }
-
-      if (!agentId) {
-        await this.sendMessage(
-          customerPhone,
-          'Thanks for choosing a time! Our sales team will call you shortly to confirm your visit.',
-          whatsappConfig,
-        );
-        return { handled: true, action: 'visit-no-agent', leadStatus: 'contacted' };
-      }
-
-      // P0-4: Read autoConfirmVisits from DB (aiSettings) instead of the previously undocumented
-      // env var WHATSAPP_AUTO_CONFIRM_VISITS that defaulted to TRUE.
-      // New DB field defaults to FALSE \u2014 agents must explicitly enable auto-confirm per company.
-      const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: company.id } });
-      const autoConfirm = aiSettings?.autoConfirmVisits === true;
-      if (autoConfirm) {
-        const { scheduleVisit } = await import('./visitBooking.service');
-        const booking = await scheduleVisit({
-          companyId: company.id,
-          leadId: lead.id,
-          propertyId,
-          scheduledAt: proposedTime,
-          agentId,
-          notes: 'Booked via WhatsApp visit button',
-        });
-
-        if (booking.success && booking.visit) {
-          const when = proposedTime.toLocaleString('en-IN', {
-            weekday: 'short',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: 'Asia/Kolkata',
-          });
-          await this.sendMessage(
-            customerPhone,
-            `✅ *Visit confirmed!*\n\n📍 *${property?.name || 'Property'}*\n📅 ${when} IST\n\nOur team will call you about an hour before the visit.`,
-            whatsappConfig,
-          );
-
-          // Notify assigned agent immediately via WhatsApp
-          if (agentId) {
-            try {
-              const agentRecord = await prisma.user.findUnique({ where: { id: agentId }, select: { phone: true, name: true } });
-              if (agentRecord?.phone) {
-                const agentMsg = `📅 *New Visit Booked!*\n\n👤 ${lead.customerName || lead.phone}\n🏠 ${property?.name || 'Property'}\n🕐 ${when} IST\n\nCustomer booked via WhatsApp. Please confirm availability.`;
-                void this.sendMessage(agentRecord.phone, agentMsg, whatsappConfig);
-              }
-            } catch (notifyErr: unknown) {
-              logger.warn('Failed to notify agent of auto-confirmed visit', {
-                agentId,
-                visitId: booking.visit.id,
-                error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
-              });
-            }
-          }
-
-          return {
-            handled: true,
-            action: 'visit-scheduled',
-            newState: {
-              stage: 'confirmation',
-              selectedPropertyId: propertyId,
-              proposedVisitTime: proposedTime,
-            },
-            leadStatus: 'visit_scheduled',
-          };
-        }
-      }
-
-
-      const { createVisitApprovalRequest } = await import('./visitPendingApproval.service');
-      await createVisitApprovalRequest({
-        companyId: company.id,
-        leadId: lead.id,
-        propertyId,
-        scheduledAt: proposedTime,
-        agentId,
-        conversationId: conversation.id,
-        customerPhone,
-        customerName: lead.customerName,
-        propertyName: property?.name,
-      });
-
-      return {
-        handled: true,
-        action: 'visit-pending-agent-approval',
-        newState: {
-          stage: 'visit_booking',
-          selectedPropertyId: propertyId,
-          proposedVisitTime: proposedTime,
-        },
-        leadStatus: 'contacted',
-      };
     }
 
     // ---- Property Selection from List ----

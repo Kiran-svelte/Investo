@@ -32,6 +32,21 @@ export function isCallStatusQuery(message: string): boolean {
   return CALL_STATUS.test(message.trim());
 }
 
+/**
+ * Time-only reply (e.g. "9 pm today") with no visit/book language — usually answers a call-time prompt.
+ */
+export function isBareSchedulingTimeReply(message: string): boolean {
+  const t = message.trim();
+  if (!t || t.length > 120) return false;
+  if (isCallBookingIntent(t)) return false;
+  if (CALL_CANCEL.test(t) || CALL_RESCHEDULE.test(t) || CALL_STATUS.test(t)) return false;
+  if (/\b(visit|site\s*visit|appointment|book\s+a\s+visit|schedule\s+a\s+visit)\b/i.test(t)) {
+    return false;
+  }
+  if (/\b(book|schedule)\b/i.test(t)) return false;
+  return Boolean(parseDateTimeFromNaturalLanguage(t) ?? parseVisitDateTimeFromMessage(t));
+}
+
 /** Default ASAP callback ~15 minutes from now if no time in message. */
 export function resolveCallScheduledAt(message: string, reference = new Date()): Date {
   const fromChrono = parseDateTimeFromNaturalLanguage(message, reference);
