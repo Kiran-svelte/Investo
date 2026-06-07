@@ -418,6 +418,25 @@ export function classifyMessageIntent(
   return { intent: 'on_path', confidence: 0.5 };
 }
 
+const PROTECTED_BOOKING_STAGES: ConversationStage[] = ['visit_booking', 'confirmation', 'commitment'];
+const EARLY_FUNNEL_STAGES: ConversationStage[] = ['rapport', 'qualify', 'shortlist'];
+const START_OVER_RE =
+  /^(start\s+over|something\s+new|new\s+search|fresh\s+start|explore\s+something|yes\s+something\s+new)[\s.!?]*$/i;
+
+/**
+ * Prevents stage bleed: visit_booking cannot regress to rapport/qualify unless user pivots.
+ */
+export function isAllowedStageTransition(
+  from: ConversationStage,
+  to: ConversationStage,
+  customerMessage: string,
+): boolean {
+  if (PROTECTED_BOOKING_STAGES.includes(from) && EARLY_FUNNEL_STAGES.includes(to)) {
+    return START_OVER_RE.test(customerMessage.trim());
+  }
+  return true;
+}
+
 // ─── Policy Brain ──────────────────────────────────────────────────────
 
 export class PolicyBrain {
@@ -765,12 +784,25 @@ export class ConversationStateManager {
     // Get next action from policy brain
     const nextAction = this.policyBrain.decideNextAction(newState, intent, objectionType, message);
 
-    // Apply stage transition if needed
+    // Apply stage transition if needed (block backward bleed from visit_booking)
     if (nextAction.action === 'advance_stage' && nextAction.targetStage) {
-      newState.previousStage = newState.stage;
-      newState.stage = nextAction.targetStage;
-      newState.stageEnteredAt = new Date();
-      newState.messageCount = 0;
+      if (!isAllowedStageTransition(newState.stage, nextAction.targetStage, message)) {
+        logger.warn('Blocked invalid stage regression', {
+          from: newState.stage,
+          to: nextAction.targetStage,
+        });
+        nextAction.action = 'continue';
+        nextAction.targetStage = undefined;
+        nextAction.promptModifiers = [
+          'VISIT BOOKING ACTIVE: do not reset to onboarding.',
+          'Ask for visit time confirmation only.',
+        ];
+      } else {
+        newState.previousStage = newState.stage;
+        newState.stage = nextAction.targetStage;
+        newState.stageEnteredAt = new Date();
+        newState.messageCount = 0;
+      }
     }
 
     if (nextAction.action === 'escalate' && nextAction.targetStage) {

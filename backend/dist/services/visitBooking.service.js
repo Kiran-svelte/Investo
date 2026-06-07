@@ -46,6 +46,8 @@ const logger_1 = __importDefault(require("../config/logger"));
 const leadAssignment_service_1 = require("./leadAssignment.service");
 const leadTransition_service_1 = require("./leadTransition.service");
 const notification_engine_1 = require("./notification.engine");
+const visitLifecycle_service_1 = require("./visitLifecycle.service");
+const opsMetrics_service_1 = require("./opsMetrics.service");
 /** Shared visit booking idempotency key shape (workflow + commit + tools). */
 function buildVisitIdempotencyKey(companyId, leadId, scheduledAtISO) {
     return `visit_book:${companyId}:${leadId}:${scheduledAtISO}`;
@@ -109,7 +111,8 @@ async function scheduleVisit(input) {
         ?? buildVisitIdempotencyKey(companyId, leadId, scheduledAt.toISOString());
     const { deduplicationService } = await Promise.resolve().then(() => __importStar(require('./deduplication.service')));
     const redisKey = `visit-idem:${idemKey}`;
-    const claimed = await deduplicationService.claimMessageProcessing(redisKey, 120);
+    // 86400s (24h) matches Meta's maximum webhook re-delivery window.
+    const claimed = await deduplicationService.claimMessageProcessing(redisKey, 86400);
     if (!claimed) {
         const duplicate = await prisma_1.default.visit.findFirst({
             where: {
@@ -121,6 +124,13 @@ async function scheduleVisit(input) {
             orderBy: { createdAt: 'desc' },
         });
         if (duplicate) {
+            (0, opsMetrics_service_1.incrementOpsMetric)('visit_idem_hit');
+            logger_1.default.info('scheduleVisit: idempotency hit (Redis), returning existing visit', {
+                companyId,
+                leadId,
+                visitId: duplicate.id,
+                idemKey,
+            });
             return {
                 success: true,
                 visit: {
@@ -146,6 +156,12 @@ async function scheduleVisit(input) {
         },
     });
     if (existingSameSlot) {
+        (0, opsMetrics_service_1.incrementOpsMetric)('visit_idem_hit');
+        logger_1.default.info('scheduleVisit: idempotency hit (DB unique slot), returning existing visit', {
+            companyId,
+            leadId,
+            visitId: existingSameSlot.id,
+        });
         return {
             success: true,
             visit: {
@@ -182,6 +198,8 @@ async function scheduleVisit(input) {
     });
     await (0, leadTransition_service_1.transitionLeadToVisitScheduled)(leadId);
     await notification_engine_1.notificationEngine.onVisitScheduled(visit, lead, property, agent);
+    (0, visitLifecycle_service_1.emitVisitCreated)(companyId, visit);
+    void (0, visitLifecycle_service_1.scheduleVisitReminderJobs)(visit.id, visit.scheduledAt, companyId, leadId);
     logger_1.default.info('Visit scheduled', {
         visitId: visit.id,
         leadId,

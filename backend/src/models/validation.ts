@@ -95,8 +95,11 @@ export const VISIT_STATUSES = ['scheduled', 'confirmed', 'completed', 'cancelled
 export type VisitStatus = typeof VISIT_STATUSES[number];
 
 export const VISIT_TRANSITIONS: Record<VisitStatus, VisitStatus[]> = {
-  scheduled: ['confirmed', 'cancelled'],
-  confirmed: ['completed', 'no_show'],
+  // Allow direct scheduled → completed for walk-in / same-day visits where the
+  // agent completes the visit without going through the confirmed state.
+  // Also allow scheduled → no_show for the same reason.
+  scheduled: ['confirmed', 'completed', 'no_show', 'cancelled'],
+  confirmed: ['completed', 'no_show', 'cancelled'],
   completed: [],    // terminal
   cancelled: [],    // terminal
   no_show: [],      // terminal

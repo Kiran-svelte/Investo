@@ -7,6 +7,7 @@ import {
 } from './leadMetadata.service';
 import { notificationEngine } from './notification.engine';
 import logger from '../config/logger';
+import { socketService, SOCKET_EVENTS } from './socket.service';
 
 export async function syncLeadScoreFromConversation(
   leadId: string,
@@ -24,17 +25,22 @@ export async function syncLeadScoreFromConversation(
     data: { metadata: metadata as object },
   });
 
+  // Emit real-time update whenever the score changes
+  if (score !== prev) {
+    socketService.emitToCompany(lead.companyId, SOCKET_EVENTS.LEAD_UPDATED, {
+      lead: { id: leadId, lead_score: score },
+    });
+  }
+
   if (score === 'hot' && prev !== 'hot') {
     try {
-      await prisma.notification.create({
-        data: {
-          companyId: lead.companyId,
-          userId: lead.assignedAgentId ?? undefined,
-          type: 'system_alert',
-          title: 'Hot Lead Alert',
-          message: `Lead ${lead.customerName || lead.phone} scored HOT (urgency ${urgencyScore}, value ${valueScore})`,
-          data: { leadId, lead_score: score },
-        },
+      await notificationEngine.notify({
+        companyId: lead.companyId,
+        userId: lead.assignedAgentId ?? null,
+        type: 'system_alert',
+        title: 'Hot Lead Alert',
+        message: `Lead ${lead.customerName || lead.phone} scored HOT (urgency ${urgencyScore}, value ${valueScore})`,
+        data: { leadId, lead_score: score },
       });
       if (lead.assignedAgentId) {
         const fullLead = await prisma.lead.findUnique({ where: { id: leadId } });

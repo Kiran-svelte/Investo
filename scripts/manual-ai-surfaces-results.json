@@ -1,0 +1,63 @@
+{
+  "at": "2026-06-07T09:55:34.369Z",
+  "pass": 8,
+  "total": 8,
+  "results": [
+    {
+      "id": "staff-visits",
+      "role": "staff",
+      "msg": "visits today",
+      "ok": true,
+      "detail": "*Today's visits (2026-06-07)*\n\n🚫 *E2E User* (+919XXXXXXX36)\nProperty: Sunset Heights\nTime: 07/06/2026, 10:00 am | Statu"
+    },
+    {
+      "id": "staff-leads",
+      "role": "staff",
+      "msg": "new leads today",
+      "ok": true,
+      "detail": "*New leads today (2026-06-07)*\n\n1. 🆕 *E2E User* +919XXXXXXX43\n   Status: new | Agent: Kiran Sales\n   ID: c1e91d95-d179-"
+    },
+    {
+      "id": "staff-help",
+      "role": "staff",
+      "msg": "help",
+      "ok": true,
+      "detail": "*Hi Kiran Sales!* Welcome to *Investo Copilot* for *Palm*.\n\nI can help you with:\n- *Visits* - \"visits today\", \"visits to"
+    },
+    {
+      "id": "buyer-hi",
+      "role": "buyer",
+      "msg": "Hi",
+      "ok": true,
+      "detail": "Welcome back! Still looking at *Whitefield*, or something new?"
+    },
+    {
+      "id": "buyer-qualify",
+      "role": "buyer",
+      "msg": "My budget is 1.2 crore Whitefield Bangalore 3BHK",
+      "ok": true,
+      "detail": "Thanks — I've saved budget *up to ₹1.20 crore* and area *Whitefield*.\n\nWould you like to see matching projects, get a br"
+    },
+    {
+      "id": "buyer-brochure",
+      "role": "buyer",
+      "msg": "Send brochure for Sunset Heights",
+      "ok": true,
+      "detail": "No brochure is uploaded for Sunset Heights yet. Upload one in the property settings."
+    },
+    {
+      "id": "buyer-book",
+      "role": "buyer",
+      "msg": "Book visit Sunset Heights Sunday 2pm",
+      "ok": true,
+      "detail": "*Visit scheduled*\n\nProperty: *Sunset Heights*\n\nDate: Sunday, 14 Jun, 02:00 pm\n\nOur specialist *Kiran Sales* will confirm"
+    },
+    {
+      "id": "buyer-status",
+      "role": "buyer",
+      "msg": "When is my visit?",
+      "ok": true,
+      "detail": "*YOUR VISIT*\n\nProperty: *Sunset Heights*\nDate: 14/06/2026, 02:00 pm 02:00 pm\nStatus: *Scheduled*\nAgent: *Kiran Sales* (+"
+    }
+  ]
+}

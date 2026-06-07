@@ -468,6 +468,37 @@ class WhatsAppService {
             (0, outboundTurnDebug_service_1.logOutboundBranch)('H2', 'whatsapp.service.ts:concurrent', 'concurrent_customer_blocked', {
                 companyId,
             });
+            // Queue the message for retry after the current turn lock expires (65s).
+            // This ensures the customer gets a reply even when two messages arrive within 60s
+            // instead of silently dropping the second message.
+            if (msg.messageId) {
+                try {
+                    const { automationQueueService } = await Promise.resolve().then(() => __importStar(require('./automationQueue.service')));
+                    await automationQueueService.schedule('retry_concurrent_inbound', `concurrent:${companyId}:${msg.messageId}`, new Date(Date.now() + 65000), {
+                        companyId,
+                        phoneNumberId: msg.phoneNumberId,
+                        customerPhone: msg.customerPhone,
+                        customerName: msg.customerName,
+                        messageText: msg.messageText,
+                        messageId: msg.messageId,
+                        interactiveId: msg.interactiveId,
+                        interactiveType: msg.interactiveType,
+                        businessDisplayPhone: msg.businessDisplayPhone,
+                    });
+                    logger_1.default.info('Concurrent inbound message queued for retry', {
+                        companyId,
+                        messageId: msg.messageId,
+                        retryAt: new Date(Date.now() + 65000).toISOString(),
+                    });
+                }
+                catch (queueErr) {
+                    logger_1.default.warn('Failed to queue concurrent inbound for retry — message will be dropped', {
+                        companyId,
+                        messageId: msg.messageId,
+                        error: queueErr instanceof Error ? queueErr.message : String(queueErr),
+                    });
+                }
+            }
             return {
                 status: 'skipped',
                 reason: 'concurrent_customer_processing',
@@ -482,6 +513,9 @@ class WhatsAppService {
             customerPhone,
             route: 'buyer_inbound',
         });
+        // Track whether processing succeeded so we know if it's safe to release
+        // the inbound claim on failure (to allow Meta's retry to succeed).
+        let processingSucceeded = false;
         try {
             // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
             let lead = (await prisma_1.default.lead.findFirst({
@@ -667,8 +701,9 @@ class WhatsAppService {
             }
             // Store incoming message — P0-1: If the @@unique constraint fires (concurrent retry),
             // catch P2002 and skip processing rather than sending a duplicate AI response.
+            let insertedCustomerMessageId;
             try {
-                await prisma_1.default.message.create({
+                const inserted = await prisma_1.default.message.create({
                     data: {
                         conversationId: conversation.id,
                         senderType: 'customer',
@@ -676,7 +711,9 @@ class WhatsAppService {
                         whatsappMessageId: msg.messageId,
                         status: 'delivered',
                     },
+                    select: { id: true },
                 });
+                insertedCustomerMessageId = inserted.id;
             }
             catch (createErr) {
                 const isPrismaUniqueViolation = createErr instanceof Error &&
@@ -696,6 +733,39 @@ class WhatsAppService {
                     };
                 }
                 throw createErr;
+            }
+            const normalizedCustomerText = msg.messageText.trim();
+            if (normalizedCustomerText) {
+                const firstSameContent = await prisma_1.default.message.findFirst({
+                    where: {
+                        conversationId: conversation.id,
+                        senderType: 'customer',
+                        content: normalizedCustomerText,
+                        createdAt: { gte: new Date(Date.now() - 90000) },
+                    },
+                    orderBy: { createdAt: 'asc' },
+                    select: { id: true },
+                });
+                if (firstSameContent && firstSameContent.id !== insertedCustomerMessageId) {
+                    logger_1.default.info('Duplicate customer content in short window — skipping AI', {
+                        conversationId: conversation.id,
+                        whatsappMessageId: msg.messageId ?? null,
+                        firstMessageId: firstSameContent.id,
+                    });
+                    return {
+                        status: 'skipped',
+                        reason: 'duplicate_customer_content',
+                        companyId,
+                        leadId: lead.id,
+                        conversationId: conversation.id,
+                        propagation: await this.propagateConversationUpdate({
+                            companyId,
+                            conversationId: conversation.id,
+                            leadId: lead.id,
+                            trigger: 'duplicate_customer_content',
+                        }),
+                    };
+                }
             }
             // Update last contact
             await prisma_1.default.lead.update({
@@ -795,20 +865,46 @@ class WhatsAppService {
                     // Unified TurnResult dispatch (interactive orchestrator + sendTurnResult)
                     if (actionResult.turnResult) {
                         const outboundText = actionResult.turnResult.text?.trim();
+                        let pendingMsgId = null;
                         if (outboundText) {
-                            await prisma_1.default.message.create({
+                            // Create as 'pending' — update to 'sent'/'failed' based on actual delivery result.
+                            const pendingMsg = await prisma_1.default.message.create({
                                 data: {
                                     conversationId: conversation.id,
                                     senderType: 'ai',
                                     content: outboundText,
-                                    status: 'sent',
+                                    status: 'pending',
                                 },
+                                select: { id: true },
                             });
+                            pendingMsgId = pendingMsg.id;
                         }
                         const outboundClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
                         if (outboundClaimed) {
-                            await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig);
-                            (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
+                            let deliveryOk = false;
+                            try {
+                                await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig);
+                                deliveryOk = true;
+                                (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
+                            }
+                            catch (sendErr) {
+                                logger_1.default.error('Interactive action sendTurnResult failed', {
+                                    error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+                                    conversationId: conversation.id,
+                                });
+                            }
+                            if (pendingMsgId) {
+                                await prisma_1.default.message.update({
+                                    where: { id: pendingMsgId },
+                                    data: { status: deliveryOk ? 'sent' : 'failed' },
+                                }).catch(() => undefined);
+                            }
+                        }
+                        else if (pendingMsgId) {
+                            await prisma_1.default.message.update({
+                                where: { id: pendingMsgId },
+                                data: { status: 'failed' },
+                            }).catch(() => undefined);
                         }
                     }
                     propagation = await this.propagateConversationUpdate({
@@ -908,13 +1004,17 @@ class WhatsAppService {
                             /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
                     });
                 }
+                // Mark as 'pending' first; the outer code updates to 'sent'/'failed' after delivery.
                 await prisma_1.default.message.create({
-                    data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'sent' },
-                }).catch((sendErr) => {
+                    data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'pending' },
+                }).catch((saveErr) => {
                     logger_1.default.error('Failed to persist AI fallback message', {
-                        error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+                        error: saveErr instanceof Error ? saveErr.message : String(saveErr),
                     });
                 });
+                // Mark as succeeded so the catastrophic-failure release above does NOT trigger
+                // (the customer will get this fallback reply).
+                processingSucceeded = true;
                 return { audience: 'buyer', handled: true, terminal: true, text: fallbackText };
             });
             if (turnResult.text?.trim()) {
@@ -926,10 +1026,28 @@ class WhatsAppService {
                         outboundTextLength: turnResult.text.length,
                         inboundMessageId: msg.messageId,
                     });
-                    await this.sendTurnResult(customerPhone, turnResult, whatsappConfig);
-                    (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
+                    try {
+                        await this.sendTurnResult(customerPhone, turnResult, whatsappConfig);
+                        (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
+                        // Flush any pending AI messages in this conversation to 'sent'
+                        await prisma_1.default.message.updateMany({
+                            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+                            data: { status: 'sent' },
+                        }).catch(() => undefined);
+                    }
+                    catch (sendErr) {
+                        logger_1.default.error('sendTurnResult failed — marking pending messages as failed', {
+                            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+                            conversationId: conversation.id,
+                        });
+                        await prisma_1.default.message.updateMany({
+                            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+                            data: { status: 'failed' },
+                        }).catch(() => undefined);
+                    }
                 }
             }
+            processingSucceeded = true;
             return {
                 status: 'processed',
                 companyId,
@@ -937,6 +1055,23 @@ class WhatsAppService {
                 conversationId: conversation.id,
                 propagation,
             };
+        }
+        catch (processingErr) {
+            // On catastrophic failure (no fallback reply was sent), release the inbound
+            // claim so Meta's retry attempt can be processed rather than silently dropped.
+            if (!processingSucceeded && msg.messageId) {
+                logger_1.default.error('Catastrophic buyer turn failure — releasing inbound claim for Meta retry', {
+                    companyId,
+                    messageId: msg.messageId,
+                    error: processingErr instanceof Error ? processingErr.message : String(processingErr),
+                });
+                await (0, inboundMessageGuard_service_1.releaseInboundMessageFull)(companyId, msg.messageId).catch((relErr) => {
+                    logger_1.default.warn('releaseInboundMessageFull failed', {
+                        error: relErr instanceof Error ? relErr.message : String(relErr),
+                    });
+                });
+            }
+            throw processingErr;
         }
         finally {
             (0, outboundTurnDebug_service_1.endOutboundTurn)('buyer_finally');

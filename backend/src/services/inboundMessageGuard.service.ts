@@ -113,6 +113,40 @@ export async function releaseInboundMessage(
 }
 
 /**
+ * Full release: delete the DB dedup record AND release the Redis key.
+ * Use this when processing fails catastrophically so Meta's retry attempt
+ * can be processed rather than being silently dropped as a duplicate.
+ *
+ * IMPORTANT: Only call on true processing failures (not on fallback replies that
+ * successfully sent content to the customer — those should remain claimed).
+ */
+export async function releaseInboundMessageFull(
+  companyId: string,
+  messageId: string | undefined | null,
+): Promise<void> {
+  if (!messageId?.trim()) return;
+  const trimmed = messageId.trim();
+
+  // Release Redis key first (best-effort)
+  await deduplicationService.release(buildInboundDedupKey(companyId, trimmed));
+
+  // Delete the DB dedup record so the next Meta retry can be processed
+  try {
+    const prisma = (await import('../config/prisma')).default;
+    await prisma.inboundWhatsappDedup.deleteMany({
+      where: { companyId, whatsappMessageId: trimmed },
+    });
+    logger.info('Released inbound message dedup (DB + Redis) for retry', { companyId, messageId: trimmed });
+  } catch (err: unknown) {
+    logger.warn('releaseInboundMessageFull: DB delete failed — Redis key released but DB record remains', {
+      companyId,
+      messageId: trimmed,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * Short-lived lock while staff copilot generates/sends a reply.
  * Blocks concurrent processing for the same staff user (double webhook / rapid taps).
  */

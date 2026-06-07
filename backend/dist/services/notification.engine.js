@@ -40,6 +40,8 @@ exports.notificationEngine = void 0;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const config_1 = __importDefault(require("../config"));
+const socket_service_1 = require("./socket.service");
+const notificationRetry_service_1 = require("./notificationRetry.service");
 /**
  * IST locale formatter used throughout notification messages.
  * @param date - Date to format
@@ -59,19 +61,24 @@ function formatISTDateTime(date) {
  * Send a WhatsApp message to a user using their company's configured WhatsApp.
  * Non-throwing — a notification failure must never block a business operation.
  * Uses dynamic import to avoid circular dependency with whatsapp.service.
+ * Retries up to 3 times with exponential backoff on transient errors.
  *
  * @param phone - Recipient's phone number
  * @param companyId - Company tenant for WhatsApp config lookup
  * @param message - Message text to send
+ * @param label - Structured log label for identifying the call site in dashboards
  */
-async function sendWhatsAppToUser(phone, companyId, message) {
+async function sendWhatsAppToUser(phone, companyId, message, label = 'notification_engine_whatsapp') {
     try {
-        const { whatsappService } = await Promise.resolve().then(() => __importStar(require('./whatsapp.service')));
-        await whatsappService.sendCompanyTextMessage(phone, message, companyId);
+        await (0, notificationRetry_service_1.withRetry)(async () => {
+            const { whatsappService } = await Promise.resolve().then(() => __importStar(require('./whatsapp.service')));
+            await whatsappService.sendCompanyTextMessage(phone, message, companyId);
+        }, { label, maxAttempts: 3, baseDelayMs: 1000, jitterMs: 200 });
     }
     catch (err) {
-        logger_1.default.warn('NotificationEngine: WhatsApp send failed', {
+        logger_1.default.error('NotificationEngine: WhatsApp send failed after retries', {
             companyId,
+            label,
             error: err instanceof Error ? err.message : String(err),
         });
     }
@@ -107,10 +114,24 @@ class NotificationEngine {
                     data: opts.data ?? {},
                 },
             });
-            logger_1.default.info('Notification created', { type: opts.type, userId: opts.userId });
+            logger_1.default.info('Notification created', { type: opts.type, userId: opts.userId, companyId: opts.companyId });
+            socket_service_1.socketService.emitToCompany(opts.companyId, socket_service_1.SOCKET_EVENTS.NOTIFICATION_NEW, {
+                userId: opts.userId ?? null,
+                type: opts.type,
+                title: opts.title,
+                occurredAt: new Date().toISOString(),
+            });
         }
         catch (err) {
-            logger_1.default.error('Failed to create notification', { error: err.message });
+            // Log with full context — this is a data-loss event; the in-app notification
+            // was not persisted. Caller should still proceed with business logic.
+            logger_1.default.error('NotificationEngine: failed to create notification in DB', {
+                companyId: opts.companyId,
+                userId: opts.userId,
+                type: opts.type,
+                title: opts.title,
+                error: err instanceof Error ? err.message : String(err),
+            });
         }
     }
     /**
@@ -302,7 +323,7 @@ class NotificationEngine {
     /**
      * Notify when visit status changes (confirmed, completed, cancelled).
      */
-    async onVisitStatusChange(visit, oldStatus, newStatus, lead, company) {
+    async onVisitStatusChange(visit, oldStatus, newStatus, lead, company, suppressCustomerNotification = false) {
         const visitTime = new Date(visit.scheduledAt);
         const timeStr = visitTime.toLocaleString('en-IN', {
             weekday: 'short',
@@ -343,8 +364,8 @@ class NotificationEngine {
             ].join('\n');
             void sendWhatsAppToUser(agentRecord.phone, visit.companyId, agentMsg);
         }
-        // Send WhatsApp to customer
-        if (lead?.phone) {
+        // Send WhatsApp to customer (skip when buyer-initiated cancel/reschedule owns the reply)
+        if (!suppressCustomerNotification && lead?.phone) {
             const whatsappConfig = getCompanyWhatsAppConfig(company);
             if (!whatsappConfig.isCompanyConfigured ||
                 !whatsappConfig.phoneNumberId ||

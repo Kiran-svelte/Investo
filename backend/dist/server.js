@@ -37,6 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.httpServer = void 0;
+const Sentry = __importStar(require("@sentry/node"));
 const http_1 = require("http");
 const app_1 = __importDefault(require("./app"));
 const config_1 = __importDefault(require("./config"));
@@ -48,6 +49,7 @@ const propertyImportWorker_service_1 = require("./services/propertyImportWorker.
 const socket_service_1 = require("./services/socket.service");
 const cron_scheduler_service_1 = require("./services/agent/cron-scheduler.service");
 const agent_memory_service_1 = require("./services/agent/agent-memory.service");
+const visitLifecycle_service_1 = require("./services/visitLifecycle.service");
 /** Maximum time (ms) to wait for in-flight requests to drain before forced exit. */
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30000;
 let httpServer = null;
@@ -57,8 +59,18 @@ let automationStarted = false;
 let agentCronStarted = false;
 let propertyImportWorkerStarted = false;
 let isShuttingDown = false;
+/**
+ * In production, background workers (automation queue, property import) should run on
+ * the dedicated worker process (`npm run start:worker`). Set RUN_BACKGROUND_WORKERS_ON_API=true
+ * on the API service only when no separate worker is deployed.
+ */
+function shouldRunBackgroundWorkersOnApi() {
+    if (config_1.default.env !== 'production')
+        return true;
+    return process.env.RUN_BACKGROUND_WORKERS_ON_API === 'true';
+}
 function startAutomationIfNeeded() {
-    if (automationStarted)
+    if (automationStarted || !shouldRunBackgroundWorkersOnApi())
         return;
     automation_service_1.automationService.start();
     automationStarted = true;
@@ -70,7 +82,7 @@ function startAgentCronIfNeeded() {
     agentCronStarted = true;
 }
 function startPropertyImportWorkerIfNeeded() {
-    if (propertyImportWorkerStarted)
+    if (propertyImportWorkerStarted || !shouldRunBackgroundWorkersOnApi())
         return;
     propertyImportWorker_service_1.propertyImportWorkerService.start();
     propertyImportWorkerStarted = true;
@@ -151,7 +163,31 @@ async function shutdown(signal) {
     clearTimeout(forceExitTimer);
     process.exit(0);
 }
+function initSentry() {
+    const dsn = process.env.SENTRY_DSN;
+    if (!dsn) {
+        if (config_1.default.env === 'production') {
+            logger_1.default.warn('SENTRY_DSN not configured — error tracking disabled in production');
+        }
+        return;
+    }
+    Sentry.init({
+        dsn,
+        environment: config_1.default.env,
+        // Capture 10% of transactions for performance monitoring
+        tracesSampleRate: config_1.default.env === 'production' ? 0.1 : 0,
+        // Only log errors in production, not 4xx noise
+        beforeSend(event) {
+            if (event.exception)
+                return event;
+            return null;
+        },
+    });
+    logger_1.default.info('Sentry error tracking initialized', { environment: config_1.default.env });
+}
 async function start() {
+    // Initialize Sentry before anything else so uncaught errors are captured.
+    initSentry();
     try {
         if (config_1.default.db.supabasePoolerConfigured) {
             logger_1.default.info('Database pooler: Supabase transaction mode (port 6543)');
@@ -196,6 +232,13 @@ async function start() {
                 startAutomationIfNeeded();
                 startAgentCronIfNeeded();
                 startPropertyImportWorkerIfNeeded();
+                // Self-heal: re-enqueue any visit reminder jobs that were lost during
+                // a previous server crash between visit.create and scheduleVisitReminderJobs.
+                void (0, visitLifecycle_service_1.reconcileOrphanedVisitReminders)().then((count) => {
+                    if (count > 0) {
+                        logger_1.default.warn('Startup reconciler: re-enqueued orphaned visit reminders', { count });
+                    }
+                });
             }
             catch (err) {
                 logger_1.default.warn('Database warmup failed at startup; API remains available for health checks', {
@@ -238,11 +281,15 @@ async function start() {
 }
 process.on('uncaughtException', (err) => {
     logger_1.default.error('Uncaught exception', { error: err.message, stack: err.stack });
+    Sentry.captureException(err);
     process.exit(1);
 });
 process.on('unhandledRejection', (reason) => {
-    const message = reason instanceof Error ? reason.message : String(reason);
-    logger_1.default.error('Unhandled rejection', { error: message });
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    logger_1.default.error('Unhandled rejection', { error: err.message, stack: err.stack });
+    Sentry.captureException(err);
+    // Exit so the process manager (Render, PM2) restarts with a clean state.
+    process.exit(1);
 });
 process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
 process.on('SIGINT', () => { void shutdown('SIGINT'); });

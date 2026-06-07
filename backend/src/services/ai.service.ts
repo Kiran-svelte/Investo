@@ -1,5 +1,6 @@
 import config from '../config';
 import logger from '../config/logger';
+import { incrementOpsMetric } from './opsMetrics.service';
 import {
   resolveCustomerDisclaimer,
   shouldAppendDisclaimer,
@@ -42,12 +43,26 @@ import { extractDateTimeIso } from '../utils/parseDateTimeFromMessage.util';
 import { AI_GLOBAL_RULES_BLOCK } from '../constants/aiGlobalRules.constants';
 import { withBuyerLlmSafeParams } from '../constants/llmSafeParams.constants';
 import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
+import { withRetry } from '../utils/retry';
+import { getCircuitBreaker } from '../utils/circuit-breaker';
 import {
   formatPropertyCatalogLine,
   type PropertyAiPromptInput,
 } from './propertyAiContext.service';
 
 type AIProviderName = 'kimi' | 'openai' | 'claude';
+
+const kimiCircuitBreaker = getCircuitBreaker({
+  name: 'kimi_ai',
+  failureThreshold: 4,
+  recoveryTimeoutMs: 30_000,
+});
+
+const claudeCircuitBreaker = getCircuitBreaker({
+  name: 'claude_ai',
+  failureThreshold: 4,
+  recoveryTimeoutMs: 30_000,
+});
 
 /** Maximum determinism for buyer LLM — prevents hallucinated errors and repetition. */
 const BUYER_LLM_TEMPERATURE = 0;
@@ -387,6 +402,7 @@ export class AIService {
         }
         
         response.nextAction = nextAction;
+        incrementOpsMetric('ai_replies');
         return response;
       } catch (err: any) {
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -655,65 +671,84 @@ ${PERSONALITY_BLOCK}`;
   }
 
   /**
-   * Call Claude API.
+   * Call Claude API — with circuit breaker and retry for transient failures.
    */
   private async callClaude(systemPrompt: string, messages: Array<{ role: string; content: string }>): Promise<AIResponse> {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': config.ai.claudeApiKey!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: config.ai.claudeModel,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }],
-      }),
-    });
+    return claudeCircuitBreaker.execute(() =>
+      withRetry(
+        async () => {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': config.ai.claudeApiKey!,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: config.ai.claudeModel,
+              max_tokens: 1024,
+              system: systemPrompt,
+              messages: messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }],
+            }),
+          });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Claude API error: ${response.status} ${error}`);
-    }
+          if (!response.ok) {
+            const error = await response.text();
+            // Don't retry auth errors
+            if (response.status === 401 || response.status === 403) {
+              throw new Error(`Claude API auth error: ${response.status} ${error}`);
+            }
+            throw new Error(`Claude API error: ${response.status} ${error}`);
+          }
 
-    const data = await response.json() as any;
-    const text = data.content?.[0]?.text || '';
-
-    return this.parseAIResponse(text);
+          const data = await response.json() as any;
+          const text = data.content?.[0]?.text || '';
+          return this.parseAIResponse(text);
+        },
+        { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25_000, label: 'claude_ai' },
+      ),
+    );
   }
 
   /**
-   * Call Kimi API as the primary provider.
+   * Call Kimi API — with circuit breaker and retry for transient failures.
    */
   private async callKimi(systemPrompt: string, messages: Array<{ role: string; content: string }>): Promise<AIResponse> {
-    const response = await fetch(this.buildChatCompletionsUrl(config.ai.kimiApiBaseUrl), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.ai.kimiApiKey}`,
-      },
-      body: JSON.stringify(
-        withBuyerLlmSafeParams({
-          model: config.ai.kimi25Model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
-          ],
-        }),
+    return kimiCircuitBreaker.execute(() =>
+      withRetry(
+        async () => {
+          const response = await fetch(this.buildChatCompletionsUrl(config.ai.kimiApiBaseUrl), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${config.ai.kimiApiKey}`,
+            },
+            body: JSON.stringify(
+              withBuyerLlmSafeParams({
+                model: config.ai.kimi25Model,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
+                ],
+              }),
+            ),
+          });
+
+          if (!response.ok) {
+            const error = await response.text();
+            if (response.status === 401 || response.status === 403) {
+              throw new Error(`Kimi API auth error: ${response.status} ${error}`);
+            }
+            throw new Error(`Kimi API error: ${response.status} ${error}`);
+          }
+
+          const data = await response.json() as any;
+          const text = data.choices?.[0]?.message?.content || '';
+          return this.parseAIResponse(text);
+        },
+        { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25_000, label: 'kimi_ai' },
       ),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Kimi API error: ${response.status} ${error}`);
-    }
-
-    const data = await response.json() as any;
-    const text = data.choices?.[0]?.message?.content || '';
-
-    return this.parseAIResponse(text);
+    );
   }
 
   /**

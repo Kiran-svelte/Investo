@@ -323,7 +323,8 @@ export async function tryCommitCustomerVisitBooking(
     select: { name: true },
   });
 
-  const autoConfirm = process.env.WHATSAPP_AUTO_CONFIRM_VISITS !== '0';
+  const { isVisitAutoConfirmEnabled } = await import('./visitAutoConfirm.service');
+  const autoConfirm = await isVisitAutoConfirmEnabled(companyId);
 
   if (autoConfirm && process.env.BUYER_VISIT_WORKFLOW_ENABLED !== '0') {
     return {

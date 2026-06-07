@@ -1,8 +1,43 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+/** Production deploy marker — bump to force Railway rebuild when watch-path skip occurs. (2026-06-07b call/visit + location) */
+const Sentry = __importStar(require("@sentry/node"));
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
@@ -41,6 +76,8 @@ const property_import_bulk_routes_1 = __importDefault(require("./routes/property
 const finance_routes_1 = __importDefault(require("./routes/finance.routes"));
 const config_1 = require("./config");
 const copilot_routes_1 = __importDefault(require("./routes/copilot.routes"));
+const auth_1 = require("./middleware/auth");
+const featureGate_1 = require("./middleware/featureGate");
 const app = (0, express_1.default)();
 // Render/other reverse proxies forward client IP via X-Forwarded-For.
 // express-rate-limit requires trust proxy to be enabled to avoid ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
@@ -74,43 +111,54 @@ app.use(sanitizeInput_1.sanitizeInput);
 app.use('/api/', rateLimiter_1.userRateLimiter);
 // Auth routes with stricter rate limiting for login
 app.use('/api/auth', rateLimiter_1.sensitiveRateLimiter, auth_routes_1.default);
-// All other routes with company-level rate limiting (1000 req/min per company)
-app.use('/api/companies', rateLimiter_1.companyRateLimiter, company_routes_1.default);
-app.use('/api/users', rateLimiter_1.companyRateLimiter, user_routes_1.default);
-app.use('/api/leads', rateLimiter_1.companyRateLimiter, lead_routes_1.default);
-app.use('/api/property-projects', rateLimiter_1.companyRateLimiter, property_project_routes_1.default);
-app.use('/api/properties', rateLimiter_1.companyRateLimiter, property_routes_1.default);
+// All protected routes: authenticate FIRST so company_id is available for
+// per-company rate limiters (companyRateLimiter keys on req.user.company_id).
+// Without this order, company_id is undefined and the limits never apply.
+app.use('/api/companies', auth_1.authenticate, rateLimiter_1.companyRateLimiter, company_routes_1.default);
+app.use('/api/users', auth_1.authenticate, rateLimiter_1.companyRateLimiter, user_routes_1.default);
+app.use('/api/leads', auth_1.authenticate, rateLimiter_1.companyRateLimiter, lead_routes_1.default);
+app.use('/api/property-projects', auth_1.authenticate, rateLimiter_1.companyRateLimiter, property_project_routes_1.default);
+app.use('/api/properties', auth_1.authenticate, rateLimiter_1.companyRateLimiter, property_routes_1.default);
 // Public upload endpoint (no auth headers) must be mounted before the authenticated router.
 app.use('/api/property-imports/uploads', property_import_upload_routes_1.default);
 // Bulk CSV/XLSX import must be mounted before the main router (prevents /:id wildcard capturing /bulk).
-app.use('/api/property-imports/bulk', rateLimiter_1.companyRateLimiter, property_import_bulk_routes_1.default);
-app.use('/api/property-imports', rateLimiter_1.companyRateLimiter, rateLimiter_1.userAiRateLimiter, rateLimiter_1.companyAiRateLimiter, property_import_routes_1.default);
-app.use('/api/visits', rateLimiter_1.companyRateLimiter, visit_routes_1.default);
-app.use('/api/conversations', rateLimiter_1.companyRateLimiter, conversation_routes_1.default);
-app.use('/api/ai-settings', rateLimiter_1.companyRateLimiter, ai_settings_routes_1.default);
-app.use('/api/conversion-settings', rateLimiter_1.companyRateLimiter, conversion_settings_routes_1.default);
-app.use('/api/analytics', rateLimiter_1.companyRateLimiter, analytics_routes_1.default);
-app.use('/api/notifications', rateLimiter_1.companyRateLimiter, notification_routes_1.default);
-app.use('/api/subscriptions', rateLimiter_1.companyRateLimiter, subscription_routes_1.default);
-app.use('/api/admin', rateLimiter_1.companyRateLimiter, admin_routes_1.default);
-app.use('/api/roles', rateLimiter_1.companyRateLimiter, role_routes_1.default);
-app.use('/api/features', rateLimiter_1.companyRateLimiter, feature_routes_1.default);
-app.use('/api/onboarding', rateLimiter_1.companyRateLimiter, onboarding_routes_1.default);
-app.use('/api/audit', rateLimiter_1.companyRateLimiter, audit_routes_1.default);
-app.use('/api/agent-action-logs', rateLimiter_1.companyRateLimiter, agent_action_log_routes_1.default);
-app.use('/api/copilot', rateLimiter_1.companyRateLimiter, rateLimiter_1.companyAiRateLimiter, copilot_routes_1.default);
-app.use('/api/error-logs', rateLimiter_1.companyRateLimiter, error_log_routes_1.default);
-app.use('/api/assignment-settings', rateLimiter_1.companyRateLimiter, assignment_settings_routes_1.default);
+app.use('/api/property-imports/bulk', auth_1.authenticate, rateLimiter_1.companyRateLimiter, property_import_bulk_routes_1.default);
+app.use('/api/property-imports', auth_1.authenticate, rateLimiter_1.companyRateLimiter, rateLimiter_1.userAiRateLimiter, rateLimiter_1.companyAiRateLimiter, property_import_routes_1.default);
+app.use('/api/visits', auth_1.authenticate, rateLimiter_1.companyRateLimiter, visit_routes_1.default);
+app.use('/api/conversations', auth_1.authenticate, rateLimiter_1.companyRateLimiter, conversation_routes_1.default);
+app.use('/api/ai-settings', auth_1.authenticate, rateLimiter_1.companyRateLimiter, ai_settings_routes_1.default);
+app.use('/api/conversion-settings', auth_1.authenticate, rateLimiter_1.companyRateLimiter, conversion_settings_routes_1.default);
+app.use('/api/analytics', auth_1.authenticate, rateLimiter_1.companyRateLimiter, analytics_routes_1.default);
+app.use('/api/notifications', auth_1.authenticate, rateLimiter_1.companyRateLimiter, notification_routes_1.default);
+app.use('/api/subscriptions', auth_1.authenticate, rateLimiter_1.companyRateLimiter, subscription_routes_1.default);
+app.use('/api/admin', auth_1.authenticate, rateLimiter_1.companyRateLimiter, admin_routes_1.default);
+app.use('/api/roles', auth_1.authenticate, rateLimiter_1.companyRateLimiter, role_routes_1.default);
+app.use('/api/features', auth_1.authenticate, rateLimiter_1.companyRateLimiter, feature_routes_1.default);
+app.use('/api/onboarding', auth_1.authenticate, rateLimiter_1.companyRateLimiter, onboarding_routes_1.default);
+app.use('/api/audit', auth_1.authenticate, rateLimiter_1.companyRateLimiter, audit_routes_1.default);
+app.use('/api/agent-action-logs', auth_1.authenticate, rateLimiter_1.companyRateLimiter, agent_action_log_routes_1.default);
+app.use('/api/copilot', auth_1.authenticate, rateLimiter_1.companyRateLimiter, rateLimiter_1.userAiRateLimiter, rateLimiter_1.companyAiRateLimiter, (0, featureGate_1.requireFeature)('ai_bot'), copilot_routes_1.default);
+app.use('/api/error-logs', auth_1.authenticate, rateLimiter_1.companyRateLimiter, error_log_routes_1.default);
+app.use('/api/assignment-settings', auth_1.authenticate, rateLimiter_1.companyRateLimiter, assignment_settings_routes_1.default);
 app.use('/api', finance_routes_1.default);
 // 404 handler
 app.use((req, res) => {
     const requestId = req.requestId;
     res.status(404).json({ error: 'Endpoint not found', requestId });
 });
+// Sentry error handler — must be BEFORE the generic error handler and AFTER all routes.
+// Only active when SENTRY_DSN is configured.
+if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+}
 // Global error handler - does NOT leak internal details
 app.use((err, req, res, _next) => {
     const requestId = req.requestId;
     logger_1.default.error('Unhandled error', { message: err.message, stack: err.stack, requestId });
+    // Capture in Sentry if not already handled by the Sentry error handler middleware
+    if (!process.env.SENTRY_DSN) {
+        Sentry.captureException(err);
+    }
     res.status(500).json({ error: 'Internal server error', requestId });
 });
 exports.default = app;

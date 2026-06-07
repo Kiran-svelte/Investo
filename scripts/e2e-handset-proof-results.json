@@ -1,0 +1,147 @@
+{
+  "runAt": "2026-06-07T17:13:53.908Z",
+  "suite": "buyer",
+  "pass": 18,
+  "fail": 1,
+  "durationMin": "11.5",
+  "phones": {
+    "buyerA": "919000008000",
+    "buyerB": "919000008748",
+    "buyerD": "919000008248"
+  },
+  "results": [
+    {
+      "id": "preflight-health",
+      "group": "system",
+      "name": "Health live",
+      "ok": true,
+      "detail": "{\"status\":\"ok\",\"timestamp\":\"2026-06-07T17:02:52.218Z\",\"uptime_seconds\":6585}"
+    },
+    {
+      "id": "preflight-deps",
+      "group": "system",
+      "name": "Health DB + OpenAI",
+      "ok": true,
+      "detail": "db=ok openai=ok"
+    },
+    {
+      "id": "system-takeover-blocks-ai",
+      "group": "system",
+      "name": "Takeover blocks AI reply",
+      "ok": true,
+      "detail": "aiEnabled=false replyLen=172"
+    },
+    {
+      "id": "system-takeover-release",
+      "group": "system",
+      "name": "Release takeover restores AI replies",
+      "ok": true,
+      "detail": "take=200 rel=200 status=ai_active ai=true replyOk=true We have some great 3 BHK options availab"
+    },
+    {
+      "id": "buyer-01-rapport",
+      "group": "buyer",
+      "name": "Rapport / first contact",
+      "ok": true,
+      "detail": "Hello! Welcome to *Palm*.\n\nI can help you explore homes in B"
+    },
+    {
+      "id": "buyer-02-qualify",
+      "group": "buyer",
+      "name": "Qualify budget location BHK",
+      "ok": true,
+      "detail": "budget=true loc=true Thanks — I've saved budget *₹1.20 crore "
+    },
+    {
+      "id": "buyer-03-brochure",
+      "group": "buyer",
+      "name": "Brochure request",
+      "ok": true,
+      "detail": "brochureLog=true I don't have a digital brochure for *Sunset Height"
+    },
+    {
+      "id": "buyer-04-price",
+      "group": "buyer",
+      "name": "Price inquiry",
+      "ok": true,
+      "detail": "Here are the matching options I found:\n\n🟢 *Sunset Heights*\n\nType: apartment | S"
+    },
+    {
+      "id": "buyer-05-availability",
+      "group": "buyer",
+      "name": "Availability check",
+      "ok": true,
+      "detail": "Here are the matching options I found:\n\n*Sunset Heights* (apartment)\n\nLocation: "
+    },
+    {
+      "id": "buyer-06-book",
+      "group": "buyer",
+      "name": "Book visit Sunday 2pm",
+      "ok": true,
+      "detail": "visits 0->1 audit=false"
+    },
+    {
+      "id": "buyer-07-idempotent",
+      "group": "buyer",
+      "name": "Idempotent duplicate book",
+      "ok": true,
+      "detail": "visits 1->1"
+    },
+    {
+      "id": "buyer-08-visit-status",
+      "group": "buyer",
+      "name": "When is my visit",
+      "ok": true,
+      "detail": "*YOUR VISIT*\n\nProperty: *Sunset Heights*\nWhen: 14/06/2026, 02:00 pm\nStatus: *Scheduled*\nAgent: *Kira"
+    },
+    {
+      "id": "buyer-09-reschedule",
+      "group": "buyer",
+      "name": "Reschedule push to Sunday",
+      "ok": true,
+      "detail": "hasVisit=true log=false *Visit rescheduled*\n\nProperty: *Sunset Heights*\n\nDate: Sunday, 14 Jun, 05:30 pm\n"
+    },
+    {
+      "id": "buyer-10-memory",
+      "group": "buyer",
+      "name": "Memory recall budget",
+      "ok": true,
+      "detail": "Your budget preference is *₹1.20 crore – ₹1.50 crore*.\nYou're looking in *Whitef"
+    },
+    {
+      "id": "buyer-11-escalate",
+      "group": "buyer",
+      "name": "Escalate to human",
+      "ok": false,
+      "detail": "audit=false *Callback scheduled*\n\nWhen: 07/06/2026, 10:54 pm\nAgent: *Amo"
+    },
+    {
+      "id": "buyer-12-no-discount",
+      "group": "buyer",
+      "name": "Price negotiation no AI discount",
+      "ok": true,
+      "detail": "audit=false I've alerted our team and moved this chat to a human special"
+    },
+    {
+      "id": "system-webhook-dedup",
+      "group": "system",
+      "name": "Duplicate webhook yields single AI reply",
+      "ok": true,
+      "detail": "webhook200=true/true aiReplies=1"
+    },
+    {
+      "id": "system-tenant-catalog",
+      "group": "system",
+      "name": "Property catalog scoped to tenant",
+      "ok": true,
+      "detail": "foreignLeak=false tenantMatch=true otherCo=Investo Platform"
+    },
+    {
+      "id": "system-no-internal-leak",
+      "group": "system",
+      "name": "Buyer replies free of internal leaks",
+      "ok": true,
+      "detail": "no internal patterns detected"
+    }
+  ]
+}

@@ -388,6 +388,29 @@ async function applyCompatibilityPatches(): Promise<void> {
 
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_session_status_idx ON pending_actions(session_id, status)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_expires_idx ON pending_actions(expires_at)`);
+
+  // call_requests — WhatsApp call booking workflow.
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS call_requests (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      agent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      scheduled_at TIMESTAMP NOT NULL,
+      duration_minutes INT NOT NULL DEFAULT 15,
+      status VARCHAR(30) NOT NULL DEFAULT 'scheduled',
+      notes TEXT NULL,
+      agent_confirmed_at TIMESTAMP NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS call_requests_company_lead_idx ON call_requests (company_id, lead_id, scheduled_at DESC)`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS call_requests_agent_scheduled_idx ON call_requests (agent_id, scheduled_at)`,
+  );
   await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN

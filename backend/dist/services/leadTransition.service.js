@@ -9,6 +9,7 @@ exports.transitionLeadToVisitScheduled = transitionLeadToVisitScheduled;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const validation_1 = require("../models/validation");
+const socket_service_1 = require("./socket.service");
 function canTransitionLeadToVisitScheduledStatus(status) {
     if (!status || !validation_1.LEAD_STATUSES.includes(status)) {
         return false;
@@ -43,12 +44,17 @@ async function transitionLeadStatus(leadId, targetStatus, extra) {
         });
         return false;
     }
-    await prisma_1.default.lead.update({
+    const updatedLead = await prisma_1.default.lead.update({
         where: { id: leadId },
         data: {
             status: targetStatus,
             ...(extra?.lastContactAt !== false && { lastContactAt: new Date() }),
         },
+        select: { id: true, companyId: true, status: true },
+    });
+    // Real-time dashboard update for automatic transitions
+    socket_service_1.socketService.emitToCompany(updatedLead.companyId, socket_service_1.SOCKET_EVENTS.LEAD_UPDATED, {
+        lead: { id: updatedLead.id, status: updatedLead.status },
     });
     return true;
 }

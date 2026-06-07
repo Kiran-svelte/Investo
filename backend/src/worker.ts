@@ -2,6 +2,7 @@ import logger from './config/logger';
 import prisma from './config/prisma';
 import { getRedis } from './config/redis';
 import { propertyImportWorkerService } from './services/propertyImportWorker.service';
+import { automationService } from './services/automation.service';
 
 async function startWorker(): Promise<void> {
   try {
@@ -18,10 +19,18 @@ async function startWorker(): Promise<void> {
       logger.info('Redis connected for worker runtime');
     }
 
+    // Property import background processing
     propertyImportWorkerService.start();
-    logger.info('Investo property import worker runtime is running');
+
+    // Automation queue: visit reminders, follow-ups, conversation timeouts,
+    // and the new retry_concurrent_inbound job queue
+    automationService.start();
+
+    logger.info('Investo worker runtime started', {
+      services: ['property_import_worker', 'automation_service'],
+    });
   } catch (err: any) {
-    logger.error('Failed to start property import worker runtime', {
+    logger.error('Failed to start worker runtime', {
       error: err.message,
     });
     process.exit(1);
@@ -29,8 +38,9 @@ async function startWorker(): Promise<void> {
 }
 
 async function shutdown(signal: string): Promise<void> {
-  logger.info('Property import worker runtime shutting down', { signal });
+  logger.info('Worker runtime shutting down', { signal });
   propertyImportWorkerService.stop();
+  automationService.stop();
   await prisma.$disconnect();
   process.exit(0);
 }

@@ -1,0 +1,72 @@
+{
+  "at": "2026-06-07T17:01:57.198Z",
+  "device": "RZGL31RFPAV",
+  "pass": 0,
+  "total": 9,
+  "singleReplyPass": 0,
+  "results": [
+    {
+      "id": "staff-visits",
+      "role": "staff",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "staff-leads",
+      "role": "staff",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "staff-help",
+      "role": "staff",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "buyer-hi",
+      "role": "buyer",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "buyer-call-me",
+      "role": "buyer",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "buyer-qualify",
+      "role": "buyer",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "buyer-brochure",
+      "role": "buyer",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "buyer-book",
+      "role": "buyer",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    },
+    {
+      "id": "buyer-status",
+      "role": "buyer",
+      "ok": false,
+      "detail": "adb send failed",
+      "singleReply": false
+    }
+  ]
+}

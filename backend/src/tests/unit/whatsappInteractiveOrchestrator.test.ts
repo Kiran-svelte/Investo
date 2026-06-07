@@ -144,7 +144,7 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     const components = result?.turnResult?.components ?? [];
     const budgeted = enforceTurnComponentBudget(components);
     expect(budgeted.some((c) => c.kind === 'list')).toBe(true);
-    expect(budgeted.some((c) => c.kind === 'media')).toBe(true);
-    expect(budgeted.length).toBeLessThanOrEqual(2);
+    expect(budgeted.some((c) => c.kind === 'media')).toBe(false);
+    expect(budgeted.length).toBe(1);
   });
 });

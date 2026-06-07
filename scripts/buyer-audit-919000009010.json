@@ -1,0 +1,326 @@
+{
+  "auditedAt": "2026-06-06T09:04:39.158Z",
+  "phone": "919000009010",
+  "leadId": "a7ef0b41-f130-402d-b2db-8dd640e8ebf4",
+  "leadStatus": "visit_scheduled",
+  "leadMemory": {
+    "budget": {
+      "max": 15000000,
+      "min": 12000000,
+      "currency": "INR"
+    },
+    "version": 1,
+    "updatedAt": "2026-06-06T08:43:19.333Z",
+    "lastIntent": "price_inquiry",
+    "upcomingVisits": [],
+    "projectsDiscussed": [
+      {
+        "name": "Sunset Heights",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Green Acres",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Sunset Heights",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Lake Vista",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Commercial Hub",
+        "factsShown": [
+          "price"
+        ]
+      }
+    ],
+    "locationPreference": "Whitefield",
+    "conversationSummary": "Can you give me 10% discount on the final price? → I've alerted our team and moved this chat to a human specialist.\n\nSomeone from the team will call or message you shortly."
+  },
+  "visits": [],
+  "conversation": {
+    "id": "0260c4b3-17bb-4a4f-b32f-9f0badb71be9",
+    "stage": "confirmation"
+  },
+  "messageStats": {
+    "total": 22,
+    "customer": 11,
+    "ai": 11,
+    "turns": 11
+  },
+  "workflowStats": {
+    "total": 23,
+    "completed": 16,
+    "failed": 7,
+    "needsReconciliation": 0
+  },
+  "actionLogSummary": {
+    "autoCreateLeadFromWhatsApp": 1,
+    "workflow_brochure_request": 1
+  },
+  "failedWorkflows": [
+    {
+      "workflowId": "brochure_request",
+      "status": "failed",
+      "failedStep": "sendBrochure",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "sendBrochure",
+          "status": "failed",
+          "errorMessage": "I'd love to send you the brochure! Could you let me know which project you're interested in? We have several properties available."
+        }
+      ],
+      "createdAt": "2026-06-06T07:47:10.118Z"
+    },
+    {
+      "workflowId": "brochure_request",
+      "status": "failed",
+      "failedStep": "sendBrochure",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "sendBrochure",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T07:47:42.490Z"
+    },
+    {
+      "workflowId": "price_inquiry",
+      "status": "failed",
+      "failedStep": "fetchPropertyPrice",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "fetchPropertyPrice",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T07:50:22.664Z"
+    },
+    {
+      "workflowId": "brochure_request",
+      "status": "failed",
+      "failedStep": "sendBrochure",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "sendBrochure",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T08:17:14.748Z"
+    },
+    {
+      "workflowId": "price_inquiry",
+      "status": "failed",
+      "failedStep": "fetchPropertyPrice",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "fetchPropertyPrice",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T08:17:47.580Z"
+    },
+    {
+      "workflowId": "reschedule_visit",
+      "status": "failed",
+      "failedStep": "bookVisit",
+      "steps": [
+        {
+          "action": "resolveVisit",
+          "status": "completed"
+        },
+        {
+          "action": "bookVisit",
+          "status": "failed",
+          "errorMessage": "When should the visit be scheduled? Share date and time."
+        }
+      ],
+      "createdAt": "2026-06-06T08:29:05.735Z"
+    },
+    {
+      "workflowId": "schedule_visit",
+      "status": "failed",
+      "failedStep": "bookVisit",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "bookVisit",
+          "status": "failed",
+          "errorMessage": "That slot overlaps with another visit. Please share another time."
+        }
+      ],
+      "createdAt": "2026-06-06T08:41:20.110Z"
+    }
+  ],
+  "issues": [
+    {
+      "severity": "error",
+      "code": "GENERIC_CONNECTION_FALLBACK",
+      "inbound": "Hi, I am looking for a home in Bangalore",
+      "reply": "I had a brief technical issue, Scenario. Please resend your message and I'll respond immediately — no need to start over"
+    },
+    {
+      "severity": "error",
+      "code": "INTERNAL_WORKFLOW_LEAK",
+      "inbound": "Book a site visit for Saturday 4pm",
+      "reply": "Workflow \"schedule_visit\" failed at step \"bookVisit\": That slot overlaps with another visit. Please share another time."
+    },
+    {
+      "severity": "error",
+      "code": "GENERIC_CONNECTION_FALLBACK",
+      "inbound": "What's my budget preference?",
+      "reply": "I had a brief technical issue, Scenario. Please resend your message and I'll respond immediately — no need to start over"
+    }
+  ],
+  "turns": [
+    {
+      "inbound": "Hi, I am looking for a home in Bangalore",
+      "inboundAt": "2026-06-06T08:39:40.370Z",
+      "outboundCount": 1,
+      "replies": [
+        "I had a brief technical issue, Scenario. Please resend your message and I'll respond immediately — no need to start over! 🙏"
+      ]
+    },
+    {
+      "inbound": "My budget is 1.2 to 1.5 crore for 3BHK in Whitefield",
+      "inboundAt": "2026-06-06T08:39:53.539Z",
+      "outboundCount": 1,
+      "replies": [
+        "Here are the matching options I found:\n\n🟢 *Sunset Heights*\nType: apartment | Status: available\nPrice: ₹83,00,000-₹83,00,000\nLocation: not set\nBedrooms: 2\n\n🟢 *Green Acres*\nType: plot | Status: availa"
+      ]
+    },
+    {
+      "inbound": "Please send brochure for Sunset Heights",
+      "inboundAt": "2026-06-06T08:40:13.380Z",
+      "outboundCount": 1,
+      "replies": [
+        "No brochure is uploaded for Sunset Heights yet. Upload one in the property settings."
+      ]
+    },
+    {
+      "inbound": "What is the price for 3BHK?",
+      "inboundAt": "2026-06-06T08:40:33.057Z",
+      "outboundCount": 1,
+      "replies": [
+        "Here are the matching options I found:\n\n🟢 *Sunset Heights*\nType: apartment | Status: available\nPrice: ₹83,00,000-₹83,00,000\nLocation: not set\nBedrooms: 2\n\n🟢 *Green Acres*\nType: plot | Status: availa"
+      ]
+    },
+    {
+      "inbound": "Is 3BHK still available this weekend?",
+      "inboundAt": "2026-06-06T08:40:52.615Z",
+      "outboundCount": 1,
+      "replies": [
+        "Here are the matching options I found:\n\n*Sunset Heights* (apartment)\nLocation: not set"
+      ]
+    },
+    {
+      "inbound": "Book a site visit for Saturday 4pm",
+      "inboundAt": "2026-06-06T08:41:12.084Z",
+      "outboundCount": 1,
+      "replies": [
+        "Workflow \"schedule_visit\" failed at step \"bookVisit\": That slot overlaps with another visit. Please share another time."
+      ]
+    },
+    {
+      "inbound": "When is my visit?",
+      "inboundAt": "2026-06-06T08:41:54.240Z",
+      "outboundCount": 1,
+      "replies": [
+        "You don't have any upcoming visits right now.\n\nWould you like to *book a free site visit*? Reply with a property name and preferred date/time."
+      ]
+    },
+    {
+      "inbound": "Push my appointment to next Sunday",
+      "inboundAt": "2026-06-06T08:42:11.685Z",
+      "outboundCount": 1,
+      "replies": [
+        "I couldn't find an upcoming site visit to change. Reply with the property name or book a new visit with your preferred date and time."
+      ]
+    },
+    {
+      "inbound": "What's my budget preference?",
+      "inboundAt": "2026-06-06T08:42:31.275Z",
+      "outboundCount": 1,
+      "replies": [
+        "I had a brief technical issue, Scenario. Please resend your message and I'll respond immediately — no need to start over! 🙏"
+      ]
+    },
+    {
+      "inbound": "Please call me back, I want to talk to a human agent",
+      "inboundAt": "2026-06-06T08:42:53.273Z",
+      "outboundCount": 1,
+      "replies": [
+        "I've alerted our team and moved this chat to a human specialist.\n\nSomeone from the team will call or message you shortly."
+      ]
+    },
+    {
+      "inbound": "Can you give me 10% discount on the final price?",
+      "inboundAt": "2026-06-06T08:43:10.729Z",
+      "outboundCount": 1,
+      "replies": [
+        "I've alerted our team and moved this chat to a human specialist.\n\nSomeone from the team will call or message you shortly."
+      ]
+    }
+  ],
+  "recentActionLogs": [
+    {
+      "action": "autoCreateLeadFromWhatsApp",
+      "status": "success",
+      "triggeredBy": "inbound_message",
+      "inputs": {
+        "sourceDetail": "whatsapp_inbound",
+        "customerPhone": "+91******9010"
+      },
+      "result": null,
+      "createdAt": "2026-06-06T08:39:36.860Z"
+    },
+    {
+      "action": "workflow_brochure_request",
+      "status": "success",
+      "triggeredBy": "agent_tool",
+      "inputs": {
+        "propertyId": "daedb4ce-ff9c-47eb-9dc7-b5cf09ec0bf9"
+      },
+      "result": null,
+      "createdAt": "2026-06-06T08:40:21.893Z"
+    }
+  ]
+}

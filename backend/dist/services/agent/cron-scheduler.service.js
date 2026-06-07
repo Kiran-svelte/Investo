@@ -757,6 +757,77 @@ function wrap(name, handler) {
         })();
     };
 }
+/**
+ * Auto-expire pending visit/call approvals older than 4 hours.
+ * Marks the notification as declined and sends the customer a cancellation message.
+ */
+async function expireStalePendingApprovals() {
+    const affected = trackCompanyIds();
+    const threshold = new Date(Date.now() - 4 * 60 * 60 * 1000);
+    const staleRows = await prisma_1.default.notification.findMany({
+        where: {
+            createdAt: { lt: threshold },
+            type: { in: ['visit_scheduled', 'call_requested'] },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+    });
+    for (const row of staleRows) {
+        const data = row.data || {};
+        if (data.pendingApproval !== true)
+            continue;
+        if (data.resolvedAt)
+            continue;
+        const companyId = row.companyId;
+        affected.add(companyId);
+        // Mark as auto-expired
+        await prisma_1.default.notification.update({
+            where: { id: row.id },
+            data: {
+                data: {
+                    ...data,
+                    pendingApproval: false,
+                    resolvedAt: new Date().toISOString(),
+                    resolution: 'auto_expired',
+                },
+            },
+        }).catch((err) => {
+            logger_1.default.warn('expireStalePendingApprovals: update failed', {
+                rowId: row.id,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        });
+        // Notify customer
+        const customerPhone = typeof data.customerPhone === 'string' ? data.customerPhone : null;
+        const customerName = typeof data.customerName === 'string' ? data.customerName : 'there';
+        const isVisit = row.type === 'visit_scheduled';
+        if (customerPhone && companyId) {
+            const msg = isVisit
+                ? `Hi ${customerName}, unfortunately we were unable to confirm your visit booking. Please contact us or message again to rebook. Sorry for the inconvenience!`
+                : `Hi ${customerName}, unfortunately we were unable to connect you with an agent for your call request. Please try again or contact us directly.`;
+            try {
+                const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp.service')));
+                await whatsappService.sendCompanyTextMessage(customerPhone, msg, companyId);
+            }
+            catch (sendErr) {
+                logger_1.default.warn('expireStalePendingApprovals: customer notification failed', {
+                    rowId: row.id,
+                    error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+                });
+            }
+        }
+        void (0, agent_action_log_service_1.logAgentAction)({
+            companyId,
+            triggeredBy: 'cron',
+            action: 'auto_expire_pending_approval',
+            resourceType: isVisit ? 'visit' : 'call_request',
+            resourceId: typeof data.approvalId === 'string' ? data.approvalId : row.id,
+            status: 'success',
+            result: 'Auto-expired after 4h without agent response',
+        });
+    }
+    return affected.result();
+}
 function startCronScheduler() {
     if (!config_1.default.agentAi.cronEnabled || tasks.length)
         return;
@@ -766,7 +837,9 @@ function startCronScheduler() {
     // Workflow saga reconciliation — nightly 2:30 AM IST. Alerts on needs_reconciliation runs.
     node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.WORKFLOW_RECONCILIATION_CHECK, wrap('reconcileWorkflowRuns', reconcileWorkflowRuns)), 
     // G13: Nightly conversation summary — 2:10 AM IST. Patches lead_memory.conversationSummary.
-    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.NIGHTLY_CONVERSATION_SUMMARY, wrap('refreshNightlyConversationSummaries', refreshNightlyConversationSummaries)));
+    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.NIGHTLY_CONVERSATION_SUMMARY, wrap('refreshNightlyConversationSummaries', refreshNightlyConversationSummaries)), 
+    // Auto-expire pending visit/call approvals older than 4 hours — every 30 minutes.
+    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.PENDING_APPROVAL_EXPIRE, wrap('expireStalePendingApprovals', expireStalePendingApprovals)));
     logger_1.default.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }
 function stopCronScheduler() {

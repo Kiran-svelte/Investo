@@ -569,6 +569,11 @@ router.patch(
 
       await notificationEngine.onLeadStatusChange(lead, currentStatus, targetStatus);
 
+      // Real-time dashboard update
+      socketService.emitToCompany(companyId, SOCKET_EVENTS.LEAD_UPDATED, {
+        lead: { id: updated.id, status: updated.status, companyId: undefined },
+      });
+
       res.json({ data: mapLeadToSnakeCaseDTO(updated) });
     } catch (err: any) {
       logger.error('Failed to update lead status', { error: err.message });

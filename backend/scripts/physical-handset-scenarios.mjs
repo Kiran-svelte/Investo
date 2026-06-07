@@ -39,13 +39,17 @@ async function withPrisma(fn) {
 }
 
 function send(pkg, msg) {
-  const r = execSync(`node scripts/wa-adb-send.mjs ${pkg} "${msg.replace(/"/g, '')}"`, {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env },
-  });
-  const j = JSON.parse(r.match(/\{[\s\S]*\}/)?.[0] || '{}');
-  return j.sent === true;
+  try {
+    const r = execSync(`node scripts/wa-adb-send.mjs ${pkg} "${msg.replace(/"/g, '')}"`, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env },
+    });
+    const j = JSON.parse(r.match(/\{[\s\S]*\}/)?.[0] || '{}');
+    return j.sent === true;
+  } catch {
+    return false;
+  }
 }
 
 async function staffMsgsSince(since) {

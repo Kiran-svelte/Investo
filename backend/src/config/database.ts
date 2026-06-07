@@ -20,7 +20,10 @@ function buildPgConnection(connectionString: string): string | Knex.PgConnection
 
   return {
     connectionString: normalized,
-    ssl: { rejectUnauthorized: false },
+    // rejectUnauthorized: true enforces TLS certificate validation.
+    // Set DISABLE_DB_SSL_VERIFY=true only in development/CI environments
+    // that use self-signed certificates — never in production.
+    ssl: { rejectUnauthorized: process.env.DISABLE_DB_SSL_VERIFY !== 'true' },
   };
 }
 

@@ -1,0 +1,34 @@
+{
+  "at": "2026-06-07T10:46:06.457Z",
+  "pass": 3,
+  "total": 4,
+  "results": [
+    {
+      "id": "staff-visits",
+      "ok": false,
+      "issues": [
+        "contains_internal_uuid",
+        "raw_snake_case_status"
+      ],
+      "preview": "*Today's visits (2026-06-07)*\n\n🚫 *E2E User* (+919XXXXXXX59)\nProperty: Sunset Heights\nTime: 07/06/2026, 10:00 am | Status: no_show\nAgent: Kiran Sales\nID: 7562f8"
+    },
+    {
+      "id": "staff-leads",
+      "ok": true,
+      "issues": [],
+      "preview": "*New leads today (2026-06-07)*\n\n1. 🆕 *E2E User* +919XXXXXXX43\n   Status: New | Agent: Kiran Sales\n\n2. 🆕 *E2E User* +919XXXXXXX78\n   Status: New | Agent: Kiran"
+    },
+    {
+      "id": "buyer-brochure",
+      "ok": true,
+      "issues": [],
+      "preview": "I don't have a digital brochure for *Sunset Heights* yet. I can share pricing, photos, or help you book a site visit — what would you prefer?"
+    },
+    {
+      "id": "buyer-visit-status",
+      "ok": true,
+      "issues": [],
+      "preview": "Your most recent visit was to *Sunset Heights* (08/06/2026, 01:00 pm) - status: *Completed*\n\nYou don't have an upcoming visit scheduled. Would you like to *book"
+    }
+  ]
+}

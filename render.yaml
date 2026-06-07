@@ -45,9 +45,11 @@ services:
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false
       - key: WHATSAPP_IP_WHITELIST_ENABLED
-        value: false
-      - key: SKIP_IP_WHITELIST
         value: true
+      - key: SENTRY_DSN
+        sync: false
+      - key: METRICS_BEARER_TOKEN
+        sync: false
       - key: WHATSAPP_WEBHOOK_MAX_SIZE
         value: 1mb
       - key: WHATSAPP_DEDUP_TTL_SECONDS

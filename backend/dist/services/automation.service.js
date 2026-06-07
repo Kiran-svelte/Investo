@@ -80,7 +80,9 @@ class AutomationService {
      */
     start() {
         logger_1.default.info('Starting automation service');
-        // Visit reminders - check every 15 minutes
+        // Agent-facing 15-min visit notifications only — customer 24h/1h reminders are
+        // owned by visitLifecycle.service via automationQueueService (scheduled at booking time).
+        // Keep this polling only for the agent notification window.
         this.intervalIds.push(setInterval(() => this.processVisitReminders(), 15 * 60 * 1000));
         // Follow-up automation - check every hour
         this.intervalIds.push(setInterval(() => this.processFollowUps(), 60 * 60 * 1000));
@@ -88,8 +90,10 @@ class AutomationService {
         this.intervalIds.push(setInterval(() => this.processConversationTimeouts(), 60 * 60 * 1000));
         // Workflow reconciliation — alert on partial saga failures
         this.intervalIds.push(setInterval(() => this.reconcileWorkflowRuns(), 60 * 60 * 1000));
+        // Stuck outbound messages (pending >10m) — mark failed so conversations recover
+        this.intervalIds.push(setInterval(() => this.sweepStuckPendingMessages(), 15 * 60 * 1000));
         this.startWorker();
-        // Run immediately on startup
+        // Run immediately on startup (agent notification window only)
         this.processVisitReminders();
         this.processFollowUps();
     }
@@ -126,47 +130,10 @@ class AutomationService {
     async processVisitReminders() {
         try {
             const now = new Date();
-            // 24-hour reminders
-            const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-            const in23h = new Date(now.getTime() + 23 * 60 * 60 * 1000);
-            const visits24h = await prisma_1.default.visit.findMany({
-                where: {
-                    status: { in: ['scheduled', 'confirmed'] },
-                    reminderSent: false,
-                    scheduledAt: { gte: in23h, lte: in24h },
-                },
-                include: {
-                    lead: { select: { customerName: true, phone: true, language: true } },
-                    property: { select: { name: true, locationArea: true } },
-                    company: { select: { whatsappPhone: true, settings: true } },
-                },
-            });
-            for (const visit of visits24h) {
-                await this.enqueueJob('visit_reminder_24h', `visit:${visit.id}:24h`, now, {
-                    visitId: visit.id,
-                    timing: '24h',
-                });
-            }
-            // 1-hour reminders
-            const in1h = new Date(now.getTime() + 60 * 60 * 1000);
-            const in45m = new Date(now.getTime() + 45 * 60 * 1000);
-            const visits1h = await prisma_1.default.visit.findMany({
-                where: {
-                    status: { in: ['scheduled', 'confirmed'] },
-                    scheduledAt: { gte: in45m, lte: in1h },
-                },
-                include: {
-                    lead: { select: { customerName: true, phone: true, language: true } },
-                    property: { select: { name: true, locationArea: true } },
-                    company: { select: { whatsappPhone: true, settings: true } },
-                },
-            });
-            for (const visit of visits1h) {
-                await this.enqueueJob('visit_reminder_1h', `visit:${visit.id}:1h`, now, {
-                    visitId: visit.id,
-                    timing: '1h',
-                });
-            }
+            // Customer 24h + 1h WhatsApp reminders are scheduled at visit-booking time
+            // by visitLifecycle.scheduleVisitReminderJobs → automationQueueService.
+            // This polling loop only covers the 15-min agent notification window,
+            // which is too short to schedule reliably at booking time.
             // 15-minute agent notifications
             const in15m = new Date(now.getTime() + 15 * 60 * 1000);
             const in10m = new Date(now.getTime() + 10 * 60 * 1000);
@@ -542,6 +509,12 @@ class AutomationService {
             case 'conversation_timeout_24h':
                 await this.executeConversationTimeout(String(data.conversationId));
                 return;
+            case 'call_reminder_1h':
+                await this.executeCallReminder(String(data.callId), String(data.companyId), String(data.leadId));
+                return;
+            case 'retry_concurrent_inbound':
+                await this.executeConcurrentInboundRetry(data);
+                return;
             default:
                 logger_1.default.warn('Unknown automation job type received', { type });
         }
@@ -627,14 +600,14 @@ class AutomationService {
             logger_1.default.warn('Negotiation reminder skipped because lead no longer exists', { leadId });
             return;
         }
-        await prisma_1.default.notification.create({
-            data: {
-                companyId: lead.companyId,
-                userId: lead.assignedAgentId,
-                type: 'follow_up',
-                title: 'Lead needs attention',
-                message: `${lead.customerName || lead.phone} has been in negotiation for 7+ days.`,
-            },
+        // Route through notificationEngine to get real-time socket push to dashboard
+        const { notificationEngine } = await Promise.resolve().then(() => __importStar(require('./notification.engine')));
+        await notificationEngine.notify({
+            companyId: lead.companyId,
+            userId: lead.assignedAgentId ?? undefined,
+            type: 'follow_up',
+            title: 'Lead needs attention',
+            message: `${lead.customerName || lead.phone} has been in negotiation for 7+ days.`,
         });
         await prisma_1.default.lead.update({
             where: { id: lead.id },
@@ -672,6 +645,94 @@ class AutomationService {
             resourceId: conv.id,
             status: 'success',
             result: 'Conversation closed after 24h inactivity',
+        });
+    }
+    async executeCallReminder(callId, companyId, leadId) {
+        try {
+            const rows = await prisma_1.default.$queryRawUnsafe(`SELECT status, scheduled_at, agent_id FROM call_requests
+         WHERE id = $1::uuid AND company_id = $2::uuid`, callId, companyId);
+            const call = rows[0];
+            if (!call || !['scheduled', 'confirmed'].includes(call.status)) {
+                logger_1.default.debug('callReminder: call no longer active, skipping', { callId });
+                return;
+            }
+            const lead = await prisma_1.default.lead.findUnique({
+                where: { id: leadId },
+                select: { phone: true, customerName: true },
+            });
+            if (!lead?.phone)
+                return;
+            const { formatDateIST } = await Promise.resolve().then(() => __importStar(require('./agent/tools/format-helpers')));
+            const when = formatDateIST(call.scheduled_at);
+            const { whatsappService } = await Promise.resolve().then(() => __importStar(require('./whatsapp.service')));
+            await whatsappService.sendCompanyTextMessage(lead.phone, `⏰ *Reminder: Your callback is in 1 hour!*\n\nScheduled: ${when}\n\nWe'll call you at the scheduled time. Reply if you need to reschedule.`, companyId);
+            logger_1.default.info('callReminder: 1h customer reminder sent', { callId, leadId, phone: lead.phone });
+        }
+        catch (err) {
+            logger_1.default.error('executeCallReminder failed', {
+                callId,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+    /**
+     * Sweep AI/agent messages stuck in `pending` — usually a failed sendTurnResult.
+     * Marks them failed so dashboards show truth and Meta retries are not blocked forever.
+     */
+    async sweepStuckPendingMessages() {
+        try {
+            const threshold = new Date(Date.now() - 10 * 60 * 1000);
+            const stuck = await prisma_1.default.message.findMany({
+                where: {
+                    status: 'pending',
+                    senderType: { in: ['ai', 'agent'] },
+                    createdAt: { lt: threshold },
+                },
+                take: 25,
+                orderBy: { createdAt: 'asc' },
+                select: { id: true, conversationId: true, createdAt: true },
+            });
+            if (!stuck.length)
+                return;
+            await prisma_1.default.message.updateMany({
+                where: { id: { in: stuck.map((m) => m.id) } },
+                data: { status: 'failed' },
+            });
+            logger_1.default.warn('Stuck pending messages swept to failed', {
+                count: stuck.length,
+                messageIds: stuck.map((m) => m.id),
+            });
+        }
+        catch (err) {
+            logger_1.default.error('sweepStuckPendingMessages failed', {
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+    async executeConcurrentInboundRetry(data) {
+        const phoneNumberId = String(data.phoneNumberId || '');
+        const customerPhone = String(data.customerPhone || '');
+        const messageText = String(data.messageText || '');
+        const messageId = String(data.messageId || '');
+        if (!phoneNumberId || !customerPhone || !messageText || !messageId) {
+            logger_1.default.warn('retry_concurrent_inbound skipped — missing required fields', { data });
+            return;
+        }
+        await whatsapp_service_1.whatsappService.handleIncomingMessage({
+            phoneNumberId,
+            customerPhone,
+            customerName: String(data.customerName || 'Customer'),
+            messageText,
+            messageId,
+            companyIdHint: data.companyId ? String(data.companyId) : undefined,
+            interactiveId: data.interactiveId ? String(data.interactiveId) : undefined,
+            interactiveType: data.interactiveType,
+            businessDisplayPhone: data.businessDisplayPhone ? String(data.businessDisplayPhone) : undefined,
+        });
+        logger_1.default.info('retry_concurrent_inbound processed', {
+            companyId: data.companyId,
+            messageId,
+            customerPhone,
         });
     }
     /** Hourly sweep for workflow runs stuck in needs_reconciliation. */

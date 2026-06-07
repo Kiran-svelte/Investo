@@ -139,17 +139,40 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
     const isViewer = user.userRole === 'viewer';
     // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
     if ((0, copilotGreeting_util_1.isCopilotGreeting)(normalizedText)) {
-        return {
-            text: buildCopilotWelcomeMessage(user.userName, user.companyName),
-            replyKind: 'welcome',
-        };
+        const text = buildCopilotWelcomeMessage(user.userName, user.companyName);
+        const { getOrCreateAgentSession } = await Promise.resolve().then(() => __importStar(require('./agent-memory.service')));
+        const { recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
+        const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
+        await recordAgentCopilotExchange({
+            sessionId: agentSession.id,
+            inboundText: resolvedCommand || messageText,
+            outboundText: text,
+        });
+        return { text, replyKind: 'welcome' };
     }
     const prisma = await getPrisma();
-    const { getOrCreateThreadId } = await Promise.resolve().then(() => __importStar(require('./agent-memory.service')));
+    const { getOrCreateAgentSession } = await Promise.resolve().then(() => __importStar(require('./agent-memory.service')));
     const { checkAndResolvePendingConfirmation, executePendingAction } = await Promise.resolve().then(() => __importStar(require('./confirmation.service')));
     const { invokeAgent } = await Promise.resolve().then(() => __importStar(require('./agent-graph.service')));
-    const threadId = await getOrCreateThreadId(user.userId, user.phone, user.companyId);
-    const session = await prisma.agentSession.findUnique({ where: { threadId } });
+    const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
+    const threadId = agentSession.threadId;
+    const session = { id: agentSession.id };
+    if (!isViewer) {
+        const { tryStaffMessageForward } = await Promise.resolve().then(() => __importStar(require('../staffMessageForward.service')));
+        const forwarded = await tryStaffMessageForward({
+            user,
+            messageText: resolvedCommand || messageText,
+        });
+        if (forwarded.handled) {
+            const { recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
+            await recordAgentCopilotExchange({
+                sessionId: agentSession.id,
+                inboundText: resolvedCommand || messageText,
+                outboundText: forwarded.text,
+            });
+            return { text: forwarded.text, replyKind: 'workflow' };
+        }
+    }
     if (session && attendanceCommand === 'reschedule') {
         const pendingAttendance = await prisma.pendingAction.findFirst({
             where: {
@@ -173,6 +196,39 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
             };
         }
     }
+    const { getAgentSessionContext } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
+    const sessionCtx = await getAgentSessionContext(session?.id);
+    const toolContext = {
+        userId: user.userId,
+        companyId: user.companyId,
+        userRole: user.userRole,
+        userName: user.userName,
+        sessionId: session?.id,
+        staffPhone: user.phone,
+        companyName: user.companyName,
+        sessionLeadId: sessionCtx.lastLeadId,
+        sessionVisitId: sessionCtx.lastVisitId,
+    };
+    const { getRecentAgentSessionMessages } = await Promise.resolve().then(() => __importStar(require('./agent-session-messages.service')));
+    const { classifyAndRunWorkflow } = await Promise.resolve().then(() => __importStar(require('../workflow/workflow-engine.service')));
+    const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
+    const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
+    // Deterministic CRM before pending confirmations — stale attendance checks must not block "visits today".
+    const { tryDeterministicAgentCrmReply } = await Promise.resolve().then(() => __importStar(require('./agent-crm-query.service')));
+    const crmReply = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
+        sessionLeadId: sessionCtx.lastLeadId,
+    });
+    if (crmReply) {
+        await recordAgentCopilotExchange({
+            sessionId: session.id,
+            inboundText: resolvedCommand || messageText,
+            outboundText: crmReply,
+        });
+        if (!isViewer) {
+            await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, 'staff_copilot_crm', normalizedText, crmReply);
+        }
+        return { text: crmReply, replyKind: 'crm' };
+    }
     if (session) {
         const confirmation = await checkAndResolvePendingConfirmation(session.id, resolvedCommand);
         if (confirmation.hasPending && confirmation.isConfirmed) {
@@ -195,41 +251,6 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
                 replyKind: 'confirmation',
             };
         }
-    }
-    const { getAgentSessionContext } = await Promise.resolve().then(() => __importStar(require('../clientMemory.service')));
-    const sessionCtx = await getAgentSessionContext(session?.id);
-    const toolContext = {
-        userId: user.userId,
-        companyId: user.companyId,
-        userRole: user.userRole,
-        userName: user.userName,
-        sessionId: session?.id,
-        staffPhone: user.phone,
-        companyName: user.companyName,
-        sessionLeadId: sessionCtx.lastLeadId,
-        sessionVisitId: sessionCtx.lastVisitId,
-    };
-    const { getRecentAgentSessionMessages } = await Promise.resolve().then(() => __importStar(require('./agent-session-messages.service')));
-    const { classifyAndRunWorkflow } = await Promise.resolve().then(() => __importStar(require('../workflow/workflow-engine.service')));
-    const { classifyAndExecuteAgentIntent, recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
-    const recentMessages = await getRecentAgentSessionMessages(session?.id, 5);
-    // Deterministic CRM before workflow LLM (avoids misclassifying "update status … today" as list leads)
-    const { tryDeterministicAgentCrmReply } = await Promise.resolve().then(() => __importStar(require('./agent-crm-query.service')));
-    const crmReply = await tryDeterministicAgentCrmReply(toolContext, normalizedText, {
-        sessionLeadId: sessionCtx.lastLeadId,
-    });
-    if (crmReply) {
-        if (session?.id) {
-            await recordAgentCopilotExchange({
-                sessionId: session.id,
-                inboundText: resolvedCommand || messageText,
-                outboundText: crmReply,
-            });
-            if (!isViewer) {
-                await patchStaffCopilotLeadMemory(sessionCtx.lastLeadId, 'staff_copilot_crm', normalizedText, crmReply);
-            }
-        }
-        return { text: crmReply, replyKind: 'crm' };
     }
     if (!isViewer) {
         const workflowReply = await classifyAndRunWorkflow({
@@ -416,12 +437,14 @@ async function routeIfInternalUserForCompany(senderPhone, messageText, user, int
     const copilotActive = config_1.default.agentAi?.enabled !== false && config_1.default.agentAi?.copilotEnabled !== false;
     if (!copilotActive || !resolvedText.trim())
         return false;
-    const fingerprintClaimed = await (0, inboundMessageGuard_service_1.claimStaffInboundFingerprint)(user.companyId, user.userId, resolvedText);
-    if (!fingerprintClaimed) {
-        return true;
-    }
+    // Inbound messageId dedup (claimInboundMessageFull) already prevents Meta retries.
+    // Do not fingerprint by text — staff legitimately repeat "visits today" etc.
     const turnClaimed = await (0, inboundMessageGuard_service_1.claimStaffCopilotTurn)(user.companyId, user.userId);
     if (!turnClaimed) {
+        const normalizedPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone);
+        if (await (0, inboundMessageGuard_service_1.claimStaffCopilotOutboundReply)(user.companyId, inboundMessageId)) {
+            await sendWhatsAppResponse(normalizedPhone, user.companyId, 'Still working on your last message — please wait a moment, then try again.');
+        }
         return true;
     }
     const normalizedPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(senderPhone);

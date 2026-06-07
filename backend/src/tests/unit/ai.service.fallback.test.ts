@@ -135,7 +135,11 @@ describe('AIService fallback behavior', () => {
     expect(systemPrompt).toContain('AI LIMITS');
     expect(systemPrompt).toContain('Finalize or negotiate price');
     expect(body.temperature).toBe(0);
+    expect(body.max_tokens).toBe(300);
+    expect(body.frequency_penalty).toBe(0.4);
+    expect(body.presence_penalty).toBe(0.4);
     expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(systemPrompt).toContain('GLOBAL RULES');
     expect(systemPrompt).toContain('NEVER invent errors');
     expect(systemPrompt).toContain('RECENT CONVERSATION');
   });

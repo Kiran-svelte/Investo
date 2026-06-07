@@ -334,7 +334,7 @@ export function buildPartialFailureReply(workflowLabel: string, _failedStep: str
   return (
     `*${workflowLabel}* partially completed.\n\n` +
     `The visit/lead record was saved but the follow-up step did not finish. ` +
-    `Our team has been notified. You can retry or check the dashboard.`
+    `Our team has been notified. Reply here to retry, or ask the customer for another time.`
   );
 }
 

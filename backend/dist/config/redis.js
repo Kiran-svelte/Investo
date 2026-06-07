@@ -21,7 +21,17 @@ function getRedis() {
         return redis;
     const redisConfig = index_1.default.redis ?? { url: '', token: '' };
     if (!redisConfig.url || !redisConfig.token) {
-        logger_1.default.warn('Upstash Redis not configured — using in-memory cache');
+        if (index_1.default.env === 'production') {
+            // In production, Redis is required for distributed dedup, rate limiting,
+            // and job queues. Warn loudly — the process continues but in degraded mode
+            // until the next deployment with UPSTASH_REDIS_REST_URL configured.
+            logger_1.default.error('CRITICAL: Upstash Redis is not configured in production (UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN missing). ' +
+                'Rate limits, dedup, and job queues will be per-instance in-memory only. ' +
+                'Set these environment variables and redeploy.');
+        }
+        else {
+            logger_1.default.warn('Upstash Redis not configured — using in-memory cache');
+        }
         return null;
     }
     try {

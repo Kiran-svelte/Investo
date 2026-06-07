@@ -835,6 +835,7 @@ enum SenderType {
 }
 
 enum MessageStatus {
+  pending
   sent
   delivered
   read
@@ -873,6 +874,11 @@ enum NotificationType {
   visit_completed
   visit_cancelled
   visit_rescheduled
+
+  call_requested
+  call_scheduled
+  call_completed
+  call_cancelled
 
   system_alert
 }

@@ -2,6 +2,8 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import config from '../config';
 import { NotificationType as PrismaNotificationType } from '@prisma/client';
+import { socketService, SOCKET_EVENTS } from './socket.service';
+import { withRetry } from './notificationRetry.service';
 
 
 /**
@@ -24,18 +26,31 @@ function formatISTDateTime(date: Date): string {
  * Send a WhatsApp message to a user using their company's configured WhatsApp.
  * Non-throwing — a notification failure must never block a business operation.
  * Uses dynamic import to avoid circular dependency with whatsapp.service.
+ * Retries up to 3 times with exponential backoff on transient errors.
  *
  * @param phone - Recipient's phone number
  * @param companyId - Company tenant for WhatsApp config lookup
  * @param message - Message text to send
+ * @param label - Structured log label for identifying the call site in dashboards
  */
-async function sendWhatsAppToUser(phone: string, companyId: string, message: string): Promise<void> {
+async function sendWhatsAppToUser(
+  phone: string,
+  companyId: string,
+  message: string,
+  label = 'notification_engine_whatsapp',
+): Promise<void> {
   try {
-    const { whatsappService } = await import('./whatsapp.service');
-    await whatsappService.sendCompanyTextMessage(phone, message, companyId);
+    await withRetry(
+      async () => {
+        const { whatsappService } = await import('./whatsapp.service');
+        await whatsappService.sendCompanyTextMessage(phone, message, companyId);
+      },
+      { label, maxAttempts: 3, baseDelayMs: 1000, jitterMs: 200 },
+    );
   } catch (err: unknown) {
-    logger.warn('NotificationEngine: WhatsApp send failed', {
+    logger.error('NotificationEngine: WhatsApp send failed after retries', {
       companyId,
+      label,
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -95,9 +110,23 @@ class NotificationEngine {
           data: opts.data ?? {},
         },
       });
-      logger.info('Notification created', { type: opts.type, userId: opts.userId });
-    } catch (err: any) {
-      logger.error('Failed to create notification', { error: err.message });
+      logger.info('Notification created', { type: opts.type, userId: opts.userId, companyId: opts.companyId });
+      socketService.emitToCompany(opts.companyId, SOCKET_EVENTS.NOTIFICATION_NEW, {
+        userId: opts.userId ?? null,
+        type: opts.type,
+        title: opts.title,
+        occurredAt: new Date().toISOString(),
+      });
+    } catch (err: unknown) {
+      // Log with full context — this is a data-loss event; the in-app notification
+      // was not persisted. Caller should still proceed with business logic.
+      logger.error('NotificationEngine: failed to create notification in DB', {
+        companyId: opts.companyId,
+        userId: opts.userId,
+        type: opts.type,
+        title: opts.title,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

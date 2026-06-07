@@ -26,6 +26,12 @@ jest.mock('../../services/notification.engine', () => ({
   },
 }));
 
+jest.mock('../../services/visitLifecycle.service', () => ({
+  emitVisitUpdated: jest.fn(),
+  cancelVisitReminderJobs: jest.fn().mockResolvedValue(undefined),
+  rescheduleVisitReminderJobs: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../../config/logger', () => ({
   __esModule: true,
   default: {
@@ -108,8 +114,11 @@ describe('visitState.service', () => {
   });
 
   test('markVisitAttended from confirmed completes visit before moving lead to visited', async () => {
-    (prisma.visit.findFirst as jest.Mock).mockResolvedValue({ ...visit, status: 'confirmed' });
-    (prisma.visit.update as jest.Mock).mockResolvedValue({ ...visit, status: 'completed' });
+    const confirmedVisit = { ...visit, status: 'confirmed' };
+    const completedVisit = { ...visit, status: 'completed' };
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue(confirmedVisit);
+    (prisma.visit.update as jest.Mock).mockResolvedValue(completedVisit);
+    (prisma.visit.findUnique as jest.Mock).mockResolvedValue(completedVisit);
     (prisma.lead.findUnique as jest.Mock).mockResolvedValue({ status: 'visit_scheduled' });
     (transitionLeadStatus as jest.Mock).mockResolvedValue(true);
 
@@ -128,11 +137,12 @@ describe('visitState.service', () => {
     );
     expect(transitionLeadStatus).toHaveBeenCalledWith('lead-1', 'visited', { force: false });
     expect(notificationEngine.onVisitStatusChange).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'visit-1' }),
+      expect.objectContaining({ id: 'visit-1', status: 'completed' }),
       'confirmed',
       'completed',
       expect.objectContaining({ id: 'lead-1' }),
       expect.objectContaining({ id: 'company-1' }),
+      false,
     );
   });
 });

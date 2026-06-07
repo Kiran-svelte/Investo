@@ -1,0 +1,78 @@
+{
+  "runAt": "2026-06-06T19:05:03.868Z",
+  "buyer": "919000008875",
+  "results": [
+    {
+      "id": 1,
+      "name": "Rapport / first contact",
+      "ok": true,
+      "detail": "lead=true rapport=true Hello! Welcome to *Palm*.\n\nI can help you explore homes in B"
+    },
+    {
+      "id": 2,
+      "name": "Qualify — budget location BHK",
+      "ok": true,
+      "detail": "budget=true loc=true catalogDump=false Thanks — I've saved budget *₹1.20 crore – ₹1.50 crore* and a"
+    },
+    {
+      "id": 3,
+      "name": "Brochure request",
+      "ok": true,
+      "detail": "log=true No brochure is uploaded for Sunset Heights yet. Upload one in the property setti"
+    },
+    {
+      "id": 4,
+      "name": "Price inquiry (grounded)",
+      "ok": true,
+      "detail": "wfLog=false Here are the matching options I found:\n\n🟢 *Sunset Heights*\n\nType: apartment | S"
+    },
+    {
+      "id": 5,
+      "name": "Availability check",
+      "ok": true,
+      "detail": "wfLog=false Here are the matching options I found:\n\n*Sunset Heights* (apartment)\n\nLocation: "
+    },
+    {
+      "id": 6,
+      "name": "Book visit Sunday 2pm",
+      "ok": true,
+      "detail": "visits 0->1 wfLog=false staffLeak=false *Visit scheduled*\n\nProperty: *Sunset Heights*\n\nDate: Sunday,"
+    },
+    {
+      "id": 7,
+      "name": "Idempotent duplicate book",
+      "ok": true,
+      "detail": "visits 1->1 *Visit scheduled*\n\nProperty: *Sunset Heights*\n\nDate: Sunday,"
+    },
+    {
+      "id": 8,
+      "name": "When is my visit (deterministic)",
+      "ok": true,
+      "detail": "*YOUR VISIT*\n\nProperty: *Sunset Heights*\nDate: 07/06/2026, 02:00 pm 02:00 pm\nStatus: *Scheduled*\nAge"
+    },
+    {
+      "id": 9,
+      "name": "Reschedule push to Sunday",
+      "ok": false,
+      "detail": "wfLog=false *Visit rescheduled*\n\nProperty: *Sunset Heights*\n\nDate: Sunday, 7 Jun, 10:00 am\n\n"
+    },
+    {
+      "id": 10,
+      "name": "Memory recall — budget",
+      "ok": false,
+      "detail": "*Visit rescheduled*\n\nProperty: *Sunset Heights*\n\nDate: Sunday, 7 Jun, 10:00 am\n\n"
+    },
+    {
+      "id": 11,
+      "name": "Escalate to human",
+      "ok": false,
+      "detail": "wfLog=false I've alerted our team and moved this chat to a human specialist.\n\nSomeone from t"
+    },
+    {
+      "id": 12,
+      "name": "Price negotiation — no AI discount",
+      "ok": false,
+      "detail": "wfLog=false catalog=false reply:connection_fallback"
+    }
+  ]
+}

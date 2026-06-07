@@ -463,6 +463,10 @@ router.patch('/:id/status', (0, rbac_1.authorize)('leads', 'update'), (0, valida
             },
         });
         await notification_engine_1.notificationEngine.onLeadStatusChange(lead, currentStatus, targetStatus);
+        // Real-time dashboard update
+        socket_service_1.socketService.emitToCompany(companyId, socket_service_1.SOCKET_EVENTS.LEAD_UPDATED, {
+            lead: { id: updated.id, status: updated.status, companyId: undefined },
+        });
         res.json({ data: mapLeadToSnakeCaseDTO(updated) });
     }
     catch (err) {

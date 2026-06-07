@@ -283,7 +283,14 @@ router.patch('/:id/release', (0, rbac_1.authorize)('conversations', 'update'), (
         }
         await prisma_1.default.conversation.update({
             where: { id: req.params.id },
-            data: { status: 'ai_active', aiEnabled: true },
+            data: {
+                status: 'ai_active',
+                aiEnabled: true,
+                ...(conversation.stage === 'human_escalated' && {
+                    stage: 'qualify',
+                    escalationReason: null,
+                }),
+            },
         });
         socket_service_1.socketService.emitToCompany(companyId, socket_service_1.SOCKET_EVENTS.CONVERSATION_UPDATED, {
             conversationId: req.params.id,

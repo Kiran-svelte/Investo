@@ -400,9 +400,12 @@ router.put('/:id', (0, rbac_1.authorize)('properties', 'update'), requirePropert
             where: { id },
             data: updateData,
         });
+        const indexPayload = await (0, propertyKnowledge_service_1.loadPropertyKnowledgeIndexPayload)(companyId, id);
         const knowledge = await (0, propertyKnowledge_service_1.indexPropertyKnowledge)({
             companyId,
             property: updated,
+            draftData: indexPayload.draftData,
+            mediaExtractions: indexPayload.mediaExtractions,
         });
         res.json({
             data: mapPropertyToSnakeCaseDTO(updated),

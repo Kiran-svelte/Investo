@@ -51,7 +51,9 @@ export class AutomationService {
   start(): void {
     logger.info('Starting automation service');
 
-    // Visit reminders - check every 15 minutes
+    // Agent-facing 15-min visit notifications only — customer 24h/1h reminders are
+    // owned by visitLifecycle.service via automationQueueService (scheduled at booking time).
+    // Keep this polling only for the agent notification window.
     this.intervalIds.push(
       setInterval(() => this.processVisitReminders(), 15 * 60 * 1000)
     );
@@ -71,9 +73,14 @@ export class AutomationService {
       setInterval(() => this.reconcileWorkflowRuns(), 60 * 60 * 1000)
     );
 
+    // Stuck outbound messages (pending >10m) — mark failed so conversations recover
+    this.intervalIds.push(
+      setInterval(() => this.sweepStuckPendingMessages(), 15 * 60 * 1000)
+    );
+
     this.startWorker();
 
-    // Run immediately on startup
+    // Run immediately on startup (agent notification window only)
     this.processVisitReminders();
     this.processFollowUps();
   }
@@ -116,52 +123,10 @@ export class AutomationService {
     try {
       const now = new Date();
 
-      // 24-hour reminders
-      const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      const in23h = new Date(now.getTime() + 23 * 60 * 60 * 1000);
-
-      const visits24h = await prisma.visit.findMany({
-        where: {
-          status: { in: ['scheduled', 'confirmed'] },
-          reminderSent: false,
-          scheduledAt: { gte: in23h, lte: in24h },
-        },
-        include: {
-          lead: { select: { customerName: true, phone: true, language: true } },
-          property: { select: { name: true, locationArea: true } },
-          company: { select: { whatsappPhone: true, settings: true } },
-        },
-      });
-
-      for (const visit of visits24h) {
-        await this.enqueueJob('visit_reminder_24h', `visit:${visit.id}:24h`, now, {
-          visitId: visit.id,
-          timing: '24h',
-        });
-      }
-
-      // 1-hour reminders
-      const in1h = new Date(now.getTime() + 60 * 60 * 1000);
-      const in45m = new Date(now.getTime() + 45 * 60 * 1000);
-
-      const visits1h = await prisma.visit.findMany({
-        where: {
-          status: { in: ['scheduled', 'confirmed'] },
-          scheduledAt: { gte: in45m, lte: in1h },
-        },
-        include: {
-          lead: { select: { customerName: true, phone: true, language: true } },
-          property: { select: { name: true, locationArea: true } },
-          company: { select: { whatsappPhone: true, settings: true } },
-        },
-      });
-
-      for (const visit of visits1h) {
-        await this.enqueueJob('visit_reminder_1h', `visit:${visit.id}:1h`, now, {
-          visitId: visit.id,
-          timing: '1h',
-        });
-      }
+      // Customer 24h + 1h WhatsApp reminders are scheduled at visit-booking time
+      // by visitLifecycle.scheduleVisitReminderJobs → automationQueueService.
+      // This polling loop only covers the 15-min agent notification window,
+      // which is too short to schedule reliably at booking time.
 
       // 15-minute agent notifications
       const in15m = new Date(now.getTime() + 15 * 60 * 1000);
@@ -582,6 +547,12 @@ export class AutomationService {
       case 'conversation_timeout_24h':
         await this.executeConversationTimeout(String(data.conversationId));
         return;
+      case 'call_reminder_1h':
+        await this.executeCallReminder(String(data.callId), String(data.companyId), String(data.leadId));
+        return;
+      case 'retry_concurrent_inbound':
+        await this.executeConcurrentInboundRetry(data);
+        return;
       default:
         logger.warn('Unknown automation job type received', { type });
     }
@@ -680,14 +651,14 @@ export class AutomationService {
       return;
     }
 
-    await prisma.notification.create({
-      data: {
-        companyId: lead.companyId,
-        userId: lead.assignedAgentId,
-        type: 'follow_up',
-        title: 'Lead needs attention',
-        message: `${lead.customerName || lead.phone} has been in negotiation for 7+ days.`,
-      },
+    // Route through notificationEngine to get real-time socket push to dashboard
+    const { notificationEngine } = await import('./notification.engine');
+    await notificationEngine.notify({
+      companyId: lead.companyId,
+      userId: lead.assignedAgentId ?? undefined,
+      type: 'follow_up',
+      title: 'Lead needs attention',
+      message: `${lead.customerName || lead.phone} has been in negotiation for 7+ days.`,
     });
 
     await prisma.lead.update({
@@ -732,6 +703,113 @@ export class AutomationService {
       resourceId: conv.id,
       status: 'success',
       result: 'Conversation closed after 24h inactivity',
+    });
+  }
+
+  private async executeCallReminder(callId: string, companyId: string, leadId: string): Promise<void> {
+    try {
+      const rows = await prisma.$queryRawUnsafe<Array<{
+        status: string;
+        scheduled_at: Date;
+        agent_id: string;
+      }>>(
+        `SELECT status, scheduled_at, agent_id FROM call_requests
+         WHERE id = $1::uuid AND company_id = $2::uuid`,
+        callId,
+        companyId,
+      );
+      const call = rows[0];
+      if (!call || !['scheduled', 'confirmed'].includes(call.status)) {
+        logger.debug('callReminder: call no longer active, skipping', { callId });
+        return;
+      }
+
+      const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+        select: { phone: true, customerName: true },
+      });
+      if (!lead?.phone) return;
+
+      const { formatDateIST } = await import('./agent/tools/format-helpers');
+      const when = formatDateIST(call.scheduled_at);
+      const { whatsappService } = await import('./whatsapp.service');
+      await whatsappService.sendCompanyTextMessage(
+        lead.phone,
+        `⏰ *Reminder: Your callback is in 1 hour!*\n\nScheduled: ${when}\n\nWe'll call you at the scheduled time. Reply if you need to reschedule.`,
+        companyId,
+      );
+      logger.info('callReminder: 1h customer reminder sent', { callId, leadId, phone: lead.phone });
+    } catch (err: unknown) {
+      logger.error('executeCallReminder failed', {
+        callId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Sweep AI/agent messages stuck in `pending` — usually a failed sendTurnResult.
+   * Marks them failed so dashboards show truth and Meta retries are not blocked forever.
+   */
+  async sweepStuckPendingMessages(): Promise<void> {
+    try {
+      const threshold = new Date(Date.now() - 10 * 60 * 1000);
+      const stuck = await prisma.message.findMany({
+        where: {
+          status: 'pending',
+          senderType: { in: ['ai', 'agent'] },
+          createdAt: { lt: threshold },
+        },
+        take: 25,
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, conversationId: true, createdAt: true },
+      });
+
+      if (!stuck.length) return;
+
+      await prisma.message.updateMany({
+        where: { id: { in: stuck.map((m) => m.id) } },
+        data: { status: 'failed' },
+      });
+
+      logger.warn('Stuck pending messages swept to failed', {
+        count: stuck.length,
+        messageIds: stuck.map((m) => m.id),
+      });
+    } catch (err: unknown) {
+      logger.error('sweepStuckPendingMessages failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private async executeConcurrentInboundRetry(data: Record<string, unknown>): Promise<void> {
+    const phoneNumberId = String(data.phoneNumberId || '');
+    const customerPhone = String(data.customerPhone || '');
+    const messageText = String(data.messageText || '');
+    const messageId = String(data.messageId || '');
+
+    if (!phoneNumberId || !customerPhone || !messageText || !messageId) {
+      logger.warn('retry_concurrent_inbound skipped — missing required fields', { data });
+      return;
+    }
+
+    await whatsappService.handleIncomingMessage({
+      phoneNumberId,
+      customerPhone,
+      customerName: String(data.customerName || 'Customer'),
+      messageText,
+      messageId,
+      companyIdHint: data.companyId ? String(data.companyId) : undefined,
+      interactiveId: data.interactiveId ? String(data.interactiveId) : undefined,
+      interactiveType: data.interactiveType as 'button_reply' | 'list_reply' | undefined,
+      businessDisplayPhone: data.businessDisplayPhone ? String(data.businessDisplayPhone) : undefined,
+    });
+
+    logger.info('retry_concurrent_inbound processed', {
+      companyId: data.companyId,
+      messageId,
+      customerPhone,
     });
   }
 

@@ -2,6 +2,17 @@
   "mcpServers": {
     "supabase": {
       "url": "https://mcp.supabase.com/mcp?project_ref=klmpifgkxzlignvwaohv&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching%2Cstorage"
+    },
+    "android": {
+      "command": "npx",
+      "args": ["-y", "scrcpy-mcp"],
+      "env": {
+        "ADB_PATH": "C:\\Users\\kiran\\Downloads\\platform-tools-latest-windows (1)\\platform-tools\\adb.exe",
+        "ANDROID_SERIAL": "RZGL31RFPAV",
+        "SCRCPY_SERVER_PATH": "C:\\Users\\kiran\\AppData\\Local\\scrcpy\\scrcpy-win64-v3.1\\scrcpy-server",
+        "SCRCPY_SERVER_VERSION": "3.1",
+        "FFMPEG_PATH": "ffmpeg"
+      }
     }
   }
 }

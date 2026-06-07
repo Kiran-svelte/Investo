@@ -44,11 +44,12 @@ describe('whatsappTurnOrchestrator.service', () => {
     if (hero?.kind === 'media') expect(hero.mime).toBe('image/jpeg');
   });
 
-  test('enforceTurnComponentBudget allows buttons + media', () => {
+  test('enforceTurnComponentBudget prefers buttons over media', () => {
     const budget = enforceTurnComponentBudget([
       { kind: 'buttons', buttons: [{ id: 'book', title: 'Book' }] },
       { kind: 'media', url: 'https://x.jpg', mime: 'image/jpeg' },
     ]);
-    expect(budget).toHaveLength(2);
+    expect(budget).toHaveLength(1);
+    expect(budget[0].kind).toBe('buttons');
   });
 });

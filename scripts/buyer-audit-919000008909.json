@@ -1,0 +1,396 @@
+{
+  "auditedAt": "2026-06-06T09:04:39.188Z",
+  "phone": "919000008909",
+  "leadId": "ac18a3cc-c860-4833-b7fb-c0ba239a5952",
+  "leadStatus": "visit_scheduled",
+  "leadMemory": {
+    "budget": {
+      "max": 15000000,
+      "min": 12000000,
+      "currency": "INR"
+    },
+    "version": 1,
+    "updatedAt": "2026-06-06T08:39:16.193Z",
+    "lastIntent": "price_inquiry",
+    "upcomingVisits": [
+      {
+        "status": "scheduled",
+        "visitId": "2960b272-c188-47de-a942-583859b8df00",
+        "scheduledAt": "2026-06-07T04:30:00.000Z",
+        "propertyName": "Sunset Heights"
+      }
+    ],
+    "projectsDiscussed": [
+      {
+        "name": "Sunset Heights",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Green Acres",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Sunset Heights",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Lake Vista",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Commercial Hub",
+        "factsShown": [
+          "price"
+        ]
+      },
+      {
+        "name": "Visit scheduled",
+        "factsShown": []
+      },
+      {
+        "name": "Amogh Sales",
+        "factsShown": []
+      },
+      {
+        "name": "Visit rescheduled",
+        "factsShown": []
+      }
+    ],
+    "locationPreference": "Whitefield",
+    "conversationSummary": "Can you give me 10% discount on the final price? → I've alerted our team and moved this chat to a human specialist.\n\nSomeone from the team will call or message you shortly."
+  },
+  "visits": [
+    {
+      "id": "2960b272-c188-47de-a942-583859b8df00",
+      "status": "scheduled",
+      "scheduledAt": "2026-06-07T04:30:00.000Z",
+      "propertyId": "043ad899-49f0-4215-9520-a4411c68fcde"
+    }
+  ],
+  "conversation": {
+    "id": "7f6c1099-bdc1-4c74-addd-d98963a1037b",
+    "stage": "confirmation"
+  },
+  "messageStats": {
+    "total": 30,
+    "customer": 15,
+    "ai": 15,
+    "turns": 15
+  },
+  "workflowStats": {
+    "total": 23,
+    "completed": 16,
+    "failed": 7,
+    "needsReconciliation": 0
+  },
+  "actionLogSummary": {
+    "autoCreateLeadFromWhatsApp": 1,
+    "workflow_brochure_request": 1
+  },
+  "failedWorkflows": [
+    {
+      "workflowId": "brochure_request",
+      "status": "failed",
+      "failedStep": "sendBrochure",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "sendBrochure",
+          "status": "failed",
+          "errorMessage": "I'd love to send you the brochure! Could you let me know which project you're interested in? We have several properties available."
+        }
+      ],
+      "createdAt": "2026-06-06T07:47:10.118Z"
+    },
+    {
+      "workflowId": "brochure_request",
+      "status": "failed",
+      "failedStep": "sendBrochure",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "sendBrochure",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T07:47:42.490Z"
+    },
+    {
+      "workflowId": "price_inquiry",
+      "status": "failed",
+      "failedStep": "fetchPropertyPrice",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "fetchPropertyPrice",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T07:50:22.664Z"
+    },
+    {
+      "workflowId": "brochure_request",
+      "status": "failed",
+      "failedStep": "sendBrochure",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "sendBrochure",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T08:17:14.748Z"
+    },
+    {
+      "workflowId": "price_inquiry",
+      "status": "failed",
+      "failedStep": "fetchPropertyPrice",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "fetchPropertyPrice",
+          "status": "failed",
+          "errorMessage": "propertyId: Invalid uuid"
+        }
+      ],
+      "createdAt": "2026-06-06T08:17:47.580Z"
+    },
+    {
+      "workflowId": "reschedule_visit",
+      "status": "failed",
+      "failedStep": "bookVisit",
+      "steps": [
+        {
+          "action": "resolveVisit",
+          "status": "completed"
+        },
+        {
+          "action": "bookVisit",
+          "status": "failed",
+          "errorMessage": "When should the visit be scheduled? Share date and time."
+        }
+      ],
+      "createdAt": "2026-06-06T08:29:05.735Z"
+    },
+    {
+      "workflowId": "schedule_visit",
+      "status": "failed",
+      "failedStep": "bookVisit",
+      "steps": [
+        {
+          "action": "resolveLead",
+          "status": "completed"
+        },
+        {
+          "action": "bookVisit",
+          "status": "failed",
+          "errorMessage": "That slot overlaps with another visit. Please share another time."
+        }
+      ],
+      "createdAt": "2026-06-06T08:41:20.110Z"
+    }
+  ],
+  "issues": [
+    {
+      "severity": "error",
+      "code": "GENERIC_CONNECTION_FALLBACK",
+      "inbound": "Hi, I am looking for a home in Bangalore",
+      "reply": "I had a brief technical issue, Scenario. Please resend your message and I'll respond immediately — no need to start over"
+    },
+    {
+      "severity": "error",
+      "code": "INTERNAL_WORKFLOW_LEAK",
+      "inbound": "Please send brochure for Sunset Heights",
+      "reply": "Workflow \"brochure_request\" failed at step \"sendBrochure\": propertyId: Invalid uuid"
+    },
+    {
+      "severity": "error",
+      "code": "INTERNAL_WORKFLOW_LEAK",
+      "inbound": "What is the price for 3BHK?",
+      "reply": "Workflow \"price_inquiry\" failed at step \"fetchPropertyPrice\": propertyId: Invalid uuid"
+    },
+    {
+      "severity": "error",
+      "code": "INTERNAL_WORKFLOW_LEAK",
+      "inbound": "Push my appointment to next Sunday",
+      "reply": "Workflow \"reschedule_visit\" failed at step \"bookVisit\": When should the visit be scheduled? Share date and time."
+    },
+    {
+      "severity": "error",
+      "code": "GENERIC_CONNECTION_FALLBACK",
+      "inbound": "What's my budget preference?",
+      "reply": "I had a brief connection issue, but here's what I know, Scenario: your visit to *Sunset Heights* is on record 🗓️\n\nReply"
+    }
+  ],
+  "turns": [
+    {
+      "inbound": "Hi, I am looking for a home in Bangalore",
+      "inboundAt": "2026-06-06T08:14:48.013Z",
+      "outboundCount": 1,
+      "replies": [
+        "I had a brief technical issue, Scenario. Please resend your message and I'll respond immediately — no need to start over! 🙏"
+      ]
+    },
+    {
+      "inbound": "My budget is 1.2 to 1.5 crore for 3BHK in Whitefield",
+      "inboundAt": "2026-06-06T08:15:52.881Z",
+      "outboundCount": 1,
+      "replies": [
+        "Here are the matching options I found:\n\n🟢 *Sunset Heights*\nType: apartment | Status: available\nPrice: ₹83,00,000-₹83,00,000\nLocation: not set\nBedrooms: 2\n\n🟢 *Green Acres*\nType: plot | Status: availa"
+      ]
+    },
+    {
+      "inbound": "Please send brochure for Sunset Heights",
+      "inboundAt": "2026-06-06T08:17:07.648Z",
+      "outboundCount": 1,
+      "replies": [
+        "Workflow \"brochure_request\" failed at step \"sendBrochure\": propertyId: Invalid uuid"
+      ]
+    },
+    {
+      "inbound": "What is the price for 3BHK?",
+      "inboundAt": "2026-06-06T08:17:40.573Z",
+      "outboundCount": 1,
+      "replies": [
+        "Workflow \"price_inquiry\" failed at step \"fetchPropertyPrice\": propertyId: Invalid uuid"
+      ]
+    },
+    {
+      "inbound": "Please send brochure for Sunset Heights",
+      "inboundAt": "2026-06-06T08:25:26.745Z",
+      "outboundCount": 1,
+      "replies": [
+        "No brochure is uploaded for Sunset Heights yet. Upload one in the property settings."
+      ]
+    },
+    {
+      "inbound": "What is the price for 3BHK?",
+      "inboundAt": "2026-06-06T08:26:05.871Z",
+      "outboundCount": 1,
+      "replies": [
+        "Here are the matching options I found:\n\n🟢 *Sunset Heights*\nType: apartment | Status: available\nPrice: ₹83,00,000-₹83,00,000\nLocation: not set\nBedrooms: 2\n\n🟢 *Green Acres*\nType: plot | Status: availa"
+      ]
+    },
+    {
+      "inbound": "Is 3BHK still available this weekend?",
+      "inboundAt": "2026-06-06T08:26:44.968Z",
+      "outboundCount": 1,
+      "replies": [
+        "Here are the matching options I found:\n\n*Sunset Heights* (apartment)\nLocation: not set"
+      ]
+    },
+    {
+      "inbound": "Book a site visit for Saturday 4pm",
+      "inboundAt": "2026-06-06T08:27:19.905Z",
+      "outboundCount": 1,
+      "replies": [
+        "*Visit scheduled*\n\nProperty: *Sunset Heights*\nDate: Saturday, 6 Jun, 04:00 pm\n\nOur specialist *Amogh Sales* will confirm details before the visit.\n\nLead marked visit_scheduled.\n\nVisit reminders schedu"
+      ]
+    },
+    {
+      "inbound": "When is my visit?",
+      "inboundAt": "2026-06-06T08:28:27.047Z",
+      "outboundCount": 1,
+      "replies": [
+        "*YOUR VISIT*\n\nProperty: *Sunset Heights*\nDate: 06/06/2026, 04:00 pm 04:00 pm\nStatus: *Scheduled*\nAgent: *Amogh Sales* (+919019655080)\n\nWould you like to:\nConfirm | Reschedule | Cancel"
+      ]
+    },
+    {
+      "inbound": "Push my appointment to next Sunday",
+      "inboundAt": "2026-06-06T08:28:58.736Z",
+      "outboundCount": 1,
+      "replies": [
+        "Workflow \"reschedule_visit\" failed at step \"bookVisit\": When should the visit be scheduled? Share date and time."
+      ]
+    },
+    {
+      "inbound": "Push my appointment to next Sunday",
+      "inboundAt": "2026-06-06T08:33:04.773Z",
+      "outboundCount": 1,
+      "replies": [
+        "*Visit rescheduled*\n\nProperty: *Sunset Heights*\nDate: Sunday, 7 Jun, 10:00 am\n\nOur specialist *Amogh Sales* will confirm details before the visit.\n\nVisit reminders scheduled."
+      ]
+    },
+    {
+      "inbound": "What's my budget preference?",
+      "inboundAt": "2026-06-06T08:33:35.560Z",
+      "outboundCount": 1,
+      "replies": [
+        "I had a brief connection issue, but here's what I know, Scenario: your visit to *Sunset Heights* is on record 🗓️\n\nReply *Confirm*, *Reschedule*, or *Cancel* and I'll handle it right away. ✅"
+      ]
+    },
+    {
+      "inbound": "Please call me back, I want to talk to a human agent",
+      "inboundAt": "2026-06-06T08:34:08.127Z",
+      "outboundCount": 1,
+      "replies": [
+        "I've alerted our team and moved this chat to a human specialist.\n\nSomeone from the team will call or message you shortly."
+      ]
+    },
+    {
+      "inbound": "Can you give me 10% discount on the final price?",
+      "inboundAt": "2026-06-06T08:34:35.331Z",
+      "outboundCount": 1,
+      "replies": [
+        "Here are the matching options I found:\n\n🟢 *Sunset Heights*\nType: apartment | Status: available\nPrice: ₹83,00,000-₹83,00,000\nLocation: not set\nBedrooms: 2\n\n🟢 *Green Acres*\nType: plot | Status: availa"
+      ]
+    },
+    {
+      "inbound": "Can you give me 10% discount on the final price?",
+      "inboundAt": "2026-06-06T08:39:03.190Z",
+      "outboundCount": 1,
+      "replies": [
+        "I've alerted our team and moved this chat to a human specialist.\n\nSomeone from the team will call or message you shortly."
+      ]
+    }
+  ],
+  "recentActionLogs": [
+    {
+      "action": "autoCreateLeadFromWhatsApp",
+      "status": "success",
+      "triggeredBy": "inbound_message",
+      "inputs": {
+        "sourceDetail": "whatsapp_inbound",
+        "customerPhone": "+91******8909"
+      },
+      "result": null,
+      "createdAt": "2026-06-06T08:14:44.564Z"
+    },
+    {
+      "action": "workflow_brochure_request",
+      "status": "success",
+      "triggeredBy": "agent_tool",
+      "inputs": {
+        "propertyId": "daedb4ce-ff9c-47eb-9dc7-b5cf09ec0bf9"
+      },
+      "result": null,
+      "createdAt": "2026-06-06T08:25:33.596Z"
+    }
+  ]
+}

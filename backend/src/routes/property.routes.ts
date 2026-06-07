@@ -16,7 +16,11 @@ import {
   getUserCatalogCompletenessBlock,
 } from '../services/propertyCompleteness.service';
 import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher';
-import { deletePropertyKnowledge, indexPropertyKnowledge } from '../services/propertyKnowledge.service';
+import {
+  deletePropertyKnowledge,
+  indexPropertyKnowledge,
+  loadPropertyKnowledgeIndexPayload,
+} from '../services/propertyKnowledge.service';
 
 const router = Router();
 
@@ -479,9 +483,12 @@ router.put(
         data: updateData,
       });
 
+      const indexPayload = await loadPropertyKnowledgeIndexPayload(companyId, id);
       const knowledge = await indexPropertyKnowledge({
         companyId,
         property: updated,
+        draftData: indexPayload.draftData,
+        mediaExtractions: indexPayload.mediaExtractions,
       });
 
       res.json({

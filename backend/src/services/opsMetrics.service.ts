@@ -14,6 +14,10 @@ const COUNTERS = [
   'errors_5xx',
   'rate_limited',
   'slow_requests',
+  // Autonomous agent observability — idempotency wins and retry activity.
+  'visit_idem_hit',
+  'call_idem_hit',
+  'notification_retry',
 ] as const;
 
 export type OpsMetricName = (typeof COUNTERS)[number];
@@ -61,6 +65,7 @@ export async function getOpsMetricsSnapshot(): Promise<{
   cache_backend: string;
   counters: Record<string, number>;
   latency_buckets: ReturnType<typeof getLatencyPercentiles>;
+  automation_queue_depth: number;
   timestamp: string;
 }> {
   const merged: Record<string, number> = { ...localCounts };
@@ -75,11 +80,30 @@ export async function getOpsMetricsSnapshot(): Promise<{
     }
   }
 
+  // Snapshot automation queue depth (pending job count) for health monitoring.
+  // A sustained high depth indicates the worker is not keeping up.
+  let automationQueueDepth = 0;
+  try {
+    const { automationQueueService } = await import('./automationQueue.service');
+    const redis = (await import('../config/redis')).getRedis();
+    if (redis) {
+      const keys = await redis.keys('automation:job:*');
+      automationQueueDepth = keys.length;
+    } else {
+      // Memory store: ask the service via a safe cast
+      const pendingJobs = await automationQueueService.findExistingJobsForVisits([], []);
+      automationQueueDepth = pendingJobs.length;
+    }
+  } catch {
+    automationQueueDepth = -1; // -1 = could not sample
+  }
+
   return {
     uptime_seconds: Math.floor((Date.now() - startedAt) / 1000),
     cache_backend: getCacheType(),
     counters: merged,
     latency_buckets: getLatencyPercentiles(),
+    automation_queue_depth: automationQueueDepth,
     timestamp: new Date().toISOString(),
   };
 }

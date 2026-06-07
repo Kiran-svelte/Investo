@@ -19,8 +19,10 @@ import { buildGroundedFactsBlock } from '../groundingGuard.service';
 import { propertyToCompletenessInput } from '../propertyCompleteness.service';
 import {
   buildFocusedPropertyPromptBlock,
+  enrichAiPropertiesFromKnowledge,
   propertyToAiPromptInput,
 } from '../propertyAiContext.service';
+import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
 import { syncLeadScoreFromConversation } from '../leadScoring.service';
 import { transitionLeadStatus, transitionLeadToVisitScheduled } from '../leadTransition.service';
 import { logAgentAction } from '../agent-action-log.service';
@@ -850,7 +852,12 @@ async function handleFullAiTurn(
     }
   }
 
-  const aiProperties = allRawProperties.map(propertyToAiPromptInput);
+  let aiProperties = allRawProperties.map(propertyToAiPromptInput);
+  aiProperties = await enrichAiPropertiesFromKnowledge(
+    ctx.companyId,
+    aiProperties,
+    getPropertyKnowledgeForProperty,
+  );
   const focusedAiProperty = resolvedPropertyId
     ? aiProperties.find((p) => p.id === resolvedPropertyId)
     : undefined;

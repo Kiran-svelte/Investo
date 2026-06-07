@@ -6,6 +6,8 @@ import {
   transitionLeadToVisitScheduled,
 } from './leadTransition.service';
 import { notificationEngine } from './notification.engine';
+import { emitVisitCreated, scheduleVisitReminderJobs } from './visitLifecycle.service';
+import { incrementOpsMetric } from './opsMetrics.service';
 
 export interface ScheduleVisitInput {
   companyId: string;
@@ -121,7 +123,8 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
     ?? buildVisitIdempotencyKey(companyId, leadId, scheduledAt.toISOString());
   const { deduplicationService } = await import('./deduplication.service');
   const redisKey = `visit-idem:${idemKey}`;
-  const claimed = await deduplicationService.claimMessageProcessing(redisKey, 120);
+  // 86400s (24h) matches Meta's maximum webhook re-delivery window.
+  const claimed = await deduplicationService.claimMessageProcessing(redisKey, 86_400);
   if (!claimed) {
     const duplicate = await prisma.visit.findFirst({
       where: {
@@ -133,6 +136,13 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
       orderBy: { createdAt: 'desc' },
     });
     if (duplicate) {
+      incrementOpsMetric('visit_idem_hit');
+      logger.info('scheduleVisit: idempotency hit (Redis), returning existing visit', {
+        companyId,
+        leadId,
+        visitId: duplicate.id,
+        idemKey,
+      });
       return {
         success: true,
         visit: {
@@ -159,6 +169,12 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
     },
   });
   if (existingSameSlot) {
+    incrementOpsMetric('visit_idem_hit');
+    logger.info('scheduleVisit: idempotency hit (DB unique slot), returning existing visit', {
+      companyId,
+      leadId,
+      visitId: existingSameSlot.id,
+    });
     return {
       success: true,
       visit: {
@@ -199,6 +215,8 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
   await transitionLeadToVisitScheduled(leadId);
 
   await notificationEngine.onVisitScheduled(visit, lead, property, agent);
+  emitVisitCreated(companyId, visit);
+  void scheduleVisitReminderJobs(visit.id, visit.scheduledAt, companyId, leadId);
 
   logger.info('Visit scheduled', {
     visitId: visit.id,

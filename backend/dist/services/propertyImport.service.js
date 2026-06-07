@@ -45,6 +45,7 @@ const storage_service_1 = require("./storage.service");
 const supabaseStorage_service_1 = require("./supabaseStorage.service");
 const propertyImportQueue_service_1 = require("./propertyImportQueue.service");
 const propertyKnowledge_service_1 = require("./propertyKnowledge.service");
+const geocoding_service_1 = require("./geocoding.service");
 const propertyImport_metadata_1 = require("./propertyImport.metadata");
 const propertyTypeKnowledge_service_1 = require("./propertyTypeKnowledge.service");
 const csv_import_service_1 = require("./csv-import.service");
@@ -135,6 +136,39 @@ function mapDraftToPropertyData(draftData, mediaUrls) {
         images: mediaUrls.images,
         brochureUrl: mediaUrls.brochureUrl,
     };
+}
+async function enrichPropertyDataWithGeocoding(propertyData) {
+    const address = (0, geocoding_service_1.buildAddressFromProperty)({
+        locationArea: asNullableString(propertyData.locationArea),
+        locationCity: asNullableString(propertyData.locationCity),
+        locationPincode: asNullableString(propertyData.locationPincode),
+        name: asNullableString(propertyData.name),
+    });
+    if (!address) {
+        return propertyData;
+    }
+    try {
+        const geocoded = await geocoding_service_1.geocodingService.geocodeAddress(address);
+        if (geocoded) {
+            logger_1.default.info('Auto-geocoded property import publish', {
+                address: address.substring(0, 80),
+                lat: geocoded.latitude,
+                lng: geocoded.longitude,
+                confidence: geocoded.confidence,
+            });
+            return {
+                ...propertyData,
+                latitude: geocoded.latitude,
+                longitude: geocoded.longitude,
+            };
+        }
+    }
+    catch (error) {
+        logger_1.default.warn('Geocoding failed during property import publish', {
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+    return propertyData;
 }
 class PropertyImportService {
     async createDraft(companyId, userId, input) {
@@ -714,10 +748,10 @@ class PropertyImportService {
         if (importUnits.length > 0) {
             return this.publishDraftUnits(companyId, draftId, userId, forceRepublish, draft, draftData, importUnits, { images, brochureUrl: brochure?.publicUrl || null }, successfulMedia);
         }
-        const propertyData = mapDraftToPropertyData(draftData, {
+        const propertyData = await enrichPropertyDataWithGeocoding(mapDraftToPropertyData(draftData, {
             images,
             brochureUrl: brochure?.publicUrl || null,
-        });
+        }));
         const published = await prisma_1.default.$transaction(async (tx) => {
             let propertyId = draft.publishedPropertyId;
             if (propertyId) {
@@ -834,7 +868,7 @@ class PropertyImportService {
             if (unit.label && !unitData.name) {
                 unitData.name = unit.label;
             }
-            const propertyData = mapDraftToPropertyData(unitData, mediaUrls);
+            const propertyData = await enrichPropertyDataWithGeocoding(mapDraftToPropertyData(unitData, mediaUrls));
             const property = await prisma_1.default.$transaction(async (tx) => {
                 if (unit.publishedPropertyId && unit.status === 'published' && !forceRepublish) {
                     const existing = await tx.property.findFirst({

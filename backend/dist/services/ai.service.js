@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.aiService = exports.AIService = void 0;
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
+const opsMetrics_service_1 = require("./opsMetrics.service");
 const legalDisclaimer_constants_1 = require("../constants/legalDisclaimer.constants");
 const conversationStateMachine_1 = require("./conversationStateMachine");
 const customerMessageFastPath_service_1 = require("./customerMessageFastPath.service");
@@ -52,6 +53,18 @@ const parseDateTimeFromMessage_util_1 = require("../utils/parseDateTimeFromMessa
 const aiGlobalRules_constants_1 = require("../constants/aiGlobalRules.constants");
 const llmSafeParams_constants_1 = require("../constants/llmSafeParams.constants");
 const safeBuyerFallback_util_1 = require("../utils/safeBuyerFallback.util");
+const retry_1 = require("../utils/retry");
+const circuit_breaker_1 = require("../utils/circuit-breaker");
+const kimiCircuitBreaker = (0, circuit_breaker_1.getCircuitBreaker)({
+    name: 'kimi_ai',
+    failureThreshold: 4,
+    recoveryTimeoutMs: 30000,
+});
+const claudeCircuitBreaker = (0, circuit_breaker_1.getCircuitBreaker)({
+    name: 'claude_ai',
+    failureThreshold: 4,
+    recoveryTimeoutMs: 30000,
+});
 /** Maximum determinism for buyer LLM — prevents hallucinated errors and repetition. */
 const BUYER_LLM_TEMPERATURE = 0;
 /** Recent turns injected into system prompt + chat messages (not only RAG). */
@@ -258,6 +271,7 @@ class AIService {
                     response.newState = newState;
                 }
                 response.nextAction = nextAction;
+                (0, opsMetrics_service_1.incrementOpsMetric)('ai_replies');
                 return response;
             }
             catch (err) {
@@ -504,56 +518,67 @@ ${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
         return messages;
     }
     /**
-     * Call Claude API.
+     * Call Claude API — with circuit breaker and retry for transient failures.
      */
     async callClaude(systemPrompt, messages) {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': config_1.default.ai.claudeApiKey,
-                'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-                model: config_1.default.ai.claudeModel,
-                max_tokens: 1024,
-                system: systemPrompt,
-                messages: messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }],
-            }),
-        });
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Claude API error: ${response.status} ${error}`);
-        }
-        const data = await response.json();
-        const text = data.content?.[0]?.text || '';
-        return this.parseAIResponse(text);
+        return claudeCircuitBreaker.execute(() => (0, retry_1.withRetry)(async () => {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': config_1.default.ai.claudeApiKey,
+                    'anthropic-version': '2023-06-01',
+                },
+                body: JSON.stringify({
+                    model: config_1.default.ai.claudeModel,
+                    max_tokens: 1024,
+                    system: systemPrompt,
+                    messages: messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }],
+                }),
+            });
+            if (!response.ok) {
+                const error = await response.text();
+                // Don't retry auth errors
+                if (response.status === 401 || response.status === 403) {
+                    throw new Error(`Claude API auth error: ${response.status} ${error}`);
+                }
+                throw new Error(`Claude API error: ${response.status} ${error}`);
+            }
+            const data = await response.json();
+            const text = data.content?.[0]?.text || '';
+            return this.parseAIResponse(text);
+        }, { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25000, label: 'claude_ai' }));
     }
     /**
-     * Call Kimi API as the primary provider.
+     * Call Kimi API — with circuit breaker and retry for transient failures.
      */
     async callKimi(systemPrompt, messages) {
-        const response = await fetch(this.buildChatCompletionsUrl(config_1.default.ai.kimiApiBaseUrl), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config_1.default.ai.kimiApiKey}`,
-            },
-            body: JSON.stringify((0, llmSafeParams_constants_1.withBuyerLlmSafeParams)({
-                model: config_1.default.ai.kimi25Model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
-                ],
-            })),
-        });
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Kimi API error: ${response.status} ${error}`);
-        }
-        const data = await response.json();
-        const text = data.choices?.[0]?.message?.content || '';
-        return this.parseAIResponse(text);
+        return kimiCircuitBreaker.execute(() => (0, retry_1.withRetry)(async () => {
+            const response = await fetch(this.buildChatCompletionsUrl(config_1.default.ai.kimiApiBaseUrl), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config_1.default.ai.kimiApiKey}`,
+                },
+                body: JSON.stringify((0, llmSafeParams_constants_1.withBuyerLlmSafeParams)({
+                    model: config_1.default.ai.kimi25Model,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        ...(messages.length > 0 ? messages : [{ role: 'user', content: 'Hello' }]),
+                    ],
+                })),
+            });
+            if (!response.ok) {
+                const error = await response.text();
+                if (response.status === 401 || response.status === 403) {
+                    throw new Error(`Kimi API auth error: ${response.status} ${error}`);
+                }
+                throw new Error(`Kimi API error: ${response.status} ${error}`);
+            }
+            const data = await response.json();
+            const text = data.choices?.[0]?.message?.content || '';
+            return this.parseAIResponse(text);
+        }, { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25000, label: 'kimi_ai' }));
     }
     /**
      * Call OpenAI API as fallback.

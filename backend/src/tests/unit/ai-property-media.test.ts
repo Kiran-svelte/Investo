@@ -66,15 +66,14 @@ describe('Hero media component (one-outbound-per-turn)', () => {
   });
 
   describe('enforceTurnComponentBudget', () => {
-    it('keeps at most one interactive and one media', () => {
+    it('prefers interactive over separate media bubble', () => {
       const result = enforceTurnComponentBudget([
         { kind: 'buttons', buttons: [{ id: 'a', title: 'A' }] },
         { kind: 'media', url: 'https://x.jpg', mime: 'image/jpeg' },
         { kind: 'buttons', buttons: [{ id: 'b', title: 'B' }] },
       ]);
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(1);
       expect(result[0].kind).toBe('buttons');
-      expect(result[1].kind).toBe('media');
     });
   });
 

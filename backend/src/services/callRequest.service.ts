@@ -1,8 +1,13 @@
-// Call request service — v2 (2026-06-07)
+// Call request service — v3 (2026-06-07)
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { getRedis } from '../config/redis';
 import { assignLeadWithRouting } from './leadRouting.service';
 import { formatDateIST } from './agent/tools/format-helpers';
+import { automationQueueService } from './automationQueue.service';
+import { socketService, SOCKET_EVENTS } from './socket.service';
+import { withRetry } from './notificationRetry.service';
+import { incrementOpsMetric } from './opsMetrics.service';
 
 export type CallRequestStatus = 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
 
@@ -96,10 +101,52 @@ export async function scheduleCallRequest(input: {
   scheduledAt: Date;
   notes?: string;
   agentId?: string;
+  idempotencyKey?: string;
 }): Promise<{ success: boolean; call?: CallRequestRow; error?: string }> {
   await ensureCallRequestsSchema();
   if (input.scheduledAt <= new Date()) {
     return { success: false, error: 'past_date' };
+  }
+
+  // Redis idempotency: prevent duplicate call booking.
+  // TTL 86400s (24h) matches Meta's maximum webhook re-delivery window.
+  const dedupKey = input.idempotencyKey
+    ? `call-sched:${input.companyId}:${input.idempotencyKey}`
+    : `call-sched:${input.companyId}:${input.leadId}:${input.scheduledAt.getTime()}`;
+  const redis = getRedis();
+  if (redis) {
+    const claimed = await redis.set(dedupKey, '1', { nx: true, ex: 86_400 }).catch(() => 'OK');
+    if (claimed !== 'OK') {
+      incrementOpsMetric('call_idem_hit');
+      logger.info('callRequest: idempotency hit (Redis), blocking duplicate booking', {
+        companyId: input.companyId,
+        leadId: input.leadId,
+        dedupKey,
+      });
+      return { success: false, error: 'duplicate_request' };
+    }
+  }
+
+  // DB-level duplicate check: guard against concurrent calls that bypass Redis
+  // (e.g. two workers with split-brain or Redis flap).
+  const existingRows = await prisma.$queryRawUnsafe<CallRequestRow[]>(
+    `SELECT id FROM call_requests
+     WHERE company_id = $1::uuid AND lead_id = $2::uuid
+       AND scheduled_at = $3
+       AND status IN ('scheduled', 'confirmed')
+     LIMIT 1`,
+    input.companyId,
+    input.leadId,
+    input.scheduledAt,
+  );
+  if (existingRows.length > 0) {
+    incrementOpsMetric('call_idem_hit');
+    logger.info('callRequest: idempotency hit (DB duplicate slot), returning existing call', {
+      companyId: input.companyId,
+      leadId: input.leadId,
+      existingCallId: existingRows[0].id,
+    });
+    return { success: false, error: 'duplicate_request' };
   }
 
   let agentId = input.agentId;
@@ -139,8 +186,17 @@ export async function scheduleCallRequest(input: {
     scheduledAt: input.scheduledAt,
   });
 
+  // Schedule 1-hour pre-call reminder for the customer
+  await scheduleCallReminder(call);
+
+  // Real-time dashboard push
+  socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_CREATED, {
+    call: { id: call.id, leadId: call.lead_id, agentId: call.agent_id, scheduledAt: call.scheduled_at, status: call.status },
+  });
+
   return { success: true, call };
 }
+
 
 export async function rescheduleCallRequest(input: {
   companyId: string;
@@ -167,6 +223,15 @@ export async function rescheduleCallRequest(input: {
     agentId: call.agent_id,
     scheduledAt: input.scheduledAt,
   });
+
+  // Cancel any existing reminder and re-schedule for the new time
+  await automationQueueService.cancel('call_reminder_1h', call.id).catch(() => undefined);
+  await scheduleCallReminder(call);
+
+  socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_UPDATED, {
+    call: { id: call.id, leadId: call.lead_id, status: call.status, scheduledAt: call.scheduled_at },
+  });
+
   return { success: true, call };
 }
 
@@ -186,8 +251,43 @@ export async function cancelCallRequest(input: {
   const call = rows[0];
   if (call) {
     await notifyAgentCallCancelled(call);
+    // Cancel the 1h reminder since the call is cancelled
+    await automationQueueService.cancel('call_reminder_1h', call.id).catch(() => undefined);
+    socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_UPDATED, {
+      call: { id: call.id, leadId: call.lead_id, status: 'cancelled', scheduledAt: call.scheduled_at },
+    });
   }
   return call ? { success: true, call } : { success: false, error: 'not_found' };
+}
+
+/**
+ * Schedules a 1-hour pre-call reminder for the customer.
+ * Only schedules if the call is > 70 minutes away.
+ */
+async function scheduleCallReminder(call: CallRequestRow): Promise<void> {
+  const msUntilCall = call.scheduled_at.getTime() - Date.now();
+  if (msUntilCall < 70 * 60 * 1000) return; // too close to be useful
+
+  const remindAt = new Date(call.scheduled_at.getTime() - 60 * 60 * 1000);
+  await automationQueueService
+    .schedule(
+      'call_reminder_1h',
+      call.id,
+      remindAt,
+      {
+        callId: call.id,
+        companyId: call.company_id,
+        leadId: call.lead_id,
+        agentId: call.agent_id,
+        scheduledAt: call.scheduled_at.toISOString(),
+      },
+    )
+    .catch((err: unknown) => {
+      logger.warn('callRequest: failed to schedule 1h reminder', {
+        callId: call.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 }
 
 async function notifyAgentCallCancelled(call: CallRequestRow): Promise<void> {
@@ -196,19 +296,18 @@ async function notifyAgentCallCancelled(call: CallRequestRow): Promise<void> {
     select: { customerName: true, phone: true },
   });
   const when = formatDateIST(call.scheduled_at);
-  await prisma.notification.create({
+  const { notificationEngine } = await import('./notification.engine');
+  await notificationEngine.notify({
+    companyId: call.company_id,
+    userId: call.agent_id,
+    type: 'system_alert',
+    title: '📞 Callback cancelled by customer',
+    message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} cancelled their callback (${when}).`,
     data: {
-      companyId: call.company_id,
-      userId: call.agent_id,
-      type: 'system_alert',
-      title: '📞 Callback cancelled by customer',
-      message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} cancelled their callback (${when}).`,
-      data: {
-        kind: 'call_cancelled',
-        callId: call.id,
-        leadId: call.lead_id,
-        scheduledAt: call.scheduled_at.toISOString(),
-      },
+      kind: 'call_cancelled',
+      callId: call.id,
+      leadId: call.lead_id,
+      scheduledAt: call.scheduled_at.toISOString(),
     },
   });
 
@@ -245,7 +344,11 @@ export async function confirmCallRequest(input: {
     input.callId,
     input.companyId,
   );
-  return rows[0] ? { success: true, call: rows[0] } : { success: false };
+  if (!rows[0]) return { success: false };
+  socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_UPDATED, {
+    call: { id: rows[0].id, leadId: rows[0].lead_id, status: 'confirmed', scheduledAt: rows[0].scheduled_at },
+  });
+  return { success: true, call: rows[0] };
 }
 
 async function createCallApprovalRequest(input: {
@@ -260,20 +363,19 @@ async function createCallApprovalRequest(input: {
     select: { customerName: true, phone: true },
   });
   const when = formatDateIST(input.scheduledAt);
-  await prisma.notification.create({
+  const { notificationEngine } = await import('./notification.engine');
+  await notificationEngine.notify({
+    companyId: input.companyId,
+    userId: input.agentId,
+    type: 'system_alert',
+    title: '📞 Callback approval needed',
+    message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} requested a call at ${when}. Approve or decline in WhatsApp.`,
     data: {
-      companyId: input.companyId,
-      userId: input.agentId,
-      type: 'system_alert',
-      title: '📞 Callback approval needed',
-      message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} requested a call at ${when}. Approve or decline in WhatsApp.`,
-      data: {
-        pendingApproval: true,
-        approvalKind: 'call_request',
-        callId: input.callId,
-        leadId: input.leadId,
-        scheduledAt: input.scheduledAt.toISOString(),
-      },
+      pendingApproval: true,
+      approvalKind: 'call_request',
+      callId: input.callId,
+      leadId: input.leadId,
+      scheduledAt: input.scheduledAt.toISOString(),
     },
   });
 
@@ -386,7 +488,33 @@ export async function resolveCallApproval(
 
   const confirmed = await confirmCallRequest({ companyId, callId });
   if (!confirmed.success || !confirmed.call) {
-    return { ok: false, message: 'Could not confirm that callback. Please try from the dashboard.' };
+    return { ok: false, message: 'Could not confirm that callback. Ask the customer to pick another time via WhatsApp.' };
+  }
+
+  // In-app notification to the agent confirming the call booking.
+  // This fires even if the subsequent WhatsApp send to the customer fails,
+  // so the agent always knows the call is confirmed.
+  try {
+    const { notificationEngine } = await import('./notification.engine');
+    await notificationEngine.notify({
+      companyId,
+      userId: agentId,
+      type: 'system_alert',
+      title: '✅ Callback confirmed',
+      message: `Call with ${lead?.customerName ?? 'Customer'} confirmed for ${when}. Customer has been notified.`,
+      data: {
+        kind: 'call_confirmation',
+        callId,
+        leadId: pending.leadId,
+        scheduledAt: pending.scheduledAt.toISOString(),
+      },
+    });
+  } catch (err: unknown) {
+    logger.warn('resolveCallApproval: agent in-app notification failed', {
+      callId,
+      agentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   if (lead?.phone) {
@@ -395,7 +523,22 @@ export async function resolveCallApproval(
       `📞 ${when}\n` +
       `👤 Your specialist: *${agent?.name || 'Sales team'}*\n\n` +
       `We'll call you at the scheduled time. Reply if you need to reschedule.`;
-    await whatsappService.sendCompanyTextMessage(lead.phone, confirmText, companyId);
+    try {
+      await withRetry(
+        async () => {
+          const { whatsappService } = await import('./whatsapp.service');
+          await whatsappService.sendCompanyTextMessage(lead.phone, confirmText, companyId);
+        },
+        { label: 'call_confirmation_customer_whatsapp', maxAttempts: 3, baseDelayMs: 1000 },
+      );
+    } catch (err: unknown) {
+      logger.error('resolveCallApproval: customer WhatsApp confirmation failed after retries', {
+        callId,
+        leadId: pending.leadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Do not return error — call is confirmed in DB; customer will see it on next WhatsApp interaction.
+    }
   }
 
   return { ok: true, message: `Callback confirmed for ${when}. Customer notified.` };

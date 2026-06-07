@@ -1,6 +1,7 @@
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { isValidTransition, LEAD_STATUSES, LEAD_TRANSITIONS, LeadStatus } from '../models/validation';
+import { socketService, SOCKET_EVENTS } from './socket.service';
 
 export function canTransitionLeadToVisitScheduledStatus(status: string | null | undefined): boolean {
   if (!status || !(LEAD_STATUSES as readonly string[]).includes(status)) {
@@ -50,12 +51,18 @@ export async function transitionLeadStatus(
     return false;
   }
 
-  await prisma.lead.update({
+  const updatedLead = await prisma.lead.update({
     where: { id: leadId },
     data: {
       status: targetStatus,
       ...(extra?.lastContactAt !== false && { lastContactAt: new Date() }),
     },
+    select: { id: true, companyId: true, status: true },
+  });
+
+  // Real-time dashboard update for automatic transitions
+  socketService.emitToCompany(updatedLead.companyId, SOCKET_EVENTS.LEAD_UPDATED, {
+    lead: { id: updatedLead.id, status: updatedLead.status },
   });
 
   return true;

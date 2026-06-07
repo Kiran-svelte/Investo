@@ -182,6 +182,10 @@ export const SOCKET_EVENTS = {
   // Visit events
   VISIT_CREATED: 'visit:created',
   VISIT_UPDATED: 'visit:updated',
+
+  // Call request events
+  CALL_CREATED: 'call:created',
+  CALL_UPDATED: 'call:updated',
   
   // Notification events
   NOTIFICATION_NEW: 'notification:new',

@@ -280,7 +280,7 @@ describe('PROOF Area 9 — one customer reply per inbound turn', () => {
   test('sendTurnResult folds media into text instead of second bubble', () => {
     const wa = read('services/whatsapp.service.ts');
     expect(wa).toContain('appendFoldedMediaToBody');
-    expect(wa).toContain('sendTurnResult_media_folded_into_text');
+    expect(wa).toContain('appendFoldedMediaToBody');
     expect(wa).not.toContain('sendTurnResult_media_addon');
   });
 

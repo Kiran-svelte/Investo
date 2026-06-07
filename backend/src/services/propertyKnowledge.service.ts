@@ -1,6 +1,7 @@
 import config from '../config';
 import logger from '../config/logger';
 import prisma from '../config/prisma';
+import { cacheGet, cacheSet, cacheDel } from '../config/redis';
 import {
   fetchOpenAi,
   getOpenAiServiceHealth,
@@ -575,6 +576,109 @@ export async function indexPropertyKnowledge(input: {
     });
     return { ok: false, propertyId, chunkCount: 0, error: message };
   }
+}
+
+/** Direct catalog chunks for one property (no vector search) — reliable for More Info / focused turns. */
+const PROPERTY_KNOWLEDGE_CACHE_TTL = 300; // 5 minutes
+
+/**
+ * Invalidate the cached knowledge chunks for a specific property.
+ * Call this whenever property knowledge is updated (new chunks indexed).
+ */
+export async function invalidatePropertyKnowledgeCache(companyId: string, propertyId: string): Promise<void> {
+  const key = `prop-knowledge:${companyId}:${propertyId}`;
+  await cacheDel(key).catch(() => undefined);
+}
+
+export async function getPropertyKnowledgeForProperty(
+  companyId: string,
+  propertyId: string,
+  limit = 6,
+): Promise<PropertyKnowledgeChunk[]> {
+  // Cache key is deterministic — same company + property always returns same chunks
+  const cacheKey = `prop-knowledge:${companyId}:${propertyId}:${limit}`;
+
+  try {
+    const cached = await cacheGet<PropertyKnowledgeChunk[]>(cacheKey);
+    if (cached && Array.isArray(cached)) {
+      return cached;
+    }
+  } catch {
+    // Cache miss or error — proceed to DB
+  }
+
+  try {
+    await ensurePropertyKnowledgeSchema();
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      property_id: string;
+      content: string;
+      source_type: string;
+    }>>(
+      `SELECT property_id::text, content, source_type
+       FROM property_knowledge_chunks
+       WHERE company_id = $1::uuid AND property_id = $2::uuid
+       ORDER BY created_at ASC
+       LIMIT $3`,
+      companyId,
+      propertyId,
+      limit,
+    );
+
+    const chunks: PropertyKnowledgeChunk[] = rows.map((row) => ({
+      propertyId: row.property_id,
+      content: row.content,
+      sourceType: row.source_type,
+      score: 1,
+    }));
+
+    // Cache result (5-min TTL) — property knowledge changes infrequently
+    await cacheSet(cacheKey, chunks, PROPERTY_KNOWLEDGE_CACHE_TTL).catch(() => undefined);
+
+    return chunks;
+  } catch (err: unknown) {
+    logger.warn('Property knowledge direct fetch failed', {
+      companyId,
+      propertyId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
+export async function loadPropertyKnowledgeIndexPayload(
+  companyId: string,
+  propertyId: string,
+): Promise<{
+  draftData?: Record<string, unknown>;
+  mediaExtractions?: Array<{ assetType: string; fileName: string; extractedMetadata: Record<string, unknown> }>;
+}> {
+  const draft = await prisma.propertyImportDraft.findFirst({
+    where: { companyId, publishedPropertyId: propertyId },
+    select: { id: true, draftData: true },
+  });
+  if (!draft) return {};
+
+  const mediaRows = await prisma.propertyImportMedia.findMany({
+    where: {
+      companyId,
+      draftId: draft.id,
+      status: { in: ['extracted', 'verified'] },
+    },
+    select: {
+      assetType: true,
+      fileName: true,
+      extractedMetadata: true,
+    },
+  });
+
+  return {
+    draftData: (draft.draftData ?? {}) as Record<string, unknown>,
+    mediaExtractions: mediaRows.map((row) => ({
+      assetType: row.assetType,
+      fileName: row.fileName,
+      extractedMetadata: (row.extractedMetadata ?? {}) as Record<string, unknown>,
+    })),
+  };
 }
 
 export async function searchPropertyKnowledge(

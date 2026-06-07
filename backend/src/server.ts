@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { createServer, type Server } from 'http';
 import app from './app';
 import config from './config';
@@ -9,6 +10,7 @@ import { propertyImportWorkerService } from './services/propertyImportWorker.ser
 import { socketService } from './services/socket.service';
 import { startCronScheduler, stopCronScheduler } from './services/agent/cron-scheduler.service';
 import { destroyCheckpointer } from './services/agent/agent-memory.service';
+import { reconcileOrphanedVisitReminders } from './services/visitLifecycle.service';
 
 /** Maximum time (ms) to wait for in-flight requests to drain before forced exit. */
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -20,8 +22,18 @@ let agentCronStarted = false;
 let propertyImportWorkerStarted = false;
 let isShuttingDown = false;
 
+/**
+ * In production, background workers (automation queue, property import) should run on
+ * the dedicated worker process (`npm run start:worker`). Set RUN_BACKGROUND_WORKERS_ON_API=true
+ * on the API service only when no separate worker is deployed.
+ */
+function shouldRunBackgroundWorkersOnApi(): boolean {
+  if (config.env !== 'production') return true;
+  return process.env.RUN_BACKGROUND_WORKERS_ON_API === 'true';
+}
+
 function startAutomationIfNeeded(): void {
-  if (automationStarted) return;
+  if (automationStarted || !shouldRunBackgroundWorkersOnApi()) return;
   automationService.start();
   automationStarted = true;
 }
@@ -33,7 +45,7 @@ function startAgentCronIfNeeded(): void {
 }
 
 function startPropertyImportWorkerIfNeeded(): void {
-  if (propertyImportWorkerStarted) return;
+  if (propertyImportWorkerStarted || !shouldRunBackgroundWorkersOnApi()) return;
   propertyImportWorkerService.start();
   propertyImportWorkerStarted = true;
 }
@@ -118,7 +130,32 @@ async function shutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
+function initSentry(): void {
+  const dsn = process.env.SENTRY_DSN;
+  if (!dsn) {
+    if (config.env === 'production') {
+      logger.warn('SENTRY_DSN not configured — error tracking disabled in production');
+    }
+    return;
+  }
+  Sentry.init({
+    dsn,
+    environment: config.env,
+    // Capture 10% of transactions for performance monitoring
+    tracesSampleRate: config.env === 'production' ? 0.1 : 0,
+    // Only log errors in production, not 4xx noise
+    beforeSend(event) {
+      if (event.exception) return event;
+      return null;
+    },
+  });
+  logger.info('Sentry error tracking initialized', { environment: config.env });
+}
+
 async function start(): Promise<void> {
+  // Initialize Sentry before anything else so uncaught errors are captured.
+  initSentry();
+
   try {
     if (config.db.supabasePoolerConfigured) {
       logger.info('Database pooler: Supabase transaction mode (port 6543)');
@@ -169,6 +206,14 @@ async function start(): Promise<void> {
         startAutomationIfNeeded();
         startAgentCronIfNeeded();
         startPropertyImportWorkerIfNeeded();
+
+        // Self-heal: re-enqueue any visit reminder jobs that were lost during
+        // a previous server crash between visit.create and scheduleVisitReminderJobs.
+        void reconcileOrphanedVisitReminders().then((count) => {
+          if (count > 0) {
+            logger.warn('Startup reconciler: re-enqueued orphaned visit reminders', { count });
+          }
+        });
       } catch (err: unknown) {
         logger.warn('Database warmup failed at startup; API remains available for health checks', {
           error: err instanceof Error ? err.message : String(err),
@@ -210,12 +255,16 @@ async function start(): Promise<void> {
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { error: err.message, stack: err.stack });
+  Sentry.captureException(err);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-  const message = reason instanceof Error ? reason.message : String(reason);
-  logger.error('Unhandled rejection', { error: message });
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error('Unhandled rejection', { error: err.message, stack: err.stack });
+  Sentry.captureException(err);
+  // Exit so the process manager (Render, PM2) restarts with a clean state.
+  process.exit(1);
 });
 
 process.on('SIGTERM', () => { void shutdown('SIGTERM'); });

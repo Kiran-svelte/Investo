@@ -114,10 +114,13 @@ function createLeadTools(context) {
                 });
                 if (!leads.length)
                     return 'No new leads were added today in your scope.';
-                return [
-                    `*New leads today (${(0, format_helpers_1.getTodayIST)()})*`,
-                    ...leads.map((lead, i) => `${i + 1}. ${(0, format_helpers_1.getStatusEmoji)(lead.status)} *${lead.customerName ?? 'Unknown'}* ${(0, format_helpers_1.maskPhone)(lead.phone)}\n   Status: ${lead.status} | Source: ${lead.source ?? 'unknown'}\n   ID: ${lead.id}`),
-                ].join('\n\n');
+                const { formatStatusLabel, CRM_WHATSAPP_LIST_LIMIT } = await Promise.resolve().then(() => __importStar(require('./format-helpers')));
+                const shown = leads.slice(0, CRM_WHATSAPP_LIST_LIMIT);
+                const lines = shown.map((lead, i) => `${i + 1}. ${(0, format_helpers_1.getStatusEmoji)(lead.status)} *${lead.customerName ?? 'Unknown'}* ${(0, format_helpers_1.maskPhone)(lead.phone)}\n   Status: ${formatStatusLabel(lead.status)} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}`);
+                if (leads.length > CRM_WHATSAPP_LIST_LIMIT) {
+                    lines.push(`_+${leads.length - CRM_WHATSAPP_LIST_LIMIT} more — open the Investo dashboard for the full list._`);
+                }
+                return [`*New leads today (${(0, format_helpers_1.getTodayIST)()})*`, ...lines].join('\n\n');
             },
         }),
         new langchain_runtime_1.DynamicStructuredTool({

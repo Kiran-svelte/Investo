@@ -357,6 +357,60 @@ class AutomationQueueService {
         }
         memoryDeadLetters.set(deadLetterKey, job);
     }
+    /**
+     * Batch check: returns which automation jobs already exist for a set of visitIds
+  
+     * and job types. Used by the startup reconciler to find orphaned reminder jobs
+     * without making N individual Redis queries.
+     *
+     * @param visitIds - Array of visit IDs (used as uniqueKeys for reminder jobs).
+     * @param types - Array of job types to check (e.g. ['visit_reminder_24h', 'visit_reminder_1h']).
+     * @returns Array of objects with { type, referenceId } for every job found.
+     * @throws Never — errors are logged and an empty array is returned.
+     */
+    async findExistingJobsForVisits(visitIds, types) {
+        if (!visitIds.length || !types.length)
+            return [];
+        const keys = [];
+        for (const type of types) {
+            for (const visitId of visitIds) {
+                keys.push(buildJobKey(type, visitId));
+            }
+        }
+        const redis = (0, redis_1.getRedis)();
+        if (redis) {
+            try {
+                const values = await redis.mget(...keys);
+                const result = [];
+                for (let i = 0; i < keys.length; i++) {
+                    if (values[i] !== null && values[i] !== undefined) {
+                        try {
+                            const job = parseStoredJob(values[i]);
+                            result.push({ type: job.type, referenceId: job.uniqueKey });
+                        }
+                        catch {
+                            // Discard malformed job — it will be overwritten if needed.
+                        }
+                    }
+                }
+                return result;
+            }
+            catch (err) {
+                logger_1.default.warn('findExistingJobsForVisits: Redis mget failed, falling back to memory', {
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
+        // Memory fallback.
+        const result = [];
+        for (const key of keys) {
+            const job = memoryJobs.get(key);
+            if (job) {
+                result.push({ type: job.type, referenceId: job.uniqueKey });
+            }
+        }
+        return result;
+    }
 }
 exports.AutomationQueueService = AutomationQueueService;
 exports.automationQueueService = new AutomationQueueService();

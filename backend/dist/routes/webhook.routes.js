@@ -119,9 +119,13 @@ router.post('/', express_1.default.json({
  * Verify the webhook payload signature from Meta.
  */
 function verifyWebhookSignature(body, signature) {
-    // Debug bypass
     if (process.env.BYPASS_WHATSAPP_SIGNATURE === 'true') {
-        logger_1.default.warn('Webhook signature verification BYPASSED via BYPASS_WHATSAPP_SIGNATURE=true');
+        if (config_1.default.env === 'production') {
+            // Hard-block in production — this bypass must never be enabled in prod.
+            logger_1.default.error('BYPASS_WHATSAPP_SIGNATURE=true is forbidden in production — rejecting webhook');
+            return { allowed: false, reason: 'debug_bypass_forbidden_in_production' };
+        }
+        logger_1.default.warn('Webhook signature verification BYPASSED via BYPASS_WHATSAPP_SIGNATURE=true (non-production only)');
         return { allowed: true, reason: 'debug_bypass' };
     }
     if (!config_1.default.whatsapp.appSecret) {

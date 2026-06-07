@@ -4,7 +4,6 @@ import logger from '../config/logger';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
 import { scheduleVisit } from './visitBooking.service';
-import { socketService, SOCKET_EVENTS } from './socket.service';
 import { formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 
@@ -112,15 +111,14 @@ export async function createVisitApprovalRequest(input: {
     propertyName: input.propertyName,
   };
 
-  await prisma.notification.create({
-    data: {
-      companyId: input.companyId,
-      userId: input.agentId,
-      type: 'visit_scheduled',
-      title: 'Site visit needs your approval',
-      message: `${input.customerName || payload.customerPhone} requested a visit for ${input.propertyName || 'a property'}`,
-      data: { pendingApproval: true, ...payload },
-    },
+  const { notificationEngine } = await import('./notification.engine');
+  await notificationEngine.notify({
+    companyId: input.companyId,
+    userId: input.agentId,
+    type: 'visit_scheduled',
+    title: 'Site visit needs your approval',
+    message: `${input.customerName || payload.customerPhone} requested a visit for ${input.propertyName || 'a property'}`,
+    data: { pendingApproval: true, ...payload },
   });
 
   const agent = await prisma.user.findUnique({
@@ -207,7 +205,7 @@ export async function resolveVisitApproval(
     const err =
       booking.error === 'agent_conflict'
         ? 'That slot conflicts with your calendar. Ask the customer for another time.'
-        : 'Could not book the visit. Please try from the dashboard.';
+        : 'Could not book the visit. Ask the customer for another time slot via WhatsApp.';
     return { ok: false, message: err };
   }
 
@@ -233,11 +231,6 @@ export async function resolveVisitApproval(
       proposedVisitTime: scheduledAt,
       stage: 'visit_booking',
     },
-  });
-
-  socketService.emitToCompany(companyId, SOCKET_EVENTS.VISIT_CREATED, {
-    visit: booking.visit,
-    leadId: pending.leadId,
   });
 
   return {

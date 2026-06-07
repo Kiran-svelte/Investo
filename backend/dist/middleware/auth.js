@@ -9,6 +9,8 @@ const jwks_rsa_1 = __importDefault(require("jwks-rsa"));
 const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const redis_1 = require("../config/redis");
+const AUTH_CACHE_TTL_SECONDS = 300; // 5 minutes
 const neonJwksUri = config_1.default.neonAuth.url ? `${config_1.default.neonAuth.url}/.well-known/jwks.json` : '';
 const neonJwksClient = neonJwksUri
     ? (0, jwks_rsa_1.default)({
@@ -63,8 +65,17 @@ async function authenticate(req, res, next) {
         return;
     }
     const token = authHeader.split(' ')[1];
+    // Use a short hash of the token as the cache key (tokens are large and sensitive)
+    const tokenCacheKey = `auth:user:${Buffer.from(token).toString('base64').slice(-40)}`;
     try {
         let user = null;
+        // Fast path: check Redis cache first (eliminates DB round-trip on most requests)
+        const cached = await (0, redis_1.cacheGet)(tokenCacheKey);
+        if (cached) {
+            req.user = cached;
+            next();
+            return;
+        }
         // 1) Legacy token path (existing app JWT)
         const legacyPayload = verifyLegacyToken(token);
         if (legacyPayload?.userId) {
@@ -100,7 +111,7 @@ async function authenticate(req, res, next) {
                 return;
             }
         }
-        req.user = {
+        const authUser = {
             id: user.id,
             company_id: user.companyId,
             companyId: user.companyId,
@@ -109,6 +120,9 @@ async function authenticate(req, res, next) {
             name: user.name,
             customRoleId: user.customRoleId || null,
         };
+        // Cache the resolved user record for AUTH_CACHE_TTL_SECONDS
+        await (0, redis_1.cacheSet)(tokenCacheKey, authUser, AUTH_CACHE_TTL_SECONDS).catch(() => undefined);
+        req.user = authUser;
         next();
     }
     catch (err) {

@@ -9,6 +9,7 @@ import {
   Phone, CheckCircle, XCircle, AlertCircle, X, Loader2, Trash2,
 } from 'lucide-react';
 import { deleteVisit } from '../../services/resourceDelete';
+import { useSocketEvent, SOCKET_EVENTS } from '../../context/SocketContext';
 
 interface Visit {
   id: string;
@@ -84,6 +85,13 @@ const CalendarPage: React.FC = () => {
   }, [getDateRange]);
 
   useEffect(() => { loadVisits(); }, [loadVisits]);
+
+  useSocketEvent(SOCKET_EVENTS.VISIT_CREATED, () => { loadVisits(); });
+  useSocketEvent(SOCKET_EVENTS.VISIT_UPDATED, () => { loadVisits(); });
+  // Re-load when a call is booked or updated via WhatsApp so agents see it immediately.
+  useSocketEvent(SOCKET_EVENTS.CALL_CREATED, () => { loadVisits(); });
+  useSocketEvent(SOCKET_EVENTS.CALL_UPDATED, () => { loadVisits(); });
+
 
   const navigate = (direction: 'prev' | 'next') => {
     const d = new Date(currentDate);

@@ -9,6 +9,12 @@ import {
   transitionLeadToVisitScheduled,
 } from './leadTransition.service';
 import { notificationEngine } from './notification.engine';
+import {
+  cancelVisitReminderJobs,
+  emitVisitUpdated,
+  rescheduleVisitReminderJobs,
+} from './visitLifecycle.service';
+import { socketService, SOCKET_EVENTS } from './socket.service';
 
 type VisitStateError =
   | 'visit_not_found'
@@ -154,6 +160,25 @@ export async function markVisitAttended(input: {
   }
 
   await notifyStatusChange(updated.id, oldStatus, 'completed');
+  emitVisitUpdated(input.companyId, updated, 'completed');
+
+  // Emit lead:updated so the dashboard reflects the 'visited' transition
+  socketService.emitToCompany(input.companyId, SOCKET_EVENTS.LEAD_UPDATED, {
+    lead: { id: updated.leadId, status: 'visited', companyId: input.companyId },
+  });
+
+  // Schedule post-visit follow-up (~24h later)
+  try {
+    const { automationService } = await import('./automation.service');
+    await automationService.scheduleVisitPostFollowUp(updated.leadId, updated.id);
+  } catch (followUpErr: unknown) {
+    logger.warn('Failed to schedule post-visit follow-up', {
+      visitId: updated.id,
+      leadId: updated.leadId,
+      error: followUpErr instanceof Error ? followUpErr.message : String(followUpErr),
+    });
+  }
+
   return { success: true, visit: updated, oldStatus };
 }
 
@@ -186,6 +211,7 @@ export async function markVisitNoShow(input: {
   });
 
   await notifyStatusChange(updated.id, oldStatus, 'no_show');
+  emitVisitUpdated(input.companyId, updated, 'status_changed');
   return { success: true, visit: updated, oldStatus };
 }
 
@@ -222,6 +248,38 @@ export async function cancelVisitById(input: {
   }
 
   await notifyStatusChange(updated.id, oldStatus, 'cancelled', Boolean(input.suppressCustomerNotification));
+  emitVisitUpdated(input.companyId, updated, 'cancelled');
+  void cancelVisitReminderJobs(updated.id);
+  return { success: true, visit: updated, oldStatus };
+}
+
+export async function confirmVisitById(input: {
+  companyId: string;
+  visitId: string;
+  suppressCustomerNotification?: boolean;
+}): Promise<VisitStateResult> {
+  const visit = await loadVisit(input.companyId, input.visitId);
+  if (!visit) return { success: false, error: 'visit_not_found' };
+  if (visit.status === 'confirmed') return { success: true, visit, oldStatus: 'confirmed' };
+  const blocked = terminalError(visit.status);
+  if (blocked) return { success: false, visit, error: blocked };
+  if (!isValidVisitTransition(visit.status as VisitStatus, 'confirmed')) {
+    return { success: false, visit, error: 'invalid_transition' };
+  }
+
+  const oldStatus = visit.status;
+  const updated = await prisma.visit.update({
+    where: { id: visit.id },
+    data: { status: 'confirmed' },
+    include: {
+      lead: true,
+      property: { select: { name: true } },
+      agent: { select: { id: true, name: true, phone: true } },
+    },
+  });
+
+  await notifyStatusChange(updated.id, oldStatus, 'confirmed', Boolean(input.suppressCustomerNotification));
+  emitVisitUpdated(input.companyId, updated, 'confirmed');
   return { success: true, visit: updated, oldStatus };
 }
 
@@ -238,6 +296,32 @@ export async function rescheduleVisitById(input: {
   if (!visit) return { success: false, error: 'visit_not_found' };
   const blocked = terminalError(visit.status);
   if (blocked) return { success: false, visit, error: blocked };
+
+  // Agent conflict check — ensure agent has no other visit within ±1h of the new slot.
+  if (visit.agent?.id) {
+    const buffer = 60 * 60 * 1000; // 1 hour
+    const bufferStart = new Date(input.scheduledAt.getTime() - buffer);
+    const bufferEnd = new Date(input.scheduledAt.getTime() + buffer);
+    const conflicts = await prisma.visit.findMany({
+      where: {
+        agentId: visit.agent.id,
+        companyId: input.companyId,
+        id: { not: input.visitId }, // exclude the visit being rescheduled
+        status: { notIn: ['cancelled', 'completed', 'no_show'] },
+        scheduledAt: { gte: bufferStart, lte: bufferEnd },
+      },
+      select: { id: true, scheduledAt: true },
+    });
+    if (conflicts.length > 0) {
+      logger.warn('rescheduleVisitById: agent conflict detected', {
+        companyId: input.companyId,
+        visitId: input.visitId,
+        agentId: visit.agent.id,
+        conflictCount: conflicts.length,
+      });
+      return { success: false, visit, error: 'invalid_transition' };
+    }
+  }
 
   const oldTime = visit.scheduledAt;
   const oldStatus = visit.status;
@@ -258,5 +342,9 @@ export async function rescheduleVisitById(input: {
   });
 
   await notifyRescheduled(updated.id, oldTime, Boolean(input.suppressCustomerNotification));
+  emitVisitUpdated(input.companyId, updated, 'rescheduled');
+  if (updated.leadId) {
+    void rescheduleVisitReminderJobs(updated.id, updated.scheduledAt, input.companyId, updated.leadId);
+  }
   return { success: true, visit: updated, oldStatus };
 }

@@ -1,4 +1,5 @@
 /** Production deploy marker — bump to force Railway rebuild when watch-path skip occurs. (2026-06-07b call/visit + location) */
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -95,32 +96,32 @@ app.use('/api/', userRateLimiter);
 // Auth routes with stricter rate limiting for login
 app.use('/api/auth', sensitiveRateLimiter, authRoutes);
 
-// All other routes with company-level rate limiting (1000 req/min per company)
-app.use('/api/companies', companyRateLimiter, companyRoutes);
-app.use('/api/users', companyRateLimiter, userRoutes);
-app.use('/api/leads', companyRateLimiter, leadRoutes);
-app.use('/api/property-projects', companyRateLimiter, propertyProjectRoutes);
-app.use('/api/properties', companyRateLimiter, propertyRoutes);
+// All protected routes: authenticate FIRST so company_id is available for
+// per-company rate limiters (companyRateLimiter keys on req.user.company_id).
+// Without this order, company_id is undefined and the limits never apply.
+app.use('/api/companies', authenticate, companyRateLimiter, companyRoutes);
+app.use('/api/users', authenticate, companyRateLimiter, userRoutes);
+app.use('/api/leads', authenticate, companyRateLimiter, leadRoutes);
+app.use('/api/property-projects', authenticate, companyRateLimiter, propertyProjectRoutes);
+app.use('/api/properties', authenticate, companyRateLimiter, propertyRoutes);
 // Public upload endpoint (no auth headers) must be mounted before the authenticated router.
 app.use('/api/property-imports/uploads', propertyImportUploadRoutes);
 // Bulk CSV/XLSX import must be mounted before the main router (prevents /:id wildcard capturing /bulk).
-app.use('/api/property-imports/bulk', companyRateLimiter, propertyImportBulkRoutes);
-app.use('/api/property-imports', companyRateLimiter, userAiRateLimiter, companyAiRateLimiter, propertyImportRoutes);
-app.use('/api/visits', companyRateLimiter, visitRoutes);
-app.use('/api/conversations', companyRateLimiter, conversationRoutes);
-app.use('/api/ai-settings', companyRateLimiter, aiSettingsRoutes);
-app.use('/api/conversion-settings', companyRateLimiter, conversionSettingsRoutes);
-app.use('/api/analytics', companyRateLimiter, analyticsRoutes);
-app.use('/api/notifications', companyRateLimiter, notificationRoutes);
-app.use('/api/subscriptions', companyRateLimiter, subscriptionRoutes);
-app.use('/api/admin', companyRateLimiter, adminRoutes);
-app.use('/api/roles', companyRateLimiter, roleRoutes);
-app.use('/api/features', companyRateLimiter, featureRoutes);
-app.use('/api/onboarding', companyRateLimiter, onboardingRoutes);
-app.use('/api/audit', companyRateLimiter, auditRoutes);
-app.use('/api/agent-action-logs', companyRateLimiter, agentActionLogRoutes);
-// authenticate runs first so the per-company AI rate limiters (which key on
-// req.user.company_id) actually take effect; requireFeature gates on ai_bot.
+app.use('/api/property-imports/bulk', authenticate, companyRateLimiter, propertyImportBulkRoutes);
+app.use('/api/property-imports', authenticate, companyRateLimiter, userAiRateLimiter, companyAiRateLimiter, propertyImportRoutes);
+app.use('/api/visits', authenticate, companyRateLimiter, visitRoutes);
+app.use('/api/conversations', authenticate, companyRateLimiter, conversationRoutes);
+app.use('/api/ai-settings', authenticate, companyRateLimiter, aiSettingsRoutes);
+app.use('/api/conversion-settings', authenticate, companyRateLimiter, conversionSettingsRoutes);
+app.use('/api/analytics', authenticate, companyRateLimiter, analyticsRoutes);
+app.use('/api/notifications', authenticate, companyRateLimiter, notificationRoutes);
+app.use('/api/subscriptions', authenticate, companyRateLimiter, subscriptionRoutes);
+app.use('/api/admin', authenticate, companyRateLimiter, adminRoutes);
+app.use('/api/roles', authenticate, companyRateLimiter, roleRoutes);
+app.use('/api/features', authenticate, companyRateLimiter, featureRoutes);
+app.use('/api/onboarding', authenticate, companyRateLimiter, onboardingRoutes);
+app.use('/api/audit', authenticate, companyRateLimiter, auditRoutes);
+app.use('/api/agent-action-logs', authenticate, companyRateLimiter, agentActionLogRoutes);
 app.use(
   '/api/copilot',
   authenticate,
@@ -130,8 +131,8 @@ app.use(
   requireFeature('ai_bot'),
   copilotRoutes,
 );
-app.use('/api/error-logs', companyRateLimiter, errorLogRoutes);
-app.use('/api/assignment-settings', companyRateLimiter, assignmentSettingsRoutes);
+app.use('/api/error-logs', authenticate, companyRateLimiter, errorLogRoutes);
+app.use('/api/assignment-settings', authenticate, companyRateLimiter, assignmentSettingsRoutes);
 app.use('/api', financeRoutes);
 
 // 404 handler
@@ -140,10 +141,20 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found', requestId });
 });
 
+// Sentry error handler — must be BEFORE the generic error handler and AFTER all routes.
+// Only active when SENTRY_DSN is configured.
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
 // Global error handler - does NOT leak internal details
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const requestId = (req as any).requestId as string | undefined;
   logger.error('Unhandled error', { message: err.message, stack: err.stack, requestId });
+  // Capture in Sentry if not already handled by the Sentry error handler middleware
+  if (!process.env.SENTRY_DSN) {
+    Sentry.captureException(err);
+  }
   res.status(500).json({ error: 'Internal server error', requestId });
 });
 

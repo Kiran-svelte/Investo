@@ -22,6 +22,10 @@ import {
   formatBuyerVisitPendingApproval,
   formatBuyerVisitScheduled,
 } from '../../utils/visitFormat.util';
+import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
+import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
+import { isVisitAutoConfirmEnabled } from '../visitAutoConfirm.service';
+import { confirmVisitById, rescheduleVisitById } from '../visitState.service';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -96,10 +100,20 @@ async function handleVisitConfirm(params: InteractiveActionParams): Promise<Inte
     };
   }
 
-  await prisma.visit.update({
-    where: { id: existingVisit.id },
-    data: { status: 'confirmed' },
+  const confirmResult = await confirmVisitById({
+    companyId: company.id,
+    visitId: existingVisit.id,
+    suppressCustomerNotification: true,
   });
+  if (!confirmResult.success) {
+    return {
+      handled: true,
+      action: 'visit-confirm-failed',
+      turnResult: buyerTurn(
+        `I couldn't confirm that visit right now. Please try again or ask our team to help.`,
+      ),
+    };
+  }
 
   const visitDate = new Date(existingVisit.scheduledAt).toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
@@ -111,31 +125,6 @@ async function handleVisitConfirm(params: InteractiveActionParams): Promise<Inte
     hour12: true,
   });
   const propName = (existingVisit.property as { name?: string })?.name ?? 'the property';
-
-  if (lead.assignedAgentId) {
-    const agentRecord = await prisma.user.findUnique({
-      where: { id: lead.assignedAgentId },
-      select: { phone: true },
-    });
-    if (agentRecord?.phone) {
-      const agentAlert =
-        `✅ *Visit Confirmed by Customer!*\n\n` +
-        `👤 ${lead.customerName || lead.phone}\n` +
-        `🏠 ${propName}\n` +
-        `📅 ${visitDate}\n\n` +
-        `Please ensure you are available to receive the customer.`;
-      try {
-        const { whatsappService } = await import('../whatsapp.service');
-        await whatsappService.sendCompanyTextMessage(agentRecord.phone, agentAlert, company.id);
-      } catch (notifyErr: unknown) {
-        logger.warn('Failed to notify agent of visit confirmation', {
-          agentId: lead.assignedAgentId,
-          visitId: existingVisit.id,
-          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
-        });
-      }
-    }
-  }
 
   logger.info('Visit confirmed via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
   return {
@@ -321,33 +310,16 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   });
   if (!property) return null;
 
-  const formatPrice = (p: typeof property) => {
-    const min = p.priceMin ? Number(p.priceMin) : null;
-    const max = p.priceMax ? Number(p.priceMax) : null;
-    if (min && max) return `₹${(min / 100000).toFixed(0)}L - ₹${(max / 100000).toFixed(0)}L`;
-    if (min) return `From ₹${(min / 100000).toFixed(0)} Lakhs`;
-    if (max) return `Up to ₹${(max / 100000).toFixed(0)} Lakhs`;
-    return 'Contact for price';
-  };
+  let details = buildWhatsAppPropertyDetailText(property);
 
-  const formatLocation = (p: typeof property) => {
-    const parts = [p.locationArea, p.locationCity].filter(Boolean);
-    return parts.length > 0 ? parts.join(', ') : null;
-  };
-
-  const details = [
-    `🏠 *${property.name}*`,
-    '',
-    property.description || '',
-    '',
-    `💰 Price: ${formatPrice(property)}`,
-    property.propertyType ? `🏢 Type: ${property.propertyType}` : '',
-    property.bedrooms ? `🛏️ Bedrooms: ${property.bedrooms}` : '',
-    formatLocation(property) ? `📍 Location: ${formatLocation(property)}` : '',
-    property.builder ? `🏗️ Builder: ${property.builder}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const knowledgeChunks = await getPropertyKnowledgeForProperty(company.id, property.id, 3);
+  const extraFacts = knowledgeChunks
+    .map((chunk) => chunk.content.trim())
+    .filter((content) => content && !details.includes(content.slice(0, 80)))
+    .slice(0, 2);
+  if (extraFacts.length > 0) {
+    details = `${details}\n\n📌 *More from our records:*\n${extraFacts.join('\n\n')}`;
+  }
 
   const activeVisit = await prisma.visit.findFirst({
     where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
@@ -659,11 +631,60 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
     };
   }
 
-  const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: company.id } });
-  const autoConfirm = aiSettings?.autoConfirmVisits === true;
+  const autoConfirm = await isVisitAutoConfirmEnabled(company.id);
   const propertyName = property?.name ?? 'Property';
+  const agentRecord = await prisma.user.findUnique({
+    where: { id: agentId },
+    select: { phone: true, name: true },
+  });
+
+  const existingVisit = await prisma.visit.findFirst({
+    where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
+    orderBy: { scheduledAt: 'asc' },
+  });
 
   if (autoConfirm) {
+    if (existingVisit) {
+      const reschedule = await rescheduleVisitById({
+        companyId: company.id,
+        visitId: existingVisit.id,
+        scheduledAt: proposedTime,
+        notes: 'Rescheduled via WhatsApp visit button',
+        suppressCustomerNotification: true,
+      });
+
+      if (reschedule.success && reschedule.visit) {
+        if (propertyId !== existingVisit.propertyId) {
+          await prisma.visit.update({
+            where: { id: existingVisit.id },
+            data: { propertyId },
+          });
+        }
+
+        return {
+          handled: true,
+          action: 'visit-rescheduled',
+          leadStatus: 'visit_scheduled',
+          newState: {
+            stage: 'confirmation',
+            selectedPropertyId: propertyId,
+            proposedVisitTime: proposedTime,
+          },
+          turnResult: buyerTurn(
+            `✅ *Visit rescheduled!*\n\n🏠 *${propertyName}*\n📅 ${proposedTime.toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+            })}\n\nSee you then! Reply if you need to change again.`,
+          ),
+        };
+      }
+    }
+
     const booking = await scheduleVisit({
       companyId: company.id,
       leadId: lead.id,
@@ -674,33 +695,6 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
     });
 
     if (booking.success && booking.visit) {
-      const agentRecord = await prisma.user.findUnique({
-        where: { id: agentId },
-        select: { phone: true, name: true },
-      });
-      if (agentRecord?.phone) {
-        const when = proposedTime.toLocaleString('en-IN', {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'Asia/Kolkata',
-        });
-        const agentMsg =
-          `📅 *New Visit Booked!*\n\n👤 ${lead.customerName || lead.phone}\n🏠 ${propertyName}\n🕐 ${when} IST\n\nCustomer booked via WhatsApp. Please confirm availability.`;
-        try {
-          const { whatsappService } = await import('../whatsapp.service');
-          await whatsappService.sendCompanyTextMessage(agentRecord.phone, agentMsg, company.id);
-        } catch (notifyErr: unknown) {
-          logger.warn('Failed to notify agent of auto-confirmed visit', {
-            agentId,
-            visitId: booking.visit.id,
-            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
-          });
-        }
-      }
-
       return {
         handled: true,
         action: 'visit-scheduled',

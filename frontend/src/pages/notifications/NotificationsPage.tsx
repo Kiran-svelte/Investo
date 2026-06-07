@@ -13,6 +13,7 @@ import {
   normalizeNotificationsPayload,
   type Notification,
 } from '../../services/notifications';
+import { useSocketEvent, SOCKET_EVENTS } from '../../context/SocketContext';
 
 type FilterTab = 'all' | 'unread' | 'lead' | 'visit' | 'system';
 
@@ -136,6 +137,11 @@ export default function NotificationsPage() {
     setPage(1);
     fetchNotifications(1);
   }, [activeTab, fetchNotifications]);
+
+  useSocketEvent(SOCKET_EVENTS.NOTIFICATION_NEW, () => {
+    setPage(1);
+    fetchNotifications(1);
+  });
 
   const handleMarkAsRead = async (id: string) => {
     try {

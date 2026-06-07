@@ -98,9 +98,13 @@ function verifyWebhookSignature(
   body: any,
   signature: string | undefined,
 ): { allowed: boolean; reason: string } {
-  // Debug bypass
   if (process.env.BYPASS_WHATSAPP_SIGNATURE === 'true') {
-    logger.warn('Webhook signature verification BYPASSED via BYPASS_WHATSAPP_SIGNATURE=true');
+    if (config.env === 'production') {
+      // Hard-block in production — this bypass must never be enabled in prod.
+      logger.error('BYPASS_WHATSAPP_SIGNATURE=true is forbidden in production — rejecting webhook');
+      return { allowed: false, reason: 'debug_bypass_forbidden_in_production' };
+    }
+    logger.warn('Webhook signature verification BYPASSED via BYPASS_WHATSAPP_SIGNATURE=true (non-production only)');
     return { allowed: true, reason: 'debug_bypass' };
   }
 

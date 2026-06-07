@@ -627,8 +627,9 @@ add('buyer-int-filter', 'interactive', 'Filter 2BHK shortlist', async () => {
 add('buyer-int-call-me', 'interactive', 'Call me button', async () => {
   const { wh, lead, reply } = await runInteractive(buyerD, 'call-me', 'Call Me', 35);
   const clean = assertCleanReply(reply);
-  const ok = wh.ok && !!lead && !clean.length && /call|15 minutes|representative/i.test(reply);
-  return { ok, detail: reply.slice(0, 80) };
+  const aiCount = lead ? await countAiRepliesSince(lead.id, wh.sentAt) : 0;
+  const ok = wh.ok && !!lead && !clean.length && aiCount === 1 && /callback scheduled|call|specialist/i.test(reply);
+  return { ok, detail: `aiCount=${aiCount} ${reply.slice(0, 80)}` };
 });
 
 add('buyer-int-more-info', 'interactive', 'Property more-info from list', async () => {
@@ -651,8 +652,9 @@ add('buyer-int-book-visit', 'interactive', 'Book visit button', async () => {
   if (!prop) return { ok: false, detail: 'no property' };
   const { wh, lead, reply } = await runInteractive(buyerD, `book-visit-${prop.id}`, 'Book Visit', 40);
   const clean = assertCleanReply(reply);
-  const ok = wh.ok && !!lead && !clean.length && /visit|schedule|when|prefer/i.test(reply);
-  return { ok, detail: reply.slice(0, 80) };
+  const aiCount = lead ? await countAiRepliesSince(lead.id, wh.sentAt) : 0;
+  const ok = wh.ok && !!lead && !clean.length && aiCount === 1 && /visit|schedule|when|prefer/i.test(reply);
+  return { ok, detail: `aiCount=${aiCount} ${reply.slice(0, 80)}` };
 });
 
 // ── Staff copilot ─────────────────────────────────────────────────────────

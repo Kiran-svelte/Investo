@@ -137,43 +137,6 @@ function wantsCancelOnly(message: string, hasNewTime: boolean): boolean {
 }
 
 /**
- * Cancels any existing reminder jobs for the given visitId and enqueues
- * fresh ones for the new scheduledAt. Called fire-and-forget after a reschedule.
- * Safe to fail: logged as warn, never throws.
- */
-async function rescheduleVisitRemindersAfterMutation(
-  visitId: string,
-  newScheduledAt: Date,
-  companyId: string,
-  leadId: string | null,
-): Promise<void> {
-  try {
-    const { automationQueueService } = await import('./automationQueue.service');
-    const payload = { visitId, leadId, companyId };
-
-    // Cancel existing reminder jobs so the new NX schedule() calls succeed.
-    await automationQueueService.cancel('visit_reminder_24h', visitId);
-    await automationQueueService.cancel('visit_reminder_1h', visitId);
-
-    // Enqueue fresh reminders for the rescheduled time.
-    const at24h = new Date(newScheduledAt.getTime() - 24 * 60 * 60 * 1000);
-    const at1h  = new Date(newScheduledAt.getTime() -      60 * 60 * 1000);
-    if (at24h > new Date()) {
-      await automationQueueService.schedule('visit_reminder_24h', visitId, at24h, payload);
-    }
-    if (at1h > new Date()) {
-      await automationQueueService.schedule('visit_reminder_1h', visitId, at1h, payload);
-    }
-    logger.info('Visit reminders rescheduled', { visitId, newScheduledAt, at24h, at1h });
-  } catch (err: unknown) {
-    logger.warn('rescheduleVisitRemindersAfterMutation failed', {
-      visitId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-/**
  * Deterministic cancel / reschedule for WhatsApp (buyer + agent Zero UI).
  */
 export async function applyVisitMutationFromChat(
@@ -205,6 +168,7 @@ export async function applyVisitMutationFromChat(
       companyId: input.companyId,
       visitId: visit.id,
       notes: 'Cancelled via WhatsApp',
+      suppressCustomerNotification: Boolean(input.suppressCustomerNotification),
     });
     if (!result.success) {
       return {
@@ -281,11 +245,6 @@ export async function applyVisitMutationFromChat(
       syncLeadClientMemory(visit.leadId),
     );
   }
-
-  // Cancel old reminder jobs and schedule new ones for the updated time.
-  // The automationQueueService uses NX (set-if-not-exists) with the visitId
-  // as uniqueKey, so old jobs must be cleared before new ones are enqueued.
-  void rescheduleVisitRemindersAfterMutation(visit.id, newScheduledAt, updated.companyId, visit.leadId);
 
   return {
     handled: true,

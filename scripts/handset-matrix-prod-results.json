@@ -1,0 +1,94 @@
+﻿{
+    "fail":  4,
+    "base":  "https://investo-backend-production.up.railway.app",
+    "pass":  10,
+    "staffPhone":  "919876543210",
+    "scenarios":  [
+                      {
+                          "Num":  0,
+                          "Name":  "Pre-flight health",
+                          "Result":  "PASS",
+                          "Detail":  "live=ok"
+                      },
+                      {
+                          "Num":  0,
+                          "Name":  "Pre-flight DB+OpenAI",
+                          "Result":  "PASS",
+                          "Detail":  "db=ok openai=ok"
+                      },
+                      {
+                          "Num":  1,
+                          "Name":  "Buyer brochure",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200; buyer=919000008207"
+                      },
+                      {
+                          "Num":  2,
+                          "Name":  "Buyer book visit",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200"
+                      },
+                      {
+                          "Num":  3,
+                          "Name":  "Buyer idempotent duplicate book",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200; DB visit count not verified (no prod DB access)"
+                      },
+                      {
+                          "Num":  4,
+                          "Name":  "Buyer reschedule active visit",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200"
+                      },
+                      {
+                          "Num":  5,
+                          "Name":  "Buyer memory recall",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200/200; lead_memory not verified"
+                      },
+                      {
+                          "Num":  6,
+                          "Name":  "Buyer visit status query",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200"
+                      },
+                      {
+                          "Num":  7,
+                          "Name":  "Staff visits today",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200; staff phone may be synthetic if prod login unavailable"
+                      },
+                      {
+                          "Num":  8,
+                          "Name":  "Staff update lead status",
+                          "Result":  "PASS",
+                          "Detail":  "HTTP 200; action log not verified"
+                      },
+                      {
+                          "Num":  9,
+                          "Name":  "Staff LLM-off degradation",
+                          "Result":  "FAIL",
+                          "Detail":  "BLOCKED: cannot set AGENT_AI_LLM_ENABLED=false on Railway from this runner"
+                      },
+                      {
+                          "Num":  10,
+                          "Name":  "Admin AI action logs page",
+                          "Result":  "FAIL",
+                          "Detail":  "HTTP 200; SPA shell loads (auth-gated data not verified)"
+                      },
+                      {
+                          "Num":  11,
+                          "Name":  "Saga needs_reconciliation inject",
+                          "Result":  "FAIL",
+                          "Detail":  "BLOCKED: dev-only injection; not run on prod tenant"
+                      },
+                      {
+                          "Num":  12,
+                          "Name":  "Takeover then buyer inbound",
+                          "Result":  "FAIL",
+                          "Detail":  "BLOCKED: product sign-off #17; code re-enables AI on next buyer message (ensureProspectConversationAiActive)"
+                      }
+                  ],
+    "runAt":  "2026-06-06T07:22:17.4052892Z",
+    "buyerPhone":  "919000008207"
+}

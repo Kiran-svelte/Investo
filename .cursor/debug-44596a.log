@@ -1,0 +1,3 @@
+{"sessionId":"44596a","hypothesisId":"VL2","location":"visitLifecycle.service.ts","message":"visit_socket_updated","data":{"visitId":"visit-1","change":"rescheduled","emitted":false},"timestamp":1780554600000}
+{"sessionId":"44596a","hypothesisId":"VL4","location":"visitLifecycle.service.ts","message":"visit_reminders_cancelled","data":{"visitId":"visit-1"},"timestamp":1780852748541}
+{"sessionId":"44596a","hypothesisId":"VL3","location":"visitLifecycle.service.ts","message":"visit_reminders_scheduled","data":{"visitId":"visit-1","at24h":"2026-06-05T07:30:00.000Z","at1h":"2026-06-06T06:30:00.000Z"},"timestamp":1780852748573}

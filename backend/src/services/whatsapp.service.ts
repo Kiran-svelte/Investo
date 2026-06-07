@@ -25,6 +25,7 @@ import {
   claimCustomerProcessingTurn,
   releaseCustomerProcessingTurn,
   claimOutboundAiReply,
+  releaseInboundMessageFull,
 } from './inboundMessageGuard.service';
 import { type QuickReplyRecentAction } from '../utils/contextQuickReplies.util';
 import { resolveBuyerComponents } from './buyer/buyerButtonPolicy.service';
@@ -614,6 +615,41 @@ export class WhatsAppService {
       logOutboundBranch('H2', 'whatsapp.service.ts:concurrent', 'concurrent_customer_blocked', {
         companyId,
       });
+      // Queue the message for retry after the current turn lock expires (65s).
+      // This ensures the customer gets a reply even when two messages arrive within 60s
+      // instead of silently dropping the second message.
+      if (msg.messageId) {
+        try {
+          const { automationQueueService } = await import('./automationQueue.service');
+          await automationQueueService.schedule(
+            'retry_concurrent_inbound',
+            `concurrent:${companyId}:${msg.messageId}`,
+            new Date(Date.now() + 65_000),
+            {
+              companyId,
+              phoneNumberId: msg.phoneNumberId,
+              customerPhone: msg.customerPhone,
+              customerName: msg.customerName,
+              messageText: msg.messageText,
+              messageId: msg.messageId,
+              interactiveId: msg.interactiveId,
+              interactiveType: msg.interactiveType,
+              businessDisplayPhone: msg.businessDisplayPhone,
+            },
+          );
+          logger.info('Concurrent inbound message queued for retry', {
+            companyId,
+            messageId: msg.messageId,
+            retryAt: new Date(Date.now() + 65_000).toISOString(),
+          });
+        } catch (queueErr: unknown) {
+          logger.warn('Failed to queue concurrent inbound for retry — message will be dropped', {
+            companyId,
+            messageId: msg.messageId,
+            error: queueErr instanceof Error ? queueErr.message : String(queueErr),
+          });
+        }
+      }
       return {
         status: 'skipped',
         reason: 'concurrent_customer_processing',
@@ -629,6 +665,10 @@ export class WhatsAppService {
       customerPhone,
       route: 'buyer_inbound',
     });
+
+    // Track whether processing succeeded so we know if it's safe to release
+    // the inbound claim on failure (to allow Meta's retry to succeed).
+    let processingSucceeded = false;
 
     try {
     // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
@@ -1009,20 +1049,44 @@ export class WhatsAppService {
         // Unified TurnResult dispatch (interactive orchestrator + sendTurnResult)
         if (actionResult.turnResult) {
           const outboundText = actionResult.turnResult.text?.trim();
+          let pendingMsgId: string | null = null;
           if (outboundText) {
-            await prisma.message.create({
+            // Create as 'pending' — update to 'sent'/'failed' based on actual delivery result.
+            const pendingMsg = await prisma.message.create({
               data: {
                 conversationId: conversation.id,
                 senderType: 'ai',
                 content: outboundText,
-                status: 'sent',
+                status: 'pending',
               },
+              select: { id: true },
             });
+            pendingMsgId = pendingMsg.id;
           }
           const outboundClaimed = await claimOutboundAiReply(companyId, msg.messageId);
           if (outboundClaimed) {
-            await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig!);
-            incrementOpsMetric('whatsapp_outbound');
+            let deliveryOk = false;
+            try {
+              await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig!);
+              deliveryOk = true;
+              incrementOpsMetric('whatsapp_outbound');
+            } catch (sendErr: unknown) {
+              logger.error('Interactive action sendTurnResult failed', {
+                error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+                conversationId: conversation.id,
+              });
+            }
+            if (pendingMsgId) {
+              await prisma.message.update({
+                where: { id: pendingMsgId },
+                data: { status: deliveryOk ? 'sent' : 'failed' },
+              }).catch(() => undefined);
+            }
+          } else if (pendingMsgId) {
+            await prisma.message.update({
+              where: { id: pendingMsgId },
+              data: { status: 'failed' },
+            }).catch(() => undefined);
           }
         }
 
@@ -1132,13 +1196,17 @@ export class WhatsAppService {
             /\b(visit|booking|booked|scheduled|appointment)\b/i.test(msg.messageText),
         });
       }
+      // Mark as 'pending' first; the outer code updates to 'sent'/'failed' after delivery.
       await prisma.message.create({
-        data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'sent' },
-      }).catch((sendErr: unknown) => {
+        data: { conversationId: conversation.id, senderType: 'ai', content: fallbackText, status: 'pending' },
+      }).catch((saveErr: unknown) => {
         logger.error('Failed to persist AI fallback message', {
-          error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+          error: saveErr instanceof Error ? saveErr.message : String(saveErr),
         });
       });
+      // Mark as succeeded so the catastrophic-failure release above does NOT trigger
+      // (the customer will get this fallback reply).
+      processingSucceeded = true;
       return { audience: 'buyer' as const, handled: true, terminal: true, text: fallbackText };
     });
 
@@ -1151,11 +1219,28 @@ export class WhatsAppService {
           outboundTextLength: turnResult.text.length,
           inboundMessageId: msg.messageId,
         });
-        await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);
-        incrementOpsMetric('whatsapp_outbound');
+        try {
+          await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);
+          incrementOpsMetric('whatsapp_outbound');
+          // Flush any pending AI messages in this conversation to 'sent'
+          await prisma.message.updateMany({
+            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+            data: { status: 'sent' },
+          }).catch(() => undefined);
+        } catch (sendErr: unknown) {
+          logger.error('sendTurnResult failed — marking pending messages as failed', {
+            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+            conversationId: conversation.id,
+          });
+          await prisma.message.updateMany({
+            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+            data: { status: 'failed' },
+          }).catch(() => undefined);
+        }
       }
     }
 
+    processingSucceeded = true;
     return {
       status: 'processed',
       companyId,
@@ -1163,6 +1248,22 @@ export class WhatsAppService {
       conversationId: conversation.id,
       propagation,
     };
+    } catch (processingErr: unknown) {
+      // On catastrophic failure (no fallback reply was sent), release the inbound
+      // claim so Meta's retry attempt can be processed rather than silently dropped.
+      if (!processingSucceeded && msg.messageId) {
+        logger.error('Catastrophic buyer turn failure — releasing inbound claim for Meta retry', {
+          companyId,
+          messageId: msg.messageId,
+          error: processingErr instanceof Error ? processingErr.message : String(processingErr),
+        });
+        await releaseInboundMessageFull(companyId, msg.messageId).catch((relErr: unknown) => {
+          logger.warn('releaseInboundMessageFull failed', {
+            error: relErr instanceof Error ? relErr.message : String(relErr),
+          });
+        });
+      }
+      throw processingErr;
     } finally {
       endOutboundTurn('buyer_finally');
       await releaseCustomerProcessingTurn(companyId, customerPhone);

@@ -106,9 +106,13 @@ function isWhitelistEnabled() {
     if (config_1.default.env === 'development' && !config_1.default.whatsapp.ipWhitelistEnabled) {
         return false;
     }
-    // Allow bypass via env var for testing
+    // Bypass must never be used in production.
     if (config_1.default.whatsapp.skipIpWhitelist === true) {
-        logger_1.default.warn('IP whitelist bypassed via SKIP_IP_WHITELIST=true');
+        if (config_1.default.env === 'production') {
+            logger_1.default.error('SKIP_IP_WHITELIST=true is forbidden in production — IP whitelist will be enforced');
+            return true; // enforce whitelist despite the env var
+        }
+        logger_1.default.warn('IP whitelist bypassed via SKIP_IP_WHITELIST=true (non-production only)');
         return false;
     }
     return config_1.default.whatsapp.ipWhitelistEnabled ?? true;

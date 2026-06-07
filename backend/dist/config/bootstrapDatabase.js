@@ -303,6 +303,13 @@ async function applyCompatibilityPatches() {
     )
   `);
     await prisma_1.default.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS inbound_whatsapp_dedup_company_id_whatsapp_message_id_key ON inbound_whatsapp_dedup (company_id, whatsapp_message_id)`);
+    // ai_settings columns required by Prisma AiSetting model (orchestrator H9 crashes without these).
+    await prisma_1.default.$executeRawUnsafe(`
+    ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS auto_confirm_visits BOOLEAN NOT NULL DEFAULT false
+  `);
+    await prisma_1.default.$executeRawUnsafe(`
+    ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS agent_name VARCHAR(50) NOT NULL DEFAULT 'Riya'
+  `);
     // Workflow saga + centralized lead memory (A+ gate).
     await prisma_1.default.$executeRawUnsafe(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_memory JSONB`);
     await prisma_1.default.$executeRawUnsafe(`
@@ -344,6 +351,24 @@ async function applyCompatibilityPatches() {
     await prisma_1.default.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_idempotency_keys_company_key_uidx ON workflow_idempotency_keys (company_id, key)`);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_session_status_idx ON pending_actions(session_id, status)`);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS pending_actions_expires_idx ON pending_actions(expires_at)`);
+    // call_requests — WhatsApp call booking workflow.
+    await prisma_1.default.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS call_requests (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      agent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      scheduled_at TIMESTAMP NOT NULL,
+      duration_minutes INT NOT NULL DEFAULT 15,
+      status VARCHAR(30) NOT NULL DEFAULT 'scheduled',
+      notes TEXT NULL,
+      agent_confirmed_at TIMESTAMP NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+    await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS call_requests_company_lead_idx ON call_requests (company_id, lead_id, scheduled_at DESC)`);
+    await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS call_requests_agent_scheduled_idx ON call_requests (agent_id, scheduled_at)`);
     await prisma_1.default.$executeRawUnsafe(`
     DO $$
     BEGIN

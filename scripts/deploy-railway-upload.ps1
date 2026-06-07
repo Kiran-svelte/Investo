@@ -1,3 +1,4 @@
+﻿# Prod API project: af15cb2b-b9ff-49cf-979d-a34b7c871359 (d21a6fc9 is not a valid project ID here)
 # Deploy backend via `railway up` (local upload) using an account/workspace token.
 # Account tokens work with GraphQL but not directly with the CLI. This script mints a
 # short-lived project token, then uploads from the monorepo root so `backend/railway.toml`

@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getCheckpointer = getCheckpointer;
 exports.getOrCreateThreadId = getOrCreateThreadId;
+exports.getOrCreateAgentSession = getOrCreateAgentSession;
 exports.destroyCheckpointer = destroyCheckpointer;
 const prisma_1 = __importDefault(require("../../config/prisma"));
 const logger_1 = __importDefault(require("../../config/logger"));
@@ -31,6 +32,11 @@ async function getCheckpointer() {
     }
 }
 async function getOrCreateThreadId(userId, phone, companyId) {
+    const session = await getOrCreateAgentSession(userId, phone, companyId);
+    return session.threadId;
+}
+/** Returns stable agent session ids for copilot exchange logging. */
+async function getOrCreateAgentSession(userId, phone, companyId) {
     const existing = await prisma_1.default.agentSession.findFirst({
         where: { userId, phone, status: 'active' },
         select: { id: true, threadId: true },
@@ -41,13 +47,14 @@ async function getOrCreateThreadId(userId, phone, companyId) {
             where: { id: existing.id },
             data: { lastActiveAt: new Date() },
         });
-        return existing.threadId;
+        return { id: existing.id, threadId: existing.threadId };
     }
     const threadId = `agent-${userId}-${Date.now()}`;
-    await prisma_1.default.agentSession.create({
+    const created = await prisma_1.default.agentSession.create({
         data: { userId, phone, companyId, threadId, status: 'active' },
+        select: { id: true, threadId: true },
     });
-    return threadId;
+    return created;
 }
 async function destroyCheckpointer() {
     if (!checkpointer)

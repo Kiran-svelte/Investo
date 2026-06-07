@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.CRM_WHATSAPP_LIST_LIMIT = void 0;
 exports.formatDateIST = formatDateIST;
 exports.formatCurrencyINR = formatCurrencyINR;
 exports.maskPhone = maskPhone;
 exports.getStatusEmoji = getStatusEmoji;
+exports.formatStatusLabel = formatStatusLabel;
 exports.getISTDayBounds = getISTDayBounds;
 exports.getTodayIST = getTodayIST;
 exports.getTomorrowIST = getTomorrowIST;
@@ -47,6 +49,28 @@ function maskPhone(phone) {
 function getStatusEmoji(status) {
     return agent_tools_constants_1.STATUS_EMOJI[status] ?? '';
 }
+/** Human-readable pipeline / visit status for WhatsApp (no snake_case). */
+function formatStatusLabel(status) {
+    const map = {
+        new: 'New',
+        contacted: 'Contacted',
+        qualified: 'Qualified',
+        visit_scheduled: 'Visit scheduled',
+        visited: 'Visited',
+        negotiation: 'Negotiation',
+        closed_won: 'Closed won',
+        closed_lost: 'Closed lost',
+        scheduled: 'Scheduled',
+        confirmed: 'Confirmed',
+        completed: 'Completed',
+        cancelled: 'Cancelled',
+        no_show: 'No-show',
+        rescheduled: 'Rescheduled',
+    };
+    return map[status] ?? status.replace(/_/g, ' ');
+}
+/** Max rows in a single staff CRM WhatsApp list before truncating. */
+exports.CRM_WHATSAPP_LIST_LIMIT = 8;
 function getISTDayBounds(dateString) {
     return [
         new Date(`${dateString}T00:00:00+05:30`),

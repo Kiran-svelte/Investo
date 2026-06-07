@@ -13,6 +13,8 @@ export const SOCKET_EVENTS = {
   CONVERSATION_UPDATED: 'conversation:updated',
   VISIT_CREATED: 'visit:created',
   VISIT_UPDATED: 'visit:updated',
+  CALL_CREATED: 'call:created',
+  CALL_UPDATED: 'call:updated',
   NOTIFICATION_NEW: 'notification:new',
   PROPERTY_CREATED: 'property:created',
   PROPERTY_UPDATED: 'property:updated',

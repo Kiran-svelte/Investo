@@ -11,7 +11,9 @@ export type AutomationJobType =
   | 'lead_nurture_7d'
   | 'lead_nurture_30d'
   | 'visit_post_follow_up'
-  | 'conversation_timeout_24h';
+  | 'conversation_timeout_24h'
+  | 'call_reminder_1h'
+  | 'retry_concurrent_inbound';
 
 export interface AutomationJobPayload {
   type: AutomationJobType;
@@ -426,6 +428,64 @@ export class AutomationQueueService {
 
     memoryDeadLetters.set(deadLetterKey, job);
   }
+
+  /**
+   * Batch check: returns which automation jobs already exist for a set of visitIds
+
+   * and job types. Used by the startup reconciler to find orphaned reminder jobs
+   * without making N individual Redis queries.
+   *
+   * @param visitIds - Array of visit IDs (used as uniqueKeys for reminder jobs).
+   * @param types - Array of job types to check (e.g. ['visit_reminder_24h', 'visit_reminder_1h']).
+   * @returns Array of objects with { type, referenceId } for every job found.
+   * @throws Never — errors are logged and an empty array is returned.
+   */
+  async findExistingJobsForVisits(
+    visitIds: string[],
+    types: AutomationJobType[],
+  ): Promise<Array<{ type: AutomationJobType; referenceId: string }>> {
+    if (!visitIds.length || !types.length) return [];
+
+    const keys: string[] = [];
+    for (const type of types) {
+      for (const visitId of visitIds) {
+        keys.push(buildJobKey(type, visitId));
+      }
+    }
+
+    const redis = getRedis();
+    if (redis) {
+      try {
+        const values = await redis.mget(...keys);
+        const result: Array<{ type: AutomationJobType; referenceId: string }> = [];
+        for (let i = 0; i < keys.length; i++) {
+          if (values[i] !== null && values[i] !== undefined) {
+            try {
+              const job = parseStoredJob(values[i] as string);
+              result.push({ type: job.type, referenceId: job.uniqueKey });
+            } catch {
+              // Discard malformed job — it will be overwritten if needed.
+            }
+          }
+        }
+        return result;
+      } catch (err: unknown) {
+        logger.warn('findExistingJobsForVisits: Redis mget failed, falling back to memory', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Memory fallback.
+    const result: Array<{ type: AutomationJobType; referenceId: string }> = [];
+    for (const key of keys) {
+      const job = memoryJobs.get(key);
+      if (job) {
+        result.push({ type: job.type, referenceId: job.uniqueKey });
+      }
+    }
+    return result;
+  }
 }
 
-export const automationQueueService = new AutomationQueueService();
+export const automationQueueService = new AutomationQueueService();
