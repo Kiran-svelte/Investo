@@ -57,11 +57,17 @@ async function ensureLead(from) {
   return null;
 }
 
-async function countAiSince(leadId, after) {
+async function countAiSinceCustomer(leadId, after) {
   const conv = await prisma.conversation.findFirst({ where: { leadId }, select: { id: true } });
   if (!conv) return { count: 0, replies: [] };
+  const customerAnchor = await prisma.message.findFirst({
+    where: { conversationId: conv.id, senderType: 'customer', createdAt: { gt: after } },
+    orderBy: { createdAt: 'asc' },
+    select: { createdAt: true },
+  });
+  const anchor = customerAnchor?.createdAt ?? after;
   const replies = await prisma.message.findMany({
-    where: { conversationId: conv.id, senderType: 'ai', createdAt: { gt: after } },
+    where: { conversationId: conv.id, senderType: 'ai', createdAt: { gt: anchor } },
     orderBy: { createdAt: 'asc' },
     select: { content: true, createdAt: true },
   });
@@ -78,7 +84,7 @@ async function runCase(name, from, interactiveId, title, mustMatch) {
   await sleep(35000);
   const lead = await ensureLead(from);
   if (!lead) return { name, ok: false, detail: 'no lead' };
-  const { count, replies } = await countAiSince(lead.id, sentAt);
+  const { count, replies } = await countAiSinceCustomer(lead.id, sentAt);
   const text = replies.map((r) => r.content).join(' | ');
   const contentOk = mustMatch.test(text);
   const single = count === 1;
@@ -103,6 +109,7 @@ console.log(`Buyer: ${buyer} Property: ${prop?.name || 'none'}\n`);
 const cases = [
   await runCase('call-me', buyer, 'call-me', 'Call Me', /callback scheduled|call you|specialist/i),
 ];
+await sleep(8000);
 if (prop) {
   cases.push(
     await runCase('book-visit', buyer, `book-visit-${prop.id}`, 'Book Visit', /visit|schedule|when|prefer/i),

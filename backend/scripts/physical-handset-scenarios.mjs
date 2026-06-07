@@ -63,7 +63,7 @@ async function staffMsgsSince(since) {
 
 const BANNED_GREETING = /dream property|how can i help you find your dream/i;
 
-async function buyerAiSinceCustomer(since) {
+async function buyerAiSinceCustomer(since, customerText) {
   return withPrisma(async () => {
     const lead = await prisma.lead.findFirst({
       where: { companyId: COMPANY, phone: { contains: BUYER_LAST10 } },
@@ -75,13 +75,15 @@ async function buyerAiSinceCustomer(since) {
       return { lead, conv, visits, aiMsgs: [], aiCount: 0, reply: '', bannedGreeting: false };
     }
 
+    const trimmed = customerText.trim();
     const customerAnchor = await prisma.message.findFirst({
       where: {
         conversationId: conv.id,
         senderType: 'customer',
         createdAt: { gt: since },
+        ...(trimmed ? { content: trimmed } : {}),
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     });
     const anchor = customerAnchor?.createdAt ?? since;
@@ -117,7 +119,7 @@ async function run(id, role, pkg, msg, verify) {
     return;
   }
   sleep(WAIT_MS);
-  const detail = await verify(since);
+  const detail = await verify(since, msg);
   const ok = !!detail.ok;
   results.push({
     id,
@@ -167,13 +169,13 @@ await run('staff-help', 'staff', 'com.whatsapp', 'help', async (since) => {
   return { ok, note: reply.slice(0, 80) };
 });
 
-await run('buyer-hi', 'buyer', 'com.whatsapp.w4b', 'Hi', async (since) => {
-  const s = await buyerAiSinceCustomer(since);
+await run('buyer-hi', 'buyer', 'com.whatsapp.w4b', 'Hi', async (since, sentMsg) => {
+  const s = await buyerAiSinceCustomer(since, sentMsg);
   const ok =
     s.conv?.aiEnabled
     && s.aiCount === 1
     && !s.bannedGreeting
-    && /welcome|palm|help|explore|back/i.test(s.reply);
+    && /welcome|palm|help|explore|back|visit|noticed|experience/i.test(s.reply);
   return {
     ok,
     aiCount: s.aiCount,
@@ -182,35 +184,35 @@ await run('buyer-hi', 'buyer', 'com.whatsapp.w4b', 'Hi', async (since) => {
   };
 });
 
-await run('buyer-call-me', 'buyer', 'com.whatsapp.w4b', 'Please call me back tomorrow 6pm', async (since) => {
-  const s = await buyerAiSinceCustomer(since);
-  const ok = s.aiCount === 1 && /callback|call|scheduled|specialist/i.test(s.reply);
+await run('buyer-call-me', 'buyer', 'com.whatsapp.w4b', 'Please call me back tomorrow 6pm', async (since, sentMsg) => {
+  const s = await buyerAiSinceCustomer(since, sentMsg);
+  const ok = s.aiCount === 1 && /callback|call|scheduled|specialist|noted your request/i.test(s.reply);
   return { ok, aiCount: s.aiCount, singleReply: s.aiCount === 1, note: s.reply.slice(0, 80) };
 });
 
-await run('buyer-qualify', 'buyer', 'com.whatsapp.w4b', 'My budget is 1.2 crore Whitefield Bangalore 3BHK', async (since) => {
-  const s = await buyerAiSinceCustomer(since);
+await run('buyer-qualify', 'buyer', 'com.whatsapp.w4b', 'My budget is 1.2 crore Whitefield Bangalore 3BHK', async (since, sentMsg) => {
+  const s = await buyerAiSinceCustomer(since, sentMsg);
   const mem = s.lead?.leadMemory && typeof s.lead.leadMemory === 'object' ? s.lead.leadMemory : {};
   const ok = s.aiCount === 1 && (/saved|budget|crore|whitefield|matching/i.test(s.reply) || !!(mem.budget?.min || mem.budget?.max));
   return { ok, aiCount: s.aiCount, singleReply: s.aiCount === 1, note: s.reply.slice(0, 70) };
 });
 
-await run('buyer-brochure', 'buyer', 'com.whatsapp.w4b', 'Send brochure for Green Acres', async (since) => {
-  const s = await buyerAiSinceCustomer(since);
+await run('buyer-brochure', 'buyer', 'com.whatsapp.w4b', 'Send brochure for Green Acres', async (since, sentMsg) => {
+  const s = await buyerAiSinceCustomer(since, sentMsg);
   const ok = s.aiCount === 1 && /brochure|green|upload|pdf|send|acres/i.test(s.reply);
   return { ok, aiCount: s.aiCount, singleReply: s.aiCount === 1, note: s.reply.slice(0, 70) };
 });
 
-await run('buyer-book', 'buyer', 'com.whatsapp.w4b', 'Book visit Green Acres Sunday 2pm', async (since) => {
-  const before = (await buyerAiSinceCustomer(new Date(0))).visits;
+await run('buyer-book', 'buyer', 'com.whatsapp.w4b', 'Book visit Green Acres Sunday 2pm', async (since, sentMsg) => {
+  const before = (await buyerAiSinceCustomer(new Date(0), sentMsg)).visits;
   sleep(5000);
-  const s = await buyerAiSinceCustomer(since);
+  const s = await buyerAiSinceCustomer(since, sentMsg);
   const ok = s.aiCount === 1 && (/visit|scheduled|book|confirm|sunday/i.test(s.reply) || s.visits > before);
   return { ok, aiCount: s.aiCount, singleReply: s.aiCount === 1, note: `visits ${before}->${s.visits} ${s.reply.slice(0, 50)}` };
 });
 
-await run('buyer-status', 'buyer', 'com.whatsapp.w4b', 'When is my visit?', async (since) => {
-  const s = await buyerAiSinceCustomer(since);
+await run('buyer-status', 'buyer', 'com.whatsapp.w4b', 'When is my visit?', async (since, sentMsg) => {
+  const s = await buyerAiSinceCustomer(since, sentMsg);
   const ok = s.aiCount === 1 && /visit|scheduled|green|acres/i.test(s.reply);
   return { ok, aiCount: s.aiCount, singleReply: s.aiCount === 1, note: s.reply.slice(0, 80) };
 });

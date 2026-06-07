@@ -828,8 +828,9 @@ export class WhatsAppService {
 
     // Store incoming message — P0-1: If the @@unique constraint fires (concurrent retry),
     // catch P2002 and skip processing rather than sending a duplicate AI response.
+    let insertedCustomerMessageId: string;
     try {
-      await prisma.message.create({
+      const inserted = await prisma.message.create({
         data: {
           conversationId: conversation.id,
           senderType: 'customer',
@@ -837,7 +838,9 @@ export class WhatsAppService {
           whatsappMessageId: msg.messageId,
           status: 'delivered',
         },
+        select: { id: true },
       });
+      insertedCustomerMessageId = inserted.id;
     } catch (createErr: unknown) {
       const isPrismaUniqueViolation =
         createErr instanceof Error &&
@@ -857,6 +860,40 @@ export class WhatsAppService {
         };
       }
       throw createErr;
+    }
+
+    const normalizedCustomerText = msg.messageText.trim();
+    if (normalizedCustomerText) {
+      const firstSameContent = await prisma.message.findFirst({
+        where: {
+          conversationId: conversation.id,
+          senderType: 'customer',
+          content: normalizedCustomerText,
+          createdAt: { gte: new Date(Date.now() - 90_000) },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      if (firstSameContent && firstSameContent.id !== insertedCustomerMessageId) {
+        logger.info('Duplicate customer content in short window — skipping AI', {
+          conversationId: conversation.id,
+          whatsappMessageId: msg.messageId ?? null,
+          firstMessageId: firstSameContent.id,
+        });
+        return {
+          status: 'skipped',
+          reason: 'duplicate_customer_content',
+          companyId,
+          leadId: lead.id,
+          conversationId: conversation.id,
+          propagation: await this.propagateConversationUpdate({
+            companyId,
+            conversationId: conversation.id,
+            leadId: lead.id,
+            trigger: 'duplicate_customer_content',
+          }),
+        };
+      }
     }
 
     // Update last contact
