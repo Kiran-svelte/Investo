@@ -298,7 +298,8 @@ npm run build
 |---------|---------|------------|-------|----------|
 | Saturday 4pm slot conflict | `agent_conflict`, 0 visits | Use dynamic slot in tests; suggest alternate in reply | Visit booking | P2 |
 | Quick-reply buttons on workflow path | Extra buttons user didn’t ask for | Review `shouldAttachContextualQuickReplies` gates | UX | P2 |
-| Brochure file missing on property | “No brochure uploaded” | Upload PDF in property settings (data, not code) | Content | ops |
+| Brochure file missing on property (buyer) | Honest “no PDF in chat yet” + offer pricing/photos/team follow-up | `buyerStaffCopyGuard` + `brochure-tools` channel buyer | Code | shipped 2026-06-07 |
+| Brochure file missing on property (ops) | Upload PDF in Properties listing | Admin UI | Content | ops |
 | Takeover semantics ambiguous | AI replies after human escalation | Product decision `investo.md` Queue #17 | Policy | P2 |
 
 ### 9.3 Classic failure catalog (from production audits)

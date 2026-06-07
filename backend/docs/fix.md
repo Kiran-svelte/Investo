@@ -1,222 +1,203 @@
-What matters most in Investo specifically
-1. Trust & correctness (non‑negotiable)
-These are production blockers. A company will cancel if any of these fail:
-
-AI must not lie — no “booked/confirmed” unless the DB action succeeded
-No internal leakage — no property IDs, match scores, workflow names in buyer chat
-Human takeover works — when an agent takes over, AI stays off until released
-Tenant isolation — Company A never sees Company B’s leads/properties
-Visit state machine — scheduled → confirmed → completed/no-show/cancelled, enforced consistently
-Your alignment audit shows most of this is PASS now (mutation guard, sanitizer, takeover, visit state, idempotency). That is the right foundation for selling.
-
-2. The visit lifecycle (the product’s core loop)
-For real estate, the site visit is the product. Investo must nail:
-
-WhatsApp inquiry → qualify → shortlist → book visit → confirm → remind → attendance check → agent follow-up
-What matters here:
-
-Booking from chat (buttons + natural language)
-Agent approval vs auto-confirm (per-company setting)
-Attendance flow (ask agent before marking no-show)
-Lead status moves correctly (contacted → visit_scheduled → visited)
-This is stronger than “nice AI replies.” A developer paying ₹50k–₹2L/month cares more that visits land on the calendar correctly than that the bot sounds poetic.
-
-3. WhatsApp as the channel (not “AI” as a feature)
-Companies buy WhatsApp that works reliably:
-
-Meta Cloud API only (one provider, one payload shape)
-Dedup — no double replies on webhook retries
-One clean outbound per turn — not 4 messages spamming the buyer
-Buttons at decision points only — filter, confirm, book, attendance
-You have been fixing exactly this layer (orchestrator, TurnResult, interactive unification). For production, message discipline matters as much as intelligence.
-
-4. Staff copilot (agents must not bypass the system)
-Brokers churn when agents ignore the platform. Investo’s staff path matters:
-
-WhatsApp copilot for agents (visits today, mark no-show, add note)
-Confirmation before destructive actions (“mark no-show?”)
-No shortcut spam after every reply
-Dashboard conversation view + takeover banner
-Staff copilot is graded B+ — workable. The dashboard copilot is now **shipped** (`POST /api/copilot/chat` reuses the same `handleAgentMessage` core; `/dashboard/copilot` UI is wired), graded **C (parity-pending)** — it lacks WhatsApp parity (quick-action chips, history load, kill-switch + rate-limit hardening on the REST path). For production sales, WhatsApp staff copilot + CRM visibility + the basic dashboard copilot are enough initially; full parity can follow.
-
-5. Operational transparency (enterprise trust)
-Companies need to answer: “What did the AI do?”
-
-agent_action_logs — tool called, result, failure reason
-Audit trails, RBAC, subscription enforcement
-AI settings per company (auto-confirm visits, tone, capabilities)
-This is what separates “cool demo” from “we can put this on a client’s number.”
-
-What matters less (for now) when selling
-Area	Reality
-LangGraph / agentic depth
-Buyers don’t see it; they see visit booked or not
-15 workflows / saga compensators
-Important internally; not a sales headline
-Property import AI
-Strong (A grade) but orthogonal to WhatsApp conversion
-Unified memory (“one brain”)
-A+ target; today memory is split across ~8 stores — affects consistency, not first sale
-Perfect one-outbound everywhere
-visit-time, location, emi still direct-send — acceptable for button-tap flows
-Do not lead with architecture. Lead with “your leads get answered in 10 seconds and visits get booked.”
+# Investo AI Production Standards — `fix.md`
 
-Honest production readiness snapshot
-Layer	Grade	Sell today?
-Buyer WhatsApp AI
-B → B+ (after orchestrator work)
-Yes, with onboarding support
-Staff WhatsApp Copilot
-B+
-Yes
-CRM dashboard
-B (leads, visits, conversations)
-Yes
-Dashboard AI chat
-D
-No — don’t promise this
-Proactive automation (reminders, templates)
-A
-Yes — strong differentiator
-End-to-end handset proof
-Pending
-Must run before big client go-live
-Alignment scorecard: ~28/28 areas PASS or near-PASS, 0 FAIL. That is sellable — with caveats.
+> **Purpose:** Single reference for how Investo buyer/staff AI **should** behave, what is **already enforced in code**, and what **still needs work**.  
+> **Audience:** Product, ops, and engineers shipping WhatsApp + dashboard AI.  
+> **Last updated:** 2026-06-07  
+> **Companion:** `AI_SURFACES.md`, `AI_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`, `AI_OPERATIONS_BIBLE.md`
 
-What to prove before handing a company the keys
-In order of priority:
+---
 
-Handset scenario run — real WhatsApp thread: greet → filter → shortlist → more-info → book → confirm
-Wrong-inventory test — AI only shows properties from that company’s catalog
-Takeover test — agent takes over, AI stops, release restores AI
-Visit edge cases — double-book, reschedule, no-show, attendance buttons
-Multi-tenant test — two companies, same phone format, zero cross-leak
-Meta webhook reliability — dedup, 200 ACK, no duplicate outbound
-Unit tests and evals (26 cases) prove code contracts. Companies care about handset proof on their number.
+## 0. One-line verdict (June 2026)
 
-One-line answer
-In Investo, everything matters — but for production companies, only five things really decide success:
+Investo is a **bounded business assistant** (NL → classify/workflow → guarded reply), not a generic chatbot. Core visit booking, staff copilot, sanitization, and orchestrator extraction are **production-grade**. Recent fixes closed **call-vs-visit collision** and **staff copy leaking to buyers**. Remaining gaps are mostly **property context resolution**, **duplicate outbound on workflow+LLM edge cases**, and **handset proof automation**.
 
-Fast, trustworthy WhatsApp replies
-Correct visit booking and status
-Agents stay in the loop (copilot + takeover)
-No data leaks across tenants or into buyer chat
-Auditable AI actions when something goes wrong
+---
 
-1. Functional Testing
-Unit tests
+## 1. Shipped in code (2026-06-07)
 
-Integration tests
+| Fix | User symptom | Implementation | Key files |
+|-----|--------------|----------------|-----------|
+| **Call time ≠ visit time** | User taps *Change Time* on call → replies `9 pm today` → bot says “could not schedule **visit**” | `awaitingCallTime` on conversation; visit scheduling ignores bare `today/tomorrow + time`; call commit accepts bare time replies | `conversationCallContext.util.ts`, `visitIntentFromMessage.service.ts`, `customerCallBooking.service.ts`, `whatsappInteractiveOrchestrator.service.ts` |
+| **Staff upload instructions to buyers** | “Upload one in property settings” on buyer WhatsApp | Buyer sanitizer + workflow reply scrub + brochure tool `channel: 'buyer'` + AI prompt rule 6c | `buyerStaffCopyGuard.util.ts`, `whatsappResponseSanitizer.service.ts`, `brochure-tools.ts`, `ai.service.ts` |
+| **Property import location** | Publish step warned about location but had no inputs | City / area / pincode on Step 5 Publish; geocode on publish | `PropertyImportLocationFields.tsx`, `propertyImport.service.ts` |
+| **Call booking (buyer)** | *Call Me*, reschedule, cancel | `call_requests` table + `tryCommitCustomerCallBooking` before LLM | `callRequest.service.ts`, `customerCallBooking.service.ts` |
+| **Staff message forward** | `send "Hi" to 903…` | Staff-only forward service | `staffMessageForward.service.ts` |
+| **Buyer copy polish** | Signatures, robotic openers, dismissal spam | Sanitizer strips; dismissal fast-path | `whatsappResponseSanitizer.service.ts`, `whatsappTurnOrchestrator.service.ts` |
 
-Component tests
+**Deploy note:** Backend must rebuild on Railway (`backend/src/**` watch paths). If logs show *“no changes detected in watch paths, build will skip”*, bump the marker in `backend/src/app.ts` and redeploy.
 
-End‑to‑end (E2E) tests
+---
 
-Contract tests
+## 2. Architectural rules — status
 
-Regression tests
+| Rule | Target | Status | Where enforced |
+|------|--------|--------|----------------|
+| **One reply per user message** | Single WhatsApp payload per turn | **Partial** | `sendTurnResult`, `enforceTurnComponentBudget`; edge case: workflow fail + LLM both fire if visit path mis-classifies |
+| **Deterministic before LLM** | Fast-paths first | **Shipped** | `whatsappTurnOrchestrator.service.ts` H1–H8 before H9 |
+| **State machine owns stage** | LLM fills wording only | **Shipped** | `conversationStateMachine.ts`, `ai.service.ts` stage prompts |
+| **Idempotent webhook** | Dedup by `message_id` | **Shipped** | `claimInboundMessageFull` |
+| **Destructive ops need confirm** | Staff YES/NO | **Shipped** | Pending confirmation in `agent-router.service.ts` |
+| **No staff ops copy to buyers** | No dashboard/upload/settings | **Shipped** (2026-06-07) | `buyerStaffCopyGuard.util.ts` |
+| **Call vs visit separation** | Callback time never books site visit | **Shipped** (2026-06-07) | See §1 |
 
-Smoke tests
+---
 
-2. Non‑Functional Testing
-2.1 Performance & Scalability
-Load / Performance
+## 3. Buyer WhatsApp — correct turn order
 
-Stress
+Production order in `orchestrateWhatsAppBuyerTurn`:
 
-Soak / Endurance
+```
+H1  Human takeover (terminal)
+    tryCommitCustomerVisitBooking  (deterministic)
+    tryCommitCustomerCallBooking   (deterministic — must run same turn)
+H2  handleCallCommitReplyTurn     (if call committed → STOP)
+H3  Dismissal / rapport / memory / qualify
+H4  Visit status (deterministic)
+H5  Visit workflow suggestion (schedule_visit, etc.)
+H6  Classifier workflow
+H7  Visit commit reply
+H8  Full AI (LLM) — only if nothing above handled
+```
 
-Spike
+**Investo rule:** After *“share your preferred call time”*, the next message with only a time (`9 pm today`) must hit **call commit**, not `schedule_visit`.
 
-Scalability
+---
 
-2.2 Reliability & Resilience
-Chaos / Resilience
+## 4. Brochure requests — buyer vs ops
 
-Recovery
+| Actor | When PDF missing | Correct message |
+|-------|------------------|-----------------|
+| **Buyer** | No `brochureUrl` on property | “I don't have a brochure PDF in chat yet — I can share pricing/photos or our team can send it.” |
+| **Staff (copilot)** | Same | “Upload one in Investo dashboard (Properties), then I can send it to the customer.” |
+| **Ops / admin** | Data gap | Upload PDF in **Properties → edit listing** (not a code fix) |
 
-Idempotency
+**Never** tell a buyer to use property settings, dashboard, or upload files.
 
-Rollback (transactional / saga)
+---
 
-2.3 AI‑Specific Tests
-Intent classification accuracy
+## 5. Property import — location for WhatsApp matching
 
-Confidence threshold validation
+| Step | Field | Required? |
+|------|-------|-----------|
+| Publish (Step 5) | City and/or area | Optional but **strongly recommended** |
+| Publish (Step 5) | Pincode | Optional |
+| On publish | Auto-geocode → `latitude` / `longitude` | When city/area present |
 
-Prompt regression
+Without location, WhatsApp AI can still answer but **location queries** (“2 BHK in Whitefield”) match poorly.
 
-Memory consistency
+---
 
-RAG relevance
+## 6. LLM hardening — global targets
 
-Toxicity / safety
+Apply on **every** LLM call (buyer, staff classifier, LangGraph):
 
-Adversarial / edge inputs
+| Parameter | Target | Status |
+|-----------|--------|--------|
+| `temperature` | 0 for mutations / classifiers | Partial — verify all callers |
+| `response_format` | `json_object` where structured | Buyer AI: shipped |
+| `max_tokens` | ≤300 buyer replies | Prompt rule 8 |
+| Pre-parsed datetime | Use injected ISO, don’t re-parse | `extractedDateTime` in `ai.service.ts` |
 
-2.4 Usability & UX
-Usability (real users)
+**System prompt global rules** (all buyer/staff prompts):
 
-Accessibility
+1. Respond once per user message.  
+2. Never invent outages or “connection issues”.  
+3. No repeat welcome mid-conversation.  
+4. No capability menus (“Here’s how I can help”).  
+5. Missing facts → offer agent; don’t guess.  
+6. Destructive actions → wait for YES/NO.  
+7. **Never tell buyers to upload or use property settings** (rule 6c, 2026-06-07).
 
-Localization / l10n
+---
 
-Conversational flow
+## 7. Post-processing filter (last line of defense)
 
-3. Security & Compliance Tests
-Penetration testing
+Runs on buyer outbound via `sanitizeBuyerOutbound`:
 
-Authentication / Authorization
+- Strip UUIDs, match scores, workflow names (`stripBuyerInternalMetadata`)
+- Strip staff instructions (`sanitizeStaffInstructionsForBuyer`)
+- Never-say-no guard + mutation language guard
+- Remove trailing “— Company via Investo” signatures
+- Strip robotic openers (“I'm here to assist…”)
 
-Rate limiting
+**Banned phrases to alert on in prod:** `property settings`, `Upload one in`, `try from the dashboard`, `Welcome back` (mid-thread), numbered capability lists.
 
-Input sanitization
+---
 
-GDPR / data privacy
+## 8. Known gaps (still open)
 
-Secret scanning
+| # | Gap | Symptom | Priority | Next step |
+|---|-----|---------|----------|-----------|
+| G1 | **Wrong property context** | Brochure for “Palm Villa” answers about Green Acres | P1 | Improve fuzzy match in `buyerPropertyContext.service.ts`; prefer message entity over stale `selectedPropertyId` |
+| G2 | **Workflow + LLM same turn** | Visit error message then long LLM essay | P2 | Short-circuit H9 when H6 returns terminal reply |
+| G3 | **Railway skip build** | Deploy uploads but old code runs | P1 | Bump `app.ts` marker; verify build logs show `tsc` |
+| G4 | **Handset matrix** | ADB proof flaky | P2 | Webhook-based proof scripts (`manual-ux-quality-proof.mjs`) |
+| G5 | **Returning buyer “Hi”** | Full welcome replay | P2 | Partially fixed; scenario #1 in matrix |
+| G6 | **Property name typo** | “plam villa” miss | P2 | Fuzzy catalog search in brochure workflow |
 
-Audit logging
+---
 
-4. Infrastructure & Deployment Tests
-Build / CI
+## 9. Verification checklist (after deploy)
 
-Deployment / Canary
+Run after every production backend deploy:
 
-Blue‑green
+```bash
+# Health
+curl -s https://investo-backend-production.up.railway.app/api/health/live
 
-Health check
+# Unit (backend)
+cd backend && npx jest src/tests/unit/callIntentFromMessage.util.test.ts \
+  src/tests/unit/visitIntentFromMessage.service.test.ts \
+  src/tests/unit/buyerStaffCopyGuard.util.test.ts
 
-Backup / restore
+# Manual WhatsApp (buyer phone released to AI first)
+# 1. Tap Call Me → Change Time → reply "9 pm today" → expect CALLBACK copy, not "visit"
+# 2. "Send brochure for [project]" → no "property settings" / "upload"
+# 3. Property import Step 5 → enter city/area → blur to save → publish
+```
 
-Disaster recovery
+Frontend (location UI): https://biginvesto.online → Properties → Import → Step 5 Publish.
 
-5. Integration & Dependency Tests
-API mocking
+---
 
-Webhook delivery
+## 10. Operational runbook
 
-Queue resilience
+| Symptom | Immediate action | Permanent fix |
+|---------|------------------|---------------|
+| Call time books a visit | Check `commitments.awaitingCallTime` in DB; redeploy backend ≥ `b777db3b4` | §1 call-vs-visit |
+| Buyer sees “property settings” | Check outbound in `messages` table; redeploy sanitizer | §4 + `buyerStaffCopyGuard` |
+| Two AI bubbles same minute | Grep logs for workflow + `H9` same `message_id` | G2 |
+| Deploy says “build will skip” | Bump `backend/src/app.ts` marker comment | §1 deploy note |
+| Brochure PDF missing | Admin uploads in Properties UI | Ops data, not code |
+| Staff gets dashboard message | Expected for non-copilot roles | `inboundWhatsAppRouting.service.ts` |
 
-Circuit breaker
+---
 
-Rate limit handling
+## 11. “Perfectly working” checklist (Investo-adapted)
 
-6. Data & Database Tests
-Schema migration
+An AI surface is **production-ready** when:
 
-Data integrity
+| Aspect | Pass criteria |
+|--------|---------------|
+| Intent | One intent per turn; mutations above confidence threshold |
+| Tool/workflow | Matches intent; parameters validated |
+| Idempotency | Duplicate webhook → same outcome |
+| State | Stage matches history; no call/visit bleed |
+| Memory | Lead memory updated after meaningful turns |
+| Response | **One** outbound; no staff copy; no internal IDs |
+| Performance | p95 < 3s where possible |
+| Observability | `agent_action_logs` for mutations |
 
-Idempotency keys
+---
 
-Pagination / performance
+## 12. References
 
-7. Compliance & Business Rule Tests
-Never‑Say‑No rules
-
-Budget stretch
-
-Escalation triggers
-
-SLA for staff response
-
+| Topic | Doc / file |
+|-------|------------|
+| Surface map | `AI_SURFACES.md` |
+| Audit scorecard | `AI_ALIGNMENT_AUDIT_AND_FIX_PLAN.md` |
+| Ops routing | `AI_OPERATIONS_BIBLE.md` |
+| Orchestrator | `walkthrough.md` |
+| Buyer turn | `whatsappTurnOrchestrator.service.ts` |
+| Call booking | `customerCallBooking.service.ts`, `callRequest.service.ts` |
+| Import location | `PropertyImportLocationFields.tsx`, `propertyImport.service.ts` |

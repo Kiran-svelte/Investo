@@ -1,7 +1,7 @@
 # Orchestrator Extraction & One-Outbound-Per-Turn — Walkthrough
 
-**Completed:** 2026-06-06  
-**Verified against:** Investo eval suite (`npm run eval`), alignment audit §5.1/§5.4
+**Completed:** 2026-06-06 (orchestrator) · **Updated:** 2026-06-07 (call booking + docs)  
+**Verified against:** Investo eval suite (`npm run eval`), alignment audit, `fix.md`
 
 ---
 
@@ -32,6 +32,7 @@ Inbound Meta webhook (webhook.routes.ts)
       → dedup, staff routing, interactive short-circuit
       → orchestrateWhatsAppBuyerTurn (buyer AI path)
           H1  handleHumanTakeoverTurn
+          H1b handleCallCommitReplyTurn (after tryCommitCustomerCallBooking)
           H2  handleRapportTurn
           H3  handleMemoryRecallTurn
           H4  handleQualificationTurn
@@ -145,6 +146,16 @@ node scripts/buyer-scenario-runner.mjs --all   # target 12/12
 | 3 | "Send me the brochure" | 1 text + 1 PDF |
 | 4 | Same booking twice | 1 visit row, 1 reply |
 | 5 | Interactive shortlist selection | list + 1 hero |
+| 6 | Call Me → Change Time → `9 pm today` | 1 callback confirmation (not “visit”) |
+| 7 | Brochure missing for project | No “property settings” / upload language |
+
+---
+
+## 2026-06-07 additions (see `fix.md`)
+
+- **Call booking:** `tryCommitCustomerCallBooking` runs in the same turn as visit commit; `awaitingCallTime` set when prompting for callback time.
+- **Staff copy guard:** `sanitizeStaffInstructionsForBuyer` on all buyer workflow + sanitizer paths.
+- **Property import:** Location fields on Publish step; geocode on publish for WhatsApp location matching.
 
 ---
 

@@ -139,6 +139,8 @@ Meta webhook → 200 immediately
   → interactive buttons (if ai_active)
   → human takeover check → static handoff, stop AI
   → tryCommitCustomerVisitBooking()          [deterministic fast-path]
+  → tryCommitCustomerCallBooking()           [deterministic — call Me / time replies]
+  → handleCallCommitReplyTurn (if committed → stop)
   → visitCommit / classifyAndRunBuyerWorkflow()
   → detectActiveVisitMutationBias()
   → deterministic visit-status query
@@ -157,6 +159,10 @@ Meta webhook → 200 immediately
 `rapport` → `qualify` → `shortlist` → `objection_handling` → `commitment` → `visit_booking` → `confirmation` → (or `human_escalated`, `closed_won`, `closed_lost`)
 
 **Buyer workflows (8):** `brochure_request`, `price_inquiry`, `availability_check`, `amenities_question`, `escalate_to_human`, `schedule_visit`, `reschedule_visit`, `cancel_visit`
+
+**Buyer call booking (parallel path, not a workflow):** `call_requests` + `tryCommitCustomerCallBooking` — handles *Call Me*, callback reschedule/cancel, and bare time replies when `commitments.awaitingCallTime` is set (see `fix.md` §1).
+
+**Staff copy guard (2026-06-07):** Buyer outbound must never see dashboard/upload/property-settings language — `buyerStaffCopyGuard.util.ts` + sanitizer.
 
 ---
 
@@ -317,6 +323,9 @@ Architecture depth (LangGraph, sagas, unified memory) matters internally but is 
 | Conversation stages | `conversationStateMachine.ts` |
 | Sanitization | `whatsappResponseSanitizer.service.ts` |
 | Visit booking fast-path | `customerVisitBooking.service.ts` |
+| Call booking fast-path | `customerCallBooking.service.ts`, `callRequest.service.ts`, `conversationCallContext.util.ts` |
+| Buyer staff-copy guard | `buyerStaffCopyGuard.util.ts` |
+| Property import location | `PropertyImportLocationFields.tsx`, `propertyImport.service.ts` |
 | Action audit | `agent-action-log.service.ts` |
 | Master grades & proof | `AI_MASTER_REALITY_AND_A_PLUS_PLAN.md` |
 

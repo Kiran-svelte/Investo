@@ -1,5 +1,15 @@
 # Investo AI Alignment Audit & Fix Plan
 
+<!-- SESSION STATUS (2026-06-07):
+  SHIPPED (buyer WhatsApp + import):
+  - Call vs visit: awaitingCallTime, isBareSchedulingTimeReply, visit scheduling context (fix.md §1)
+  - Buyer staff-copy guard: no "property settings" / dashboard upload text to buyers
+  - Property import: location fields Step 5 Publish + geocode on publish
+  - Call booking: call_requests, Call Me / reschedule / cancel buttons
+  - Docs rewritten: fix.md (Investo-adapted), AI_SURFACES.md pipeline updated
+  REMAINING GAPS: G1 wrong property on brochure, G2 workflow+LLM double reply, handset matrix
+  COMMITS: b777db3b4, ad209b64d, 15721a5fb on kiran/main
+-->
 <!-- SESSION STATUS (2026-06-06):
   ORCHESTRATOR EXTRACTION COMPLETE (see backend/docs/walkthrough.md):
   - H1–H9 in whatsappTurnOrchestrator.service.ts; whatsapp.service.ts delegates AI branch to sendTurnResult
