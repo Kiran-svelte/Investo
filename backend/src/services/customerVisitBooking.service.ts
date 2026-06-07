@@ -234,14 +234,34 @@ export async function tryCommitCustomerVisitBooking(
     return { committed: false };
   }
 
-  const propertyId = await resolvePropertyId(companyId, conversation, customerMessage);
+  let propertyId = await resolvePropertyId(companyId, conversation, customerMessage);
+
   if (!propertyId) {
-    logger.warn('Visit commit skipped: no property resolved', {
-      leadId: lead.id,
-      conversationId: conversation.id,
+    // Buyer said "book visit tuesday 2pm" without specifying a property.
+    // Fall back to the first active property for this company so the booking
+    // always proceeds instead of silently falling through to the LLM chat path.
+    const fallbackProperty = await prisma.property.findFirst({
+      where: { companyId, status: 'available' },
+
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
     });
-    return { committed: false };
+
+    if (!fallbackProperty) {
+      logger.warn('Visit commit skipped: no property resolved and no active fallback property', {
+        leadId: lead.id,
+        conversationId: conversation.id,
+      });
+      return { committed: false };
+    }
+
+    logger.info('Visit commit: no property in conversation context, using fallback active property', {
+      leadId: lead.id,
+      propertyId: fallbackProperty.id,
+    });
+    propertyId = fallbackProperty.id;
   }
+
 
   const existing = await prisma.visit.findFirst({
     where: {

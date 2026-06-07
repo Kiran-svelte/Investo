@@ -234,6 +234,25 @@ async function handleHumanTakeoverTurn(ctx: BuyerTurnRuntimeContext): Promise<Tu
         message: `${ctx.input.leadCustomerName || ctx.customerPhone}: ${ctx.input.messageText.substring(0, 100)}`,
       },
     });
+  } else {
+    // No assigned agent — notify all company admins so no message is silently lost.
+    const admins = await prisma.user.findMany({
+      where: { companyId: ctx.companyId, role: 'company_admin', status: 'active' },
+      select: { id: true },
+    });
+    await Promise.all(
+      admins.map((admin) =>
+        prisma.notification.create({
+          data: {
+            companyId: ctx.companyId,
+            userId: admin.id,
+            type: 'agent_takeover',
+            title: 'Unassigned lead — customer message received',
+            message: `${ctx.input.leadCustomerName || ctx.customerPhone}: ${ctx.input.messageText.substring(0, 100)}`,
+          },
+        }),
+      ),
+    );
   }
 
   logger.info('Prospect message stored; handoff reply sent (conversation not ai_active)', {
@@ -1317,17 +1336,38 @@ async function persistEscalationNotification(
   newState: { escalationReason?: string | null; valueScore?: number },
   conversationId: string,
 ): Promise<void> {
-  if (!lead.assignedAgentId) return;
-  await prisma.notification.create({
-    data: {
-      companyId,
-      userId: lead.assignedAgentId,
-      type: 'agent_takeover',
-      title: 'AI Escalation - Human Agent Needed',
-      message: `Lead ${lead.customerName || lead.phone} escalated: ${newState.escalationReason}`,
-      data: { leadId: lead.id, conversationId, reason: newState.escalationReason, valueScore: newState.valueScore },
-    },
-  });
+  if (lead.assignedAgentId) {
+    await prisma.notification.create({
+      data: {
+        companyId,
+        userId: lead.assignedAgentId,
+        type: 'agent_takeover',
+        title: 'AI Escalation - Human Agent Needed',
+        message: `Lead ${lead.customerName || lead.phone} escalated: ${newState.escalationReason}`,
+        data: { leadId: lead.id, conversationId, reason: newState.escalationReason, valueScore: newState.valueScore },
+      },
+    });
+  } else {
+    // No assigned agent — notify all company admins so escalation is never silently lost.
+    const admins = await prisma.user.findMany({
+      where: { companyId, role: 'company_admin', status: 'active' },
+      select: { id: true },
+    });
+    await Promise.all(
+      admins.map((admin) =>
+        prisma.notification.create({
+          data: {
+            companyId,
+            userId: admin.id,
+            type: 'agent_takeover',
+            title: 'AI Escalation — Unassigned Lead',
+            message: `Lead ${lead.customerName || lead.phone} escalated: ${newState.escalationReason}`,
+            data: { leadId: lead.id, conversationId, reason: newState.escalationReason, valueScore: newState.valueScore },
+          },
+        }),
+      ),
+    );
+  }
 }
 
 /**
@@ -1439,6 +1479,20 @@ export async function orchestrateWhatsAppBuyerTurn(
 
   const h7 = await handleClassifierWorkflowTurn(ctx, visitCommit, liveCtx, conversationState.stage, ctx.input.conversationSelectedPropertyId);
   if (h7) return h7;
+
+  // H7b: Bare visit intent with no date/time — ask the buyer instead of falling to LLM escalation.
+  // Fires only when isVisitActionRequest() is true but visitCommit was not committed (no time parsed).
+  if (!visitCommit.committed && isVisitActionRequest(ctx.input.messageText)) {
+    const askReply = `Great! I'd love to arrange a site visit for you. 😊\n\nCould you share your *preferred date and time*? For example: "Saturday 11am" or "Tuesday 3pm".`;
+    await prisma.message.create({
+      data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: askReply, status: 'sent' },
+    });
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: { stage: 'visit_booking', stageEnteredAt: new Date() },
+    }).catch(() => undefined);
+    return { audience: 'buyer', handled: true, terminal: true, text: askReply };
+  }
 
   const h8 = await handleVisitCommitReplyTurn(ctx, visitCommit, liveCtx);
   if (h8) return h8;
