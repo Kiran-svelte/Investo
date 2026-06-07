@@ -156,6 +156,32 @@ class NotificationEngine {
   }
 
   /**
+   * Send a WhatsApp message directly to an agent's personal phone number.
+   * Used for time-critical alerts (visit bookings, customer messages, escalations)
+   * so agents are notified even when not logged into the dashboard.
+   * Non-throwing — notification failure must never block business logic.
+   *
+   * @param opts.agentPhone - Agent's personal phone number in E.164 format
+   * @param opts.companyId - Company tenant for WhatsApp config lookup
+   * @param opts.message - WhatsApp message body to send
+   */
+  async notifyAgentByWhatsApp(opts: {
+    agentPhone: string;
+    companyId: string;
+    message: string;
+  }): Promise<void> {
+    try {
+      await sendWhatsAppToUser(opts.agentPhone, opts.companyId, opts.message, 'agent_whatsapp_alert');
+      logger.info('Agent WhatsApp alert sent', { companyId: opts.companyId, phone: opts.agentPhone.slice(-4) });
+    } catch (err: unknown) {
+      logger.error('NotificationEngine: agent WhatsApp alert failed', {
+        companyId: opts.companyId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
    * Notify when lead is reassigned (old agent loses it, new agent gets it).
    */
   async onLeadReassigned(lead: any, oldAgentId: string | null, newAgentId: string): Promise<void> {

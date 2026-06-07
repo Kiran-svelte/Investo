@@ -224,36 +224,60 @@ async function handleHumanTakeoverTurn(ctx: BuyerTurnRuntimeContext): Promise<Tu
     },
   });
 
+  const notifTitle = 'New message from customer';
+  const notifMessage = `${ctx.input.leadCustomerName || ctx.customerPhone}: ${ctx.input.messageText.substring(0, 100)}`;
+  const { notificationEngine } = await import('../notification.engine');
+
   if (ctx.input.leadAssignedAgentId) {
     await prisma.notification.create({
       data: {
         companyId: ctx.companyId,
         userId: ctx.input.leadAssignedAgentId,
         type: 'agent_takeover',
-        title: 'New message from customer',
-        message: `${ctx.input.leadCustomerName || ctx.customerPhone}: ${ctx.input.messageText.substring(0, 100)}`,
+        title: notifTitle,
+        message: notifMessage,
       },
     });
+    // Also ping agent on their personal WhatsApp
+    const agentRecord = await prisma.user.findUnique({
+      where: { id: ctx.input.leadAssignedAgentId },
+      select: { phone: true },
+    });
+    if (agentRecord?.phone) {
+      await notificationEngine.notifyAgentByWhatsApp({
+        agentPhone: agentRecord.phone,
+        companyId: ctx.companyId,
+        message: `📩 *Customer message (agent active)*\n${notifMessage}\n\nReply in your Investo dashboard.`,
+      });
+    }
   } else {
-    // No assigned agent — notify all company admins so no message is silently lost.
+    // No assigned agent — notify all company admins via in-app + WhatsApp
     const admins = await prisma.user.findMany({
       where: { companyId: ctx.companyId, role: 'company_admin', status: 'active' },
-      select: { id: true },
+      select: { id: true, phone: true },
     });
     await Promise.all(
-      admins.map((admin) =>
-        prisma.notification.create({
+      admins.map(async (admin) => {
+        await prisma.notification.create({
           data: {
             companyId: ctx.companyId,
             userId: admin.id,
             type: 'agent_takeover',
             title: 'Unassigned lead — customer message received',
-            message: `${ctx.input.leadCustomerName || ctx.customerPhone}: ${ctx.input.messageText.substring(0, 100)}`,
+            message: notifMessage,
           },
-        }),
-      ),
+        });
+        if (admin.phone) {
+          await notificationEngine.notifyAgentByWhatsApp({
+            agentPhone: admin.phone,
+            companyId: ctx.companyId,
+            message: `📩 *Unassigned lead \u2014 customer messaged*\n${notifMessage}\n\nAssign this lead in Investo.`,
+          });
+        }
+      }),
     );
   }
+
 
   logger.info('Prospect message stored; handoff reply sent (conversation not ai_active)', {
     conversationId: ctx.input.conversationId,
