@@ -29,6 +29,8 @@ export interface CommitCustomerCallInput {
   customerMessage: string;
   conversationId?: string;
   lead: { id: string; assignedAgentId?: string | null };
+  /** When set, call booking is owned by the interactive handler — skip text-path commit. */
+  interactiveId?: string;
 }
 
 export interface CommitCustomerCallResult {
@@ -40,6 +42,10 @@ export interface CommitCustomerCallResult {
 export async function tryCommitCustomerCallBooking(
   input: CommitCustomerCallInput,
 ): Promise<CommitCustomerCallResult> {
+  if (input.interactiveId?.trim()) {
+    return { committed: false };
+  }
+
   const msg = input.customerMessage.trim();
   if (!msg) return { committed: false };
 

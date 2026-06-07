@@ -81,7 +81,7 @@ describe('whatsappInteractiveOrchestrator.service', () => {
   test('returns null for unrecognized interactive ids', async () => {
     const result = await tryOrchestratedInteractiveAction({
       ...baseParams,
-      interactiveId: 'visit-time-prop-1-tomorrow-10am',
+      interactiveId: 'unknown-action-xyz',
     });
     expect(result).toBeNull();
   });

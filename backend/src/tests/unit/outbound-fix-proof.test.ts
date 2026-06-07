@@ -267,12 +267,26 @@ describe('PROOF Area 9 — one customer reply per inbound turn', () => {
   test('primary outbound budget enforced on customer sends', () => {
     const wa = read('services/whatsapp.service.ts');
     expect(wa).toContain('claimPrimaryOutboundSend');
-    expect(wa).toContain('Blocked duplicate primary WhatsApp');
+    expect(wa).toContain('Blocked duplicate primary WhatsApp text send');
   });
 
   test('H2 rapport skipped during visit_booking stage', () => {
     const orch = read('services/whatsapp/whatsappTurnOrchestrator.service.ts');
     expect(orch).toMatch(/visit_booking.*confirmation.*commitment/s);
+  });
+
+  test('interactive safety net blocks orchestrator LLM on button taps', () => {
+    const orch = read('services/whatsapp/whatsappTurnOrchestrator.service.ts');
+    expect(orch).toContain('handleInteractiveSafetyTurn');
+    expect(orch).toContain('interactive_safety_net');
+  });
+
+  test('AI reactivation runs before interactive handling', () => {
+    const wa = read('services/whatsapp.service.ts');
+    const interactiveIdx = wa.indexOf('// 3.5. Handle interactive button/list responses');
+    const reactivateIdx = wa.indexOf('this.ensureProspectConversationAiActive(conversation)');
+    expect(reactivateIdx).toBeGreaterThan(-1);
+    expect(interactiveIdx).toBeGreaterThan(reactivateIdx);
   });
 
   test('fast path skips greeting during booking stages', () => {
@@ -289,5 +303,44 @@ describe('PROOF Area 9 — one customer reply per inbound turn', () => {
   test('LLM prompt forbids multi-message replies', () => {
     const ai = read('services/ai.service.ts');
     expect(ai).toContain('NEVER send more than one message per user turn');
+  });
+});
+
+// ── Area 10: fix.md hardening (LLM params, banned phrases, stage guards) ───
+describe('PROOF Area 10 — fix.md production hardening', () => {
+  const read = (rel: string) => {
+    const fs = require('fs');
+    const path = require('path');
+    return fs.readFileSync(path.join(__dirname, '../..', rel), 'utf8');
+  };
+
+  test('buyer LLM uses centralized safe params', () => {
+    const params = read('constants/llmSafeParams.constants.ts');
+    expect(params).toContain('temperature: 0');
+    expect(params).toContain('max_tokens: 300');
+    expect(params).toContain('frequency_penalty');
+  });
+
+  test('global rules block exists and is injected', () => {
+    expect(read('constants/aiGlobalRules.constants.ts')).toContain('GLOBAL RULES');
+    expect(read('services/ai.service.ts')).toContain('AI_GLOBAL_RULES_BLOCK');
+  });
+
+  test('banned phrase post-filter wired in sanitizer', () => {
+    const san = read('services/whatsapp/whatsappResponseSanitizer.service.ts');
+    expect(san).toContain('containsBannedBuyerPhrase');
+    expect(san).toContain('buildSafeBuyerFallback');
+  });
+
+  test('stage regression guard exported and used', () => {
+    expect(read('services/conversationStateMachine.ts')).toContain('isAllowedStageTransition');
+    expect(read('services/whatsapp/whatsappTurnOrchestrator.service.ts')).toContain('isAllowedStageTransition');
+  });
+
+  test('whatsapp catch fallback has no connection-issue phrase', () => {
+    const wa = read('services/whatsapp.service.ts');
+    const fn = wa.slice(wa.indexOf('function buildAiFallbackMessage'), wa.indexOf('export const whatsappService'));
+    expect(fn).not.toContain('connection issue');
+    expect(fn).not.toContain('technical issue');
   });
 });

@@ -37,7 +37,7 @@ import {
 } from './outboundTurnDebug.service';
 
 import { scheduleVisitFromWhatsApp } from './visitBooking.service';
-import { transitionLeadStatus, transitionLeadToVisitScheduled } from './leadTransition.service';
+import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { notifyAgentOfNewLead } from './leadAssignment.service';
 import { assignLeadWithRouting } from './leadRouting.service';
@@ -916,8 +916,36 @@ export class WhatsAppService {
       trigger: 'customer_message',
     });
 
+    // Reactivate AI before interactive routing — button taps must not fall through to the LLM
+    // because conversation was still agent_active when loaded from DB.
+    const aiReady = await this.ensureProspectConversationAiActive(conversation);
+    conversation = { ...conversation, status: aiReady.status as typeof conversation.status, aiEnabled: aiReady.aiEnabled };
+
+    if (
+      conversation.status === 'ai_active'
+      && conversation.aiEnabled
+      && conversationState.stage === 'human_escalated'
+    ) {
+      const resetState = conversationStateManager.createInitialState();
+      Object.assign(conversationState, {
+        stage: 'rapport' as ConversationStage,
+        previousStage: 'human_escalated' as ConversationStage,
+        stageEnteredAt: new Date(),
+        messageCount: 0,
+        consecutiveObjections: 0,
+        escalationReason: null,
+        commitments: resetState.commitments,
+      });
+      logger.info('In-memory conversationState reset from human_escalated to rapport', {
+        conversationId: conversation.id,
+      });
+    }
+
     // 3.5. Handle interactive button/list responses
     if (msg.interactiveId && conversation.status === 'ai_active' && conversation.aiEnabled) {
+      // #region agent log
+      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H1',location:'whatsapp.service.ts:interactiveBranch',message:'interactive_path_enter',data:{interactiveId:msg.interactiveId,conversationId:conversation.id},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const actionResult = await this.handleInteractiveAction({
         interactiveId: msg.interactiveId,
         interactiveType: msg.interactiveType,
@@ -938,26 +966,10 @@ export class WhatsAppService {
         });
 
         // Update conversation state if action provided new state
-        if (actionResult.newState) {
-          await prisma.conversation.update({
-            where: { id: conversation.id },
-            data: {
-              stage: actionResult.newState.stage as any,
-              selectedPropertyId: actionResult.newState.selectedPropertyId || conversation.selectedPropertyId,
-              proposedVisitTime: actionResult.newState.proposedVisitTime || conversation.proposedVisitTime,
-              ...(actionResult.newState.recommendedPropertyIds && {
-                recommendedPropertyIds: actionResult.newState.recommendedPropertyIds as any,
-              }),
-            },
-          });
-        }
-
-        // Update lead status if action provided new status (state machine)
-        if (actionResult.leadStatus === 'visit_scheduled') {
-          await transitionLeadToVisitScheduled(lead.id);
-        } else if (actionResult.leadStatus) {
-          await transitionLeadStatus(lead.id, actionResult.leadStatus as any);
-        }
+        const { applyInteractiveActionSideEffects } = await import(
+          './whatsapp/whatsappInteractivePersist.service'
+        );
+        await applyInteractiveActionSideEffects(actionResult, lead.id, conversation.id, conversation);
 
         // Unified TurnResult dispatch (interactive orchestrator + sendTurnResult)
         if (actionResult.turnResult) {
@@ -973,6 +985,9 @@ export class WhatsAppService {
             });
           }
           if (await claimOutboundAiReply(companyId, msg.messageId)) {
+            // #region agent log
+            fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H2',location:'whatsapp.service.ts:interactiveSend',message:'interactive_sendTurnResult',data:{action:actionResult.action,hasButtons:Boolean(actionResult.turnResult.components?.length),preview:outboundText?.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
             await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig!);
             incrementOpsMetric('whatsapp_outbound');
           }
@@ -1009,33 +1024,11 @@ export class WhatsAppService {
       }
     }
 
-    // 4. Any non-staff WhatsApp sender is a prospect — resume AI only when not in human takeover
-    const aiReady = await this.ensureProspectConversationAiActive(conversation);
-    conversation = { ...conversation, status: aiReady.status as typeof conversation.status, aiEnabled: aiReady.aiEnabled };
-
-    // CRITICAL: If the stage was 'human_escalated' and we just reset it to 'rapport' in the DB,
-    // we must also reset the in-memory conversationState — it was built before the DB update.
-    // Without this, the AI still sees stage='human_escalated' this turn and generates
-    // "A human specialist will assist you" again, which is the bug we are fixing.
-    if (
-      conversation.status === 'ai_active'
-      && conversation.aiEnabled
-      && conversationState.stage === 'human_escalated'
-    ) {
-      const resetState = conversationStateManager.createInitialState();
-      // Preserve any commitments already collected — don't wipe their budget/location data.
-      Object.assign(conversationState, {
-        stage: 'rapport' as ConversationStage,
-        previousStage: 'human_escalated' as ConversationStage,
-        stageEnteredAt: new Date(),
-        messageCount: 0,
-        consecutiveObjections: 0,
-        escalationReason: null,
-        commitments: resetState.commitments,
-      });
-      logger.info('In-memory conversationState reset from human_escalated to rapport', {
-        conversationId: conversation.id,
-      });
+    // 4. Any non-staff WhatsApp sender is a prospect — AI state already refreshed above for interactive routing.
+    if (msg.interactiveId) {
+      // #region agent log
+      fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H1',location:'whatsapp.service.ts:interactiveSkipped',message:'interactive_not_handled',data:{interactiveId:msg.interactiveId,status:conversation.status,aiEnabled:conversation.aiEnabled},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
     }
 
     const history = await prisma.message.findMany({
@@ -1988,6 +1981,10 @@ export class WhatsAppService {
   ): Promise<void> {
     if (!result.handled) return;
 
+    // #region agent log
+    fetch('http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b06f20'},body:JSON.stringify({sessionId:'b06f20',hypothesisId:'H4',location:'whatsapp.service.ts:sendTurnResult',message:'sendTurnResult_enter',data:{hasText:Boolean(result.text?.trim()),componentKinds:result.components?.map((c)=>c.kind),preview:result.text?.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
     const hasText = Boolean(result.text?.trim());
     const media = result.components?.find((c) => c.kind === 'media');
     const nonMediaComponents = result.components?.filter((c) => c.kind !== 'media');
@@ -2420,28 +2417,25 @@ function buildAiFallbackMessage(input: {
   activeVisitPropertyName: string | null;
   isVisitQuery: boolean;
 }): string {
-  const salutation = formatCustomerSalutation(input.customerName);
-
   if (input.activeVisitPropertyName) {
-    const prop = `*${input.activeVisitPropertyName}*`;
-    return (
-      `I had a brief connection issue, but here's what I know${salutation}: ` +
-      `your visit to ${prop} is on record 🗓️\n\n` +
-      `Reply *Confirm*, *Reschedule*, or *Cancel* and I'll handle it right away. ✅`
-    );
+    return buildSafeBuyerFallback({
+      activeVisit: {
+        propertyName: input.activeVisitPropertyName,
+        scheduledAt: new Date(),
+        status: 'scheduled',
+      },
+    });
   }
 
   if (input.isVisitQuery) {
+    const salutation = formatCustomerSalutation(input.customerName);
     return (
-      `I ran into a brief issue fetching your visit details${salutation}. ` +
-      `Could you give me a moment and try again? I'll pull up your booking status right away. 🙏`
+      `I could not fetch your visit details just now${salutation}. ` +
+      `Please try again in a moment, or type *Talk to agent* for help.`
     );
   }
 
-  return (
-    `I had a brief technical issue${salutation}. ` +
-    `Please resend your message and I'll respond immediately — no need to start over! 🙏`
-  );
+  return buildSafeBuyerFallback();
 }
 
 export const whatsappService = new WhatsAppService();

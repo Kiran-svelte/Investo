@@ -129,6 +129,66 @@ export async function resolveHeroMediaComponentFromPropertyIds(
 }
 
 // ---------------------------------------------------------------------------
+// H0: Interactive button safety net (never LLM/workflow on button taps)
+// ---------------------------------------------------------------------------
+
+async function handleInteractiveSafetyTurn(ctx: BuyerTurnRuntimeContext): Promise<TurnResult | null> {
+  const interactiveId = ctx.input.interactiveId?.trim();
+  if (!interactiveId) return null;
+
+  logOutboundBranch('H0', 'whatsappTurnOrchestrator:interactiveSafety', 'interactive_safety_net', {
+    interactiveId,
+  });
+
+  const { tryOrchestratedInteractiveAction } = await import('./whatsappInteractiveOrchestrator.service');
+  const { applyInteractiveActionSideEffects } = await import('./whatsappInteractivePersist.service');
+
+  const actionResult = await tryOrchestratedInteractiveAction({
+    interactiveId,
+    lead: {
+      id: ctx.input.leadId,
+      customerName: ctx.input.leadCustomerName,
+      phone: ctx.customerPhone,
+      assignedAgentId: ctx.input.leadAssignedAgentId,
+      status: ctx.input.leadStatus,
+    },
+    conversation: {
+      id: ctx.input.conversationId,
+      selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+    },
+    company: { id: ctx.companyId, name: ctx.companyName },
+  });
+
+  if (!actionResult?.handled) {
+    const { buildSafeBuyerFallback } = await import('../../utils/safeBuyerFallback.util');
+    return { audience: 'buyer', handled: true, terminal: true, text: buildSafeBuyerFallback() };
+  }
+
+  await applyInteractiveActionSideEffects(actionResult, ctx.input.leadId, ctx.input.conversationId, {
+    selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+    proposedVisitTime: ctx.input.conversationProposedVisitTime,
+  });
+
+  if (actionResult.turnResult?.text?.trim()) {
+    await prisma.message.create({
+      data: {
+        conversationId: ctx.input.conversationId,
+        senderType: 'ai',
+        content: actionResult.turnResult.text.trim(),
+        status: 'sent',
+      },
+    });
+  }
+
+  if (actionResult.turnResult) {
+    return actionResult.turnResult;
+  }
+
+  const { buildSafeBuyerFallback } = await import('../../utils/safeBuyerFallback.util');
+  return { audience: 'buyer', handled: true, terminal: true, text: buildSafeBuyerFallback() };
+}
+
+// ---------------------------------------------------------------------------
 // H1: Human takeover
 // ---------------------------------------------------------------------------
 
@@ -418,6 +478,7 @@ async function handleCallCommitReplyTurn(
     outboundText: callCommit.customerReply,
     propertyId: ctx.input.conversationSelectedPropertyId,
     hasActiveCall: true,
+    recentAction: 'confirmed',
   });
 
   return {
@@ -566,6 +627,7 @@ async function handleClassifierWorkflowTurn(
   selectedPropertyId: string | null,
 ): Promise<TurnResult | null> {
   if (visitCommit.committed) return null;
+  if (ctx.input.interactiveId?.trim()) return null;
   if (shouldDeferToFullAiForExtraction(ctx.input.messageText)) return null;
 
   const resolvedPropertyId = await resolveBuyerPropertyReference({
@@ -824,6 +886,10 @@ async function handleFullAiTurn(
       `What date and time should we move it to? (e.g. "this Saturday 11am")`;
   }
 
+  const hasPriorOutbound = ctx.history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
+  const selectedPropertyName =
+    rawProperties.find((p) => p.id === ctx.input.conversationSelectedPropertyId)?.name ?? null;
+
   let outboundText = await sanitizeBuyerOutbound({
     text: outboundCandidate,
     hasInventoryAlternatives: neverSayNoCtx.hasInventoryAlternatives,
@@ -841,6 +907,18 @@ async function handleFullAiTurn(
     language: aiResponse.detectedLanguage,
     companyName: ctx.companyName,
     turnContext: { visitCommitted: visitCommit.committed, workflowSuccess: false },
+    bannedPhraseContext: {
+      hasPriorOutbound,
+      stage: conversationState.stage,
+    },
+    activeVisit: liveCtx.activeVisit
+      ? {
+          propertyName: liveCtx.activeVisit.propertyName,
+          scheduledAt: liveCtx.activeVisit.scheduledAt,
+          status: liveCtx.activeVisit.status,
+        }
+      : null,
+    selectedPropertyName,
   });
 
   if (!outboundText.trim()) {
@@ -1097,7 +1175,13 @@ async function persistNewConversationState(
   aiResponse: Awaited<ReturnType<typeof aiService.generateResponse>>,
   lead: { id: string; customerName: string | null; phone: string; assignedAgentId: string | null },
 ): Promise<void> {
-  const newState = aiResponse.newState!;
+  const newState = { ...aiResponse.newState! };
+  const { isAllowedStageTransition } = await import('../conversationStateMachine');
+  const currentStage = ctx.input.conversationStage as import('../conversationStateMachine').ConversationStage;
+  if (!isAllowedStageTransition(currentStage, newState.stage, ctx.input.messageText)) {
+    logger.warn('Blocked LLM stage regression', { from: currentStage, to: newState.stage });
+    newState.stage = currentStage;
+  }
   await prisma.conversation.update({
     where: { id: ctx.input.conversationId },
     data: {
@@ -1245,6 +1329,9 @@ export async function orchestrateWhatsAppBuyerTurn(
   const h1 = await handleHumanTakeoverTurn(ctx);
   if (h1) return h1;
 
+  const h0 = await handleInteractiveSafetyTurn(ctx);
+  if (h0) return h0;
+
   const recentCustomerMessages = ctx.history
     .filter((m) => m.senderType === 'customer')
     .map((m) => m.content)
@@ -1274,6 +1361,7 @@ export async function orchestrateWhatsAppBuyerTurn(
     customerMessage: ctx.input.messageText,
     conversationId: ctx.input.conversationId,
     lead: { id: ctx.input.leadId, assignedAgentId: ctx.input.leadAssignedAgentId },
+    interactiveId: ctx.input.interactiveId,
   });
 
   const liveCtx = await getLiveLeadContext(ctx.input.leadId, ctx.companyId);

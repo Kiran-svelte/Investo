@@ -4,7 +4,7 @@
  */
 
 const DEBUG_ENDPOINT = 'http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e';
-const DEBUG_SESSION = '44596a';
+const DEBUG_SESSION = 'b06f20';
 
 export type OutboundTurnChannel = 'buyer' | 'staff' | 'system';
 

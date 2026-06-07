@@ -7,6 +7,9 @@ const OUTBOUND_HARD_BLOCK_MENU =
 const OUTBOUND_SCHEDULING_PROMPT =
   /\b(schedule your visit|when would you prefer|pick a time|preferred time|site visit for)\b/i;
 
+const OUTBOUND_CALL_CONFIRMATION =
+  /\b(callback scheduled|callback rescheduled|callback updated|callback confirmed|specialist will confirm the call)\b/i;
+
 export type QuickReplyRecentAction = 'rescheduled' | 'cancelled' | 'confirmed';
 
 /**
@@ -30,6 +33,9 @@ export function shouldAttachContextualQuickReplies(input: {
   if (!text) return false;
 
   if (OUTBOUND_HARD_BLOCK_MENU.test(text)) return false;
+
+  // Call confirmations already ship dedicated call action buttons from the interactive handler.
+  if (OUTBOUND_CALL_CONFIRMATION.test(text)) return false;
 
   // Soft follow-ups ("would you like more details?") still get Book Visit / Property Details buttons.
 
