@@ -189,7 +189,6 @@ export const WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
     label: 'Escalate to Human',
     steps: [
       { action: 'resolveLead', optional: true },
-      { action: 'takeoverConversation', optional: true },
       { action: 'createUrgentAlert' },
       { action: 'notifyAllAgents' },
       { action: 'markLeadUrgent', optional: true },

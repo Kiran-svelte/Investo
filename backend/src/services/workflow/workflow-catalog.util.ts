@@ -139,7 +139,7 @@ export const WORKFLOW_GUIDE: WorkflowGuideEntry[] = [
     label: 'Escalate to Human',
     triggers: ['escalate', 'urgent', 'talk to manager', 'human takeover', 'flag priority'],
     routing: 'runWorkflow',
-    steps: ['resolveLead', 'takeoverConversation', 'createUrgentAlert', 'notifyAllAgents', 'markLeadUrgent'],
+    steps: ['resolveLead', 'createUrgentAlert', 'notifyAllAgents', 'markLeadUrgent'],
     requiredParams: ['leadId or leadName', 'note or reason'],
   },
 ];

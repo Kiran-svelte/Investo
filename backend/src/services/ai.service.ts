@@ -260,14 +260,17 @@ export class AIService {
       };
     }
 
-    // Never keep customers stuck in human_escalated for normal messages.
-    if (newState.stage === 'human_escalated' && nextAction.action === 'escalate') {
-      newState.stage = 'rapport';
+    // Never keep customers stuck in human_escalated — notify agents only, AI stays active.
+    if (newState.stage === 'human_escalated') {
+      newState.stage = state.stage === 'human_escalated' ? 'rapport' : state.stage;
       newState.escalationReason = null;
-      nextAction.action = 'continue';
-      nextAction.targetStage = undefined;
+    }
+
+    if (nextAction.action === 'escalate') {
+      newState.escalationReason = nextAction.escalationReason ?? null;
       nextAction.promptModifiers = [
-        'Customer re-engaged after escalation. Continue naturally — do NOT say a specialist will assist.',
+        ...(nextAction.promptModifiers ?? []),
+        'Never say the chat was handed off or that you stopped helping.',
       ];
     }
 
@@ -599,15 +602,15 @@ ${PERSONALITY_BLOCK}`;
   private operatorContactPromptBlock(aiSettings: { operatorContact?: unknown }): string {
     const raw = aiSettings?.operatorContact;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-      return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+      return '\n## TEAM NOTIFIED\nTell the customer our team has been alerted and will follow up. You are still helping them here.';
     }
     const contact = raw as Record<string, unknown>;
     const name = typeof contact.name === 'string' ? contact.name.trim() : '';
     const phone = typeof contact.phone === 'string' ? contact.phone.trim() : '';
     if (!name && !phone) {
-      return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+      return '\n## TEAM NOTIFIED\nTell the customer our team has been alerted and will follow up. You are still helping them here.';
     }
-    return `\n## SPECIALIST HANDOFF\nShare that *${name || 'our specialist'}*${phone ? ` (${phone})` : ''} will take over for pricing and booking details.`;
+    return `\n## TEAM NOTIFIED\nMention that *${name || 'our specialist'}*${phone ? ` (${phone})` : ''} will follow up on pricing/booking. You remain the active assistant — keep helping on property questions.`;
   }
 
   private getProviderOrder(): AIProviderName[] {

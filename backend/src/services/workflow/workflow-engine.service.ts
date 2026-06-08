@@ -695,6 +695,9 @@ export async function runWorkflow(
         const partialReply = runChannel === 'buyer'
           ? buildBuyerSafePartialFailureReply(label, step.action)
           : buildPartialFailureReply(label, step.action);
+        if (runChannel === 'buyer') {
+          void notifyBuyerWorkflowFailure(run, state, workflowId, step.action, detail);
+        }
         return {
           ok: false,
           reply: partialReply,
@@ -731,6 +734,9 @@ export async function runWorkflow(
         errorMessage: detail,
         result: buyerReply.slice(0, 500),
       });
+      }
+      if (runChannel === 'buyer') {
+        void notifyBuyerWorkflowFailure(run, state, workflowId, step.action, detail);
       }
       return {
         ok: false,
@@ -957,6 +963,38 @@ export function isBuyerQualificationOnlyMessage(messageText: string): boolean {
 
 const INTERNAL_WORKFLOW_LEAK = /Workflow\s+"[^"]+"\s+failed|handler not configured|Invalid uuid|propertyId:/i;
 
+function mapBuyerWorkflowFailureReason(workflowId: WorkflowId, failedStep: string): import('../buyerAgentAssist.service').BuyerAssistReason {
+  if (workflowId === 'schedule_visit' || failedStep === 'bookVisit') return 'visit_booking_failure';
+  if (workflowId === 'reschedule_visit') return 'reschedule_failure';
+  if (workflowId === 'cancel_visit') return 'cancel_failure';
+  if (failedStep === 'checkCalendar' || failedStep === 'optionalBookSlot') return 'calendar_update_failure';
+  if (failedStep === 'updateLeadStatus' || failedStep === 'transitionLeadStatus') return 'lead_status_failure';
+  return 'workflow_failure';
+}
+
+async function notifyBuyerWorkflowFailure(
+  run: WorkflowRunContext,
+  state: WorkflowState,
+  workflowId: WorkflowId,
+  failedStep: string,
+  detail: string,
+): Promise<void> {
+  const leadId = state.leadId ?? run.sessionLeadId;
+  if (!leadId || (run.channel ?? 'staff') !== 'buyer') return;
+  const { notifyBuyerAgentAssistNeeded } = await import('../buyerAgentAssist.service');
+  void notifyBuyerAgentAssistNeeded({
+    companyId: run.toolContext.companyId,
+    leadId,
+    conversationId: state.conversationId ?? null,
+    reason: mapBuyerWorkflowFailureReason(workflowId, failedStep),
+    summary: `Workflow ${workflowId} failed at ${failedStep}`,
+    detail,
+    customerMessage: run.messageText,
+    workflowId,
+    failedStep,
+  });
+}
+
 /** Never expose internal workflow/step names to buyers. */
 export function buildBuyerWorkflowFailureReply(
   workflowId: WorkflowId,
@@ -1133,8 +1171,8 @@ function isBuyerWorkflowId(id: WorkflowId | 'unknown'): id is WorkflowId {
 function formatBuyerWorkflowReply(workflowId: WorkflowId, reply: string): string {
   if (workflowId === 'escalate_to_human') {
     return (
-      "I've alerted our team and moved this chat to a human specialist.\n\n" +
-      'Someone from the team will call or message you shortly.'
+      "I've notified our team about your request.\n\n" +
+      "I'm still here to help — feel free to ask about properties, visits, or brochures."
     );
   }
 

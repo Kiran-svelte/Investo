@@ -15,14 +15,14 @@ async function pushEscalationToAgent(
   try {
     const { whatsappService } = await import('../../whatsapp.service');
     const text = [
-      `🚨 *Urgent: Customer Needs Human Help*`,
+      `🚨 *Customer needs help*`,
       ``,
       customerName ? `Customer: *${customerName}*` : null,
       leadId ? `Lead ID: ${leadId}` : null,
       ``,
       `Message: "${requestMessage.slice(0, 200)}"`,
       ``,
-      `Please take over this conversation immediately.`,
+      `Our AI is still helping them on WhatsApp. Please check your Investo dashboard when you can.`,
     ]
       .filter((line): line is string => line !== null)
       .join('\n');

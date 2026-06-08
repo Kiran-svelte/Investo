@@ -577,7 +577,8 @@ describe('workflow-engine.service', () => {
       companyName: 'Demo Realty',
     });
 
-    expect(reply).toContain('human specialist');
+    expect(reply).toContain('notified our team');
+    expect(reply).toContain('still here to help');
     expect(reply).not.toContain('Urgent alert created');
     expect(reply).not.toContain('agents notified');
   });

@@ -1443,9 +1443,19 @@ async function persistNewConversationState(
     logger.warn('Blocked LLM stage regression', { from: currentStage, to: newState.stage });
     newState.stage = currentStage;
   }
+
+  if (newState.stage === 'human_escalated') {
+    newState.stage = currentStage === 'human_escalated' ? 'rapport' : currentStage;
+    newState.escalationReason = null;
+  }
+
+  const shouldNotifyAgents = aiResponse.nextAction?.action === 'escalate';
+
   await prisma.conversation.update({
     where: { id: ctx.input.conversationId },
     data: {
+      status: 'ai_active',
+      aiEnabled: true,
       stage: newState.stage,
       stageEnteredAt: newState.stageEnteredAt,
       stageMessageCount: newState.messageCount,
@@ -1455,13 +1465,10 @@ async function persistNewConversationState(
       consecutiveObjections: newState.consecutiveObjections,
       urgencyScore: newState.urgencyScore,
       valueScore: newState.valueScore,
-      escalationReason: newState.escalationReason,
+      escalationReason: shouldNotifyAgents ? (aiResponse.nextAction?.escalationReason ?? newState.escalationReason) : null,
       recommendedPropertyIds: newState.recommendedProperties as string[],
       selectedPropertyId: newState.selectedPropertyId,
       proposedVisitTime: newState.proposedVisitTime,
-      // Zero-UI: record escalation timestamp and notify agent — keep AI active so the buyer
-      // is not stuck in H1 handoff on every subsequent message.
-      ...(newState.stage === 'human_escalated' && { escalatedAt: new Date() }),
     },
   });
 
@@ -1471,11 +1478,20 @@ async function persistNewConversationState(
     await transitionLeadStatus(ctx.input.leadId, aiResponse.nextAction.suggestedLeadStatus, { force: true });
   }
 
-  if (newState.stage === 'human_escalated' && lead.assignedAgentId) {
-    await persistEscalationNotification(ctx.companyId, lead, newState, ctx.input.conversationId);
-  }
+  if (shouldNotifyAgents) {
+    const { notifyBuyerAgentAssistNeeded } = await import('../buyerAgentAssist.service');
+    const reasonText = aiResponse.nextAction?.escalationReason ?? 'Customer needs agent attention';
+    await notifyBuyerAgentAssistNeeded({
+      companyId: ctx.companyId,
+      leadId: lead.id,
+      conversationId: ctx.input.conversationId,
+      reason: /negotiat|discount|price/i.test(reasonText) ? 'price_negotiation' : 'escalation_request',
+      summary: reasonText,
+      customerMessage: ctx.input.messageText,
+      customerName: lead.customerName,
+      customerPhone: lead.phone,
+    });
 
-  if (newState.stage === 'human_escalated') {
     await logAgentAction({
       companyId: ctx.companyId,
       triggeredBy: 'inbound_message',
@@ -1484,8 +1500,9 @@ async function persistNewConversationState(
       resourceId: ctx.input.leadId,
       status: 'success',
       inputs: {
-        reason: newState.escalationReason ?? null,
+        reason: reasonText,
         conversationId: ctx.input.conversationId,
+        notifyOnly: true,
       },
     });
   }
@@ -1518,54 +1535,6 @@ function fireMemoryExtraction(input: {
         : null,
     }),
   );
-}
-
-/**
- * Persists an escalation notification to the DB.
- *
- * @param companyId - Company identifier.
- * @param lead - Lead record.
- * @param newState - New conversation state.
- * @param conversationId - Conversation being escalated.
- */
-async function persistEscalationNotification(
-  companyId: string,
-  lead: { id: string; customerName: string | null; phone: string; assignedAgentId: string | null },
-  newState: { escalationReason?: string | null; valueScore?: number },
-  conversationId: string,
-): Promise<void> {
-  if (lead.assignedAgentId) {
-    await prisma.notification.create({
-      data: {
-        companyId,
-        userId: lead.assignedAgentId,
-        type: 'agent_takeover',
-        title: 'AI Escalation - Human Agent Needed',
-        message: `Lead ${lead.customerName || lead.phone} escalated: ${newState.escalationReason}`,
-        data: { leadId: lead.id, conversationId, reason: newState.escalationReason, valueScore: newState.valueScore },
-      },
-    });
-  } else {
-    // No assigned agent — notify all company admins so escalation is never silently lost.
-    const admins = await prisma.user.findMany({
-      where: { companyId, role: 'company_admin', status: 'active' },
-      select: { id: true },
-    });
-    await Promise.all(
-      admins.map((admin) =>
-        prisma.notification.create({
-          data: {
-            companyId,
-            userId: admin.id,
-            type: 'agent_takeover',
-            title: 'AI Escalation — Unassigned Lead',
-            message: `Lead ${lead.customerName || lead.phone} escalated: ${newState.escalationReason}`,
-            data: { leadId: lead.id, conversationId, reason: newState.escalationReason, valueScore: newState.valueScore },
-          },
-        }),
-      ),
-    );
-  }
 }
 
 /**
