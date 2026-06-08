@@ -931,7 +931,7 @@ export class WhatsAppService {
     }
 
     const normalizedCustomerText = msg.messageText.trim();
-    if (normalizedCustomerText) {
+    if (normalizedCustomerText && !msg.interactiveId?.trim()) {
       const firstSameContent = await prisma.message.findFirst({
         where: {
           conversationId: conversation.id,
@@ -1153,6 +1153,7 @@ export class WhatsAppService {
           },
         });
 
+        processingSucceeded = true;
         return {
           status: 'processed',
           companyId,
@@ -1290,7 +1291,7 @@ export class WhatsAppService {
       if (claimedCustomerProcessingTurn) {
         await releaseCustomerProcessingTurn(companyId, customerPhone);
       }
-      void drainCustomerInboundQueue(companyId, customerPhone).catch((drainErr: unknown) => {
+      await drainCustomerInboundQueue(companyId, customerPhone).catch((drainErr: unknown) => {
         logger.warn('Customer inbound queue drain failed', {
           companyId,
           error: drainErr instanceof Error ? drainErr.message : String(drainErr),

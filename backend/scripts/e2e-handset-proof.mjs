@@ -285,12 +285,17 @@ async function waitForBuyerPathReady(maxAttempts = 4) {
 async function runInteractive(from, interactiveId, title, waitSec = 35) {
   const existingLead = await getLeadForPhone(from);
   if (existingLead) await ensureAiActive(existingLead.id);
+  await sleep(3000);
   const wh = await sendInteractiveWebhook(from, interactiveId, title, interactiveId.slice(0, 12));
   const lead = (await waitForLead(from, 30)) || existingLead;
-  await sleep(5000);
   const { reply } = lead
     ? await waitForAiReply(lead.id, wh.sentAt, { timeoutSec: waitSec })
     : { reply: '' };
+  if (!reply && lead) {
+    await sleep(8000);
+    const retry = await waitForAiReply(lead.id, wh.sentAt, { timeoutSec: Math.max(20, waitSec) });
+    return { wh, lead, reply: retry.reply, logs: await getActionLogsForLead(lead.id, wh.sentAt) };
+  }
   await sleep(2000);
   const logs = lead ? await getActionLogsForLead(lead.id, wh.sentAt) : [];
   return { wh, lead, reply, logs };
