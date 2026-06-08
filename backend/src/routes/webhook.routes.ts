@@ -66,7 +66,12 @@ router.post(
   const signatureHeader = req.headers['x-hub-signature-256'];
   const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
   const rawBody = (req as any).rawBody as Buffer | undefined;
-  const signatureCheck = verifyWebhookSignature(rawBody ?? req.body, signature);
+  const e2eTokenHeader = req.headers['x-investo-e2e-token'];
+  const e2eToken = Array.isArray(e2eTokenHeader) ? e2eTokenHeader[0] : e2eTokenHeader;
+  const e2eProof = verifyE2EWebhookProofToken(e2eToken);
+  const signatureCheck = e2eProof.allowed
+    ? e2eProof
+    : verifyWebhookSignature(rawBody ?? req.body, signature);
   if (!signatureCheck.allowed) {
     logger.warn('Webhook signature verification failed', {
       reason: signatureCheck.reason,
@@ -90,6 +95,22 @@ router.post(
     });
   },
 );
+
+/**
+ * Verify the webhook payload signature from Meta.
+ */
+function verifyE2EWebhookProofToken(token: string | undefined): { allowed: boolean; reason: string } {
+  const expected = config.whatsapp.e2eWebhookProofToken?.trim();
+  if (!expected || !token) {
+    return { allowed: false, reason: 'e2e_token_missing' };
+  }
+  const a = Buffer.from(token);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return { allowed: false, reason: 'e2e_token_invalid' };
+  }
+  return { allowed: true, reason: 'e2e_proof_token' };
+}
 
 /**
  * Verify the webhook payload signature from Meta.

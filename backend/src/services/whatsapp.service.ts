@@ -1169,7 +1169,7 @@ export class WhatsAppService {
           conversationRecommendedPropertyIds: (conversation.recommendedPropertyIds ?? []) as string[],
           conversationStage: conversationState.stage,
           humanTakeover:
-            conversation.status === 'agent_active' || conversation.aiEnabled === false,
+            conversation.status === 'agent_active' && conversation.aiEnabled === false,
           history,
           hasPriorOutbound,
         },

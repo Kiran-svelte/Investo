@@ -21,6 +21,7 @@ const PHONE_NUMBER_ID = '1090528010807708';
 
 const raw = fs.readFileSync(varsPath, 'utf8').replace(/^\uFEFF/, '');
 const vars = JSON.parse(raw);
+const E2E_WEBHOOK_TOKEN = process.env.E2E_WEBHOOK_PROOF_TOKEN || vars.E2E_WEBHOOK_PROOF_TOKEN || 'investo-handset-e2e-v1';
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: vars.DATABASE_URL }) });
 
 const INTERNAL_LEAK = /Workflow\s+"[^"]+"\s+failed|Invalid uuid|propertyId:|handler not configured/i;
@@ -74,7 +75,10 @@ async function sendTextWebhook(from, body, suffix = '', { msgId: fixedMsgId } = 
   };
   const res = await fetch(`${BASE}/api/webhook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(E2E_WEBHOOK_TOKEN ? { 'X-Investo-E2E-Token': E2E_WEBHOOK_TOKEN } : {}),
+    },
     body: JSON.stringify(payload),
   });
   return { ok: res.status === 200, status: res.status, msgId, sentAt: new Date() };
@@ -106,7 +110,10 @@ async function sendInteractiveWebhook(from, interactiveId, title = 'Tap', suffix
   };
   const res = await fetch(`${BASE}/api/webhook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(E2E_WEBHOOK_TOKEN ? { 'X-Investo-E2E-Token': E2E_WEBHOOK_TOKEN } : {}),
+    },
     body: JSON.stringify(payload),
   });
   return { ok: res.status === 200, status: res.status, msgId, sentAt: new Date() };
@@ -252,8 +259,10 @@ async function runStaffTurn(staffUser, from, body, { waitSec = 45, mustMatch = n
 }
 
 async function runTurnOnce(from, body, { waitSec = 0, mustMatch = null } = {}) {
+  const existingLead = await getLeadForPhone(from);
+  if (existingLead) await ensureAiActive(existingLead.id);
   const wh = await sendTextWebhook(from, body, body.slice(0, 10).replace(/\W/g, ''));
-  const lead = await waitForLead(from, 30);
+  const lead = (await waitForLead(from, 30)) || existingLead;
   const { reply } = lead
     ? await waitForAiReply(lead.id, wh.sentAt, { timeoutSec: waitSec || 45, mustMatch })
     : { reply: '' };
@@ -300,7 +309,10 @@ async function ensureAiActive(leadId) {
     data: {
       status: 'ai_active',
       aiEnabled: true,
-      ...(conv.stage === 'human_escalated' ? { stage: 'qualify', escalationReason: null } : {}),
+      escalationReason: null,
+      ...(conv.stage === 'human_escalated' || conv.status === 'agent_active'
+        ? { stage: 'rapport', stageEnteredAt: new Date(), stageMessageCount: 0 }
+        : {}),
     },
   });
 }
