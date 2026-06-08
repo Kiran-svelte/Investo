@@ -287,6 +287,7 @@ async function runInteractive(from, interactiveId, title, waitSec = 35) {
   if (existingLead) await ensureAiActive(existingLead.id);
   const wh = await sendInteractiveWebhook(from, interactiveId, title, interactiveId.slice(0, 12));
   const lead = (await waitForLead(from, 30)) || existingLead;
+  await sleep(5000);
   const { reply } = lead
     ? await waitForAiReply(lead.id, wh.sentAt, { timeoutSec: waitSec })
     : { reply: '' };
@@ -628,7 +629,7 @@ let buyerD = randBuyer();
 add('buyer-int-filter', 'interactive', 'Filter 2BHK shortlist', async () => {
   buyerD = randBuyer();
   await runTurn(buyerD, 'Hi', { waitSec: 45, mustMatch: /welcome|palm|help|explore/i });
-  await sleep(3000);
+  await sleep(8000);
   const { wh, lead, reply } = await runInteractive(buyerD, 'filter-2bhk', '2 BHK', 60);
   const clean = assertCleanReply(reply);
   const ok = wh.ok && !!lead && !clean.length && /found|2 bhk|property|options|great choice/i.test(reply);

@@ -27,6 +27,10 @@ import {
   claimOutboundAiReply,
   releaseInboundMessageFull,
 } from './inboundMessageGuard.service';
+import {
+  enqueueCustomerInbound,
+  drainCustomerInboundQueue,
+} from './customerInboundQueue.service';
 import { type QuickReplyRecentAction } from '../utils/contextQuickReplies.util';
 import { resolveBuyerComponents } from './buyer/buyerButtonPolicy.service';
 import {
@@ -116,6 +120,8 @@ interface IncomingMessage {
   interactiveType?: 'button_reply' | 'list_reply';
   /** Meta display phone on the business line (for tenant disambiguation). */
   businessDisplayPhone?: string;
+  /** Set when replaying from the per-phone FIFO drain (skips inbound dedup re-claim). */
+  queuedReplay?: boolean;
 }
 
 export interface CompanyWhatsAppConfig {
@@ -483,7 +489,7 @@ export class WhatsAppService {
     const companyId = company.id;
     const customerPhone = normalizeInboundWhatsAppPhone(msg.customerPhone);
 
-    if (msg.messageId) {
+    if (msg.messageId && !msg.queuedReplay) {
       const inboundClaimed = await claimInboundMessageFull(
         companyId,
         msg.messageId,
@@ -596,58 +602,74 @@ export class WhatsAppService {
       };
     }
 
-    const fingerprintClaimed = await claimCustomerInboundFingerprint(
-      companyId,
-      customerPhone,
-      msg.messageText,
-    );
-    if (!fingerprintClaimed) {
-      return {
-        status: 'skipped',
-        reason: 'duplicate_customer_fingerprint',
+    if (!msg.queuedReplay) {
+      const fingerprintClaimed = await claimCustomerInboundFingerprint(
         companyId,
-        propagation: notAttempted,
-      };
+        customerPhone,
+        msg.messageText,
+      );
+      if (!fingerprintClaimed) {
+        return {
+          status: 'skipped',
+          reason: 'duplicate_customer_fingerprint',
+          companyId,
+          propagation: notAttempted,
+        };
+      }
     }
 
-    const customerTurnClaimed = await claimCustomerProcessingTurn(companyId, customerPhone);
+    // Interactive taps are fast/deterministic — must not queue behind a 60s LLM text turn.
+    const isInteractiveTap = Boolean(msg.interactiveId?.trim());
+    let claimedCustomerProcessingTurn = false;
+    const customerTurnClaimed = isInteractiveTap
+      ? true
+      : await claimCustomerProcessingTurn(companyId, customerPhone);
+    if (!isInteractiveTap && customerTurnClaimed) {
+      claimedCustomerProcessingTurn = true;
+    }
     if (!customerTurnClaimed) {
       logOutboundBranch('H2', 'whatsapp.service.ts:concurrent', 'concurrent_customer_blocked', {
         companyId,
       });
-      // Queue the message for retry after the current turn lock expires (65s).
-      // This ensures the customer gets a reply even when two messages arrive within 60s
-      // instead of silently dropping the second message.
       if (msg.messageId) {
-        try {
-          const { automationQueueService } = await import('./automationQueue.service');
-          await automationQueueService.schedule(
-            'retry_concurrent_inbound',
-            `concurrent:${companyId}:${msg.messageId}`,
-            new Date(Date.now() + 65_000),
-            {
+        const enqueued = await enqueueCustomerInbound(companyId, customerPhone, {
+          phoneNumberId: msg.phoneNumberId,
+          customerPhone: msg.customerPhone,
+          customerName: msg.customerName,
+          messageText: msg.messageText,
+          messageId: msg.messageId,
+          companyIdHint: msg.companyIdHint,
+          interactiveId: msg.interactiveId,
+          interactiveType: msg.interactiveType,
+          businessDisplayPhone: msg.businessDisplayPhone,
+        });
+        if (!enqueued) {
+          try {
+            const { automationQueueService } = await import('./automationQueue.service');
+            await automationQueueService.schedule(
+              'retry_concurrent_inbound',
+              `concurrent:${companyId}:${msg.messageId}`,
+              new Date(Date.now() + 4_000),
+              {
+                companyId,
+                phoneNumberId: msg.phoneNumberId,
+                customerPhone: msg.customerPhone,
+                customerName: msg.customerName,
+                messageText: msg.messageText,
+                messageId: msg.messageId,
+                interactiveId: msg.interactiveId,
+                interactiveType: msg.interactiveType,
+                businessDisplayPhone: msg.businessDisplayPhone,
+                queuedReplay: true,
+              },
+            );
+          } catch (retryErr: unknown) {
+            logger.warn('Failed to schedule short concurrent inbound retry', {
               companyId,
-              phoneNumberId: msg.phoneNumberId,
-              customerPhone: msg.customerPhone,
-              customerName: msg.customerName,
-              messageText: msg.messageText,
               messageId: msg.messageId,
-              interactiveId: msg.interactiveId,
-              interactiveType: msg.interactiveType,
-              businessDisplayPhone: msg.businessDisplayPhone,
-            },
-          );
-          logger.info('Concurrent inbound message queued for retry', {
-            companyId,
-            messageId: msg.messageId,
-            retryAt: new Date(Date.now() + 65_000).toISOString(),
-          });
-        } catch (queueErr: unknown) {
-          logger.warn('Failed to queue concurrent inbound for retry — message will be dropped', {
-            companyId,
-            messageId: msg.messageId,
-            error: queueErr instanceof Error ? queueErr.message : String(queueErr),
-          });
+              error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            });
+          }
         }
       }
       return {
@@ -669,6 +691,9 @@ export class WhatsAppService {
     // Track whether processing succeeded so we know if it's safe to release
     // the inbound claim on failure (to allow Meta's retry to succeed).
     let processingSucceeded = false;
+    let pendingBuyerOutbound:
+      | { turnResult: TurnResult; conversationId: string; leadId: string; propagation: InboundPropagationResult }
+      | undefined;
 
     try {
     // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
@@ -1215,47 +1240,25 @@ export class WhatsAppService {
       // Mark as succeeded so the catastrophic-failure release above does NOT trigger
       // (the customer will get this fallback reply).
       processingSucceeded = true;
-      return { audience: 'buyer' as const, handled: true, terminal: true, text: fallbackText };
+      return {
+        audience: 'buyer' as const,
+        handled: true,
+        terminal: true,
+        text: fallbackText,
+        replyPacing: 'minimal',
+      };
     });
 
     if (turnResult.text?.trim()) {
-      const orchestratorClaimed = await claimOutboundAiReply(companyId, msg.messageId);
-      if (orchestratorClaimed) {
-        await simulateHumanReplyPacing({
-          to: customerPhone,
-          whatsappConfig: whatsappConfig!,
-          outboundTextLength: turnResult.text.length,
-          inboundMessageId: msg.messageId,
-        });
-        try {
-          await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);
-          incrementOpsMetric('whatsapp_outbound');
-          // Flush any pending AI messages in this conversation to 'sent'
-          await prisma.message.updateMany({
-            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
-            data: { status: 'sent' },
-          }).catch(() => undefined);
-        } catch (sendErr: unknown) {
-          logger.error('sendTurnResult failed — marking pending messages as failed', {
-            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
-            conversationId: conversation.id,
-          });
-          await prisma.message.updateMany({
-            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
-            data: { status: 'failed' },
-          }).catch(() => undefined);
-        }
-      }
+      pendingBuyerOutbound = {
+        turnResult,
+        conversationId: conversation.id,
+        leadId: lead.id,
+        propagation,
+      };
     }
 
     processingSucceeded = true;
-    return {
-      status: 'processed',
-      companyId,
-      leadId: lead.id,
-      conversationId: conversation.id,
-      propagation,
-    };
     } catch (processingErr: unknown) {
       // On catastrophic failure (no fallback reply was sent), release the inbound
       // claim so Meta's retry attempt can be processed rather than silently dropped.
@@ -1273,8 +1276,59 @@ export class WhatsAppService {
       }
       throw processingErr;
     } finally {
-      endOutboundTurn('buyer_finally');
-      await releaseCustomerProcessingTurn(companyId, customerPhone);
+      endOutboundTurn('buyer_orchestration_done');
+      if (claimedCustomerProcessingTurn) {
+        await releaseCustomerProcessingTurn(companyId, customerPhone);
+      }
+      void drainCustomerInboundQueue(companyId, customerPhone, (payload) =>
+        this.handleIncomingMessage({ ...payload, queuedReplay: true }),
+      ).catch((drainErr: unknown) => {
+        logger.warn('Customer inbound queue drain failed', {
+          companyId,
+          error: drainErr instanceof Error ? drainErr.message : String(drainErr),
+        });
+      });
+    }
+
+    if (pendingBuyerOutbound?.turnResult.text?.trim()) {
+      const { turnResult, conversationId } = pendingBuyerOutbound;
+      const orchestratorClaimed = await claimOutboundAiReply(companyId, msg.messageId);
+      if (orchestratorClaimed) {
+        await simulateHumanReplyPacing({
+          to: customerPhone,
+          whatsappConfig: whatsappConfig!,
+          outboundTextLength: turnResult.text!.length,
+          inboundMessageId: msg.messageId,
+          replyPacing: turnResult.replyPacing,
+        });
+        try {
+          await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);
+          incrementOpsMetric('whatsapp_outbound');
+          await prisma.message.updateMany({
+            where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+            data: { status: 'sent' },
+          }).catch(() => undefined);
+        } catch (sendErr: unknown) {
+          logger.error('sendTurnResult failed — marking pending messages as failed', {
+            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+            conversationId,
+          });
+          await prisma.message.updateMany({
+            where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+            data: { status: 'failed' },
+          }).catch(() => undefined);
+        }
+      }
+    }
+
+    if (pendingBuyerOutbound) {
+      return {
+        status: 'processed',
+        companyId,
+        leadId: pendingBuyerOutbound.leadId,
+        conversationId: pendingBuyerOutbound.conversationId,
+        propagation: pendingBuyerOutbound.propagation,
+      };
     }
   }
 
@@ -2630,6 +2684,22 @@ function buildAiFallbackMessage(input: {
     return (
       `I could not fetch your visit details just now${salutation}. ` +
       `Please try again in a moment, or type *Talk to agent* for help.`
+    );
+  }
+
+  return buildSafeBuyerFallback();
+}
+
+export const whatsappService = new WhatsAppService();
+     `Please try again in a moment, or type *Talk to agent* for help.`
+    );
+  }
+
+  return buildSafeBuyerFallback();
+}
+
+export const whatsappService = new WhatsAppService();
+r help.`
     );
   }
 
