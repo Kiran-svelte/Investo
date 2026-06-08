@@ -176,19 +176,22 @@ async function handleInteractiveSafetyTurn(ctx: BuyerTurnRuntimeContext): Promis
     return { audience: 'buyer', handled: true, terminal: true, text: buildSafeBuyerFallback() };
   }
 
-  await applyInteractiveActionSideEffects(actionResult, ctx.input.leadId, ctx.input.conversationId, {
-    selectedPropertyId: ctx.input.conversationSelectedPropertyId,
-    proposedVisitTime: ctx.input.conversationProposedVisitTime,
-  });
-
   if (actionResult.turnResult?.text?.trim()) {
-    await prisma.message.create({
-      data: {
-        conversationId: ctx.input.conversationId,
-        senderType: 'ai',
-        content: actionResult.turnResult.text.trim(),
-        status: 'sent',
-      },
+    const { persistInteractiveAiTranscript } = await import('./whatsappInteractiveOrchestrator.service');
+    await persistInteractiveAiTranscript(ctx.input.conversationId, actionResult.turnResult.text);
+  }
+
+  try {
+    await applyInteractiveActionSideEffects(actionResult, ctx.input.leadId, ctx.input.conversationId, {
+      selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+      proposedVisitTime: ctx.input.conversationProposedVisitTime,
+    });
+  } catch (sideEffectErr: unknown) {
+    logger.error('Interactive safety-net side-effects failed — transcript already persisted', {
+      interactiveId,
+      action: actionResult.action,
+      conversationId: ctx.input.conversationId,
+      error: sideEffectErr instanceof Error ? sideEffectErr.message : String(sideEffectErr),
     });
   }
 

@@ -20,6 +20,8 @@ const mockPrisma = {
   },
   message: {
     create: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     findMany: jest.fn(),
     findFirst: jest.fn(),
   },
@@ -42,6 +44,7 @@ const mockPrisma = {
 };
 
 const mockEmitToCompany = jest.fn();
+const mockOrchestrateWhatsAppBuyerTurn = jest.fn();
 
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
@@ -106,6 +109,7 @@ jest.mock('../../services/inboundMessageGuard.service', () => ({
   claimCustomerInboundFingerprint: jest.fn().mockResolvedValue(true),
   claimCustomerProcessingTurn: jest.fn().mockResolvedValue(true),
   releaseCustomerProcessingTurn: jest.fn().mockResolvedValue(undefined),
+  releaseInboundMessageFull: jest.fn().mockResolvedValue(undefined),
   claimOutboundAiReply: jest.fn().mockResolvedValue(true),
 }));
 
@@ -118,6 +122,16 @@ jest.mock('../../services/neverSayNoEngine.service', () => ({
     fallbackCta: 'Reply with your budget and area.',
     hasInventoryAlternatives: false,
   }),
+}));
+
+jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => ({
+  __esModule: true,
+  orchestrateWhatsAppBuyerTurn: (...args: unknown[]) => mockOrchestrateWhatsAppBuyerTurn(...args),
+}));
+
+jest.mock('../../services/buyer-memory-extract.service', () => ({
+  __esModule: true,
+  extractAndPatchLeadMemory: jest.fn().mockResolvedValue(undefined),
 }));
 
 import { aiService } from '../../services/ai.service';
@@ -184,8 +198,8 @@ describe('WhatsAppService inbound operational behavior', () => {
     id: 'conv-1',
     companyId: 'company-1',
     leadId: 'lead-1',
-    status: 'agent_active',
-    aiEnabled: false,
+    status: 'ai_active',
+    aiEnabled: true,
     stage: 'rapport',
     stageEnteredAt: new Date('2026-04-08T10:00:00.000Z'),
     stageMessageCount: 2,
@@ -218,6 +232,8 @@ describe('WhatsAppService inbound operational behavior', () => {
     mockPrisma.lead.findFirst.mockResolvedValue(lead);
     mockPrisma.conversation.findFirst.mockResolvedValue(conversation);
     mockPrisma.message.create.mockResolvedValue({ id: 'message-1' });
+    mockPrisma.message.update.mockResolvedValue({ id: 'message-1' });
+    mockPrisma.message.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.message.findFirst.mockResolvedValue(null);
     mockPrisma.message.findMany.mockResolvedValue([]);
     mockPrisma.lead.upsert.mockResolvedValue(lead);
@@ -239,6 +255,12 @@ describe('WhatsAppService inbound operational behavior', () => {
       text: 'Thanks for your message!',
       detectedLanguage: 'en',
     });
+    mockOrchestrateWhatsAppBuyerTurn.mockResolvedValue({
+      audience: 'buyer',
+      handled: true,
+      terminal: true,
+      text: 'Thanks for your message!',
+    });
   });
 
   afterEach(() => {
@@ -254,14 +276,18 @@ describe('WhatsAppService inbound operational behavior', () => {
       messageId: 'wamid-1',
     });
 
-    expect(mockPrisma.message.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        conversationId: 'conv-1',
-        senderType: 'customer',
-        content: 'Hello from WhatsApp',
-        whatsappMessageId: 'wamid-1',
+    expect(mockPrisma.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          conversationId: 'conv-1',
+          senderType: 'customer',
+          content: 'Hello from WhatsApp',
+          whatsappMessageId: 'wamid-1',
+          status: 'delivered',
+        }),
+        select: { id: true },
       }),
-    });
+    );
 
     expect(mockPrisma.lead.update).toHaveBeenCalledWith({
       where: { id: 'lead-1' },
@@ -323,6 +349,11 @@ describe('WhatsAppService inbound operational behavior', () => {
   });
 
   it('does not run interactive automation or re-enable AI after agent takeover — sends handoff only', async () => {
+    mockPrisma.conversation.findFirst.mockResolvedValueOnce({
+      ...conversation,
+      status: 'agent_active',
+      aiEnabled: false,
+    });
     mockPrisma.lead.findFirst.mockResolvedValueOnce({
       ...lead,
       assignedAgentId: 'agent-1',
@@ -330,12 +361,11 @@ describe('WhatsAppService inbound operational behavior', () => {
     mockPrisma.aiSetting.findUnique.mockResolvedValue({});
     mockPrisma.message.findMany.mockResolvedValue([]);
     mockPrisma.property.findMany.mockResolvedValue([]);
-    // Agent replied recently — keep human takeover (H1 handoff), do not reactivate AI.
-    mockPrisma.message.findFirst.mockImplementation((args: { where?: { senderType?: string } }) => {
-      if (args?.where?.senderType === 'agent') {
-        return Promise.resolve({ id: 'agent-msg-recent', createdAt: new Date() });
-      }
-      return Promise.resolve(null);
+    mockOrchestrateWhatsAppBuyerTurn.mockResolvedValueOnce({
+      audience: 'buyer',
+      handled: true,
+      terminal: true,
+      text: 'Thanks for your message! Our team at *Investo Realty* has your request.',
     });
 
     const { aiService } = await import('../../services/ai.service');

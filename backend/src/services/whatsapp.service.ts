@@ -1078,27 +1078,35 @@ export class WhatsAppService {
           conversationId: conversation.id,
         });
 
-        // Update conversation state if action provided new state
-        const { applyInteractiveActionSideEffects } = await import(
-          './whatsapp/whatsappInteractivePersist.service'
-        );
-        await applyInteractiveActionSideEffects(actionResult, lead.id, conversation.id, conversation);
-
-        // Unified TurnResult dispatch (interactive orchestrator + sendTurnResult)
+        // Unified TurnResult dispatch (transcript persisted in tryOrchestratedInteractiveAction)
         if (actionResult.turnResult) {
           const outboundText = actionResult.turnResult.text?.trim();
           let pendingMsgId: string | null = null;
           if (outboundText) {
-            const pendingMsg = await prisma.message.create({
-              data: {
+            const existing = await prisma.message.findFirst({
+              where: {
                 conversationId: conversation.id,
                 senderType: 'ai',
                 content: outboundText,
-                status: 'pending',
+                createdAt: { gte: new Date(Date.now() - 20_000) },
               },
+              orderBy: { createdAt: 'desc' },
               select: { id: true },
             });
-            pendingMsgId = pendingMsg.id;
+            if (existing) {
+              pendingMsgId = existing.id;
+            } else {
+              const pendingMsg = await prisma.message.create({
+                data: {
+                  conversationId: conversation.id,
+                  senderType: 'ai',
+                  content: outboundText,
+                  status: 'pending',
+                },
+                select: { id: true },
+              });
+              pendingMsgId = pendingMsg.id;
+            }
           }
           const outboundClaimed = await claimOutboundAiReply(companyId, msg.messageId);
           let deliveryOk = false;
@@ -1135,6 +1143,20 @@ export class WhatsAppService {
           });
         }
 
+        const { applyInteractiveActionSideEffects } = await import(
+          './whatsapp/whatsappInteractivePersist.service'
+        );
+        try {
+          await applyInteractiveActionSideEffects(actionResult, lead.id, conversation.id, conversation);
+        } catch (sideEffectErr: unknown) {
+          logger.error('Interactive action side-effects failed — transcript already persisted', {
+            interactiveId: msg.interactiveId,
+            action: actionResult.action,
+            conversationId: conversation.id,
+            error: sideEffectErr instanceof Error ? sideEffectErr.message : String(sideEffectErr),
+          });
+        }
+
         propagation = await this.propagateConversationUpdate({
           companyId,
           conversationId: conversation.id,
@@ -1142,7 +1164,7 @@ export class WhatsAppService {
           trigger: 'interactive_action',
         });
 
-        void logAgentAction({
+        await logAgentAction({
           companyId,
           triggeredBy: 'inbound_message',
           action: 'interactiveActionHandled',

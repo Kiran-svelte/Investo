@@ -2,6 +2,7 @@
  * Interactive button/list turn orchestrator.
  * Builds TurnResult payloads for tap flows — caller dispatches via sendTurnResult only.
  */
+import type { PropertyType } from '@prisma/client';
 import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import type { InteractiveActionResult, TurnResult, WhatsAppComponent } from '../../types/whatsapp-turn.types';
@@ -56,6 +57,70 @@ function buyerTurn(text: string, components?: WhatsAppComponent[]): TurnResult {
     components: components?.length ? components : undefined,
     replyPacing: 'none',
   };
+}
+
+/** Persist buyer-visible interactive reply text for dashboard/E2E (idempotent within 15s). */
+export async function persistInteractiveAiTranscript(
+  conversationId: string,
+  text: string | undefined,
+): Promise<void> {
+  const content = text?.trim();
+  if (!content) return;
+
+  const recent = await prisma.message.findFirst({
+    where: {
+      conversationId,
+      senderType: 'ai',
+      content,
+      createdAt: { gte: new Date(Date.now() - 15_000) },
+    },
+    select: { id: true },
+  });
+  if (recent) return;
+
+  await prisma.message.create({
+    data: {
+      conversationId,
+      senderType: 'ai',
+      content,
+      status: 'sent',
+    },
+  });
+}
+
+async function finalizeInteractiveResult(
+  conversationId: string,
+  result: InteractiveActionResult | null,
+): Promise<InteractiveActionResult | null> {
+  if (result?.turnResult?.text?.trim()) {
+    await persistInteractiveAiTranscript(conversationId, result.turnResult.text);
+  }
+  return result;
+}
+
+async function routeInteractiveAction(
+  params: InteractiveActionParams,
+): Promise<InteractiveActionResult | null> {
+  const { interactiveId } = params;
+
+  if (interactiveId === 'visit-confirm') return handleVisitConfirm(params);
+  if (interactiveId === 'visit-reschedule') return handleVisitReschedule(params);
+  if (interactiveId.startsWith('visit-time-')) return handleVisitTimeSlot(params);
+  if (interactiveId === 'book-visit' || interactiveId.startsWith('book-visit-')) {
+    return handleBookVisit(params);
+  }
+  if (interactiveId === 'visit-slot-morning' || interactiveId === 'visit-slot-afternoon') {
+    return handleGenericVisitSlot(params);
+  }
+  if (interactiveId === 'call-me' || interactiveId === 'callback-request') return handleCallMe(params);
+  if (interactiveId === 'call-cancel') return handleCallCancel(params);
+  if (interactiveId === 'call-reschedule') return handleCallReschedule(params);
+  if (interactiveId === 'more-info' || interactiveId.startsWith('more-info-')) {
+    return handleMoreInfo(params);
+  }
+  if (interactiveId.startsWith('filter-')) return handlePropertyFilter(params);
+
+  return null;
 }
 
 function getIstDatePlusDays(days: number): Date {
@@ -482,17 +547,18 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
   }
 
   try {
-    const updatedLead = await prisma.lead.update({
-      where: { id: lead.id },
-      data: {
-        propertyType: (filter.propertyType as any) || lead.propertyType,
-        ...(filter.bedrooms && {
-          notes: lead.notes
-            ? `${lead.notes}; Prefers ${filter.bedrooms} BHK`
-            : `Prefers ${filter.bedrooms} BHK`,
-        }),
-      },
-    });
+    const leadUpdateData: { propertyType?: PropertyType; notes?: string } = {};
+    if (filter.propertyType) {
+      leadUpdateData.propertyType = filter.propertyType as PropertyType;
+    }
+    if (filter.bedrooms) {
+      leadUpdateData.notes = lead.notes
+        ? `${lead.notes}; Prefers ${filter.bedrooms} BHK`
+        : `Prefers ${filter.bedrooms} BHK`;
+    }
+    const updatedLead = Object.keys(leadUpdateData).length
+      ? await prisma.lead.update({ where: { id: lead.id }, data: leadUpdateData })
+      : lead;
 
     await prisma.conversation.update({
       where: { id: conversation.id },
@@ -834,25 +900,6 @@ async function handleGenericVisitSlot(params: InteractiveActionParams): Promise<
 export async function tryOrchestratedInteractiveAction(
   params: InteractiveActionParams,
 ): Promise<InteractiveActionResult | null> {
-  const { interactiveId } = params;
-
-  if (interactiveId === 'visit-confirm') return handleVisitConfirm(params);
-  if (interactiveId === 'visit-reschedule') return handleVisitReschedule(params);
-  if (interactiveId.startsWith('visit-time-')) return handleVisitTimeSlot(params);
-  if (interactiveId === 'book-visit' || interactiveId.startsWith('book-visit-')) {
-    return handleBookVisit(params);
-  }
-  // Generic slot buttons (visit_booking stage policy) — route via book-visit
-  if (interactiveId === 'visit-slot-morning' || interactiveId === 'visit-slot-afternoon') {
-    return handleGenericVisitSlot(params);
-  }
-  if (interactiveId === 'call-me' || interactiveId === 'callback-request') return handleCallMe(params);
-  if (interactiveId === 'call-cancel') return handleCallCancel(params);
-  if (interactiveId === 'call-reschedule') return handleCallReschedule(params);
-  if (interactiveId === 'more-info' || interactiveId.startsWith('more-info-')) {
-    return handleMoreInfo(params);
-  }
-  if (interactiveId.startsWith('filter-')) return handlePropertyFilter(params);
-
-  return null;
+  const result = await routeInteractiveAction(params);
+  return finalizeInteractiveResult(params.conversation.id, result);
 }

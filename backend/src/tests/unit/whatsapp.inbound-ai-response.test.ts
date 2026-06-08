@@ -2,11 +2,19 @@
 
 jest.setTimeout(30000);
 
+const mockOrchestrateWhatsAppBuyerTurn = jest.fn();
+
 const mockPrisma = {
   company: { findMany: jest.fn(), findUnique: jest.fn() },
   lead: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), groupBy: jest.fn() },
   conversation: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
-  message: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
+  message: {
+    create: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+  },
   inboundWhatsappDedup: { create: jest.fn() },
   notification: { create: jest.fn() },
   aiSetting: { findUnique: jest.fn() },
@@ -121,6 +129,26 @@ jest.mock('../../services/socket.service', () => ({
   },
 }));
 
+jest.mock('../../services/inboundMessageGuard.service', () => ({
+  __esModule: true,
+  claimInboundMessageFull: jest.fn().mockResolvedValue(true),
+  claimCustomerInboundFingerprint: jest.fn().mockResolvedValue(true),
+  claimCustomerProcessingTurn: jest.fn().mockResolvedValue(true),
+  releaseCustomerProcessingTurn: jest.fn().mockResolvedValue(undefined),
+  releaseInboundMessageFull: jest.fn().mockResolvedValue(undefined),
+  claimOutboundAiReply: jest.fn().mockResolvedValue(true),
+}));
+
+jest.mock('../../services/whatsappPresence.service', () => ({
+  __esModule: true,
+  simulateHumanReplyPacing: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => ({
+  __esModule: true,
+  orchestrateWhatsAppBuyerTurn: (...args: unknown[]) => mockOrchestrateWhatsAppBuyerTurn(...args),
+}));
+
 import { aiService } from '../../services/ai.service';
 import { WhatsAppService } from '../../services/whatsapp.service';
 
@@ -196,6 +224,8 @@ describe('WhatsAppService AI response processing', () => {
     mockPrisma.message.findFirst.mockResolvedValue(null);
     mockPrisma.inboundWhatsappDedup.create.mockResolvedValue({ id: 'dedup-1' });
     mockPrisma.message.create.mockResolvedValue({ id: 'message-1' });
+    mockPrisma.message.update.mockResolvedValue({ id: 'message-1' });
+    mockPrisma.message.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.lead.update.mockResolvedValue({ id: 'lead-1' });
     mockPrisma.conversation.update.mockResolvedValue({ id: 'conv-1' });
 
@@ -219,6 +249,23 @@ describe('WhatsAppService AI response processing', () => {
         recommendedProperties: [],
       },
       nextAction: { action: 'advance_stage' },
+    });
+
+    mockOrchestrateWhatsAppBuyerTurn.mockImplementation(async (ctx: { input: { leadId: string } }) => {
+      await mockPrisma.lead.update({
+        where: { id: ctx.input.leadId },
+        data: {
+          budgetMax: 5000000,
+          locationPreference: 'Bangalore',
+          propertyType: 'apartment',
+        },
+      });
+      return {
+        audience: 'buyer',
+        handled: true,
+        terminal: true,
+        text: 'Hi Rajesh! Here are a few options...',
+      };
     });
   });
 
