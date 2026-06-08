@@ -10,6 +10,7 @@ const mockSendButtons = jest.fn().mockResolvedValue(true);
 const mockCreateBookingApprovalRequest = jest.fn();
 const mockFindPendingBookingApproval = jest.fn();
 const mockResolveBookingApprovalStatus = jest.fn();
+const mockGetBookingApprovalById = jest.fn();
 const mockConfirmVisitById = jest.fn();
 const mockTransitionLeadStatus = jest.fn();
 
@@ -39,6 +40,7 @@ jest.mock('../../services/bookingApproval.service', () => ({
   createBookingApprovalRequest: (...args: unknown[]) => mockCreateBookingApprovalRequest(...args),
   findPendingBookingApproval: (...args: unknown[]) => mockFindPendingBookingApproval(...args),
   resolveBookingApprovalStatus: (...args: unknown[]) => mockResolveBookingApprovalStatus(...args),
+  getBookingApprovalById: (...args: unknown[]) => mockGetBookingApprovalById(...args),
   updatePendingBookingApprovalSchedule: jest.fn(),
   cancelPendingBookingApproval: jest.fn(),
 }));
@@ -161,6 +163,7 @@ describe('Zero-UI visit approval chain (buyer → agent WhatsApp → calendar + 
     });
     mockFindPendingBookingApproval.mockResolvedValue(approval);
     mockResolveBookingApprovalStatus.mockResolvedValue({ ...approval, status: 'approved' });
+    mockGetBookingApprovalById.mockResolvedValue({ ...approval, metadata: {} });
     mockConfirmVisitById.mockResolvedValue({ success: true });
     mockTransitionLeadStatus.mockResolvedValue(true);
   });

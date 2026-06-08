@@ -4,7 +4,8 @@ import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 
-const FORWARD_RE = /^send\s+(["'])([\s\S]+?)\1\s+to\s+(.+)$/i;
+const FORWARD_QUOTED_RE = /^send\s+(["'])([\s\S]+?)\1\s+to\s+(.+)$/i;
+const FORWARD_UNQUOTED_RE = /^send\s+(.+?)\s+to\s+([\d\s,+()-]+)$/i;
 
 function parsePhoneList(raw: string): string[] {
   return raw
@@ -15,12 +16,23 @@ function parsePhoneList(raw: string): string[] {
 }
 
 export function parseStaffForwardCommand(message: string): { body: string; phones: string[] } | null {
-  const match = message.trim().match(FORWARD_RE);
-  if (!match) return null;
-  const body = match[2].trim();
-  const phones = parsePhoneList(match[3]);
-  if (!body || phones.length === 0) return null;
-  return { body, phones };
+  const trimmed = message.trim();
+
+  const quoted = trimmed.match(FORWARD_QUOTED_RE);
+  if (quoted) {
+    const body = quoted[2].trim();
+    const phones = parsePhoneList(quoted[3]);
+    if (body && phones.length > 0) return { body, phones };
+  }
+
+  const unquoted = trimmed.match(FORWARD_UNQUOTED_RE);
+  if (unquoted) {
+    const body = unquoted[1].trim();
+    const phones = parsePhoneList(unquoted[2]);
+    if (body && phones.length > 0) return { body, phones };
+  }
+
+  return null;
 }
 
 export async function tryStaffMessageForward(input: {

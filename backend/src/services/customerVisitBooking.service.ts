@@ -5,6 +5,8 @@ import {
   isShortVisitConfirmation,
   isVisitCancelOrRescheduleMessage,
   isVisitSchedulingMessage,
+  isCustomVisitSlotMessage,
+  parseCustomVisitSlotFromMessage,
   parseRescheduleTargetFromMessage,
   parseVisitDateTimeFromHistory,
   parseVisitDateTimeFromMessage,
@@ -118,6 +120,61 @@ function resolveScheduledAt(
 
 const formatVisitConfirmation = (scheduledAt: Date, propertyName: string, agentName: string | null) =>
   formatBuyerVisitScheduled(scheduledAt, propertyName, agentName, 'scheduled');
+
+async function submitBuyerVisitApproval(input: {
+  companyId: string;
+  lead: CommitCustomerVisitInput['lead'];
+  conversationId: string;
+  customerPhone: string;
+  propertyId: string;
+  scheduledAt: Date;
+  rescheduleVisitId?: string;
+}): Promise<CommitCustomerVisitResult> {
+  let agentId = input.lead.assignedAgentId;
+  if (!agentId) {
+    agentId = await assignLeadRoundRobin(input.companyId);
+    if (agentId) {
+      await prisma.lead.update({ where: { id: input.lead.id }, data: { assignedAgentId: agentId } });
+    }
+  }
+  if (!agentId) return { committed: false };
+
+  const property = await prisma.property.findFirst({
+    where: { id: input.propertyId, companyId: input.companyId },
+    select: { name: true },
+  });
+
+  await createVisitApprovalRequest({
+    companyId: input.companyId,
+    leadId: input.lead.id,
+    propertyId: input.propertyId,
+    scheduledAt: input.scheduledAt,
+    agentId,
+    conversationId: input.conversationId,
+    customerPhone: input.customerPhone,
+    customerName: input.lead.customerName,
+    propertyName: property?.name,
+    suppressCustomerMessage: true,
+    rescheduleVisitId: input.rescheduleVisitId,
+  });
+
+  const whenLabel = input.scheduledAt.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return {
+    committed: true,
+    mode: 'pending_approval',
+    scheduledAt: input.scheduledAt,
+    customerReply: `${formatBuyerVisitPendingApproval()}\n\nRequested time: ${whenLabel}`,
+    leadStatus: 'contacted',
+  };
+}
 /**
  * Handles customer cancel / reschedule requests (buyer WhatsApp).
  */
@@ -145,7 +202,8 @@ export async function tryCustomerVisitCancelReschedule(
     }
 
     const newScheduledAt =
-      parseRescheduleTargetFromMessage(input.customerMessage)
+      parseCustomVisitSlotFromMessage(input.customerMessage)
+      ?? parseRescheduleTargetFromMessage(input.customerMessage)
       ?? parseVisitDateTimeFromMessage(input.customerMessage);
     if (!newScheduledAt) {
       return {
@@ -171,6 +229,31 @@ export async function tryCustomerVisitCancelReschedule(
         customerReply: rescheduled.reply,
         leadStatus: 'contacted',
       };
+    }
+  }
+
+  const parsedNewSlot = parseCustomVisitSlotFromMessage(input.customerMessage);
+  if (parsedNewSlot && !/\b(cancel|call\s+off)\b/i.test(input.customerMessage)) {
+    const scheduledVisit = await prisma.visit.findFirst({
+      where: {
+        companyId: input.companyId,
+        leadId: input.lead.id,
+        status: 'scheduled',
+        scheduledAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      select: { id: true, propertyId: true },
+    });
+    if (scheduledVisit?.propertyId) {
+      return submitBuyerVisitApproval({
+        companyId: input.companyId,
+        lead: input.lead,
+        conversationId: input.conversation.id,
+        customerPhone: input.customerPhone,
+        propertyId: scheduledVisit.propertyId,
+        scheduledAt: parsedNewSlot,
+        rescheduleVisitId: scheduledVisit.id,
+      });
     }
   }
 
@@ -285,9 +368,37 @@ export async function tryCommitCustomerVisitBooking(
     visitBookingStage: conversationRow?.stage === 'visit_booking',
   };
 
+  const parsedCustomSlot = parseCustomVisitSlotFromMessage(customerMessage);
+
+  const pendingApprovalEarly = await findPendingVisitApprovalForLead({
+    companyId,
+    leadId: lead.id,
+  });
+  if (
+    pendingApprovalEarly
+    && parsedCustomSlot
+    && !/\b(cancel|call\s+off)\b/i.test(customerMessage)
+  ) {
+    const rescheduled = await reschedulePendingVisitApprovalForBuyer({
+      companyId,
+      leadId: lead.id,
+      scheduledAt: parsedCustomSlot,
+    });
+    if (rescheduled.handled) {
+      return {
+        committed: true,
+        mode: 'pending_approval',
+        scheduledAt: rescheduled.scheduledAt,
+        customerReply: rescheduled.reply,
+        leadStatus: 'contacted',
+      };
+    }
+  }
+
   if (
     !isVisitSchedulingMessage(customerMessage, visitSchedulingContext)
     && !isShortVisitConfirmation(customerMessage)
+    && !isCustomVisitSlotMessage(customerMessage, visitSchedulingContext)
   ) {
     return { committed: false };
   }
@@ -313,7 +424,7 @@ export async function tryCommitCustomerVisitBooking(
     customerMessage,
     freshProposedVisitTime,
     recentCustomerMessages,
-  );
+  ) ?? parsedCustomSlot;
   if (!scheduledAt) {
     return { committed: false };
   }
@@ -365,7 +476,17 @@ export async function tryCommitCustomerVisitBooking(
       : 0;
 
     if (proposedNew && timeDiffFromProposed > 60_000) {
-      // Customer wants a different time; route to reschedule.
+      if (existing.status === 'scheduled' && existing.propertyId) {
+        return submitBuyerVisitApproval({
+          companyId,
+          lead,
+          conversationId: conversation.id,
+          customerPhone,
+          propertyId: existing.propertyId,
+          scheduledAt: proposedNew,
+          rescheduleVisitId: existing.id,
+        });
+      }
       const mutation = await applyVisitMutationFromChat({
         companyId,
         message: customerMessage,
@@ -411,40 +532,12 @@ export async function tryCommitCustomerVisitBooking(
     };
   }
 
-  let agentId = lead.assignedAgentId;
-  if (!agentId) {
-    agentId = await assignLeadRoundRobin(companyId);
-    if (agentId) {
-      await prisma.lead.update({ where: { id: lead.id }, data: { assignedAgentId: agentId } });
-    }
-  }
-  if (!agentId) {
-    return { committed: false };
-  }
-
-  const property = await prisma.property.findFirst({
-    where: { id: propertyId, companyId },
-    select: { name: true },
-  });
-
-  await createVisitApprovalRequest({
+  return submitBuyerVisitApproval({
     companyId,
-    leadId: lead.id,
-    propertyId,
-    scheduledAt,
-    agentId,
+    lead,
     conversationId: conversation.id,
     customerPhone,
-    customerName: lead.customerName,
-    propertyName: property?.name,
-    suppressCustomerMessage: true,
-  });
-
-  return {
-    committed: true,
-    mode: 'pending_approval',
+    propertyId,
     scheduledAt,
-    customerReply: formatBuyerVisitPendingApproval(),
-    leadStatus: 'contacted',
-  };
+  });
 }

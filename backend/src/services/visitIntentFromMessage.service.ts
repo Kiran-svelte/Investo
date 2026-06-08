@@ -10,6 +10,7 @@
  */
 
 import { parseDateTimeFromNaturalLanguage } from '../utils/parseDateTimeFromMessage.util';
+import { isBuyerVisitStatusQuery } from './buyerVisitQuery.service';
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 
@@ -47,7 +48,8 @@ const VISIT_CANCEL_RESCHEDULE_HINT =
 const VISIT_MUTATION_SOFT_HINT =
   /\b(can'?t\s+make|won'?t\s+be\s+able|not\s+available)\b[\s\S]{0,60}\b(visit|appointment)\b|\b(visit|appointment)\b[\s\S]{0,40}\b(different|another)\s+(day|time|date)\b|\b(change|move|shift)\b[\s\S]{0,40}\b(time|slot|date)\b/i;
 
-import { isBuyerVisitStatusQuery } from './buyerVisitQuery.service';
+const CUSTOM_VISIT_SLOT_HINT =
+  /\b(new\s+day|another\s+(day|time|slot|date)|different\s+(day|time|slot|date)|prefer(?:red)?|instead|make\s+it)\b/i;
 
 /** List/query phrasing — must never run cancel/reschedule mutation. */
 export function isVisitListQueryMessage(message: string): boolean {
@@ -142,10 +144,32 @@ export function isVisitSchedulingMessage(
   if (/\b(book|schedule)\b/i.test(t)) return true;
   if (VISIT_WEEKEND_ANCHOR.test(t)) return true;
 
+  // visit_booking stage: custom text like "Wednesday 3pm" or "new day is Wednesday 3pm" after slot buttons.
+  if (context.visitBookingStage && DAY_PATTERN.test(t) && TIME_PATTERN.test(t)) return true;
+  if (context.visitBookingStage && CUSTOM_VISIT_SLOT_HINT.test(t) && TIME_PATTERN.test(t)) return true;
+
   // "today/tomorrow 9pm" alone is ambiguous — only treat as visit when actively booking one.
   if (context.visitBookingStage && /\b(today|tomorrow)\b/i.test(t)) return true;
 
   return false;
+}
+
+/** Parsed wall-clock slot from free text (visit or reschedule phrasing). */
+export function parseCustomVisitSlotFromMessage(message: string, reference = new Date()): Date | null {
+  return (
+    parseRescheduleTargetFromMessage(message, reference)
+    ?? parseVisitDateTimeFromMessage(message, reference)
+  );
+}
+
+export function isCustomVisitSlotMessage(
+  message: string,
+  context: VisitSchedulingContext = {},
+): boolean {
+  const parsed = parseCustomVisitSlotFromMessage(message);
+  if (!parsed) return false;
+  if (context.visitBookingStage) return true;
+  return CUSTOM_VISIT_SLOT_HINT.test(message.trim());
 }
 
 export function isShortVisitConfirmation(message: string): boolean {

@@ -2,7 +2,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
 import { scheduleVisit } from './visitBooking.service';
-import { confirmVisitById } from './visitState.service';
+import { confirmVisitById, rescheduleVisitById } from './visitState.service';
 import { transitionLeadStatus } from './leadTransition.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
@@ -12,6 +12,7 @@ import {
   cancelPendingBookingApproval,
   createBookingApprovalRequest,
   findPendingBookingApproval,
+  getBookingApprovalById,
   resolveBookingApprovalStatus,
   updatePendingBookingApprovalSchedule,
   type BookingApprovalRow,
@@ -143,6 +144,8 @@ export async function createVisitApprovalRequest(input: {
   /** When true, skip sending WhatsApp to customer (caller owns the reply). */
   suppressCustomerMessage?: boolean;
   idempotencyKey?: string;
+  /** When set, agent approval reschedules this visit instead of creating a new row. */
+  rescheduleVisitId?: string;
 }): Promise<VisitApprovalPayload> {
   const customerPhone = normalizeInboundWhatsAppPhone(input.customerPhone);
   const idempotencyKey = input.idempotencyKey ?? buildVisitApprovalIdempotencyKey({
@@ -151,6 +154,11 @@ export async function createVisitApprovalRequest(input: {
     propertyId: input.propertyId,
     scheduledAt: input.scheduledAt,
   });
+
+  const metadata: Record<string, unknown> = { propertyName: input.propertyName };
+  if (input.rescheduleVisitId) {
+    metadata.rescheduleVisitId = input.rescheduleVisitId;
+  }
 
   const { approval, idempotencyHit } = await createBookingApprovalRequest({
     companyId: input.companyId,
@@ -163,7 +171,7 @@ export async function createVisitApprovalRequest(input: {
     customerPhone,
     customerName: input.customerName,
     idempotencyKey,
-    metadata: { propertyName: input.propertyName },
+    metadata,
   });
 
   const payload = (await toVisitPayload(approval))!;
@@ -316,21 +324,44 @@ export async function resolveVisitApproval(
   }
 
   const scheduledAt = new Date(pending.scheduledAt);
-  const booking = await scheduleVisit({
-    companyId,
-    leadId: pending.leadId,
-    propertyId: pending.propertyId,
-    scheduledAt,
-    agentId,
-    notes: 'Confirmed by agent via WhatsApp',
-  });
+  const approvalRow = await getBookingApprovalById(approvalId);
+  const rescheduleVisitId =
+    typeof approvalRow?.metadata?.rescheduleVisitId === 'string'
+      ? approvalRow.metadata.rescheduleVisitId
+      : null;
 
-  if (!booking.success || !booking.visit) {
-    const err =
-      booking.error === 'agent_conflict'
-        ? 'That slot conflicts with your calendar. Ask the customer for another time.'
-        : 'Could not book the visit. Ask the customer for another time slot via WhatsApp.';
-    return { ok: false, message: err };
+  let booking: Awaited<ReturnType<typeof scheduleVisit>>;
+  if (rescheduleVisitId) {
+    const rescheduled = await rescheduleVisitById({
+      companyId,
+      visitId: rescheduleVisitId,
+      scheduledAt,
+      suppressCustomerNotification: true,
+    });
+    if (!rescheduled.success || !rescheduled.visit) {
+      return {
+        ok: false,
+        message: 'Could not reschedule the visit. Ask the customer for another time slot via WhatsApp.',
+      };
+    }
+    booking = { success: true, visit: rescheduled.visit };
+  } else {
+    booking = await scheduleVisit({
+      companyId,
+      leadId: pending.leadId,
+      propertyId: pending.propertyId,
+      scheduledAt,
+      agentId,
+      notes: 'Confirmed by agent via WhatsApp',
+    });
+
+    if (!booking.success || !booking.visit) {
+      const err =
+        booking.error === 'agent_conflict'
+          ? 'That slot conflicts with your calendar. Ask the customer for another time.'
+          : 'Could not book the visit. Ask the customer for another time slot via WhatsApp.';
+      return { ok: false, message: err };
+    }
   }
 
   await resolveBookingApprovalStatus({ approvalId, status: 'approved' });

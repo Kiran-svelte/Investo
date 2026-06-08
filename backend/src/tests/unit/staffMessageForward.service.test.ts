@@ -16,6 +16,12 @@ describe('staffMessageForward.service', () => {
     expect(parsed?.phones[0]).toMatch(/9036165603/);
   });
 
+  test('parseStaffForwardCommand supports unquoted message before to', () => {
+    const parsed = parseStaffForwardCommand('send Team standup at 4pm to 9036165603,919876543210');
+    expect(parsed?.body).toBe('Team standup at 4pm');
+    expect(parsed?.phones).toHaveLength(2);
+  });
+
   test('returns null for invalid commands', () => {
     expect(parseStaffForwardCommand('forward hi to 9036165603')).toBeNull();
     expect(parseStaffForwardCommand('send "hi"')).toBeNull();

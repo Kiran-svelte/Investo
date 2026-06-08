@@ -3,7 +3,7 @@ import logger from '../../../config/logger';
 import { logAgentAction } from '../../agent-action-log.service';
 import { applyVisitMutationFromChat } from '../../visitMutationFromChat.service';
 import { scheduleVisit, buildVisitIdempotencyKey } from '../../visitBooking.service';
-import { cancelVisitById, rescheduleVisitById } from '../../visitState.service';
+import { cancelVisitById } from '../../visitState.service';
 import { assignLeadRoundRobin } from '../../leadAssignment.service';
 import { createVisitApprovalRequest, notifyAgentVisitChangeRequested } from '../../visitPendingApproval.service';
 import { buildVisitScopeFilter } from '../../agent/tools/format-helpers';
@@ -133,27 +133,50 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
         { visitId: existingVisitId, leadId },
       );
     }
-    const result = await rescheduleVisitById({
-      companyId: ctx.run.toolContext.companyId,
-      visitId: existingVisitId,
-      scheduledAt,
-      suppressCustomerNotification: ctx.run.channel === 'buyer',
-    });
-    if (!result.success) {
-      if (result.error === 'past_date') return fail('That time is in the past. Please share a future date and time.');
-      return fail("I couldn't reschedule that visit. Please share another time or ask for an agent.");
+
+    let conversationId = typeof ctx.params.conversationId === 'string' ? ctx.params.conversationId : undefined;
+    if (!conversationId) {
+      const conversation = await prisma.conversation.findFirst({
+        where: { leadId, companyId: ctx.run.toolContext.companyId, status: { not: 'closed' } },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true },
+      });
+      conversationId = conversation?.id;
     }
-    const updated = await prisma.visit.findUnique({
-      where: { id: existingVisitId },
-      include: {
-        property: { select: { name: true } },
-        agent: { select: { name: true } },
-      },
+    const lead = await prisma.lead.findFirst({
+      where: { id: leadId, companyId: ctx.run.toolContext.companyId },
+      select: { customerName: true, phone: true },
     });
-    if (!updated) return fail("I couldn't load the updated visit.");
+    if (!conversationId || !visit.propertyId || !lead?.phone) {
+      return fail('I could not find the active conversation to request this visit change.');
+    }
+
+    await createVisitApprovalRequest({
+      companyId: ctx.run.toolContext.companyId,
+      leadId,
+      propertyId: visit.propertyId,
+      scheduledAt,
+      agentId: visit.agentId,
+      conversationId,
+      customerPhone: lead.phone,
+      customerName: lead.customerName,
+      propertyName: visit.property?.name ?? undefined,
+      suppressCustomerMessage: true,
+      rescheduleVisitId: existingVisitId,
+    });
+
+    const whenLabel = scheduledAt.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
     return ok(
-      formatBuyerVisitReply('Visit rescheduled', updated.scheduledAt, updated.property?.name, updated.agent?.name),
-      { visitId: updated.id, leadId: updated.leadId, propertyId: updated.propertyId ?? undefined },
+      `${formatBuyerVisitPendingApproval(visit.agent?.name)}\n\nUpdated requested time: ${whenLabel}`,
+      { visitId: existingVisitId, leadId, propertyId: visit.propertyId ?? undefined },
     );
   }
 
