@@ -11,7 +11,16 @@ import { tryCommitCustomerCallBooking } from '../customerCallBooking.service';
 import { extractDateTimeIso } from '../../utils/parseDateTimeFromMessage.util';
 import { getLiveLeadContext } from '../liveLeadContext.service';
 import { buildBuyerVisitStatusReply, isBuyerVisitStatusQuery } from '../buyerVisitQuery.service';
-import { isVisitCancelOrRescheduleMessage, isVisitSchedulingMessage } from '../visitIntentFromMessage.service';
+import {
+  isShortVisitConfirmation,
+  isVisitCancelOrRescheduleMessage,
+  isVisitSchedulingMessage,
+  parseCustomVisitSlotFromMessage,
+  parseVisitDateTimeFromHistory,
+  parseVisitDateTimeFromMessage,
+} from '../visitIntentFromMessage.service';
+import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
+import { buildSafeBuyerFallback } from '../../utils/safeBuyerFallback.util';
 import { buildNeverSayNoContext } from '../neverSayNoEngine.service';
 import { criteriaFromLead } from '../alternativeInventory.service';
 import { sanitizeBuyerOutbound } from './whatsappResponseSanitizer.service';
@@ -59,6 +68,28 @@ type PropertySummary = {
   brochureUrl?: string | null;
   images?: string[];
 };
+
+/** Immutable handler cascade — full.md PART III.O */
+export const BUYER_HANDLER_CASCADE = [
+  'H-start',
+  'H1',
+  'H0',
+  'visitCommit',
+  'H1b',
+  'H2',
+  'H2b',
+  'H2.5',
+  'callCommit',
+  'H-call',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'H7',
+  'H7b',
+  'H8',
+  'H9',
+] as const;
 
 // ---------------------------------------------------------------------------
 // Guard helpers
@@ -1178,45 +1209,70 @@ async function handleFullAiTurn(
     stage: conversationState.stage,
   });
 
-  const aiResponse = await Promise.race([
-    aiService.generateResponse({
-      companyId: ctx.companyId,
-      customerMessage: ctx.input.messageText,
-      conversationHistory: ctx.history,
-      lead,
-      properties: aiProperties,
-      aiSettings: aiSettings || {},
-      companyName: ctx.companyName,
-      conversationState,
-      conversionPromptBlock: neverSayNoCtx.promptBlock,
-      neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
-      neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
-      customerMessageCount,
+  type AiTurnResponse = Awaited<ReturnType<typeof aiService.generateResponse>>;
+  let aiResponse: AiTurnResponse;
+  try {
+    aiResponse = await Promise.race([
+      aiService.generateResponse({
+        companyId: ctx.companyId,
+        customerMessage: ctx.input.messageText,
+        conversationHistory: ctx.history,
+        lead,
+        properties: aiProperties,
+        aiSettings: aiSettings || {},
+        companyName: ctx.companyName,
+        conversationState,
+        conversionPromptBlock: neverSayNoCtx.promptBlock,
+        neverSayNoFallbackCta: neverSayNoCtx.fallbackCta,
+        neverSayNoHasAlternatives: neverSayNoCtx.hasInventoryAlternatives,
+        customerMessageCount,
+        conversationId: ctx.input.conversationId,
+        conversationContextBlock,
+        liveLeadContextBlock: liveCtx.promptBlock || undefined,
+        activeVisit: liveCtx.activeVisit,
+        messageId: ctx.messageId,
+        extractedDateTime: extractDateTimeIso(ctx.input.messageText) ?? undefined,
+        focusedPropertyBlock,
+        focusedPropertyId: resolvedPropertyId ?? undefined,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI response timed out after 28s')), 28_000),
+      ),
+    ]);
+  } catch (err: unknown) {
+    logger.warn('H9 AI response timed out or failed', {
       conversationId: ctx.input.conversationId,
-      conversationContextBlock,
-      liveLeadContextBlock: liveCtx.promptBlock || undefined,
-      activeVisit: liveCtx.activeVisit,
-      messageId: ctx.messageId,
-      extractedDateTime: extractDateTimeIso(ctx.input.messageText) ?? undefined,
-      focusedPropertyBlock,
-      focusedPropertyId: resolvedPropertyId ?? undefined,
-    }),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('AI response timed out after 28s')), 28_000),
-    ),
-  ]);
+      error: err instanceof Error ? err.message : String(err),
+    });
+    aiResponse = {
+      text: buildSafeBuyerFallback({
+        activeVisit: liveCtx.activeVisit
+          ? {
+              propertyName: liveCtx.activeVisit.propertyName,
+              scheduledAt: liveCtx.activeVisit.scheduledAt,
+              status: liveCtx.activeVisit.status,
+            }
+          : null,
+      }),
+      detectedLanguage: lead.language || 'en',
+    };
+  }
 
   const groundedProperties = allRawProperties.map((p) => propertyToCompletenessInput(p));
   const groundedFactsBlock = buildGroundedFactsBlock(groundedProperties, neverSayNoCtx.promptBlock);
 
   let outboundCandidate = aiResponse.text;
 
-  if (isVisitCancelOrRescheduleMessage(ctx.input.messageText) && !visitCommit.committed && liveCtx.activeVisit) {
-    const { formatDateIST } = await import('../agent/tools/format-helpers');
-    outboundCandidate =
-      `I found your visit for *${liveCtx.activeVisit.propertyName ?? 'your property'}* ` +
-      `on ${formatDateIST(new Date(liveCtx.activeVisit.scheduledAt))}. ` +
-      `What date and time should we move it to? (e.g. "this Saturday 11am")`;
+  if (isVisitCancelOrRescheduleMessage(ctx.input.messageText) && !visitCommit.committed) {
+    const mutation = await applyVisitMutationFromChat({
+      companyId: ctx.companyId,
+      message: ctx.input.messageText,
+      leadId: ctx.input.leadId,
+      suppressCustomerNotification: true,
+    });
+    if (mutation.handled && mutation.reply) {
+      outboundCandidate = mutation.reply;
+    }
   }
 
   const hasPriorOutbound = ctx.history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
@@ -1441,6 +1497,18 @@ function isVisitActionRequest(messageText: string): boolean {
     || /\b(site\s*)?visit\b[\s\S]{0,80}\b(book|schedule|arrange)\b/i.test(messageText)
     || /\b(book|schedule|arrange)\b[\s\S]{0,80}\bappointment\b/i.test(messageText)
   );
+}
+
+/** True when the buyer supplied (or confirmed) a concrete visit slot — H7b must not fire. */
+function buyerMessageHasResolvableVisitDateTime(
+  messageText: string,
+  proposedVisitTime: Date | null,
+  recentCustomerMessages: string[],
+): boolean {
+  if (parseVisitDateTimeFromMessage(messageText)) return true;
+  if (parseCustomVisitSlotFromMessage(messageText)) return true;
+  if (isShortVisitConfirmation(messageText) && proposedVisitTime) return true;
+  return Boolean(parseVisitDateTimeFromHistory(recentCustomerMessages));
 }
 
 function isRichBuyerRequirementRequest(messageText: string): boolean {
@@ -1738,7 +1806,15 @@ export async function orchestrateWhatsAppBuyerTurn(
 
   // H7b: Bare visit intent with no date/time — ask the buyer instead of falling to LLM escalation.
   // Fires only when isVisitActionRequest() is true but visitCommit was not committed (no time parsed).
-  if (!visitCommit.committed && isVisitActionRequest(ctx.input.messageText)) {
+  if (
+    !visitCommit.committed
+    && isVisitActionRequest(ctx.input.messageText)
+    && !buyerMessageHasResolvableVisitDateTime(
+      ctx.input.messageText,
+      ctx.input.conversationProposedVisitTime,
+      recentCustomerMessages,
+    )
+  ) {
     const askReply = `Great! I'd love to arrange a site visit for you. 😊\n\nCould you share your *preferred date and time*? For example: "Saturday 11am" or "Tuesday 3pm".`;
     await prisma.message.create({
       data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: askReply, status: 'sent' },

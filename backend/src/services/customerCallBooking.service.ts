@@ -58,6 +58,11 @@ export async function tryCommitCustomerCallBooking(
     return { committed: false };
   }
 
+  const active = await findActiveCallRequest({
+    companyId: input.companyId,
+    leadId: input.lead.id,
+  });
+
   if (isCallStatusQuery(msg)) {
     const customerReply = await buildBuyerCallStatusReply({
       companyId: input.companyId,
@@ -65,11 +70,6 @@ export async function tryCommitCustomerCallBooking(
     });
     return { committed: true, customerReply, hasActiveCall: Boolean(active) };
   }
-
-  const active = await findActiveCallRequest({
-    companyId: input.companyId,
-    leadId: input.lead.id,
-  });
 
   if (isCallCancelIntent(msg)) {
     if (!active) {
@@ -180,6 +180,7 @@ export async function tryCommitCustomerCallBooking(
       return {
         committed: true,
         customerReply: `Your callback is already confirmed, so I can't change it automatically. I have notified the team to help you.`,
+        hasActiveCall: true,
       };
     }
     const rescheduled = await rescheduleCallRequest({
@@ -197,6 +198,7 @@ export async function tryCommitCustomerCallBooking(
       return {
         committed: true,
         customerReply: formatBuyerCallReply('Callback request updated', scheduledAt, agent?.name),
+        hasActiveCall: true,
       };
     }
   }
@@ -215,7 +217,8 @@ export async function tryCommitCustomerCallBooking(
     return {
       committed: true,
       customerReply:
-        "📞 I'll ask our team to call you — please share a good time if you have one (e.g. *tomorrow 3pm*).",
+        `📞 I'll ask our team to call you — please share a good time if you have one (e.g. *tomorrow 3pm*).`,
+      hasActiveCall: false,
     };
   }
   if (input.conversationId) {
@@ -228,5 +231,6 @@ export async function tryCommitCustomerCallBooking(
   return {
     committed: true,
     customerReply: formatBuyerCallReply('Callback request sent', scheduledAt, agent?.name),
+    hasActiveCall: true,
   };
 }
