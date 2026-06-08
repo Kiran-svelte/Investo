@@ -4,6 +4,8 @@ import logger from '../config/logger';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
 import { scheduleVisit } from './visitBooking.service';
+import { transitionLeadStatus } from './leadTransition.service';
+import { socketService, SOCKET_EVENTS } from './socket.service';
 import { formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 
@@ -225,17 +227,38 @@ export async function resolveVisitApproval(
 
   await whatsappService.sendCompanyTextMessage(pending.customerPhone, confirmText, companyId);
 
+  // Advance conversation stage to 'confirmation' — the visit is now fully booked.
+  // 'visit_booking' is the slot-selection phase; 'confirmation' means done.
   await prisma.conversation.update({
     where: { id: pending.conversationId },
     data: {
       proposedVisitTime: scheduledAt,
-      stage: 'visit_booking',
+      stage: 'confirmation',
     },
+  });
+
+  // Transition lead pipeline status to visit_scheduled.
+  // transitionLeadStatus is a no-op if the lead is already at a later stage,
+  // so this is safe to call unconditionally.
+  await transitionLeadStatus(pending.leadId, 'visit_scheduled', { force: false }).catch(
+    (err: unknown) => {
+      logger.warn('resolveVisitApproval: lead status transition failed', {
+        leadId: pending.leadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    },
+  );
+
+  // Push real-time dashboard update so the pipeline card moves without a page refresh.
+  socketService.emitToCompany(companyId, SOCKET_EVENTS.LEAD_UPDATED, {
+    leadId: pending.leadId,
+    status: 'visit_scheduled',
+    visitId: booking.visit?.id,
   });
 
   return {
     ok: true,
-    message: `Visit confirmed for ${scheduledAt.toLocaleString('en-IN')}. Customer notified and calendar updated.`,
+    message: `Visit confirmed for ${scheduledAt.toLocaleString('en-IN')}. Customer notified, lead status updated, and calendar synced.`,
   };
 }
 

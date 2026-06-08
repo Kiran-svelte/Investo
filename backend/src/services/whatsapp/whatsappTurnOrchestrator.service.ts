@@ -205,6 +205,31 @@ async function handleInteractiveSafetyTurn(ctx: BuyerTurnRuntimeContext): Promis
  * @param ctx - Turn runtime context.
  * @returns TurnResult when handled, null when AI is still active.
  */
+/**
+ * Checks whether the most recent AI-sent message in a conversation is already
+ * a human-takeover handoff. Used by handleHumanTakeoverTurn to suppress
+ * duplicate handoff messages when the buyer keeps messaging while under
+ * human control — the agent still gets pinged, but the buyer is not spammed.
+ *
+ * @param conversationId - Conversation to check.
+ * @returns true when the last AI message looks like a handoff.
+ */
+async function isLastAiMessageAlreadyHandoff(conversationId: string): Promise<boolean> {
+  const lastAi = await prisma.message.findFirst({
+    where: { conversationId, senderType: { in: ['ai', 'agent'] } },
+    orderBy: { createdAt: 'desc' },
+    select: { content: true },
+  });
+  if (!lastAi?.content) return false;
+  return (
+    lastAi.content.includes('Our team at') ||
+    lastAi.content.includes('our team') ||
+    lastAi.content.includes('human specialist') ||
+    lastAi.content.includes('will assist you shortly') ||
+    lastAi.content.includes('has your request')
+  );
+}
+
 async function handleHumanTakeoverTurn(ctx: BuyerTurnRuntimeContext): Promise<TurnResult | null> {
   if (!ctx.input.humanTakeover) return null;
 
@@ -214,15 +239,21 @@ async function handleHumanTakeoverTurn(ctx: BuyerTurnRuntimeContext): Promise<Tu
     `Thanks for your message! Our team at *${ctx.companyName}* has your request.\n\n` +
     (operatorLine || `Please share your *area*, *budget*, and *property type* if you have not already - we will assist you shortly.`);
 
-  await prisma.message.create({
-    data: {
-      conversationId: ctx.input.conversationId,
-      senderType: 'ai',
-      content: handoffText,
-      language: ctx.input.leadLanguage || 'en',
-      status: 'sent',
-    },
-  });
+  // Dedup guard: if the last AI message is already a handoff, skip the message
+  // create so the buyer is not flooded with identical messages on every inbound.
+  // We still notify the agent below so they are always pinged.
+  const isAlreadyHandoff = await isLastAiMessageAlreadyHandoff(ctx.input.conversationId);
+  if (!isAlreadyHandoff) {
+    await prisma.message.create({
+      data: {
+        conversationId: ctx.input.conversationId,
+        senderType: 'ai',
+        content: handoffText,
+        language: ctx.input.leadLanguage || 'en',
+        status: 'sent',
+      },
+    });
+  }
 
   const notifTitle = 'New message from customer';
   const notifMessage = `${ctx.input.leadCustomerName || ctx.customerPhone}: ${ctx.input.messageText.substring(0, 100)}`;
@@ -431,6 +462,132 @@ async function handleReturningBuyerPivotTurn(
   });
 
   return { audience: 'buyer', handled: true, terminal: true, text: pivotReply };
+}
+
+// ---------------------------------------------------------------------------
+// H2.5: Deterministic property-browsing fast-path
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure-regex predicate that matches buyer messages whose primary intent is
+ * browsing/listing available properties. Kept intentionally broad so that
+ * one-word messages like "property" or "properties" are captured deterministically
+ * instead of falling through to the LLM (H9) where temperature variance causes
+ * spurious `human_escalated` transitions.
+ *
+ * Deliberately does NOT match scheduling/visit/price messages — those have their
+ * own deterministic handlers (H5-H8) that run later in the chain.
+ *
+ * @param messageText - Raw inbound buyer message.
+ * @returns true when the message is a property-browsing intent.
+ */
+export function isPropertyBrowsingIntent(messageText: string): boolean {
+  const t = messageText.trim();
+  if (!t) return false;
+
+  // Guard: visit/call/price intent must not be short-circuited here.
+  if (
+    /\b(book|schedule|arrange|cancel|reschedule)\b/i.test(t) ||
+    /\b(visit|appointment|call\s+me|price|cost|how\s+much|discount|brochure|pdf)\b/i.test(t)
+  ) {
+    return false;
+  }
+
+  return (
+    // Bare keyword — highest signal
+    /^\s*(property|properties|projects?|flats?|apartments?|villas?|plots?)\s*$/i.test(t) ||
+    // "show me / list / see properties"
+    /\b(show|list|see|view|display|get|give|tell)\s+(me\s+)?(your\s+|the\s+|all\s+|available\s+)?(properties|property|projects?|listings?|inventory|flats?|apartments?|villas?|plots?)\b/i.test(t) ||
+    // "what properties / projects do you have"
+    /\b(what|which)\s+(properties|property|projects?|flats?|apartments?|villas?|plots?)\b/i.test(t) ||
+    // "available properties / projects"
+    /\b(available|current|new|latest|upcoming)\s+(properties|property|projects?|flats?|apartments?|villas?|plots?)\b/i.test(t) ||
+    // "show me options / inventory"
+    /\bshow\s+(me\s+)?(options|inventory|choices|what['']?s\s+available)\b/i.test(t)
+  );
+}
+
+/**
+ * H2.5: Deterministic property-browsing turn.
+ *
+ * Runs the `show_properties` workflow directly — bypassing the LLM intent
+ * classifier in H7 and the full LLM in H9. This guarantees that property
+ * listing requests never trigger spurious `human_escalated` stage transitions
+ * due to LLM temperature or model-version drift.
+ *
+ * @param ctx - Turn runtime context.
+ * @param visitCommit - Must not be committed.
+ * @param liveCtx - Pre-fetched live lead context.
+ * @param conversationStage - Current stage from the state machine.
+ * @returns TurnResult or null if message is not a property-browsing intent.
+ */
+async function handlePropertyBrowsingTurn(
+  ctx: BuyerTurnRuntimeContext,
+  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
+  conversationStage: string,
+): Promise<TurnResult | null> {
+  if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
+  if (!isPropertyBrowsingIntent(ctx.input.messageText)) return null;
+
+  logOutboundBranch('H2_5', 'whatsappTurnOrchestrator:propertyBrowsing', 'buyer_property_browse_fast_path', {
+    messagePreview: ctx.input.messageText.slice(0, 40),
+  });
+
+  // DETERMINISTIC FAST-PATH: run availability_check directly — no LLM classifier.
+  // classifyAndRunBuyerWorkflow routes through the LLM which can emit
+  // human_escalated on temperature drift. For bare property-listing intent
+  // we always want inventory search, so we skip straight to runWorkflow.
+  const { runWorkflow } = await import('../workflow/workflow-engine.service');
+  const buyerWorkflowRun = {
+    toolContext: {
+      userId: 'system',
+      companyId: ctx.companyId,
+      userRole: 'company_admin' as const,
+      userName: 'System',
+      channel: 'buyer' as const,
+    },
+    messageText: ctx.input.messageText,
+    recentMessages: [],
+    companyName: ctx.companyName,
+    sessionLeadId: ctx.input.leadId,
+    sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
+    channel: 'buyer' as const,
+  };
+  const workflowResult = await runWorkflow('availability_check', buyerWorkflowRun, {
+    leadId: ctx.input.leadId,
+    propertyId: ctx.input.conversationSelectedPropertyId ?? undefined,
+    message: ctx.input.messageText,
+  });
+
+  const rawReply = workflowResult.reply?.trim();
+  if (!rawReply) return null;
+
+  const safeReply = stripBuyerInternalMetadata(rawReply);
+  await prisma.message.create({
+    data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
+  });
+
+  const visitTime = resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt);
+  const components = resolveBuyerComponents({
+    stage: conversationStage,
+    outboundText: safeReply,
+    propertyId: ctx.input.conversationSelectedPropertyId,
+    hasActiveVisit: Boolean(liveCtx.activeVisit),
+    visitStatus: liveCtx.activeVisit?.status,
+    visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+    visitTime,
+  });
+
+  fireMemoryExtraction({
+    leadId: ctx.input.leadId,
+    messageText: ctx.input.messageText,
+    outboundText: safeReply,
+    workflowId: 'availability_check',
+    liveCtx,
+  });
+
+  return { audience: 'buyer', handled: true, terminal: true, text: safeReply, components };
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,6 +1634,11 @@ export async function orchestrateWhatsAppBuyerTurn(
 
   const h2b = await handleReturningBuyerPivotTurn(ctx, visitCommit);
   if (h2b) return h2b;
+
+  // H2.5 must run BEFORE callCommit and H3-H7 so property-browsing intents
+  // never reach the LLM (H9) where temperature variance causes spurious escalation.
+  const h2_5 = await handlePropertyBrowsingTurn(ctx, visitCommit, liveCtx, conversationState.stage);
+  if (h2_5) return h2_5;
 
   const callCommit = await tryCommitCustomerCallBooking({
     companyId: ctx.companyId,
