@@ -632,18 +632,24 @@ export class WhatsAppService {
         companyId,
       });
       if (msg.messageId) {
-        const enqueued = await enqueueCustomerInbound(companyId, customerPhone, {
-          phoneNumberId: msg.phoneNumberId,
-          customerPhone: msg.customerPhone,
-          customerName: msg.customerName,
-          messageText: msg.messageText,
-          messageId: msg.messageId,
-          companyIdHint: msg.companyIdHint,
-          interactiveId: msg.interactiveId,
-          interactiveType: msg.interactiveType,
-          businessDisplayPhone: msg.businessDisplayPhone,
-        });
-        if (!enqueued) {
+        try {
+          await enqueueCustomerInbound(companyId, customerPhone, {
+            phoneNumberId: msg.phoneNumberId,
+            customerPhone: msg.customerPhone,
+            customerName: msg.customerName,
+            messageText: msg.messageText,
+            messageId: msg.messageId,
+            companyIdHint: msg.companyIdHint,
+            interactiveId: msg.interactiveId,
+            interactiveType: msg.interactiveType,
+            businessDisplayPhone: msg.businessDisplayPhone,
+          });
+        } catch (queueErr: unknown) {
+          logger.warn('Failed to enqueue concurrent inbound — scheduling short retry', {
+            companyId,
+            messageId: msg.messageId,
+            error: queueErr instanceof Error ? queueErr.message : String(queueErr),
+          });
           try {
             const { automationQueueService } = await import('./automationQueue.service');
             await automationQueueService.schedule(
@@ -1245,7 +1251,7 @@ export class WhatsAppService {
         handled: true,
         terminal: true,
         text: fallbackText,
-        replyPacing: 'minimal',
+        replyPacing: 'minimal' as const,
       };
     });
 
@@ -1280,9 +1286,7 @@ export class WhatsAppService {
       if (claimedCustomerProcessingTurn) {
         await releaseCustomerProcessingTurn(companyId, customerPhone);
       }
-      void drainCustomerInboundQueue(companyId, customerPhone, (payload) =>
-        this.handleIncomingMessage({ ...payload, queuedReplay: true }),
-      ).catch((drainErr: unknown) => {
+      void drainCustomerInboundQueue(companyId, customerPhone).catch((drainErr: unknown) => {
         logger.warn('Customer inbound queue drain failed', {
           companyId,
           error: drainErr instanceof Error ? drainErr.message : String(drainErr),
@@ -1299,7 +1303,7 @@ export class WhatsAppService {
           whatsappConfig: whatsappConfig!,
           outboundTextLength: turnResult.text!.length,
           inboundMessageId: msg.messageId,
-          replyPacing: turnResult.replyPacing,
+          pacing: turnResult.replyPacing,
         });
         try {
           await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);
@@ -2684,22 +2688,6 @@ function buildAiFallbackMessage(input: {
     return (
       `I could not fetch your visit details just now${salutation}. ` +
       `Please try again in a moment, or type *Talk to agent* for help.`
-    );
-  }
-
-  return buildSafeBuyerFallback();
-}
-
-export const whatsappService = new WhatsAppService();
-     `Please try again in a moment, or type *Talk to agent* for help.`
-    );
-  }
-
-  return buildSafeBuyerFallback();
-}
-
-export const whatsappService = new WhatsAppService();
-r help.`
     );
   }
 
