@@ -619,9 +619,12 @@ export class WhatsAppService {
       }
     }
 
+    const isInteractiveTap = Boolean(msg.interactiveId?.trim());
     let claimedCustomerProcessingTurn = false;
-    const customerTurnClaimed = await claimCustomerProcessingTurn(companyId, customerPhone);
-    if (customerTurnClaimed) {
+    const customerTurnClaimed = isInteractiveTap
+      ? true
+      : await claimCustomerProcessingTurn(companyId, customerPhone);
+    if (!isInteractiveTap && customerTurnClaimed) {
       claimedCustomerProcessingTurn = true;
     }
     if (!customerTurnClaimed) {
