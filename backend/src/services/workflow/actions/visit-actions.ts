@@ -4,8 +4,10 @@ import { logAgentAction } from '../../agent-action-log.service';
 import { applyVisitMutationFromChat } from '../../visitMutationFromChat.service';
 import { scheduleVisit, buildVisitIdempotencyKey } from '../../visitBooking.service';
 import { cancelVisitById, rescheduleVisitById } from '../../visitState.service';
+import { assignLeadRoundRobin } from '../../leadAssignment.service';
+import { createVisitApprovalRequest, notifyAgentVisitChangeRequested } from '../../visitPendingApproval.service';
 import { buildVisitScopeFilter } from '../../agent/tools/format-helpers';
-import { formatBuyerVisitScheduled, formatBuyerVisitCancelled } from '../../../utils/visitFormat.util';
+import { formatBuyerVisitScheduled, formatBuyerVisitCancelled, formatBuyerVisitPendingApproval } from '../../../utils/visitFormat.util';
 import type { ActionContext } from './action-helpers';
 import { fail, failToolResult, ok, requireLeadId, requireVisitId, runNamedTool, skip, mergeStateFromToolOutput } from './action-helpers';
 
@@ -119,6 +121,18 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
       },
     });
     if (!visit) return fail("I couldn't find an upcoming site visit to reschedule.");
+    if (visit.status === 'confirmed') {
+      await notifyAgentVisitChangeRequested({
+        companyId: ctx.run.toolContext.companyId,
+        leadId,
+        visitId: existingVisitId,
+        messageText: ctx.run.messageText,
+      });
+      return ok(
+        `Your visit is already confirmed, so I won't change it automatically.\n\nI've notified the team with your request.`,
+        { visitId: existingVisitId, leadId },
+      );
+    }
     const result = await rescheduleVisitById({
       companyId: ctx.run.toolContext.companyId,
       visitId: existingVisitId,
@@ -148,14 +162,54 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
     return fail('Which property should I book for your visit?');
   }
 
-  const booking = await scheduleVisit({
+  const [lead, property] = await Promise.all([
+    prisma.lead.findFirst({
+      where: { id: leadId, companyId: ctx.run.toolContext.companyId },
+      select: { assignedAgentId: true, customerName: true, phone: true },
+    }),
+    prisma.property.findFirst({
+      where: {
+        id: propertyId,
+        companyId: ctx.run.toolContext.companyId,
+        status: { in: ['available', 'upcoming'] },
+      },
+      select: { name: true },
+    }),
+  ]);
+  if (!lead?.phone) return fail('I could not find your lead record to request this visit.');
+  if (!property) return fail('I could not find that active or upcoming property in our catalog.');
+
+  let agentId = lead.assignedAgentId;
+  if (!agentId) {
+    agentId = await assignLeadRoundRobin(ctx.run.toolContext.companyId);
+    if (agentId) {
+      await prisma.lead.update({ where: { id: leadId }, data: { assignedAgentId: agentId } });
+    }
+  }
+  if (!agentId) return fail('Our sales team is not available to approve visits right now. Please ask for an agent.');
+
+  let conversationId = typeof ctx.params.conversationId === 'string' ? ctx.params.conversationId : undefined;
+  if (!conversationId) {
+    const conversation = await prisma.conversation.findFirst({
+      where: { leadId, companyId: ctx.run.toolContext.companyId, status: { not: 'closed' } },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    conversationId = conversation?.id;
+  }
+  if (!conversationId) return fail('I could not find the active WhatsApp conversation for this visit request.');
+
+  await createVisitApprovalRequest({
     companyId: ctx.run.toolContext.companyId,
     leadId,
     propertyId,
     scheduledAt,
-    notes: 'Booked via WhatsApp buyer workflow',
-    // Explicit shared key so buyer workflow, customer fast-path, and staff tool
-    // all dedup against the same canonical visit_book namespace.
+    agentId,
+    conversationId,
+    customerPhone: lead.phone,
+    customerName: lead.customerName,
+    propertyName: property.name,
+    suppressCustomerMessage: true,
     idempotencyKey: buildVisitIdempotencyKey(
       ctx.run.toolContext.companyId,
       leadId,
@@ -163,28 +217,9 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
     ),
   });
 
-  if (!booking.success || !booking.visit) {
-    const reason =
-      booking.error === 'agent_conflict'
-        ? 'That slot overlaps with another visit. Please share another time.'
-        : booking.error === 'past_date'
-          ? 'That time is in the past. Please share a future date and time.'
-          : booking.error === 'property_not_found'
-            ? 'I could not find that property in our active catalog.'
-            : 'I could not schedule that visit right now. Please share another time or ask for an agent.';
-    return fail(reason);
-  }
-
-  const visit = await prisma.visit.findUnique({
-    where: { id: booking.visit.id },
-    include: {
-      property: { select: { name: true } },
-      agent: { select: { name: true } },
-    },
-  });
   return ok(
-    formatBuyerVisitReply('Visit scheduled', booking.visit.scheduledAt, visit?.property?.name, visit?.agent?.name),
-    { visitId: booking.visit.id, leadId: booking.visit.leadId, propertyId: booking.visit.propertyId ?? undefined },
+    formatBuyerVisitPendingApproval(),
+    { leadId, propertyId },
   );
 }
 
@@ -365,6 +400,18 @@ export async function cancelVisit(ctx: ActionContext) {
   if (ctx.run.channel === 'buyer') {
     if (!existing || (ctx.state.leadId && existing.leadId !== ctx.state.leadId)) {
       return fail("I couldn't find an upcoming site visit to cancel.");
+    }
+    if (existing.status === 'confirmed') {
+      await notifyAgentVisitChangeRequested({
+        companyId: ctx.run.toolContext.companyId,
+        leadId: existing.leadId,
+        visitId: existing.id,
+        messageText: ctx.run.messageText,
+      });
+      return ok(
+        `Your visit is already confirmed, so I can't cancel it automatically.\n\nI've notified the team with your request.`,
+        { visitId: existing.id, leadId: existing.leadId },
+      );
     }
     const result = await cancelVisitById({
       companyId: ctx.run.toolContext.companyId,

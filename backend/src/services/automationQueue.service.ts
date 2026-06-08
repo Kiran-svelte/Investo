@@ -13,6 +13,8 @@ export type AutomationJobType =
   | 'visit_post_follow_up'
   | 'conversation_timeout_24h'
   | 'call_reminder_1h'
+  | 'booking_approval_agent_nudge'
+  | 'booking_approval_expire'
   | 'retry_concurrent_inbound';
 
 export interface AutomationJobPayload {
@@ -488,4 +490,4 @@ export class AutomationQueueService {
   }
 }
 
-export const automationQueueService = new AutomationQueueService();
+export const automationQueueService = new AutomationQueueService();

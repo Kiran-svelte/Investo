@@ -24,7 +24,6 @@ import {
 } from '../../utils/visitFormat.util';
 import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
 import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
-import { isVisitAutoConfirmEnabled } from '../visitAutoConfirm.service';
 import { confirmVisitById, rescheduleVisitById } from '../visitState.service';
 
 export type InteractiveActionParams = {
@@ -186,7 +185,7 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
   }
 
   const property = await prisma.property.findFirst({
-    where: { id: propertyId, companyId: company.id },
+    where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
   });
 
   if (!property) {
@@ -254,7 +253,7 @@ async function handleCallMe(params: InteractiveActionParams): Promise<Interactiv
     handled: true,
     action: 'callback-requested',
     leadStatus: 'contacted',
-    turnResult: buyerTurn(formatBuyerCallReply('Callback scheduled', scheduledAt, agent?.name), [
+    turnResult: buyerTurn(formatBuyerCallReply('Callback request sent', scheduledAt, agent?.name), [
       { kind: 'buttons', buttons: [
         { id: 'call-reschedule', title: '📅 Change Time' },
         { id: 'call-cancel', title: '❌ Cancel Call' },
@@ -266,13 +265,27 @@ async function handleCallMe(params: InteractiveActionParams): Promise<Interactiv
 
 async function handleCallCancel(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { lead, company } = params;
-  const { findActiveCallRequest, cancelCallRequest } = await import('../callRequest.service');
+  const { findActiveCallRequest, cancelCallRequest, notifyAgentCallChangeRequested } = await import('../callRequest.service');
   const active = await findActiveCallRequest({ companyId: company.id, leadId: lead.id });
   if (!active) {
     return {
       handled: true,
       action: 'callback-cancelled',
       turnResult: buyerTurn("I couldn't find a scheduled callback to cancel."),
+    };
+  }
+  if (active.status === 'confirmed') {
+    await notifyAgentCallChangeRequested({
+      companyId: company.id,
+      callId: active.id,
+      messageText: 'Customer tapped cancel on a confirmed callback',
+    }).catch(() => undefined);
+    return {
+      handled: true,
+      action: 'callback-change-requested',
+      turnResult: buyerTurn(
+        `Your callback is already confirmed, so I can't cancel it automatically. I have notified the team to help you.`,
+      ),
     };
   }
   await cancelCallRequest({ companyId: company.id, callId: active.id });
@@ -306,7 +319,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   if (!propertyId) return null;
 
   const property = await prisma.property.findFirst({
-    where: { id: propertyId, companyId: company.id },
+    where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
   });
   if (!property) return null;
 
@@ -472,7 +485,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
 
     const propertyWhere: Record<string, unknown> = {
       companyId: company.id,
-      status: 'available',
+      status: { in: ['available', 'upcoming'] },
     };
     if (filter.propertyType) propertyWhere.propertyType = filter.propertyType;
     if (filter.bedrooms) propertyWhere.bedrooms = filter.bedrooms;
@@ -609,8 +622,19 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
   const { propertyId, slot } = parsed;
   const proposedTime = resolveVisitSlotToDate(slot);
   const property = await prisma.property.findFirst({
-    where: { id: propertyId, companyId: company.id },
+    where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
   });
+
+  if (!property) {
+    return {
+      handled: true,
+      action: 'visit-property-unavailable',
+      leadStatus: 'contacted',
+      turnResult: buyerTurn(
+        'That project is not available for visit booking right now. I can show you our available and upcoming projects instead.',
+      ),
+    };
+  }
 
   let agentId = lead.assignedAgentId ?? null;
   if (!agentId) {
@@ -631,19 +655,33 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
     };
   }
 
-  const autoConfirm = await isVisitAutoConfirmEnabled(company.id);
   const propertyName = property?.name ?? 'Property';
-  const agentRecord = await prisma.user.findUnique({
-    where: { id: agentId },
-    select: { phone: true, name: true },
-  });
 
   const existingVisit = await prisma.visit.findFirst({
     where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
     orderBy: { scheduledAt: 'asc' },
   });
 
-  if (autoConfirm) {
+  if (existingVisit?.status === 'confirmed') {
+    const { notifyAgentVisitChangeRequested } = await import('../visitPendingApproval.service');
+    await notifyAgentVisitChangeRequested({
+      companyId: company.id,
+      leadId: lead.id,
+      visitId: existingVisit.id,
+      messageText: `Customer selected a new visit slot for ${propertyName}: ${proposedTime.toISOString()}`,
+    });
+    return {
+      handled: true,
+      action: 'visit-confirmed-change-requested',
+      leadStatus: 'visit_scheduled',
+      turnResult: buyerTurn(
+        `Your visit is already confirmed, so I won't change it automatically.\n\nI've notified the team with your preferred new time.`,
+      ),
+    };
+  }
+
+  const agentRecord: { name?: string | null } | null = null;
+  if (false) {
     if (existingVisit) {
       const reschedule = await rescheduleVisitById({
         companyId: company.id,

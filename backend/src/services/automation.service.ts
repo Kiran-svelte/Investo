@@ -550,6 +550,16 @@ export class AutomationService {
       case 'call_reminder_1h':
         await this.executeCallReminder(String(data.callId), String(data.companyId), String(data.leadId));
         return;
+      case 'booking_approval_agent_nudge': {
+        const { sendBookingApprovalAgentNudge } = await import('./bookingApproval.service');
+        await sendBookingApprovalAgentNudge(String(data.approvalId));
+        return;
+      }
+      case 'booking_approval_expire': {
+        const { expireBookingApproval } = await import('./bookingApproval.service');
+        await expireBookingApproval(String(data.approvalId));
+        return;
+      }
       case 'retry_concurrent_inbound':
         await this.executeConcurrentInboundRetry(data);
         return;
@@ -583,6 +593,10 @@ export class AutomationService {
 
     if (!visit) {
       logger.warn('Visit reminder skipped because visit no longer exists', { visitId, timing });
+      return;
+    }
+    if (visit.status !== 'confirmed') {
+      logger.debug('Visit reminder skipped because visit is not confirmed', { visitId, timing, status: visit.status });
       return;
     }
 
@@ -719,7 +733,7 @@ export class AutomationService {
         companyId,
       );
       const call = rows[0];
-      if (!call || !['scheduled', 'confirmed'].includes(call.status)) {
+      if (!call || call.status !== 'confirmed') {
         logger.debug('callReminder: call no longer active, skipping', { callId });
         return;
       }

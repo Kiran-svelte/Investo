@@ -112,7 +112,7 @@ export async function rescheduleVisitReminderJobs(
 /**
  * Self-healer: called once at server startup.
  *
- * Finds all upcoming visits with `status IN ('scheduled', 'confirmed')` that
+ * Finds all upcoming confirmed visits that
  * have no corresponding `automation_queue` reminder jobs — which can happen
  * when the server restarts between `prisma.visit.create` and
  * `scheduleVisitReminderJobs`. For each orphan, re-schedules the missing jobs.
@@ -132,7 +132,7 @@ export async function reconcileOrphanedVisitReminders(): Promise<number> {
 
     const upcomingVisits = await prisma.visit.findMany({
       where: {
-        status: { in: ['scheduled', 'confirmed'] },
+        status: 'confirmed',
         scheduledAt: { gte: windowStart, lte: windowEnd },
       },
       select: { id: true, scheduledAt: true, companyId: true, leadId: true },

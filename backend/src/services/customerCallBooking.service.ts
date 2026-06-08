@@ -15,6 +15,7 @@ import {
   cancelCallRequest,
   findActiveCallRequest,
   formatBuyerCallReply,
+  notifyAgentCallChangeRequested,
   rescheduleCallRequest,
   scheduleCallRequest,
 } from './callRequest.service';
@@ -69,6 +70,17 @@ export async function tryCommitCustomerCallBooking(
         customerReply: "I couldn't find a scheduled callback to cancel. Would you like to book a new one?",
       };
     }
+    if (active.status === 'confirmed') {
+      await notifyAgentCallChangeRequested({
+        companyId: input.companyId,
+        callId: active.id,
+        messageText: msg,
+      }).catch(() => undefined);
+      return {
+        committed: true,
+        customerReply: `Your callback is already confirmed, so I can't cancel it automatically. I have notified the team to help you.`,
+      };
+    }
     const cancelled = await cancelCallRequest({ companyId: input.companyId, callId: active.id });
     if (!cancelled.success) {
       return { committed: true, customerReply: "I couldn't cancel that callback. Please ask your agent for help." };
@@ -84,6 +96,17 @@ export async function tryCommitCustomerCallBooking(
       return {
         committed: true,
         customerReply: "I couldn't find a scheduled callback. Share a date and time (e.g. *tomorrow 3pm*) to book one.",
+      };
+    }
+    if (active.status === 'confirmed') {
+      await notifyAgentCallChangeRequested({
+        companyId: input.companyId,
+        callId: active.id,
+        messageText: msg,
+      }).catch(() => undefined);
+      return {
+        committed: true,
+        customerReply: `Your callback is already confirmed, so I can't reschedule it automatically. I have notified the team to help you.`,
       };
     }
     const newTime =
@@ -106,7 +129,7 @@ export async function tryCommitCustomerCallBooking(
       : null;
     return {
       committed: true,
-      customerReply: formatBuyerCallReply('Callback rescheduled', newTime, agent?.name),
+      customerReply: formatBuyerCallReply('Callback request updated', newTime, agent?.name),
     };
   }
 
@@ -131,6 +154,17 @@ export async function tryCommitCustomerCallBooking(
 
   const scheduledAt = resolveCallScheduledAt(msg);
   if (active) {
+    if (active.status === 'confirmed') {
+      await notifyAgentCallChangeRequested({
+        companyId: input.companyId,
+        callId: active.id,
+        messageText: msg,
+      }).catch(() => undefined);
+      return {
+        committed: true,
+        customerReply: `Your callback is already confirmed, so I can't change it automatically. I have notified the team to help you.`,
+      };
+    }
     const rescheduled = await rescheduleCallRequest({
       companyId: input.companyId,
       callId: active.id,
@@ -145,7 +179,7 @@ export async function tryCommitCustomerCallBooking(
         : null;
       return {
         committed: true,
-        customerReply: formatBuyerCallReply('Callback updated', scheduledAt, agent?.name),
+        customerReply: formatBuyerCallReply('Callback request updated', scheduledAt, agent?.name),
       };
     }
   }
@@ -172,6 +206,6 @@ export async function tryCommitCustomerCallBooking(
   });
   return {
     committed: true,
-    customerReply: formatBuyerCallReply('Callback scheduled', scheduledAt, agent?.name),
+    customerReply: formatBuyerCallReply('Callback request sent', scheduledAt, agent?.name),
   };
 }

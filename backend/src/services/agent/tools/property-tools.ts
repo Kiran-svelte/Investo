@@ -114,6 +114,7 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
           '*Catalog matches (grounded)*',
           ...matches.map((p) => [
             `*${p.name}* (${p.propertyType || 'type unknown'})`,
+            `Status: ${p.status || 'unknown'}`,
             `Location: ${[p.locationArea, p.locationCity].filter(Boolean).join(', ') || 'not set'}`,
             `ID: ${p.id}`,
             p.brochureUrl ? 'Brochure PDF: on file' : 'Brochure: not on file',
@@ -129,7 +130,7 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
       func: async ({ leadId, limit }) => {
         const lead = await prisma.lead.findFirst({ where: { id: leadId, companyId: context.companyId } });
         if (!lead) return 'Lead not found.';
-        const where: any = { companyId: context.companyId, status: 'available' };
+        const where: any = { companyId: context.companyId, status: { in: ['available', 'upcoming'] } };
         if (lead.propertyType) where.propertyType = lead.propertyType;
         if (lead.locationPreference) where.OR = [{ locationArea: { contains: lead.locationPreference, mode: 'insensitive' } }, { locationCity: { contains: lead.locationPreference, mode: 'insensitive' } }];
         if (lead.budgetMax) where.priceMin = { lte: lead.budgetMax };

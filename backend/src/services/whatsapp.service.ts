@@ -1168,7 +1168,8 @@ export class WhatsAppService {
           conversationProposedVisitTime: conversation.proposedVisitTime,
           conversationRecommendedPropertyIds: (conversation.recommendedPropertyIds ?? []) as string[],
           conversationStage: conversationState.stage,
-          humanTakeover: conversation.status !== 'ai_active' || !conversation.aiEnabled,
+          humanTakeover:
+            conversation.status === 'agent_active' || conversation.aiEnabled === false,
           history,
           hasPriorOutbound,
         },
@@ -1286,6 +1287,7 @@ export class WhatsAppService {
     status: string;
     aiEnabled: boolean;
     stage?: string | null;
+    escalatedAt?: Date | null;
   }, context: {
     companyId: string;
     leadId: string;
@@ -1298,24 +1300,27 @@ export class WhatsAppService {
     // actually replied recently. If no agent reply in the last 30 minutes, auto-reactivate AI
     // so buyers don't get permanently stuck in the 'human will take over' loop.
     if (conversation.status === 'agent_active' || !conversation.aiEnabled) {
-      const STALE_TAKEOVER_MINUTES = 30;
-      const staleThreshold = new Date(Date.now() - STALE_TAKEOVER_MINUTES * 60 * 1000);
+      const ACTIVE_AGENT_WINDOW_MINUTES = 5;
+      const activeAgentSince = conversation.escalatedAt
+        ?? new Date(Date.now() - ACTIVE_AGENT_WINDOW_MINUTES * 60 * 1000);
       const lastAgentMessage = await prisma.message.findFirst({
         where: {
           conversation: { id: conversation.id },
           senderType: 'agent',
-          createdAt: { gte: staleThreshold },
+          createdAt: { gte: activeAgentSince },
         },
-        select: { id: true },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
       });
       if (lastAgentMessage) {
         // Agent is actively engaged — keep human takeover.
         return { status: conversation.status, aiEnabled: conversation.aiEnabled };
       }
 
-      // Stale takeover — no agent reply in 30 min. Auto-reactivate AI so buyer is not ignored.
-      logger.info('Stale agent_active conversation auto-reactivated (no agent reply in 30 min)', {
+      // No agent reply since takeover/escalation — auto-reactivate AI so buyer is not stuck in H1.
+      logger.info('agent_active conversation auto-reactivated (no agent reply since takeover)', {
         conversationId: conversation.id,
+        escalatedAt: conversation.escalatedAt?.toISOString() ?? null,
       });
 
       const reactivated = await prisma.conversation.update({
@@ -1549,12 +1554,12 @@ export class WhatsAppService {
       return false;
     }
 
-    if (!claimPrimaryOutboundSend('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', to)) {
+    if (!claimPrimaryOutboundSend('OUT-TEXT', 'whatsapp.service.ts:sendMessage', 'sendMessage', to)) {
       logger.warn('Blocked duplicate primary WhatsApp text send for this inbound turn');
       return false;
     }
 
-    logOutboundSend('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', text, {
+    logOutboundSend('OUT-TEXT', 'whatsapp.service.ts:sendMessage', 'sendMessage', text, {
       provider: this.resolveOutboundProviderName(whatsappConfig),
       hasButtons: /Reply with the number/i.test(text),
     });
@@ -2510,7 +2515,9 @@ export class WhatsAppService {
     // ---- Show Location (TurnResult — single dispatch via sendTurnResult) ----
     if (interactiveId.startsWith('location-')) {
       const propertyId = interactiveId.replace('location-', '');
-      const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } });
+      const property = await prisma.property.findFirst({
+        where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
+      });
 
       if (!property) {
         return { handled: false };
@@ -2555,7 +2562,9 @@ export class WhatsAppService {
     if (interactiveId === 'emi-calculator' || interactiveId === 'calculate-emi') {
       const propertyId = conversation.selectedPropertyId;
       const property = propertyId
-        ? await prisma.property.findFirst({ where: { id: propertyId, companyId: company.id } })
+        ? await prisma.property.findFirst({
+          where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
+        })
         : null;
 
       const propertyPrice = property?.priceMin ? Number(property.priceMin) : null;

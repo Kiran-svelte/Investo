@@ -16,7 +16,11 @@ const READ_ONLY_CRM_PATH_PREFIXES = [
   '/api/readiness',
   '/api/notifications',
   '/api/visits',
+  '/api/calendar',
 ];
+
+/** Mutations on existing bookings must work even when the property catalog is incomplete. */
+const OPERATIONAL_BOOKING_MUTATION = /^\/api\/visits\/[^/]+(?:\/status)?$/;
 
 export async function propertyCompletenessGate(
   req: AuthRequest,
@@ -29,12 +33,19 @@ export async function propertyCompletenessGate(
       return;
     }
 
+    const path = (req.originalUrl || req.path || '').split('?')[0];
+
     if (req.method === 'GET') {
-      const path = (req.originalUrl || req.path || '').split('?')[0];
       if (READ_ONLY_CRM_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))) {
         next();
         return;
       }
+    }
+
+    // Confirm / reschedule / cancel existing visits — not catalog-dependent.
+    if (['PATCH', 'PUT', 'DELETE'].includes(req.method) && OPERATIONAL_BOOKING_MUTATION.test(path)) {
+      next();
+      return;
     }
 
     if (req.user.role === 'super_admin') {

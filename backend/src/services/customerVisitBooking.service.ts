@@ -5,12 +5,18 @@ import {
   isShortVisitConfirmation,
   isVisitCancelOrRescheduleMessage,
   isVisitSchedulingMessage,
+  parseRescheduleTargetFromMessage,
   parseVisitDateTimeFromHistory,
   parseVisitDateTimeFromMessage,
 } from './visitIntentFromMessage.service';
 import { applyVisitMutationFromChat } from './visitMutationFromChat.service';
-import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
-import { createVisitApprovalRequest } from './visitPendingApproval.service';
+import {
+  cancelPendingVisitApprovalForBuyer,
+  createVisitApprovalRequest,
+  findPendingVisitApprovalForLead,
+  notifyAgentVisitChangeRequested,
+  reschedulePendingVisitApprovalForBuyer,
+} from './visitPendingApproval.service';
 import { resolveBuyerPropertyReference } from './buyerPropertyContext.service';
 import { formatBuyerVisitScheduled, formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
 import { isConversationAwaitingCallTime } from '../utils/conversationCallContext.util';
@@ -118,6 +124,84 @@ const formatVisitConfirmation = (scheduledAt: Date, propertyName: string, agentN
 export async function tryCustomerVisitCancelReschedule(
   input: CommitCustomerVisitInput,
 ): Promise<CommitCustomerVisitResult> {
+  const pendingApproval = await findPendingVisitApprovalForLead({
+    companyId: input.companyId,
+    leadId: input.lead.id,
+  });
+  if (pendingApproval) {
+    if (/\b(cancel|call\s+off)\b/i.test(input.customerMessage)) {
+      const cancelled = await cancelPendingVisitApprovalForBuyer({
+        companyId: input.companyId,
+        leadId: input.lead.id,
+      });
+      if (cancelled.handled) {
+        return {
+          committed: true,
+          mode: 'cancelled',
+          customerReply: cancelled.reply,
+          leadStatus: 'contacted',
+        };
+      }
+    }
+
+    const newScheduledAt =
+      parseRescheduleTargetFromMessage(input.customerMessage)
+      ?? parseVisitDateTimeFromMessage(input.customerMessage);
+    if (!newScheduledAt) {
+      return {
+        committed: true,
+        mode: 'pending_approval',
+        scheduledAt: new Date(pendingApproval.scheduledAt),
+        customerReply:
+          `Your visit request is still waiting for team approval.\n\n` +
+          `Send the new date and time you prefer, or reply *cancel visit* to cancel this request.`,
+        leadStatus: 'contacted',
+      };
+    }
+    const rescheduled = await reschedulePendingVisitApprovalForBuyer({
+      companyId: input.companyId,
+      leadId: input.lead.id,
+      scheduledAt: newScheduledAt,
+    });
+    if (rescheduled.handled) {
+      return {
+        committed: true,
+        mode: 'pending_approval',
+        scheduledAt: rescheduled.scheduledAt,
+        customerReply: rescheduled.reply,
+        leadStatus: 'contacted',
+      };
+    }
+  }
+
+  const confirmedVisit = await prisma.visit.findFirst({
+    where: {
+      companyId: input.companyId,
+      leadId: input.lead.id,
+      status: 'confirmed',
+      scheduledAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+    },
+    orderBy: { scheduledAt: 'asc' },
+    select: { id: true },
+  });
+  if (confirmedVisit) {
+    await notifyAgentVisitChangeRequested({
+      companyId: input.companyId,
+      leadId: input.lead.id,
+      visitId: confirmedVisit.id,
+      messageText: input.customerMessage,
+    });
+    return {
+      committed: true,
+      mode: 'already_booked',
+      visitId: confirmedVisit.id,
+      customerReply:
+        `Your visit is already confirmed, so I won't change it automatically.\n\n` +
+        `I've notified the team with your request. They will help you with the change.`,
+      leadStatus: 'visit_scheduled',
+    };
+  }
+
   const mutation = await applyVisitMutationFromChat({
     companyId: input.companyId,
     message: input.customerMessage,
@@ -241,7 +325,7 @@ export async function tryCommitCustomerVisitBooking(
     // Fall back to the first active property for this company so the booking
     // always proceeds instead of silently falling through to the LLM chat path.
     const fallbackProperty = await prisma.property.findFirst({
-      where: { companyId, status: 'available' },
+      where: { companyId, status: { in: ['available', 'upcoming'] } },
 
       orderBy: { createdAt: 'desc' },
       select: { id: true },
@@ -342,77 +426,6 @@ export async function tryCommitCustomerVisitBooking(
     where: { id: propertyId, companyId },
     select: { name: true },
   });
-
-  const { isVisitAutoConfirmEnabled } = await import('./visitAutoConfirm.service');
-  const autoConfirm = await isVisitAutoConfirmEnabled(companyId);
-
-  if (autoConfirm && process.env.BUYER_VISIT_WORKFLOW_ENABLED !== '0') {
-    return {
-      committed: false,
-      workflowSuggestion: {
-        workflowId: 'schedule_visit',
-        parameters: {
-          leadId: lead.id,
-          propertyId,
-          scheduledAt: scheduledAt.toISOString(),
-          message: customerMessage,
-        },
-      },
-    };
-  }
-
-  if (autoConfirm) {
-    const booking = await scheduleVisit({
-      companyId,
-      leadId: lead.id,
-      propertyId,
-      scheduledAt,
-      notes: 'Booked via WhatsApp customer message',
-      agentId,
-      idempotencyKey: buildVisitIdempotencyKey(companyId, lead.id, scheduledAt.toISOString()),
-    });
-
-    if (booking.success && booking.visit) {
-      const agent = await prisma.user.findUnique({ where: { id: agentId }, select: { name: true } });
-      return {
-        committed: true,
-        mode: 'scheduled',
-        scheduledAt: booking.visit.scheduledAt,
-        visitId: booking.visit.id,
-        customerReply: formatVisitConfirmation(
-          booking.visit.scheduledAt,
-          property?.name || 'Property',
-          agent?.name ?? null,
-        ),
-        leadStatus: 'visit_scheduled',
-      };
-    }
-
-    if (booking.error === 'agent_conflict') {
-      await createVisitApprovalRequest({
-        companyId,
-        leadId: lead.id,
-        propertyId,
-        scheduledAt,
-        agentId,
-        conversationId: conversation.id,
-        customerPhone,
-        customerName: lead.customerName,
-        propertyName: property?.name,
-        suppressCustomerMessage: true,
-      });
-      return {
-        committed: true,
-        mode: 'pending_approval',
-        scheduledAt,
-        customerReply: formatBuyerVisitPendingApproval(),
-        leadStatus: 'contacted',
-      };
-    }
-
-    logger.warn('Visit auto-book failed', { leadId: lead.id, error: booking.error });
-    return { committed: false };
-  }
 
   await createVisitApprovalRequest({
     companyId,

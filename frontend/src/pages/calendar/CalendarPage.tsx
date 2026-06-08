@@ -13,12 +13,13 @@ import { useSocketEvent, SOCKET_EVENTS } from '../../context/SocketContext';
 
 interface Visit {
   id: string;
+  type: 'visit' | 'call';
   lead_id: string;
   customer_name: string | null;
-  customer_phone: string;
+  customer_phone: string | null;
   property_name: string | null;
   property_area: string | null;
-  agent_name: string;
+  agent_name: string | null;
   agent_id: string;
   scheduled_at: string;
   duration_minutes: number;
@@ -31,9 +32,10 @@ interface Property { id: string; name: string; }
 interface Agent { id: string; name: string; }
 
 const STATUS_ICONS: Record<string, React.ElementType> = {
-  scheduled: Clock, confirmed: CheckCircle, completed: CheckCircle, cancelled: XCircle, no_show: AlertCircle,
+  pending_approval: Clock, scheduled: Clock, confirmed: CheckCircle, completed: CheckCircle, cancelled: XCircle, no_show: AlertCircle,
 };
 const STATUS_COLORS: Record<string, string> = {
+  pending_approval: 'bg-amber-100 text-amber-800 border-amber-200',
   scheduled: 'bg-brand-100 text-brand-800 border-brand-200',
   confirmed: 'bg-green-100 text-green-700 border-green-200',
   completed: 'bg-surface-subtle text-ink-secondary border-surface-border',
@@ -75,10 +77,10 @@ const CalendarPage: React.FC = () => {
       setLoading(true);
       setLoadError(null);
       const { from, to } = getDateRange();
-      const res = await api.get(`/visits?from=${from.toISOString()}&to=${to.toISOString()}`);
+      const res = await api.get(`/calendar/events?from=${from.toISOString()}&to=${to.toISOString()}`);
       setVisits(res.data.data);
     } catch {
-      setLoadError('Could not load visits for this date range.');
+      setLoadError('Could not load calendar events for this date range.');
       setVisits([]);
     }
     finally { setLoading(false); }
@@ -132,6 +134,8 @@ const CalendarPage: React.FC = () => {
   };
 
   const canSchedule = capabilities.canScheduleVisits;
+  const iconForEvent = (visit: Visit) => (visit.type === 'call' ? Phone : (STATUS_ICONS[visit.status] || Clock));
+  const eventTitle = (visit: Visit) => visit.type === 'call' ? 'Callback' : (visit.property_name || 'Visit');
 
   return (
     <div className="investo-page space-y-4">
@@ -190,12 +194,12 @@ const CalendarPage: React.FC = () => {
                   const dayVisits = getVisitsForDay(day);
                   return (<div key={idx} className="p-2 border-r last:border-r-0 border-surface-border">
                     {dayVisits.map(visit => {
-                      const StatusIcon = STATUS_ICONS[visit.status] || Clock;
+                      const StatusIcon = iconForEvent(visit);
                       return (<div key={visit.id} onClick={() => setSelectedVisit(visit)}
                         className={`mb-2 p-2 rounded-lg border text-xs cursor-pointer hover:opacity-80 ${STATUS_COLORS[visit.status]}`}>
                         <div className="flex items-center gap-1 font-medium"><StatusIcon className="h-3 w-3" />{new Date(visit.scheduled_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
                         <p className="mt-1 truncate">{visit.customer_name || visit.customer_phone}</p>
-                        {visit.property_name && <p className="truncate text-ink-secondary">{visit.property_name}</p>}
+                        <p className="truncate text-ink-secondary">{eventTitle(visit)}</p>
                       </div>);
                     })}
                   </div>);
@@ -209,9 +213,9 @@ const CalendarPage: React.FC = () => {
           {view === 'day' && (
             <div className="investo-card space-y-3 p-3 sm:p-4">
               {getVisitsForDay(currentDate).length === 0 ? (
-                <p className="text-center text-ink-faint py-8">No visits scheduled for this day</p>
+                <p className="text-center text-ink-faint py-8">No events scheduled for this day</p>
               ) : getVisitsForDay(currentDate).map(visit => {
-                const StatusIcon = STATUS_ICONS[visit.status] || Clock;
+                const StatusIcon = iconForEvent(visit);
                 const time = new Date(visit.scheduled_at);
                 return (<div key={visit.id} onClick={() => setSelectedVisit(visit)}
                   className={`p-4 rounded-xl border cursor-pointer hover:shadow-sm transition-shadow ${STATUS_COLORS[visit.status]}`}>
@@ -222,8 +226,8 @@ const CalendarPage: React.FC = () => {
                   <div className="space-y-1 text-sm">
                     <div className="flex items-center gap-2"><User className="h-4 w-4" />{visit.customer_name || 'Unknown'}</div>
                     <div className="flex items-center gap-2"><Phone className="h-4 w-4" />{visit.customer_phone}</div>
-                    {visit.property_name && <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{visit.property_name}</div>}
-                    <div className="text-xs text-ink-muted">Agent: {visit.agent_name}</div>
+                    <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{eventTitle(visit)}</div>
+                    <div className="text-xs text-ink-muted">Agent: {visit.agent_name || '-'}</div>
                   </div>
                 </div>);
               })}
@@ -249,7 +253,7 @@ const CalendarPage: React.FC = () => {
                     {dayVisits.slice(0, 2).map(v => (
                       <div key={v.id} onClick={() => setSelectedVisit(v)}
                         className={`text-[10px] px-1 py-0.5 rounded mb-0.5 truncate cursor-pointer ${STATUS_COLORS[v.status]}`}>
-                        {new Date(v.scheduled_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} {v.customer_name || v.customer_phone}
+                        {new Date(v.scheduled_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} {v.type === 'call' ? 'Call' : (v.customer_name || v.customer_phone)}
                       </div>
                     ))}
                     {dayVisits.length > 2 && <p className="text-[10px] text-ink-muted">+{dayVisits.length - 2} more</p>}
@@ -266,10 +270,10 @@ const CalendarPage: React.FC = () => {
       <div className="space-y-3 md:hidden">
         {visits.length === 0 && !loading ? (
           <div className="investo-card p-6 text-center text-sm text-ink-muted">
-            No visits scheduled in this range.
+            No calendar events in this range.
           </div>
         ) : visits.map(visit => {
-          const StatusIcon = STATUS_ICONS[visit.status] || Clock;
+          const StatusIcon = iconForEvent(visit);
           const time = new Date(visit.scheduled_at);
           return (<div key={visit.id} onClick={() => setSelectedVisit(visit)}
             className={`investo-card p-4 cursor-pointer ${STATUS_COLORS[visit.status]}`}>
@@ -283,7 +287,7 @@ const CalendarPage: React.FC = () => {
             <div className="space-y-1 text-sm">
               <div className="flex items-center gap-2"><User className="h-4 w-4 text-ink-faint" />{visit.customer_name || 'Unknown'}</div>
               <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-ink-faint" />{visit.customer_phone}</div>
-              {visit.property_name && <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-ink-faint" />{visit.property_name}</div>}
+              <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-ink-faint" />{eventTitle(visit)}</div>
             </div>
           </div>);
         })}
@@ -294,7 +298,7 @@ const CalendarPage: React.FC = () => {
         <div className="investo-modal-overlay" onClick={() => setSelectedVisit(null)}>
           <div className="investo-modal-panel sm:max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="font-semibold">Visit Details</h3>
+              <h3 className="font-semibold">{selectedVisit.type === 'call' ? 'Call Details' : 'Visit Details'}</h3>
               <button onClick={() => setSelectedVisit(null)} className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>
             </div>
             <div className="p-4 space-y-3">
@@ -303,8 +307,8 @@ const CalendarPage: React.FC = () => {
                 <div><span className="text-ink-muted">Phone</span><p className="font-medium">{selectedVisit.customer_phone}</p></div>
                 <div><span className="text-ink-muted">Date & Time</span><p className="font-medium">{new Date(selectedVisit.scheduled_at).toLocaleString('en-IN')}</p></div>
                 <div><span className="text-ink-muted">Duration</span><p className="font-medium">{selectedVisit.duration_minutes} min</p></div>
-                <div><span className="text-ink-muted">Property</span><p className="font-medium">{selectedVisit.property_name || '-'}</p></div>
-                <div><span className="text-ink-muted">Agent</span><p className="font-medium">{selectedVisit.agent_name}</p></div>
+                <div><span className="text-ink-muted">{selectedVisit.type === 'call' ? 'Type' : 'Property'}</span><p className="font-medium">{eventTitle(selectedVisit)}</p></div>
+                <div><span className="text-ink-muted">Agent</span><p className="font-medium">{selectedVisit.agent_name || '-'}</p></div>
                 <div><span className="text-ink-muted">Status</span><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[selectedVisit.status]}`}>{selectedVisit.status}</span></div>
               </div>
               {selectedVisit.notes && <div><span className="text-sm text-ink-muted">Notes</span><p className="text-sm bg-surface-muted p-2 rounded mt-1">{selectedVisit.notes}</p></div>}
@@ -313,7 +317,7 @@ const CalendarPage: React.FC = () => {
                   {visitActionError}
                 </div>
               )}
-              {(VISIT_TRANSITIONS[selectedVisit.status] || []).length > 0 && (
+              {selectedVisit.type === 'visit' && (VISIT_TRANSITIONS[selectedVisit.status] || []).length > 0 && (
                 <div className="pt-2 border-t">
                   <p className="text-sm font-medium text-ink-secondary mb-2">Update Status:</p>
                   <div className="flex flex-wrap gap-2">
@@ -326,7 +330,7 @@ const CalendarPage: React.FC = () => {
                   </div>
                 </div>
               )}
-              <div className="pt-3 border-t">
+              {selectedVisit.type === 'visit' && <div className="pt-3 border-t">
                 <button
                   type="button"
                   disabled={visitDeleting}
@@ -359,7 +363,7 @@ const CalendarPage: React.FC = () => {
                   )}
                   Delete visit
                 </button>
-              </div>
+              </div>}
             </div>
           </div>
         </div>

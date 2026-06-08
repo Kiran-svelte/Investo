@@ -6,7 +6,7 @@ import {
   transitionLeadToVisitScheduled,
 } from './leadTransition.service';
 import { notificationEngine } from './notification.engine';
-import { emitVisitCreated, scheduleVisitReminderJobs } from './visitLifecycle.service';
+import { emitVisitCreated } from './visitLifecycle.service';
 import { incrementOpsMetric } from './opsMetrics.service';
 
 export interface ScheduleVisitInput {
@@ -78,7 +78,7 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
   }
 
   const property = await prisma.property.findFirst({
-    where: { id: propertyId, companyId, status: 'available' },
+    where: { id: propertyId, companyId, status: { in: ['available', 'upcoming'] } },
   });
   if (!property) {
     return { success: false, error: 'property_not_found' };
@@ -216,7 +216,6 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
 
   await notificationEngine.onVisitScheduled(visit, lead, property, agent);
   emitVisitCreated(companyId, visit);
-  void scheduleVisitReminderJobs(visit.id, visit.scheduledAt, companyId, leadId);
 
   logger.info('Visit scheduled', {
     visitId: visit.id,

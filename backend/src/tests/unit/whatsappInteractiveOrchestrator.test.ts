@@ -107,7 +107,7 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     });
     expect(result?.handled).toBe(true);
     expect(result?.action).toBe('callback-requested');
-    expect(result?.turnResult?.text).toContain('Callback scheduled');
+    expect(result?.turnResult?.text).toContain('Callback request sent');
     // When call booking succeeds, management buttons are attached (Change Time, Cancel, Call Agent)
     if (result?.turnResult?.components?.length) {
       expect(result.turnResult.components[0]).toMatchObject({ kind: 'buttons' });

@@ -233,6 +233,11 @@ async function isLastAiMessageAlreadyHandoff(conversationId: string): Promise<bo
 async function handleHumanTakeoverTurn(ctx: BuyerTurnRuntimeContext): Promise<TurnResult | null> {
   if (!ctx.input.humanTakeover) return null;
 
+  logOutboundBranch('H1', 'whatsappTurnOrchestrator:humanTakeover', 'buyer_human_takeover_handoff', {
+    conversationId: ctx.input.conversationId,
+    leadId: ctx.input.leadId,
+  });
+
   const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: ctx.companyId } });
   const operatorLine = buildOperatorHandoffLine(aiSettings?.operatorContact);
   const handoffText =
@@ -859,6 +864,11 @@ async function handleClassifierWorkflowTurn(
 
   if (!workflowReply?.trim()) return null;
 
+  logOutboundBranch('H7', 'whatsappTurnOrchestrator:classifierWorkflow', 'buyer_classifier_workflow', {
+    conversationId: ctx.input.conversationId,
+    messagePreview: ctx.input.messageText.slice(0, 80),
+  });
+
   const safeReply = stripBuyerInternalMetadata(workflowReply);
   await prisma.message.create({
     data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
@@ -1039,13 +1049,18 @@ async function handleFullAiTurn(
   ];
   const rawProperties =
     propertyIdSet.length > 0
-      ? await prisma.property.findMany({ where: { companyId: ctx.companyId, id: { in: propertyIdSet } } })
-      : await prisma.property.findMany({ where: { companyId: ctx.companyId, status: 'available' }, take: 20 });
+      ? await prisma.property.findMany({
+        where: { companyId: ctx.companyId, id: { in: propertyIdSet }, status: { in: ['available', 'upcoming'] } },
+      })
+      : await prisma.property.findMany({
+        where: { companyId: ctx.companyId, status: { in: ['available', 'upcoming'] } },
+        take: 20,
+      });
 
   let allRawProperties = rawProperties;
   if (resolvedPropertyId && !rawProperties.some((p) => p.id === resolvedPropertyId)) {
     const focusedRow = await prisma.property.findFirst({
-      where: { id: resolvedPropertyId, companyId: ctx.companyId },
+      where: { id: resolvedPropertyId, companyId: ctx.companyId, status: { in: ['available', 'upcoming'] } },
     });
     if (focusedRow) {
       allRawProperties = [focusedRow, ...rawProperties];
@@ -1444,7 +1459,9 @@ async function persistNewConversationState(
       recommendedPropertyIds: newState.recommendedProperties as string[],
       selectedPropertyId: newState.selectedPropertyId,
       proposedVisitTime: newState.proposedVisitTime,
-      ...(newState.stage === 'human_escalated' && { status: 'agent_active', escalatedAt: new Date(), aiEnabled: false }),
+      // Zero-UI: record escalation timestamp and notify agent — keep AI active so the buyer
+      // is not stuck in H1 handoff on every subsequent message.
+      ...(newState.stage === 'human_escalated' && { escalatedAt: new Date() }),
     },
   });
 

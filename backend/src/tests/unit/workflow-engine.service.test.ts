@@ -87,8 +87,21 @@ jest.mock('../../services/agent/lead-status-actions', () => ({
   updateLeadStatusById: jest.fn(),
 }));
 
-jest.mock('../../services/visitBooking.service', () => ({
-  scheduleVisit: jest.fn(),
+jest.mock('../../services/visitBooking.service', () => {
+  const actual = jest.requireActual('../../services/visitBooking.service');
+  return {
+    ...actual,
+    scheduleVisit: jest.fn(),
+  };
+});
+
+jest.mock('../../services/visitPendingApproval.service', () => ({
+  createVisitApprovalRequest: jest.fn().mockResolvedValue(undefined),
+  notifyAgentVisitChangeRequested: jest.fn().mockResolvedValue(undefined),
+  findPendingVisitApprovalForLead: jest.fn().mockResolvedValue(null),
+  findPendingVisitApproval: jest.fn().mockResolvedValue(null),
+  resolveVisitApproval: jest.fn(),
+  cancelPendingVisitApprovalForBuyer: jest.fn().mockResolvedValue({ handled: false }),
 }));
 
 import { WORKFLOW_DEFINITIONS, allWorkflowIds } from '../../services/workflow/workflow-registry';
@@ -107,6 +120,7 @@ import { resolveLeadForIntent } from '../../services/agent/agent-lead-resolution
 import { updateLeadStatusById } from '../../services/agent/lead-status-actions';
 import { getToolsForRole } from '../../services/agent/tools';
 import { scheduleVisit } from '../../services/visitBooking.service';
+import { createVisitApprovalRequest } from '../../services/visitPendingApproval.service';
 import { cacheGet } from '../../config/redis';
 import { logAgentAction } from '../../services/agent-action-log.service';
 import { WORKFLOW_ACTION_HANDLERS } from '../../services/workflow/actions/index';
@@ -129,6 +143,7 @@ describe('workflow-engine.service', () => {
     jest.clearAllMocks();
     mockRunCompensators.mockResolvedValue(true);
     (getToolsForRole as jest.Mock).mockReturnValue([]);
+    mockPrisma.conversation.findFirst.mockResolvedValue(null);
   });
 
   it('registers all 15 CRM workflows', () => {
@@ -215,7 +230,7 @@ describe('workflow-engine.service', () => {
       JSON.stringify({
         workflow: 'schedule_visit',
         confidence: 0.91,
-        parameters: { leadName: 'Asha', scheduledAt: '2026-06-06T10:30:00+05:30' },
+        parameters: { leadName: 'Asha', scheduledAt: '2026-06-20T10:30:00+05:30' },
       }),
     );
 
@@ -230,7 +245,7 @@ describe('workflow-engine.service', () => {
 
     expect(llm).toHaveBeenCalledTimes(1);
     expect(classified.workflowId).toBe('schedule_visit');
-    expect(classified.parameters.scheduledAt).toBe('2026-06-06T10:30:00+05:30');
+    expect(classified.parameters.scheduledAt).toBe('2026-06-20T10:30:00+05:30');
   });
 
   it('post-processes plain details misclassification away from brochure_request', async () => {
@@ -425,28 +440,24 @@ describe('workflow-engine.service', () => {
     expect(reply).not.toContain('Visits:');
   });
 
-  it('runs buyer schedule_visit workflow via channel-aware bookVisit', async () => {
+  it('runs buyer schedule_visit workflow via approval-first bookVisit', async () => {
     (getToolsForRole as jest.Mock).mockReturnValue([]);
-    (scheduleVisit as jest.Mock).mockResolvedValue({
-      success: true,
-      visit: {
-        id: 'visit-new-1',
-        leadId: kannadaLeadId,
-        propertyId,
-        scheduledAt: new Date('2026-06-06T13:00:00+05:30'),
-      },
+    (createVisitApprovalRequest as jest.Mock).mockClear();
+    (scheduleVisit as jest.Mock).mockClear();
+    mockPrisma.lead.findFirst.mockResolvedValue({
+      id: kannadaLeadId,
+      customerName: 'Kannada Media',
+      phone: '+919999999999',
+      assignedAgentId: 'agent-1',
     });
-    mockPrisma.visit.findUnique.mockResolvedValue({
-      id: 'visit-new-1',
-      property: { name: 'Sunset Heights' },
-      agent: { name: 'Agent One' },
-    });
+    mockPrisma.property.findFirst.mockResolvedValue({ name: 'Sunset Heights' });
+    mockPrisma.conversation.findFirst.mockResolvedValue({ id: 'conv-1' });
 
     const llm = jest.fn().mockResolvedValue(
       JSON.stringify({
         workflow: 'schedule_visit',
         confidence: 0.94,
-        parameters: { scheduledAt: '2026-06-06T13:00:00+05:30', propertyId },
+        parameters: { scheduledAt: '2026-06-20T13:00:00+05:30', propertyId },
       }),
     );
 
@@ -454,14 +465,16 @@ describe('workflow-engine.service', () => {
       {
         companyId: 'company-1',
         leadId: kannadaLeadId,
-        messageText: 'book site visit tomorrow 1pm',
+        messageText: 'book site visit Saturday 1pm',
         companyName: 'Demo Realty',
+        propertyId,
       },
       { llm },
     );
 
-    expect(reply).toContain('Visit scheduled');
-    expect(scheduleVisit).toHaveBeenCalled();
+    expect(reply).toMatch(/shared your preferred visit time|approval/i);
+    expect(createVisitApprovalRequest).toHaveBeenCalled();
+    expect(scheduleVisit).not.toHaveBeenCalled();
   });
 
   it('asks for visit date/time when buyer visit intent has property but no slot', async () => {

@@ -7,6 +7,11 @@ const mockNotify = jest.fn().mockResolvedValue(undefined);
 const mockScheduleVisit = jest.fn();
 const mockSendText = jest.fn().mockResolvedValue(true);
 const mockSendButtons = jest.fn().mockResolvedValue(true);
+const mockCreateBookingApprovalRequest = jest.fn();
+const mockFindPendingBookingApproval = jest.fn();
+const mockResolveBookingApprovalStatus = jest.fn();
+const mockConfirmVisitById = jest.fn();
+const mockTransitionLeadStatus = jest.fn();
 
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
@@ -27,6 +32,28 @@ jest.mock('../../services/notification.engine', () => ({
 
 jest.mock('../../services/visitBooking.service', () => ({
   scheduleVisit: (...args: unknown[]) => mockScheduleVisit(...args),
+}));
+
+jest.mock('../../services/bookingApproval.service', () => ({
+  buildVisitApprovalIdempotencyKey: jest.fn((input: any) => `visit_approval:${input.companyId}:${input.leadId}:${input.propertyId}`),
+  createBookingApprovalRequest: (...args: unknown[]) => mockCreateBookingApprovalRequest(...args),
+  findPendingBookingApproval: (...args: unknown[]) => mockFindPendingBookingApproval(...args),
+  resolveBookingApprovalStatus: (...args: unknown[]) => mockResolveBookingApprovalStatus(...args),
+  updatePendingBookingApprovalSchedule: jest.fn(),
+  cancelPendingBookingApproval: jest.fn(),
+}));
+
+jest.mock('../../services/visitState.service', () => ({
+  confirmVisitById: (...args: unknown[]) => mockConfirmVisitById(...args),
+}));
+
+jest.mock('../../services/leadTransition.service', () => ({
+  transitionLeadStatus: (...args: unknown[]) => mockTransitionLeadStatus(...args),
+}));
+
+jest.mock('../../services/socket.service', () => ({
+  SOCKET_EVENTS: { LEAD_UPDATED: 'lead_updated' },
+  socketService: { emitToCompany: jest.fn() },
 }));
 
 jest.mock('../../services/whatsapp.service', () => ({
@@ -107,6 +134,35 @@ describe('Zero-UI visit approval chain (buyer → agent WhatsApp → calendar + 
     (prisma.user.findUnique as jest.Mock).mockResolvedValue({ name: 'Raj', phone: '+919888877777' });
     (prisma.property.findUnique as jest.Mock).mockResolvedValue({ name: 'Tower A', locationArea: 'Pune' });
     (prisma.conversation.update as jest.Mock).mockResolvedValue({});
+    const approval = {
+      id: 'appr-1',
+      companyId: 'co-1',
+      kind: 'visit',
+      status: 'pending',
+      leadId: 'lead-1',
+      propertyId: 'prop-1',
+      callRequestId: null,
+      scheduledAt: new Date('2026-06-10T10:00:00+05:30'),
+      agentId: 'agent-1',
+      conversationId: 'conv-1',
+      customerPhone: '+919999988888',
+      customerName: 'Ravi',
+      idempotencyKey: 'visit_approval:co-1:lead-1:prop-1',
+      expiresAt: new Date('2026-06-10T14:00:00+05:30'),
+      resolvedAt: null,
+      metadata: { propertyName: 'Tower A' },
+      createdAt: new Date('2026-06-10T09:00:00+05:30'),
+      updatedAt: new Date('2026-06-10T09:00:00+05:30'),
+    };
+    mockCreateBookingApprovalRequest.mockResolvedValue({
+      approval,
+      created: true,
+      idempotencyHit: false,
+    });
+    mockFindPendingBookingApproval.mockResolvedValue(approval);
+    mockResolveBookingApprovalStatus.mockResolvedValue({ ...approval, status: 'approved' });
+    mockConfirmVisitById.mockResolvedValue({ success: true });
+    mockTransitionLeadStatus.mockResolvedValue(true);
   });
 
   it('createVisitApprovalRequest pushes real-time notification + WhatsApp buttons (no dashboard)', async () => {
@@ -126,7 +182,14 @@ describe('Zero-UI visit approval chain (buyer → agent WhatsApp → calendar + 
     expect(mockNotify).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'visit_scheduled',
-        data: expect.objectContaining({ pendingApproval: true, leadId: 'lead-1' }),
+        data: expect.objectContaining({ pendingApproval: true, leadId: 'lead-1', approvalId: 'appr-1' }),
+      }),
+    );
+    expect(mockCreateBookingApprovalRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'visit',
+        leadId: 'lead-1',
+        propertyId: 'prop-1',
       }),
     );
     expect(mockSendButtons).toHaveBeenCalled();
@@ -134,23 +197,6 @@ describe('Zero-UI visit approval chain (buyer → agent WhatsApp → calendar + 
 
   it('resolveVisitApproval(approved) books visit via scheduleVisit (calendar + lead status)', async () => {
     const approvalId = 'appr-1';
-    (prisma.notification.findMany as jest.Mock).mockResolvedValue([
-      {
-        id: 'n-1',
-        data: {
-          pendingApproval: true,
-          approvalId,
-          companyId: 'co-1',
-          leadId: 'lead-1',
-          propertyId: 'prop-1',
-          scheduledAt: '2026-06-10T10:00:00+05:30',
-          agentId: 'agent-1',
-          conversationId: 'conv-1',
-          customerPhone: '+919999988888',
-        },
-      },
-    ]);
-    (prisma.notification.update as jest.Mock).mockResolvedValue({});
     mockScheduleVisit.mockResolvedValue({
       success: true,
       visit: { id: 'visit-1', scheduledAt: new Date('2026-06-10T10:00:00+05:30') },
@@ -167,6 +213,10 @@ describe('Zero-UI visit approval chain (buyer → agent WhatsApp → calendar + 
         agentId: 'agent-1',
         notes: 'Confirmed by agent via WhatsApp',
       }),
+    );
+    expect(mockResolveBookingApprovalStatus).toHaveBeenCalledWith({ approvalId, status: 'approved' });
+    expect(mockConfirmVisitById).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 'co-1', visitId: 'visit-1' }),
     );
     expect(mockSendText).toHaveBeenCalled();
     expect(result.message).not.toMatch(/dashboard/i);

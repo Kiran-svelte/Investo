@@ -450,16 +450,21 @@ export async function resolvePendingClarification(
   if (!pending?.workflowId) return null;
 
   const text = messageText.trim().toLowerCase();
-  let workflowId = pending.workflowId;
   const parameters = { ...(pending.parameters ?? {}) };
+  let resolved: { workflowId: WorkflowId; parameters: WorkflowParams } | null = null;
 
   if (/^1\b|new\s+visit|book\s+new/i.test(text)) {
-    workflowId = 'schedule_visit';
+    resolved = { workflowId: 'schedule_visit', parameters };
   } else if (/^2\b|change|reschedule|move|push/i.test(text)) {
-    workflowId = 'reschedule_visit';
-  } else if (/^yes\b|confirm|cancel/i.test(text) && pending.workflowId === 'cancel_visit') {
-    workflowId = 'cancel_visit';
-  } else if (text.length < 4) {
+    resolved = { workflowId: 'reschedule_visit', parameters };
+  } else if (
+    pending.workflowId === 'cancel_visit'
+    && /^(yes|confirm|cancel\s+it|go\s+ahead)\b/i.test(text)
+  ) {
+    resolved = { workflowId: 'cancel_visit', parameters };
+  } else if (/^yes\b|^confirm\b/i.test(text)) {
+    resolved = { workflowId: pending.workflowId, parameters };
+  } else {
     return null;
   }
 
@@ -470,7 +475,7 @@ export async function resolvePendingClarification(
     },
   }).catch(() => undefined);
 
-  return { workflowId, parameters };
+  return resolved;
 }
 
 export type MutationGateSource =

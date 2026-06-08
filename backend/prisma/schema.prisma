@@ -570,6 +570,36 @@ model Visit {
   @@map("visits")
 }
 
+// Approval-first booking state for buyer-initiated visits and calls.
+// Notifications and WhatsApp buttons are delivery side effects; this row is the source of truth.
+model BookingApprovalRequest {
+  id             String                @id @default(uuid()) @db.Uuid
+  companyId      String                @map("company_id") @db.Uuid
+  kind           BookingApprovalKind
+  status         BookingApprovalStatus @default(pending)
+  leadId         String                @map("lead_id") @db.Uuid
+  agentId        String                @map("agent_id") @db.Uuid
+  propertyId     String?               @map("property_id") @db.Uuid
+  callRequestId  String?               @map("call_request_id") @db.Uuid
+  scheduledAt    DateTime              @map("scheduled_at")
+  customerPhone  String                @map("customer_phone") @db.VarChar(20)
+  customerName   String?               @map("customer_name") @db.VarChar(255)
+  conversationId String?               @map("conversation_id") @db.Uuid
+  idempotencyKey String                @map("idempotency_key") @db.VarChar(255)
+  expiresAt      DateTime              @map("expires_at")
+  resolvedAt     DateTime?             @map("resolved_at")
+  metadata       Json                  @default("{}")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, kind, status, scheduledAt])
+  @@index([companyId, agentId, status])
+  @@index([companyId, leadId, kind, status])
+  @@index([expiresAt, status])
+  @@map("booking_approval_requests")
+}
+
 // ─── AI Settings ────────────────────────────────────────────────────
 model AiSetting {
   id                  String       @id @default(uuid()) @db.Uuid
@@ -848,6 +878,19 @@ enum VisitStatus {
   completed
   cancelled
   no_show
+}
+
+enum BookingApprovalKind {
+  visit
+  call
+}
+
+enum BookingApprovalStatus {
+  pending
+  approved
+  declined
+  cancelled
+  expired
 }
 
 enum ResponseTone {

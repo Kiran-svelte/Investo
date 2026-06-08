@@ -771,6 +771,7 @@ export async function matchCatalogPropertiesForQuery(input: {
   locationCity: string | null;
   locationArea: string | null;
   brochureUrl: string | null;
+  status: string | null;
   score: number;
 }>> {
   const limit = input.limit ?? 5;
@@ -779,7 +780,7 @@ export async function matchCatalogPropertiesForQuery(input: {
 
   const where: Record<string, unknown> = {
     companyId: input.companyId,
-    status: 'available',
+    status: { in: ['available', 'upcoming'] },
   };
   if (propertyType) {
     where.propertyType = propertyType;
@@ -796,6 +797,7 @@ export async function matchCatalogPropertiesForQuery(input: {
       locationCity: true,
       locationArea: true,
       brochureUrl: true,
+      status: true,
       description: true,
     },
   });

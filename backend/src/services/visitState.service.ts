@@ -13,6 +13,7 @@ import {
   cancelVisitReminderJobs,
   emitVisitUpdated,
   rescheduleVisitReminderJobs,
+  scheduleVisitReminderJobs,
 } from './visitLifecycle.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 
@@ -280,6 +281,9 @@ export async function confirmVisitById(input: {
 
   await notifyStatusChange(updated.id, oldStatus, 'confirmed', Boolean(input.suppressCustomerNotification));
   emitVisitUpdated(input.companyId, updated, 'confirmed');
+  if (updated.leadId) {
+    void scheduleVisitReminderJobs(updated.id, updated.scheduledAt, input.companyId, updated.leadId);
+  }
   return { success: true, visit: updated, oldStatus };
 }
 
@@ -343,7 +347,7 @@ export async function rescheduleVisitById(input: {
 
   await notifyRescheduled(updated.id, oldTime, Boolean(input.suppressCustomerNotification));
   emitVisitUpdated(input.companyId, updated, 'rescheduled');
-  if (updated.leadId) {
+  if (updated.leadId && updated.status === 'confirmed') {
     void rescheduleVisitReminderJobs(updated.id, updated.scheduledAt, input.companyId, updated.leadId);
   }
   return { success: true, visit: updated, oldStatus };

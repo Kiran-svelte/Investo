@@ -476,7 +476,7 @@ export class AIService {
     
     // Build property context — filter to available only, limit to 10 to avoid huge prompts
     const propertyList = properties
-      .filter((p) => p.status === 'available')
+      .filter((p) => p.status === 'available' || p.status === 'upcoming')
       .slice(0, 10)
       .map((p) => {
         let amenityList: string[] = [];
@@ -486,7 +486,8 @@ export class AIService {
           try { amenityList = JSON.parse(p.amenities) as string[]; } catch { amenityList = []; }
         }
         const amenityStr = amenityList.slice(0, 5).join(', ');
-        return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenityStr}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
+        const displayName = p.status === 'upcoming' ? `${p.name} (Upcoming)` : p.name;
+        return `- ${displayName} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenityStr}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
       })
       .join('\n');
 

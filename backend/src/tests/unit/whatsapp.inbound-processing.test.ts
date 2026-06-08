@@ -330,6 +330,13 @@ describe('WhatsAppService inbound operational behavior', () => {
     mockPrisma.aiSetting.findUnique.mockResolvedValue({});
     mockPrisma.message.findMany.mockResolvedValue([]);
     mockPrisma.property.findMany.mockResolvedValue([]);
+    // Agent replied recently — keep human takeover (H1 handoff), do not reactivate AI.
+    mockPrisma.message.findFirst.mockImplementation((args: { where?: { senderType?: string } }) => {
+      if (args?.where?.senderType === 'agent') {
+        return Promise.resolve({ id: 'agent-msg-recent', createdAt: new Date() });
+      }
+      return Promise.resolve(null);
+    });
 
     const { aiService } = await import('../../services/ai.service');
     const interactiveSpy = jest.spyOn(service, 'handleInteractiveAction');

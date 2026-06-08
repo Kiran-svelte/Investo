@@ -17,6 +17,11 @@ const COUNTERS = [
   // Autonomous agent observability — idempotency wins and retry activity.
   'visit_idem_hit',
   'call_idem_hit',
+  'booking_approval_idem_hit',
+  'booking_approval_created',
+  'booking_approval_approved',
+  'booking_approval_declined',
+  'booking_approval_expired',
   'notification_retry',
 ] as const;
 

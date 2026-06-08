@@ -8,13 +8,21 @@ import { automationQueueService } from './automationQueue.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { withRetry } from './notificationRetry.service';
 import { incrementOpsMetric } from './opsMetrics.service';
+import {
+  buildCallApprovalIdempotencyKey,
+  createBookingApprovalRequest,
+  findPendingBookingApproval,
+  resolveBookingApprovalStatus,
+  updatePendingBookingApprovalSchedule,
+} from './bookingApproval.service';
 
-export type CallRequestStatus = 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+export type CallRequestStatus = 'pending_approval' | 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
 
 let schemaReady = false;
 
 export async function ensureCallRequestsSchema(): Promise<void> {
   if (schemaReady) return;
+  await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS call_requests (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -53,6 +61,7 @@ export interface CallRequestRow {
 
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
+    pending_approval: 'Pending approval',
     scheduled: 'Scheduled',
     confirmed: 'Confirmed',
     completed: 'Completed',
@@ -85,7 +94,7 @@ export async function findActiveCallRequest(input: {
     `SELECT id, company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, agent_confirmed_at
      FROM call_requests
      WHERE company_id = $1::uuid AND lead_id = $2::uuid
-       AND status IN ('scheduled', 'confirmed')
+       AND status IN ('pending_approval', 'scheduled', 'confirmed')
        AND scheduled_at >= now() - interval '2 hours'
      ORDER BY scheduled_at ASC
      LIMIT 1`,
@@ -118,6 +127,8 @@ export async function scheduleCallRequest(input: {
     const claimed = await redis.set(dedupKey, '1', { nx: true, ex: 86_400 }).catch(() => 'OK');
     if (claimed !== 'OK') {
       incrementOpsMetric('call_idem_hit');
+      const existing = await findActiveCallRequest({ companyId: input.companyId, leadId: input.leadId });
+      if (existing) return { success: true, call: existing };
       logger.info('callRequest: idempotency hit (Redis), blocking duplicate booking', {
         companyId: input.companyId,
         leadId: input.leadId,
@@ -133,7 +144,7 @@ export async function scheduleCallRequest(input: {
     `SELECT id FROM call_requests
      WHERE company_id = $1::uuid AND lead_id = $2::uuid
        AND scheduled_at = $3
-       AND status IN ('scheduled', 'confirmed')
+       AND status IN ('pending_approval', 'scheduled', 'confirmed')
      LIMIT 1`,
     input.companyId,
     input.leadId,
@@ -146,7 +157,8 @@ export async function scheduleCallRequest(input: {
       leadId: input.leadId,
       existingCallId: existingRows[0].id,
     });
-    return { success: false, error: 'duplicate_request' };
+    const existing = await findActiveCallRequest({ companyId: input.companyId, leadId: input.leadId });
+    return existing ? { success: true, call: existing } : { success: false, error: 'duplicate_request' };
   }
 
   let agentId = input.agentId;
@@ -167,7 +179,7 @@ export async function scheduleCallRequest(input: {
 
   const rows = await prisma.$queryRawUnsafe<CallRequestRow[]>(
     `INSERT INTO call_requests (company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, updated_at)
-     VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 15, 'scheduled', $5, now())
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 15, 'pending_approval', $5, now())
      RETURNING id, company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, agent_confirmed_at`,
     input.companyId,
     input.leadId,
@@ -185,9 +197,6 @@ export async function scheduleCallRequest(input: {
     agentId,
     scheduledAt: input.scheduledAt,
   });
-
-  // Schedule 1-hour pre-call reminder for the customer
-  await scheduleCallReminder(call);
 
   // Real-time dashboard push
   socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_CREATED, {
@@ -207,8 +216,8 @@ export async function rescheduleCallRequest(input: {
   if (input.scheduledAt <= new Date()) return { success: false, error: 'past_date' };
   const rows = await prisma.$queryRawUnsafe<CallRequestRow[]>(
     `UPDATE call_requests
-     SET scheduled_at = $3, status = 'scheduled', agent_confirmed_at = NULL, updated_at = now()
-     WHERE id = $1::uuid AND company_id = $2::uuid AND status IN ('scheduled', 'confirmed')
+     SET scheduled_at = $3, status = 'pending_approval', agent_confirmed_at = NULL, updated_at = now()
+     WHERE id = $1::uuid AND company_id = $2::uuid AND status IN ('pending_approval', 'scheduled')
      RETURNING id, company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, agent_confirmed_at`,
     input.callId,
     input.companyId,
@@ -224,9 +233,8 @@ export async function rescheduleCallRequest(input: {
     scheduledAt: input.scheduledAt,
   });
 
-  // Cancel any existing reminder and re-schedule for the new time
+  // Cancel any existing reminder; reminders are re-created only after approval.
   await automationQueueService.cancel('call_reminder_1h', call.id).catch(() => undefined);
-  await scheduleCallReminder(call);
 
   socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_UPDATED, {
     call: { id: call.id, leadId: call.lead_id, status: call.status, scheduledAt: call.scheduled_at },
@@ -238,19 +246,30 @@ export async function rescheduleCallRequest(input: {
 export async function cancelCallRequest(input: {
   companyId: string;
   callId: string;
+  notifyAgent?: boolean;
 }): Promise<{ success: boolean; call?: CallRequestRow; error?: string }> {
   await ensureCallRequestsSchema();
   const rows = await prisma.$queryRawUnsafe<CallRequestRow[]>(
     `UPDATE call_requests
      SET status = 'cancelled', updated_at = now()
-     WHERE id = $1::uuid AND company_id = $2::uuid AND status IN ('scheduled', 'confirmed')
+     WHERE id = $1::uuid AND company_id = $2::uuid AND status IN ('pending_approval', 'scheduled', 'confirmed')
      RETURNING id, company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, agent_confirmed_at`,
     input.callId,
     input.companyId,
   );
   const call = rows[0];
   if (call) {
-    await notifyAgentCallCancelled(call);
+    if (input.notifyAgent !== false) {
+      await notifyAgentCallCancelled(call);
+    }
+    const pendingApproval = await findPendingBookingApproval({
+      companyId: input.companyId,
+      kind: 'call',
+      callRequestId: call.id,
+    });
+    if (pendingApproval) {
+      await resolveBookingApprovalStatus({ approvalId: pendingApproval.id, status: 'cancelled' });
+    }
     // Cancel the 1h reminder since the call is cancelled
     await automationQueueService.cancel('call_reminder_1h', call.id).catch(() => undefined);
     socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_UPDATED, {
@@ -265,6 +284,7 @@ export async function cancelCallRequest(input: {
  * Only schedules if the call is > 70 minutes away.
  */
 async function scheduleCallReminder(call: CallRequestRow): Promise<void> {
+  if (call.status !== 'confirmed') return;
   const msUntilCall = call.scheduled_at.getTime() - Date.now();
   if (msUntilCall < 70 * 60 * 1000) return; // too close to be useful
 
@@ -300,7 +320,7 @@ async function notifyAgentCallCancelled(call: CallRequestRow): Promise<void> {
   await notificationEngine.notify({
     companyId: call.company_id,
     userId: call.agent_id,
-    type: 'system_alert',
+    type: 'call_cancelled',
     title: '📞 Callback cancelled by customer',
     message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} cancelled their callback (${when}).`,
     data: {
@@ -331,6 +351,65 @@ async function notifyAgentCallCancelled(call: CallRequestRow): Promise<void> {
   }
 }
 
+export async function notifyAgentCallChangeRequested(input: {
+  companyId: string;
+  callId: string;
+  messageText: string;
+}): Promise<void> {
+  await ensureCallRequestsSchema();
+  const rows = await prisma.$queryRawUnsafe<CallRequestRow[]>(
+    `SELECT id, company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, agent_confirmed_at
+     FROM call_requests
+     WHERE id = $1::uuid AND company_id = $2::uuid
+     LIMIT 1`,
+    input.callId,
+    input.companyId,
+  );
+  const call = rows[0];
+  if (!call) return;
+
+  const [lead, agent] = await Promise.all([
+    prisma.lead.findUnique({
+      where: { id: call.lead_id },
+      select: { customerName: true, phone: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: call.agent_id },
+      select: { phone: true },
+    }),
+  ]);
+  const when = formatDateIST(call.scheduled_at);
+  const { notificationEngine } = await import('./notification.engine');
+  await notificationEngine.notify({
+    companyId: call.company_id,
+    userId: call.agent_id,
+    type: 'system_alert',
+    title: 'Confirmed callback change requested',
+    message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} asked to change a confirmed callback (${when}).`,
+    data: {
+      kind: 'call_change_requested',
+      callId: call.id,
+      leadId: call.lead_id,
+      scheduledAt: call.scheduled_at.toISOString(),
+      messageText: input.messageText.slice(0, 500),
+    },
+  });
+
+  if (agent?.phone) {
+    const { whatsappService } = await import('./whatsapp.service');
+    await whatsappService.sendCompanyTextMessage(
+      agent.phone,
+      `*Confirmed callback change requested*\n\nCustomer: *${lead?.customerName ?? 'Buyer'}*\nCurrent time: ${when}\nMessage: ${input.messageText.slice(0, 300)}`,
+      call.company_id,
+    ).catch((err: unknown) => {
+      logger.warn('callRequest: agent change-request WhatsApp failed', {
+        callId: call.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+}
+
 export async function confirmCallRequest(input: {
   companyId: string;
   callId: string;
@@ -339,12 +418,13 @@ export async function confirmCallRequest(input: {
   const rows = await prisma.$queryRawUnsafe<CallRequestRow[]>(
     `UPDATE call_requests
      SET status = 'confirmed', agent_confirmed_at = now(), updated_at = now()
-     WHERE id = $1::uuid AND company_id = $2::uuid AND status = 'scheduled'
+     WHERE id = $1::uuid AND company_id = $2::uuid AND status IN ('pending_approval', 'scheduled')
      RETURNING id, company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, agent_confirmed_at`,
     input.callId,
     input.companyId,
   );
   if (!rows[0]) return { success: false };
+  await scheduleCallReminder(rows[0]);
   socketService.emitToCompany(input.companyId, SOCKET_EVENTS.CALL_UPDATED, {
     call: { id: rows[0].id, leadId: rows[0].lead_id, status: 'confirmed', scheduledAt: rows[0].scheduled_at },
   });
@@ -362,20 +442,70 @@ async function createCallApprovalRequest(input: {
     where: { id: input.leadId },
     select: { customerName: true, phone: true },
   });
+  const idempotencyKey = buildCallApprovalIdempotencyKey({
+    companyId: input.companyId,
+    leadId: input.leadId,
+    scheduledAt: input.scheduledAt,
+  });
+
+  let approvalId: string | null = null;
+  let idempotencyHit = false;
+  const existingPending = await findPendingBookingApproval({
+    companyId: input.companyId,
+    kind: 'call',
+    callRequestId: input.callId,
+  });
+
+  if (existingPending) {
+    const updated = await updatePendingBookingApprovalSchedule({
+      approvalId: existingPending.id,
+      scheduledAt: input.scheduledAt,
+      idempotencyKey,
+      metadata: { callId: input.callId },
+    });
+    approvalId = updated?.id ?? existingPending.id;
+  } else {
+    const created = await createBookingApprovalRequest({
+      companyId: input.companyId,
+      kind: 'call',
+      leadId: input.leadId,
+      agentId: input.agentId,
+      callRequestId: input.callId,
+      scheduledAt: input.scheduledAt,
+      customerPhone: lead?.phone ?? '',
+      customerName: lead?.customerName ?? null,
+      idempotencyKey,
+      metadata: { callId: input.callId },
+    });
+    approvalId = created.approval.id;
+    idempotencyHit = created.idempotencyHit;
+  }
+
+  if (idempotencyHit) {
+    logger.info('callRequest: approval idempotency hit, suppressing duplicate agent notification', {
+      companyId: input.companyId,
+      callId: input.callId,
+      leadId: input.leadId,
+    });
+    return;
+  }
   const when = formatDateIST(input.scheduledAt);
   const { notificationEngine } = await import('./notification.engine');
   await notificationEngine.notify({
     companyId: input.companyId,
     userId: input.agentId,
-    type: 'system_alert',
+    type: 'call_requested',
     title: '📞 Callback approval needed',
     message: `${lead?.customerName ?? lead?.phone ?? 'Customer'} requested a call at ${when}. Approve or decline in WhatsApp.`,
     data: {
       pendingApproval: true,
       approvalKind: 'call_request',
+      approvalId,
       callId: input.callId,
       leadId: input.leadId,
       scheduledAt: input.scheduledAt.toISOString(),
+      customerPhone: lead?.phone ?? null,
+      customerName: lead?.customerName ?? null,
     },
   });
 
@@ -417,40 +547,20 @@ async function findPendingCallApproval(input: {
   companyId: string;
   agentId: string;
   callId?: string;
-}): Promise<{ callId: string; leadId: string; scheduledAt: Date } | null> {
-  const notifications = await prisma.notification.findMany({
-    where: { companyId: input.companyId, userId: input.agentId, type: 'system_alert' },
-    orderBy: { createdAt: 'desc' },
-    take: input.callId ? 30 : 10,
+}): Promise<{ approvalId: string; callId: string; leadId: string; scheduledAt: Date } | null> {
+  const approval = await findPendingBookingApproval({
+    companyId: input.companyId,
+    kind: 'call',
+    agentId: input.agentId,
+    callRequestId: input.callId,
   });
-  for (const row of notifications) {
-    const data = (row.data as Record<string, unknown>) || {};
-    if (data.pendingApproval !== true || data.approvalKind !== 'call_request' || !data.callId) continue;
-    if (input.callId && data.callId !== input.callId) continue;
-    return {
-      callId: String(data.callId),
-      leadId: String(data.leadId),
-      scheduledAt: new Date(String(data.scheduledAt)),
-    };
-  }
-  return null;
-}
-
-async function clearPendingCallApproval(companyId: string, agentId: string, callId: string): Promise<void> {
-  const rows = await prisma.notification.findMany({
-    where: { companyId, userId: agentId, type: 'system_alert' },
-    orderBy: { createdAt: 'desc' },
-    take: 30,
-  });
-  for (const row of rows) {
-    const data = (row.data as Record<string, unknown>) || {};
-    if (data.callId === callId && data.pendingApproval === true) {
-      await prisma.notification.update({
-        where: { id: row.id },
-        data: { data: { ...data, pendingApproval: false, resolvedAt: new Date().toISOString() } },
-      });
-    }
-  }
+  if (!approval?.callRequestId) return null;
+  return {
+    approvalId: approval.id,
+    callId: approval.callRequestId,
+    leadId: approval.leadId,
+    scheduledAt: approval.scheduledAt,
+  };
 }
 
 export async function resolveCallApproval(
@@ -464,8 +574,6 @@ export async function resolveCallApproval(
     return { ok: false, message: 'No pending callback request found (it may have expired).' };
   }
 
-  await clearPendingCallApproval(companyId, agentId, callId);
-
   const lead = await prisma.lead.findUnique({
     where: { id: pending.leadId },
     select: { phone: true, customerName: true },
@@ -475,7 +583,8 @@ export async function resolveCallApproval(
   const agent = await prisma.user.findUnique({ where: { id: agentId }, select: { name: true } });
 
   if (!approved) {
-    await cancelCallRequest({ companyId, callId });
+    await resolveBookingApprovalStatus({ approvalId: pending.approvalId, status: 'declined' });
+    await cancelCallRequest({ companyId, callId, notifyAgent: false });
     if (lead?.phone) {
       await whatsappService.sendCompanyTextMessage(
         lead.phone,
@@ -490,6 +599,7 @@ export async function resolveCallApproval(
   if (!confirmed.success || !confirmed.call) {
     return { ok: false, message: 'Could not confirm that callback. Ask the customer to pick another time via WhatsApp.' };
   }
+  await resolveBookingApprovalStatus({ approvalId: pending.approvalId, status: 'approved' });
 
   // In-app notification to the agent confirming the call booking.
   // This fires even if the subsequent WhatsApp send to the customer fails,
@@ -601,6 +711,8 @@ export async function buildBuyerCallStatusReply(input: {
     `When: ${when}`,
     `Status: *${statusLabel(active.status)}*${agentLine}`,
     '',
-    `Tap a button below to *confirm*, *reschedule*, or *call your agent*.`,
+    active.status === 'pending_approval'
+      ? `Your request is waiting for team approval. You can reschedule or cancel before it is confirmed.`
+      : `Confirmed callbacks cannot be changed automatically. Reply with a new request and I will notify the team.`,
   ].join('\n');
 }

@@ -793,10 +793,18 @@ function wrap(name: string, handler: () => Promise<CronRunResult>): () => void {
 
 /**
  * Auto-expire pending visit/call approvals older than 4 hours.
- * Marks the notification as declined and sends the customer a cancellation message.
+ * New approvals live in booking_approval_requests; the notification scan below is a legacy fallback.
  */
 async function expireStalePendingApprovals(): Promise<CronRunResult> {
   const affected = trackCompanyIds();
+  const { expireStaleBookingApprovals } = await import('../bookingApproval.service');
+  const expiredNewApprovals = await expireStaleBookingApprovals(50);
+  if (expiredNewApprovals > 0) {
+    logger.info('expireStalePendingApprovals: expired booking approval requests', {
+      count: expiredNewApprovals,
+    });
+  }
+
   const threshold = new Date(Date.now() - 4 * 60 * 60 * 1000);
 
   const staleRows = await prisma.notification.findMany({

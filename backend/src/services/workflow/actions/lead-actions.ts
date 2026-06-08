@@ -223,6 +223,8 @@ export async function notifyAgentChange(ctx: ActionContext) {
 export async function updateLeadStatusVisitScheduled(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);
   if (!leadId) return skip();
+  // Approval-first buyer path: no visit row until agent approves — skip premature CRM status.
+  if (ctx.run.channel === 'buyer' && !ctx.state.visitId) return skip();
   const okTransition = await transitionLeadStatus(leadId, 'visit_scheduled', { force: false });
   if (!okTransition) return skip();
   ctx.state.newStatus = 'visit_scheduled';

@@ -88,6 +88,18 @@ jest.mock('../../services/brochureDelivery.service', () => ({
   resolveBrochureUrlForWhatsApp: jest.fn(async (url: string) => url),
 }));
 
+jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => {
+  const actual = jest.requireActual('../../services/whatsapp/whatsappTurnOrchestrator.service');
+  return {
+    ...actual,
+    resolveHeroMediaComponentFromPropertyIds: jest.fn(async () => ({
+      kind: 'media',
+      url: 'https://cdn.example.com/hero.jpg',
+      mime: 'image/jpeg',
+    })),
+  };
+});
+
 jest.mock('../../services/visitPendingApproval.service', () => ({
   createVisitApprovalRequest: jest.fn().mockResolvedValue({ approvalId: 'approval-1' }),
 }));
@@ -100,6 +112,7 @@ jest.mock('../../services/callRequest.service', () => ({
   formatBuyerCallReply: jest.fn(
     (title: string) => `*${title}*\n\nWhen: soon\n\nOur specialist will confirm the call time.`,
   ),
+  notifyAgentCallChangeRequested: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../utils/callIntentFromMessage.util', () => ({
@@ -275,7 +288,7 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
       expect(result.handled).toBe(true);
       expect(result.action).toBe('more-info-sent');
       expect(result.newState?.selectedPropertyId).toBe(mockPropertyId);
-      expect(result.turnResult?.components?.some((component) => component.kind === 'media')).toBe(true);
+      expect(result.turnResult?.components?.[0]).toMatchObject({ kind: 'buttons' });
     });
 
     it('returns unhandled when property not found', async () => {

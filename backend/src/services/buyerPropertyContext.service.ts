@@ -45,7 +45,7 @@ async function findPropertyMentionedByName(
   messageText: string,
 ): Promise<string | null> {
   const properties = await prisma.property.findMany({
-    where: { companyId, status: 'available' },
+    where: { companyId, status: { in: ['available', 'upcoming'] } },
     select: { id: true, name: true },
     take: 100,
   });

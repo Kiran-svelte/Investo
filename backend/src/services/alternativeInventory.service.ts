@@ -1,5 +1,5 @@
 import prisma from '../config/prisma';
-import type { Property, PropertyType } from '@prisma/client';
+import type { Property, PropertyStatus, PropertyType } from '@prisma/client';
 
 export interface PropertySearchCriteria {
   companyId: string;
@@ -34,6 +34,7 @@ export interface AlternativeTier {
 }
 
 const DEFAULT_BUDGET_STRETCH_PERCENT = 0.15;
+const BUYER_VISIBLE_STATUSES: PropertyStatus[] = ['available', 'upcoming'];
 
 function stretchRatio(criteria: PropertySearchCriteria): number {
   const pct = criteria.budgetStretchPercent;
@@ -64,7 +65,7 @@ export async function searchExactProperties(criteria: PropertySearchCriteria): P
   const limit = criteria.limit ?? 10;
   const where: Record<string, unknown> = {
     companyId: criteria.companyId,
-    status: 'available',
+    status: { in: BUYER_VISIBLE_STATUSES },
   };
 
   if (criteria.bedrooms != null) where.bedrooms = criteria.bedrooms;
@@ -90,7 +91,7 @@ export async function searchExactProperties(criteria: PropertySearchCriteria): P
 
 export async function searchAlternativeTiers(criteria: PropertySearchCriteria): Promise<AlternativeTier[]> {
   const tiers: AlternativeTier[] = [];
-  const baseWhere = { companyId: criteria.companyId, status: 'available' as const };
+  const baseWhere = { companyId: criteria.companyId, status: { in: BUYER_VISIBLE_STATUSES } };
 
   // Upsell: +1 BHK same area/city
   if (criteria.upsellEnabled !== false && criteria.bedrooms != null && criteria.bedrooms >= 1) {
@@ -198,7 +199,8 @@ export function formatPropertyLine(p: Property): string {
       : min
         ? `from ₹${(min / 100000).toFixed(1)}L`
         : 'Price on request';
-  return `- ${p.name} | ${p.locationArea || ''}, ${p.locationCity || ''} | ${p.bedrooms || '?'} BHK ${p.propertyType} | ${price}`;
+  const status = p.status === 'upcoming' ? 'Upcoming' : 'Available';
+  return `- ${p.name} | ${status} | ${p.locationArea || ''}, ${p.locationCity || ''} | ${p.bedrooms || '?'} BHK ${p.propertyType} | ${price}`;
 }
 
 export function formatAlternativesForPrompt(exact: Property[], tiers: AlternativeTier[]): string {
