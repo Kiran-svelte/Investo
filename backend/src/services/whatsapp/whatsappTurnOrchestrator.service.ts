@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { TurnResult, WhatsAppComponent, BuyerTurnInput } from '../../types/whatsapp-turn.types';
-import type { ConversationState } from '../conversationStateMachine';
+import { conversationStateManager, type ConversationState } from '../conversationStateMachine';
 import { resolveBuyerComponents } from '../buyer/buyerButtonPolicy.service';
 import { stripBuyerInternalMetadata } from './whatsappResponseSanitizer.service';
 import prisma from '../../config/prisma';
@@ -32,6 +32,11 @@ import {
 } from '../buyerPropertyContext.service';
 import { aiService } from '../ai.service';
 import type { CompanyWhatsAppConfig } from '../whatsapp.service';
+import {
+  buildBuyerStartFreshReply,
+  isBuyerStartCommand,
+  resetBuyerBookingAndConversationState,
+} from '../buyer/buyerStartFresh.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -193,6 +198,56 @@ async function handleInteractiveSafetyTurn(ctx: BuyerTurnRuntimeContext): Promis
 
   const { buildSafeBuyerFallback } = await import('../../utils/safeBuyerFallback.util');
   return { audience: 'buyer', handled: true, terminal: true, text: buildSafeBuyerFallback() };
+}
+
+// ---------------------------------------------------------------------------
+// H-start: Buyer /start fresh reset
+// ---------------------------------------------------------------------------
+
+async function handleStartFreshTurn(
+  ctx: BuyerTurnRuntimeContext,
+  conversationState: ConversationState,
+): Promise<TurnResult | null> {
+  if (!isBuyerStartCommand(ctx.input.messageText)) return null;
+
+  logOutboundBranch('H-start', 'whatsappTurnOrchestrator:startFresh', 'buyer_start_fresh_reset', {
+    conversationId: ctx.input.conversationId,
+    leadId: ctx.input.leadId,
+  });
+
+  await resetBuyerBookingAndConversationState({
+    companyId: ctx.companyId,
+    leadId: ctx.input.leadId,
+    conversationId: ctx.input.conversationId,
+    customerPhone: ctx.customerPhone,
+  });
+
+  const resetState = conversationStateManager.createInitialState();
+  Object.assign(conversationState, {
+    stage: 'rapport' as ConversationState['stage'],
+    previousStage: conversationState.stage,
+    stageEnteredAt: new Date(),
+    messageCount: 0,
+    consecutiveObjections: 0,
+    escalationReason: null,
+    commitments: resetState.commitments,
+    selectedPropertyId: null,
+    proposedVisitTime: null,
+    recommendedProperties: [],
+  });
+
+  const replyText = buildBuyerStartFreshReply(ctx.companyName);
+  await prisma.message.create({
+    data: {
+      conversationId: ctx.input.conversationId,
+      senderType: 'ai',
+      content: replyText,
+      language: ctx.input.leadLanguage || 'en',
+      status: 'sent',
+    },
+  });
+
+  return { audience: 'buyer', handled: true, terminal: true, text: replyText };
 }
 
 // ---------------------------------------------------------------------------
@@ -1577,6 +1632,10 @@ export async function orchestrateWhatsAppBuyerTurn(
   ctx: BuyerTurnRuntimeContext,
   conversationState: ConversationState,
 ): Promise<TurnResult> {
+  // /start resets all booking/conversation state and re-enables AI — must run before H1.
+  const hStart = await handleStartFreshTurn(ctx, conversationState);
+  if (hStart) return hStart;
+
   // H1 must run before any booking commits — human takeover is terminal and must
   // never trigger side-effect DB mutations for a conversation owned by a live agent.
   const h1 = await handleHumanTakeoverTurn(ctx);
