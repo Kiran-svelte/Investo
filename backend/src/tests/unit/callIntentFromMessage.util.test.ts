@@ -1,5 +1,6 @@
 import {
   isCallBookingIntent,
+  isHumanEscalationIntent,
   isCallCancelIntent,
   isCallRescheduleIntent,
   isCallStatusQuery,
@@ -9,9 +10,14 @@ import {
 
 describe('callIntentFromMessage.util', () => {
   test('detects booking intents', () => {
-    expect(isCallBookingIntent('I need to talk to a human')).toBe(true);
     expect(isCallBookingIntent('Please call me back tomorrow 3pm')).toBe(true);
     expect(isCallBookingIntent('call me')).toBe(true);
+  });
+
+  test('human escalation takes priority over call booking', () => {
+    expect(isHumanEscalationIntent('I need to talk to a human')).toBe(true);
+    expect(isCallBookingIntent('I need to talk to a human')).toBe(false);
+    expect(isCallBookingIntent('Please call me back, I want to talk to a human agent')).toBe(false);
   });
 
   test('does not treat cancel/reschedule/status as booking', () => {

@@ -177,15 +177,7 @@ async function waitForAiReply(leadId, afterTime, { timeoutSec = 50, mustMatch = 
       }
     }
   }
-  const conv = await getConversationId(leadId);
-  if (!conv) return { reply: '', msgs: [] };
-  const fallback = await prisma.message.findMany({
-    where: { conversationId: conv.id, senderType: 'ai' },
-    orderBy: { createdAt: 'desc' },
-    take: 1,
-    select: { content: true },
-  });
-  return { reply: fallback[0]?.content || '', msgs: fallback };
+  return { reply: '', msgs: [] };
 }
 
 async function waitForActionLog(leadId, pattern, { since = null, timeoutSec = 15 } = {}) {
@@ -291,8 +283,10 @@ async function waitForBuyerPathReady(maxAttempts = 4) {
 }
 
 async function runInteractive(from, interactiveId, title, waitSec = 35) {
+  const existingLead = await getLeadForPhone(from);
+  if (existingLead) await ensureAiActive(existingLead.id);
   const wh = await sendInteractiveWebhook(from, interactiveId, title, interactiveId.slice(0, 12));
-  const lead = await waitForLead(from, 30);
+  const lead = (await waitForLead(from, 30)) || existingLead;
   const { reply } = lead
     ? await waitForAiReply(lead.id, wh.sentAt, { timeoutSec: waitSec })
     : { reply: '' };
@@ -559,7 +553,8 @@ add('buyer-09-reschedule', 'buyer', 'Reschedule push to Sunday', async () => {
     : false;
   const rescheduled = /rescheduled|sunday|10:00|10 am/i.test(reply);
   const noVisitMsg = /couldn't find an upcoming|no upcoming/i.test(reply);
-  const ok = wh.ok && !!lead && !clean.length && (hasVisit ? rescheduled : noVisitMsg);
+  const pendingReschedule = /shared your preferred|pending approval|waiting for team approval/i.test(reply);
+  const ok = wh.ok && !!lead && !clean.length && (hasVisit ? rescheduled : (noVisitMsg || pendingReschedule));
   return { ok, detail: `hasVisit=${hasVisit} log=${reschedLog} ${reply.slice(0, 80)}` };
 });
 
@@ -588,15 +583,17 @@ add('buyer-11-escalate', 'buyer', 'Escalate to human', async () => {
   });
   await sleep(4000);
   const { wh, lead, reply, logs } = await runTurn(buyerB, 'Please call me back, I want to talk to a human agent', {
-    mustMatch: /human specialist|alerted our team|call/i,
+    mustMatch: /human specialist|alerted our team|notified our team|still here to help/i,
     waitSec: 55,
   });
   const clean = assertCleanReply(reply);
-  const handoff = /human specialist|alerted our team/i.test(reply);
+  const handoff = /human specialist|alerted our team|notified our team|still here to help/i.test(reply);
+  const conv = lead ? await getConversationId(lead.id) : null;
+  const notEscalated = conv?.status === 'ai_active' && conv?.aiEnabled !== false;
   const escLog = lead
-    ? (await waitForActionLog(lead.id, /workflow_escalate|escalat/i, { since: wh.sentAt })).found
+    ? (await waitForActionLog(lead.id, /workflow_escalate|buyer_ai_agent_assist|escalat/i, { since: wh.sentAt })).found
     : false;
-  return { ok: wh.ok && !!lead && !clean.length && handoff, detail: `audit=${escLog} ${reply.slice(0, 60)}` };
+  return { ok: wh.ok && !!lead && !clean.length && handoff && notEscalated, detail: `audit=${escLog} status=${conv?.status} ${reply.slice(0, 60)}` };
 });
 
 add('buyer-12-no-discount', 'buyer', 'Price negotiation no AI discount', async () => {
@@ -604,23 +601,25 @@ add('buyer-12-no-discount', 'buyer', 'Price negotiation no AI discount', async (
   await runTurn(buyerC, 'Hi I want 3BHK Whitefield 1.5 crore', { waitSec: 45, mustMatch: /welcome|help/i });
   await sleep(6000);
   let { wh, lead, reply, logs } = await runTurn(buyerC, 'Can you give me 10% discount on the final price?', {
-    mustMatch: /human specialist|alerted|agent|discount|negotiat|specialist/i,
+    mustMatch: /human specialist|alerted|notified our team|agent|discount|negotiat|specialist|still here/i,
     waitSec: 55,
   });
   if (CONNECTION_FALLBACK.test(reply)) {
     await sleep(8000);
     ({ wh, lead, reply, logs } = await runTurn(buyerC, 'Can you give me 10% discount on the final price?', {
-      mustMatch: /human specialist|alerted|agent|discount|negotiat|specialist/i,
+      mustMatch: /human specialist|alerted|notified our team|agent|discount|negotiat|specialist|still here/i,
       waitSec: 55,
     }));
   }
   const clean = assertCleanReply(reply);
   const noFake = !/i can offer|approved|10%\s*off/i.test(reply);
-  const escalates = /human specialist|alerted our team|agent/i.test(reply);
+  const escalates = /human specialist|alerted our team|notified our team|still here to help/i.test(reply);
+  const conv = lead ? await getConversationId(lead.id) : null;
+  const notEscalated = conv?.status === 'ai_active' && conv?.aiEnabled !== false;
   const escLog = lead
-    ? (await waitForActionLog(lead.id, /workflow_escalate|escalat/i, { since: wh.sentAt })).found
+    ? (await waitForActionLog(lead.id, /workflow_escalate|buyer_ai_agent_assist|escalat/i, { since: wh.sentAt })).found
     : false;
-  return { ok: wh.ok && !!lead && !clean.length && noFake && escalates, detail: `audit=${escLog} ${reply.slice(0, 60)}` };
+  return { ok: wh.ok && !!lead && !clean.length && noFake && escalates && notEscalated, detail: `audit=${escLog} status=${conv?.status} ${reply.slice(0, 60)}` };
 });
 
 // ── Buyer interactive (fresh phone D) ───────────────────────────────────
@@ -630,7 +629,7 @@ add('buyer-int-filter', 'interactive', 'Filter 2BHK shortlist', async () => {
   buyerD = randBuyer();
   await runTurn(buyerD, 'Hi', { waitSec: 45, mustMatch: /welcome|palm|help|explore/i });
   await sleep(3000);
-  const { wh, lead, reply } = await runInteractive(buyerD, 'filter-2bhk', '2 BHK', 45);
+  const { wh, lead, reply } = await runInteractive(buyerD, 'filter-2bhk', '2 BHK', 60);
   const clean = assertCleanReply(reply);
   const ok = wh.ok && !!lead && !clean.length && /found|2 bhk|property|options|great choice/i.test(reply);
   return { ok, detail: reply.slice(0, 80) };

@@ -1296,93 +1296,33 @@ export class WhatsAppService {
     customerName: string | null;
     messageText: string;
   }): Promise<{ status: string; aiEnabled: boolean }> {
-    // If the conversation is agent_active or aiEnabled is false, check whether a human agent
-    // actually replied recently. If no agent reply in the last 30 minutes, auto-reactivate AI
-    // so buyers don't get permanently stuck in the 'human will take over' loop.
-    if (conversation.status === 'agent_active' || !conversation.aiEnabled) {
-      const ACTIVE_AGENT_WINDOW_MINUTES = 5;
-      const activeAgentSince = conversation.escalatedAt
-        ?? new Date(Date.now() - ACTIVE_AGENT_WINDOW_MINUTES * 60 * 1000);
-      const lastAgentMessage = await prisma.message.findFirst({
-        where: {
-          conversation: { id: conversation.id },
-          senderType: 'agent',
-          createdAt: { gte: activeAgentSince },
-        },
-        select: { id: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (lastAgentMessage) {
-        // Agent is actively engaged — keep human takeover.
-        return { status: conversation.status, aiEnabled: conversation.aiEnabled };
-      }
+    // Manual dashboard takeover: keep agent_active until release or agent replies.
+    if (conversation.status === 'agent_active' && conversation.aiEnabled === false) {
+      return { status: conversation.status, aiEnabled: conversation.aiEnabled };
+    }
 
-      // No agent reply since takeover/escalation — auto-reactivate AI so buyer is not stuck in H1.
-      logger.info('agent_active conversation auto-reactivated (no agent reply since takeover)', {
+    // Legacy auto-escalation (human_escalated / escalatedAt): clear and resume AI.
+    if (!conversation.aiEnabled || conversation.stage === 'human_escalated' || conversation.escalatedAt) {
+      logger.info('Clearing stale auto-escalation — resuming AI for buyer', {
         conversationId: conversation.id,
-        escalatedAt: conversation.escalatedAt?.toISOString() ?? null,
+        previousAiEnabled: conversation.aiEnabled,
+        previousStage: conversation.stage,
       });
 
       const reactivated = await prisma.conversation.update({
         where: { id: conversation.id },
-        data: { status: 'ai_active', aiEnabled: true, stage: 'rapport', stageEnteredAt: new Date(), escalationReason: null },
+        data: {
+          status: 'ai_active',
+          aiEnabled: true,
+          ...(conversation.stage === 'human_escalated' && {
+            stage: 'rapport',
+            stageEnteredAt: new Date(),
+            stageMessageCount: 0,
+            escalationReason: null,
+          }),
+        },
         select: { status: true, aiEnabled: true },
       });
-
-      // Notify agent/admins that buyer messaged while conversation was unattended.
-      const notifyTitle = 'Customer messaged — AI resumed (no agent reply for 30 min)';
-      const notifyMsg = `${context.customerName || context.customerPhone}: "${context.messageText.substring(0, 80)}${context.messageText.length > 80 ? '...' : ''}"`;
-      const { notificationEngine } = await import('./notification.engine');
-
-      const agentUserId = context.assignedAgentId;
-      if (agentUserId) {
-        // In-app notification
-        await notificationEngine.notify({
-          companyId: context.companyId,
-          userId: agentUserId,
-          type: 'agent_takeover',
-          title: notifyTitle,
-          message: notifyMsg,
-          data: { leadId: context.leadId, conversationId: conversation.id },
-        });
-        // WhatsApp notification to agent's own phone
-        const agentRecord = await prisma.user.findUnique({
-          where: { id: agentUserId },
-          select: { phone: true },
-        });
-        if (agentRecord?.phone) {
-          await notificationEngine.notifyAgentByWhatsApp({
-            agentPhone: agentRecord.phone,
-            companyId: context.companyId,
-            message: `📩 *New buyer message (AI resumed)*\n${notifyMsg}\n\nThe AI has responded. Check your Investo dashboard to monitor.`,
-          });
-        }
-      } else {
-        // No assigned agent — notify all company admins via in-app + WhatsApp
-        const admins = await prisma.user.findMany({
-          where: { companyId: context.companyId, role: 'company_admin', status: 'active' },
-          select: { id: true, phone: true },
-        });
-        await Promise.all(
-          admins.map(async (admin) => {
-            await notificationEngine.notify({
-              companyId: context.companyId,
-              userId: admin.id,
-              type: 'agent_takeover',
-              title: notifyTitle,
-              message: notifyMsg,
-              data: { leadId: context.leadId, conversationId: conversation.id },
-            });
-            if (admin.phone) {
-              await notificationEngine.notifyAgentByWhatsApp({
-                agentPhone: admin.phone,
-                companyId: context.companyId,
-                message: `📩 *Unassigned lead — buyer messaged (AI resumed)*\n${notifyMsg}\n\nAssign this lead in your Investo dashboard.`,
-              });
-            }
-          }),
-        );
-      }
 
       return { status: reactivated.status, aiEnabled: reactivated.aiEnabled };
     }

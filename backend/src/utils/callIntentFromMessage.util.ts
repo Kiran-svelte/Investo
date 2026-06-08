@@ -1,8 +1,11 @@
 import { parseVisitDateTimeFromMessage } from '../services/visitIntentFromMessage.service';
 import { parseDateTimeFromNaturalLanguage } from './parseDateTimeFromMessage.util';
 
+const HUMAN_ESCALATION_INTENT =
+  /\b(talk\s+to\s+(a\s+)?human(\s+agent)?|speak\s+to\s+(a\s+)?human(\s+agent)?|want\s+to\s+talk\s+to\s+(a\s+)?(human|agent)|human\s+agent|connect\s+me\s+with\s+(a\s+)?(human|agent|person|specialist))\b/i;
+
 const CALL_INTENT =
-  /\b(talk\s+to\s+(a\s+)?(human|person|agent|specialist|sales)|speak\s+to\s+(a\s+)?(human|agent|someone)|need\s+to\s+(talk|speak|call)|call\s+me|call\s+back|callback|call\s+back|phone\s+call|request\s+a\s+call|connect\s+me\s+with)\b/i;
+  /\b(talk\s+to\s+(a\s+)?(person|agent|specialist|sales)|speak\s+to\s+(a\s+)?(agent|someone)|need\s+to\s+(talk|speak|call)|call\s+me|call\s+back|callback|call\s+back|phone\s+call|request\s+a\s+call|connect\s+me\s+with)\b/i;
 
 const CALL_CANCEL =
   /\b(cancel|call\s+off|stop)\b.*\b(call|callback|phone\s+call)\b|\b(cancel|stop)\s+(my\s+)?(scheduled\s+)?call\b/i;
@@ -13,9 +16,14 @@ const CALL_RESCHEDULE =
 const CALL_STATUS =
   /\b(when\s+(is|was)\s+(my\s+)?call|my\s+call\s+(time|details|status)|scheduled\s+call|callback\s+time)\b/i;
 
+export function isHumanEscalationIntent(message: string): boolean {
+  return HUMAN_ESCALATION_INTENT.test(message.trim());
+}
+
 export function isCallBookingIntent(message: string): boolean {
   const t = message.trim();
   if (!t || t.length > 300) return false;
+  if (isHumanEscalationIntent(t)) return false;
   if (CALL_CANCEL.test(t) || CALL_RESCHEDULE.test(t) || CALL_STATUS.test(t)) return false;
   return CALL_INTENT.test(t);
 }
