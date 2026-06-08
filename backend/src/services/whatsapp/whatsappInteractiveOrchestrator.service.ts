@@ -54,6 +54,7 @@ function buyerTurn(text: string, components?: WhatsAppComponent[]): TurnResult {
     handled: true,
     text,
     components: components?.length ? components : undefined,
+    replyPacing: 'none',
   };
 }
 
@@ -321,7 +322,15 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   const property = await prisma.property.findFirst({
     where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
   });
-  if (!property) return null;
+  if (!property) {
+    return {
+      handled: true,
+      action: 'more-info-not-found',
+      turnResult: buyerTurn(
+        "I couldn't find details for that property right now. Tell me the project name or area and I'll shortlist options.",
+      ),
+    };
+  }
 
   let details = buildWhatsAppPropertyDetailText(property);
 
@@ -453,7 +462,23 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
     },
   });
   if (recentFilterAction) {
-    return { handled: true, action: 'filter-duplicate-prevented' };
+    const lastFilterReply = await prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        senderType: 'ai',
+        createdAt: { gte: new Date(Date.now() - 120_000) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { content: true },
+    });
+    return {
+      handled: true,
+      action: 'filter-duplicate-prevented',
+      turnResult: buyerTurn(
+        lastFilterReply?.content?.trim() ||
+          `You're already viewing *${filter.displayName}* options — tap a property from the list above or tell me another preference.`,
+      ),
+    };
   }
 
   try {

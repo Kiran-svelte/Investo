@@ -167,7 +167,7 @@ export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssist
     }),
   );
 
-  void logAgentAction({
+  await logAgentAction({
     companyId: input.companyId,
     triggeredBy: 'inbound_message',
     action: 'buyer_ai_agent_assist',

@@ -147,4 +147,17 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     expect(budgeted.some((c) => c.kind === 'media')).toBe(false);
     expect(budgeted.length).toBe(1);
   });
+
+  test('filter duplicate tap returns prior reply text', async () => {
+    (prisma.message.findFirst as jest.Mock)
+      .mockResolvedValueOnce({ id: 'dup-check' })
+      .mockResolvedValueOnce({ content: 'Great choice! Found 2 2 BHK properties for you!' });
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'filter-2bhk',
+    });
+    expect(result?.action).toBe('filter-duplicate-prevented');
+    expect(result?.turnResult?.text).toContain('Great choice');
+    expect(result?.turnResult?.replyPacing).toBe('none');
+  });
 });

@@ -602,7 +602,8 @@ export class WhatsAppService {
       };
     }
 
-    if (!msg.queuedReplay) {
+    // Button/list titles repeat ("Call Me", "2 BHK") — only dedupe plain text turns.
+    if (!msg.queuedReplay && !msg.interactiveId?.trim()) {
       const fingerprintClaimed = await claimCustomerInboundFingerprint(
         companyId,
         customerPhone,
@@ -618,13 +619,9 @@ export class WhatsAppService {
       }
     }
 
-    // Interactive taps are fast/deterministic — must not queue behind a 60s LLM text turn.
-    const isInteractiveTap = Boolean(msg.interactiveId?.trim());
     let claimedCustomerProcessingTurn = false;
-    const customerTurnClaimed = isInteractiveTap
-      ? true
-      : await claimCustomerProcessingTurn(companyId, customerPhone);
-    if (!isInteractiveTap && customerTurnClaimed) {
+    const customerTurnClaimed = await claimCustomerProcessingTurn(companyId, customerPhone);
+    if (customerTurnClaimed) {
       claimedCustomerProcessingTurn = true;
     }
     if (!customerTurnClaimed) {
@@ -1089,7 +1086,6 @@ export class WhatsAppService {
           const outboundText = actionResult.turnResult.text?.trim();
           let pendingMsgId: string | null = null;
           if (outboundText) {
-            // Create as 'pending' — update to 'sent'/'failed' based on actual delivery result.
             const pendingMsg = await prisma.message.create({
               data: {
                 conversationId: conversation.id,
@@ -1102,8 +1098,8 @@ export class WhatsAppService {
             pendingMsgId = pendingMsg.id;
           }
           const outboundClaimed = await claimOutboundAiReply(companyId, msg.messageId);
+          let deliveryOk = false;
           if (outboundClaimed) {
-            let deliveryOk = false;
             try {
               await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig!);
               deliveryOk = true;
@@ -1114,18 +1110,26 @@ export class WhatsAppService {
                 conversationId: conversation.id,
               });
             }
-            if (pendingMsgId) {
-              await prisma.message.update({
-                where: { id: pendingMsgId },
-                data: { status: deliveryOk ? 'sent' : 'failed' },
-              }).catch(() => undefined);
-            }
-          } else if (pendingMsgId) {
+          } else {
+            logger.warn('Interactive outbound dedup blocked — still persisting AI reply in transcript', {
+              companyId,
+              messageId: msg.messageId,
+              interactiveId: msg.interactiveId,
+            });
+            deliveryOk = Boolean(outboundText);
+          }
+          if (pendingMsgId) {
             await prisma.message.update({
               where: { id: pendingMsgId },
-              data: { status: 'failed' },
+              data: { status: deliveryOk ? 'sent' : 'failed' },
             }).catch(() => undefined);
           }
+        } else if (actionResult.handled) {
+          logger.warn('Interactive action handled without turnResult text', {
+            interactiveId: msg.interactiveId,
+            action: actionResult.action,
+            conversationId: conversation.id,
+          });
         }
 
         propagation = await this.propagateConversationUpdate({
