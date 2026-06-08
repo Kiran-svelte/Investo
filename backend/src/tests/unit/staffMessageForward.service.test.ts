@@ -22,8 +22,19 @@ describe('staffMessageForward.service', () => {
     expect(parsed?.phones).toHaveLength(2);
   });
 
+  test('parseStaffForwardCommand supports forward alias', () => {
+    const parsed = parseStaffForwardCommand('forward "Hi team" to 9036165603,919876543210');
+    expect(parsed?.body).toBe('Hi team');
+    expect(parsed?.phones).toHaveLength(2);
+  });
+
+  test('parseStaffForwardCommand supports space-separated phones', () => {
+    const parsed = parseStaffForwardCommand('send "Hello" to 9036165603 919876543210');
+    expect(parsed?.phones).toHaveLength(2);
+  });
+
   test('returns null for invalid commands', () => {
-    expect(parseStaffForwardCommand('forward hi to 9036165603')).toBeNull();
     expect(parseStaffForwardCommand('send "hi"')).toBeNull();
+    expect(parseStaffForwardCommand('hello world')).toBeNull();
   });
 });

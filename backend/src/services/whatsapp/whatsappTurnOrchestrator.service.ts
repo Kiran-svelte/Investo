@@ -974,12 +974,17 @@ async function handleVisitCommitReplyTurn(
   });
 
   if (visitCommit.scheduledAt) {
+    const slotConfirmed =
+      visitCommit.mode === 'scheduled' || visitCommit.mode === 'rescheduled';
     await prisma.conversation.update({
       where: { id: ctx.input.conversationId },
       data: {
-        stage: visitCommit.mode === 'scheduled' || visitCommit.mode === 'rescheduled' ? 'confirmation' : 'visit_booking',
+        stage: slotConfirmed ? 'confirmation' : 'visit_booking',
         proposedVisitTime: visitCommit.scheduledAt,
-        commitments: { visitSlotDiscussed: true, visitSlotConfirmed: visitCommit.mode === 'scheduled' || visitCommit.mode === 'rescheduled' },
+        commitments: {
+          visitSlotDiscussed: true,
+          visitSlotConfirmed: slotConfirmed,
+        },
       },
     });
   }
@@ -990,15 +995,19 @@ async function handleVisitCommitReplyTurn(
 
   void import('../clientMemory.service').then(({ syncLeadClientMemory }) => syncLeadClientMemory(ctx.input.leadId));
 
-  await logAgentAction({
-    companyId: ctx.companyId,
-    triggeredBy: 'inbound_message',
-    action:
-      visitCommit.mode === 'rescheduled'
+  const visitAction =
+    visitCommit.mode === 'pending_approval'
+      ? 'visit_pending_approval'
+      : visitCommit.mode === 'rescheduled'
         ? 'workflow_reschedule_visit'
         : visitCommit.mode === 'cancelled'
           ? 'workflow_cancel_visit'
-          : 'customerVisitBooked',
+          : 'customerVisitBooked';
+
+  await logAgentAction({
+    companyId: ctx.companyId,
+    triggeredBy: 'inbound_message',
+    action: visitAction,
     resourceType: 'lead',
     resourceId: ctx.input.leadId,
     status: 'success',

@@ -4,6 +4,7 @@ import {
   isCallRescheduleIntent,
   isCallStatusQuery,
   isBareSchedulingTimeReply,
+  isHumanEscalationIntent,
   resolveCallScheduledAt,
 } from '../utils/callIntentFromMessage.util';
 import {
@@ -49,6 +50,10 @@ export async function tryCommitCustomerCallBooking(
 
   const msg = input.customerMessage.trim();
   if (!msg) return { committed: false };
+
+  if (isHumanEscalationIntent(msg)) {
+    return { committed: false };
+  }
 
   if (isCallStatusQuery(msg)) {
     const customerReply = await buildBuyerCallStatusReply({

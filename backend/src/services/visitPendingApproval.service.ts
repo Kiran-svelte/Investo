@@ -5,6 +5,8 @@ import { scheduleVisit } from './visitBooking.service';
 import { confirmVisitById, rescheduleVisitById } from './visitState.service';
 import { transitionLeadStatus } from './leadTransition.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
+import { emitVisitUpdated } from './visitLifecycle.service';
+import { logAgentAction } from './agent-action-log.service';
 import { formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 import {
@@ -397,6 +399,10 @@ export async function resolveVisitApproval(
     data: {
       proposedVisitTime: scheduledAt,
       stage: 'confirmation',
+      commitments: {
+        visitSlotDiscussed: true,
+        visitSlotConfirmed: true,
+      },
     },
   }).catch(() => undefined);
 
@@ -409,10 +415,29 @@ export async function resolveVisitApproval(
     },
   );
 
+  emitVisitUpdated(companyId, booking.visit, rescheduleVisitId ? 'rescheduled' : 'confirmed');
+
   socketService.emitToCompany(companyId, SOCKET_EVENTS.LEAD_UPDATED, {
     leadId: pending.leadId,
     status: 'visit_scheduled',
     visitId: booking.visit.id,
+  });
+
+  void logAgentAction({
+    companyId,
+    triggeredBy: 'inbound_message',
+    action: 'visit_confirmed_by_agent',
+    actorId: agentId,
+    resourceType: 'visit',
+    resourceId: booking.visit.id,
+    status: 'success',
+    inputs: {
+      approvalId,
+      leadId: pending.leadId,
+      scheduledAt: scheduledAt.toISOString(),
+      propertyId: pending.propertyId,
+    },
+    result: 'Visit confirmed; customer notified; reminders scheduled',
   });
 
   return {

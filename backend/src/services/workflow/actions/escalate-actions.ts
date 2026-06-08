@@ -1,6 +1,7 @@
 import prisma from '../../../config/prisma';
 import logger from '../../../config/logger';
 import { notificationEngine } from '../../notification.engine';
+import { logAgentAction } from '../../agent-action-log.service';
 import type { ActionContext } from './action-helpers';
 import { fail, ok, requireLeadId, runNamedTool, skip } from './action-helpers';
 
@@ -103,6 +104,19 @@ export async function notifyAllAgents(ctx: ActionContext) {
       );
     }
   }
+
+  void logAgentAction({
+    companyId: ctx.run.toolContext.companyId,
+    triggeredBy: 'inbound_message',
+    action: 'workflow_escalate_to_human',
+    resourceType: 'lead',
+    resourceId: leadId,
+    actorId: ctx.run.toolContext.userId,
+    actorRole: ctx.run.toolContext.userRole,
+    status: 'success',
+    inputs: { note: requestMessage.slice(0, 500), agentCount: agents.length },
+    result: `Notified ${agents.length} agents`,
+  });
 
   return ok(`🚨 All ${agents.length} agents notified via WhatsApp and app.`);
 }

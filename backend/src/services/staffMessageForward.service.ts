@@ -4,12 +4,15 @@ import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 
-const FORWARD_QUOTED_RE = /^send\s+(["'])([\s\S]+?)\1\s+to\s+(.+)$/i;
-const FORWARD_UNQUOTED_RE = /^send\s+(.+?)\s+to\s+([\d\s,+()-]+)$/i;
+const FORWARD_QUOTED_RE = /^(?:send|forward)\s+(["'])([\s\S]+?)\1\s+to\s+(.+)$/i;
+const FORWARD_UNQUOTED_RE = /^(?:send|forward)\s+(.+?)\s+to\s+([\d\s,+()-]+)$/i;
 
 function parsePhoneList(raw: string): string[] {
-  return raw
-    .split(/[,;\n]+/)
+  const trimmed = raw.trim();
+  const chunks = trimmed.includes(',') || trimmed.includes(';')
+    ? trimmed.split(/[,;\n]+/)
+    : trimmed.split(/\s+/);
+  return chunks
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => normalizeInboundWhatsAppPhone(part.replace(/^\+/, '+')));
