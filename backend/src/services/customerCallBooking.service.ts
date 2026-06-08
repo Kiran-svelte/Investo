@@ -10,6 +10,7 @@ import {
 import {
   clearConversationAwaitingCallTime,
   isConversationAwaitingCallTime,
+  setConversationAwaitingCallTime,
 } from '../utils/conversationCallContext.util';
 import {
   buildBuyerCallStatusReply,
@@ -39,6 +40,8 @@ export interface CommitCustomerCallResult {
   committed: boolean;
   customerReply?: string;
   workflowSuggestion?: { workflowId: string; parameters: Record<string, unknown> };
+  /** When true, H-call attaches call-reschedule / call-cancel buttons. */
+  hasActiveCall?: boolean;
 }
 
 export async function tryCommitCustomerCallBooking(
@@ -60,7 +63,7 @@ export async function tryCommitCustomerCallBooking(
       companyId: input.companyId,
       leadId: input.lead.id,
     });
-    return { committed: true, customerReply };
+    return { committed: true, customerReply, hasActiveCall: Boolean(active) };
   }
 
   const active = await findActiveCallRequest({
@@ -73,6 +76,7 @@ export async function tryCommitCustomerCallBooking(
       return {
         committed: true,
         customerReply: "I couldn't find a scheduled callback to cancel. Would you like to book a new one?",
+        hasActiveCall: false,
       };
     }
     if (active.status === 'confirmed') {
@@ -84,15 +88,21 @@ export async function tryCommitCustomerCallBooking(
       return {
         committed: true,
         customerReply: `Your callback is already confirmed, so I can't cancel it automatically. I have notified the team to help you.`,
+        hasActiveCall: true,
       };
     }
     const cancelled = await cancelCallRequest({ companyId: input.companyId, callId: active.id });
     if (!cancelled.success) {
-      return { committed: true, customerReply: "I couldn't cancel that callback. Please ask your agent for help." };
+      return {
+        committed: true,
+        customerReply: "I couldn't cancel that callback. Please ask your agent for help.",
+        hasActiveCall: true,
+      };
     }
     return {
       committed: true,
       customerReply: `*Callback cancelled*\n\nReply anytime if you'd like to schedule a new call with our team.`,
+      hasActiveCall: false,
     };
   }
 
@@ -101,6 +111,7 @@ export async function tryCommitCustomerCallBooking(
       return {
         committed: true,
         customerReply: "I couldn't find a scheduled callback. Share a date and time (e.g. *tomorrow 3pm*) to book one.",
+        hasActiveCall: false,
       };
     }
     if (active.status === 'confirmed') {
@@ -112,6 +123,7 @@ export async function tryCommitCustomerCallBooking(
       return {
         committed: true,
         customerReply: `Your callback is already confirmed, so I can't reschedule it automatically. I have notified the team to help you.`,
+        hasActiveCall: true,
       };
     }
     const newTime =
@@ -197,9 +209,13 @@ export async function tryCommitCustomerCallBooking(
     agentId: input.lead.assignedAgentId ?? undefined,
   });
   if (!booked.success || !booked.call) {
+    if (input.conversationId) {
+      await setConversationAwaitingCallTime(input.conversationId).catch(() => undefined);
+    }
     return {
       committed: true,
-      customerReply: "I couldn't schedule that callback right now. Please share another time or ask for an agent.",
+      customerReply:
+        "📞 I'll ask our team to call you — please share a good time if you have one (e.g. *tomorrow 3pm*).",
     };
   }
   if (input.conversationId) {

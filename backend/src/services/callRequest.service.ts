@@ -18,33 +18,9 @@ import {
 
 export type CallRequestStatus = 'pending_approval' | 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
 
-let schemaReady = false;
-
+/** Table lives in Prisma migration `20260607000000_*` — no runtime DDL. */
 export async function ensureCallRequestsSchema(): Promise<void> {
-  if (schemaReady) return;
-  await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS call_requests (
-      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-      lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
-      agent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      scheduled_at TIMESTAMP NOT NULL,
-      duration_minutes INT NOT NULL DEFAULT 15,
-      status VARCHAR(30) NOT NULL DEFAULT 'scheduled',
-      notes TEXT NULL,
-      agent_confirmed_at TIMESTAMP NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT now(),
-      updated_at TIMESTAMP NOT NULL DEFAULT now()
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS call_requests_company_lead_idx ON call_requests (company_id, lead_id, scheduled_at DESC)`,
-  );
-  await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS call_requests_agent_scheduled_idx ON call_requests (agent_id, scheduled_at)`,
-  );
-  schemaReady = true;
+  /* no-op */
 }
 
 export interface CallRequestRow {

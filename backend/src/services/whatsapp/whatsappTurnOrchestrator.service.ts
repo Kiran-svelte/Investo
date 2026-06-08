@@ -734,6 +734,12 @@ async function handleCallCommitReplyTurn(
 ): Promise<TurnResult | null> {
   if (!callCommit.committed || !callCommit.customerReply) return null;
 
+  logOutboundBranch('H-call', 'whatsappTurnOrchestrator:callCommit', 'buyer_call_commit_reply', {
+    conversationId: ctx.input.conversationId,
+    leadId: ctx.input.leadId,
+    hasActiveCall: Boolean(callCommit.hasActiveCall),
+  });
+
   await prisma.message.create({
     data: {
       conversationId: ctx.input.conversationId,
@@ -744,11 +750,11 @@ async function handleCallCommitReplyTurn(
   });
 
   const components = resolveBuyerComponents({
-    stage: 'confirmation',
+    stage: ctx.input.conversationStage || 'confirmation',
     outboundText: callCommit.customerReply,
     propertyId: ctx.input.conversationSelectedPropertyId,
-    hasActiveCall: true,
-    recentAction: 'confirmed',
+    hasActiveCall: Boolean(callCommit.hasActiveCall),
+    recentAction: callCommit.hasActiveCall ? 'confirmed' : undefined,
   });
 
   return {
