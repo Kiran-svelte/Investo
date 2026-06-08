@@ -818,6 +818,7 @@ export class AutomationService {
       interactiveId: data.interactiveId ? String(data.interactiveId) : undefined,
       interactiveType: data.interactiveType as 'button_reply' | 'list_reply' | undefined,
       businessDisplayPhone: data.businessDisplayPhone ? String(data.businessDisplayPhone) : undefined,
+      queuedReplay: data.queuedReplay === true || data.queuedReplay === 'true',
     });
 
     logger.info('retry_concurrent_inbound processed', {

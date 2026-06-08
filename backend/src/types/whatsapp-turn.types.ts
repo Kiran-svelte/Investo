@@ -14,6 +14,9 @@
 
 export type WhatsAppAudience = 'buyer' | 'staff';
 
+/** Controls human-like typing delay before outbound AI replies. */
+export type ReplyPacingMode = 'full' | 'minimal' | 'none';
+
 export type WhatsAppButton = { id: string; title: string };
 
 export type ListSection = {
@@ -68,6 +71,11 @@ export type TurnResult = {
   statePatch?: Record<string, unknown>;
   /** When true, caller must return immediately without further processing. */
   terminal?: boolean;
+  /**
+   * Human reply pacing before send. Defaults to `'minimal'` in the sender layer.
+   * Deterministic fast paths should use `'minimal'` or `'none'`.
+   */
+  replyPacing?: ReplyPacingMode;
 };
 
 /**

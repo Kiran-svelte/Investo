@@ -396,6 +396,8 @@ const config = {
     skipIpWhitelist: process.env.SKIP_IP_WHITELIST === 'true',
     webhookMaxSize: process.env.WHATSAPP_WEBHOOK_MAX_SIZE || '1mb',
     dedupTtlSeconds: parseInt(process.env.WHATSAPP_DEDUP_TTL_SECONDS || '300', 10),
+    /** When false, skips typing indicator and artificial reply delay entirely. */
+    replyPacingEnabled: process.env.WHATSAPP_REPLY_PACING_ENABLED !== 'false',
     /** Shared secret for signed production handset E2E proofs (X-Investo-E2E-Token header). */
     e2eWebhookProofToken: process.env.E2E_WEBHOOK_PROOF_TOKEN || '',
   },

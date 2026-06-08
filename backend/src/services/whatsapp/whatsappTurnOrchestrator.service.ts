@@ -247,7 +247,7 @@ async function handleStartFreshTurn(
     },
   });
 
-  return { audience: 'buyer', handled: true, terminal: true, text: replyText };
+  return { audience: 'buyer', handled: true, terminal: true, text: replyText, replyPacing: 'none' };
 }
 
 // ---------------------------------------------------------------------------
@@ -1350,7 +1350,14 @@ async function handleFullAiTurn(
     hasMedia: Boolean(heroMedia),
   });
 
-  return { audience: 'buyer', handled: true, terminal: true, text: outboundText, components };
+  return {
+    audience: 'buyer',
+    handled: true,
+    terminal: true,
+    text: outboundText,
+    components,
+    replyPacing: 'full',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1648,10 +1655,10 @@ export async function orchestrateWhatsAppBuyerTurn(
   // H1 must run before any booking commits — human takeover is terminal and must
   // never trigger side-effect DB mutations for a conversation owned by a live agent.
   const h1 = await handleHumanTakeoverTurn(ctx);
-  if (h1) return h1;
+  if (h1) return withDefaultReplyPacing(h1);
 
   const h0 = await handleInteractiveSafetyTurn(ctx);
-  if (h0) return h0;
+  if (h0) return withDefaultReplyPacing(h0);
 
   const recentCustomerMessages = ctx.history
     .filter((m) => m.senderType === 'customer')
@@ -1681,18 +1688,18 @@ export async function orchestrateWhatsAppBuyerTurn(
 
   // Rapport/dismissal before call commit — bare "Hi" must not fall through to LLM greeting templates.
   const h1b = await handleDismissalTurn(ctx, visitCommit);
-  if (h1b) return h1b;
+  if (h1b) return withDefaultReplyPacing(h1b);
 
   const h2 = await handleRapportTurn(ctx, visitCommit, conversationState.stage);
-  if (h2) return h2;
+  if (h2) return withDefaultReplyPacing(h2);
 
   const h2b = await handleReturningBuyerPivotTurn(ctx, visitCommit);
-  if (h2b) return h2b;
+  if (h2b) return withDefaultReplyPacing(h2b);
 
   // H2.5 must run BEFORE callCommit and H3-H7 so property-browsing intents
   // never reach the LLM (H9) where temperature variance causes spurious escalation.
   const h2_5 = await handlePropertyBrowsingTurn(ctx, visitCommit, liveCtx, conversationState.stage);
-  if (h2_5) return h2_5;
+  if (h2_5) return withDefaultReplyPacing(h2_5);
 
   const callCommit = await tryCommitCustomerCallBooking({
     companyId: ctx.companyId,
@@ -1703,22 +1710,22 @@ export async function orchestrateWhatsAppBuyerTurn(
   });
 
   const hCall = await handleCallCommitReplyTurn(ctx, callCommit, visitCommit);
-  if (hCall) return hCall;
+  if (hCall) return withDefaultReplyPacing(hCall);
 
   const h3 = await handleMemoryRecallTurn(ctx, visitCommit);
-  if (h3) return h3;
+  if (h3) return withDefaultReplyPacing(h3);
 
   const h4 = await handleQualificationTurn(ctx, visitCommit);
-  if (h4) return h4;
+  if (h4) return withDefaultReplyPacing(h4);
 
   const h5 = await handleVisitStatusTurn(ctx, visitCommit, liveCtx);
-  if (h5) return h5;
+  if (h5) return withDefaultReplyPacing(h5);
 
   const h6 = await handleVisitCommitWorkflowTurn(ctx, visitCommit, liveCtx, conversationState.stage, ctx.input.conversationSelectedPropertyId);
-  if (h6) return h6;
+  if (h6) return withDefaultReplyPacing(h6);
 
   const h7 = await handleClassifierWorkflowTurn(ctx, visitCommit, liveCtx, conversationState.stage, ctx.input.conversationSelectedPropertyId);
-  if (h7) return h7;
+  if (h7) return withDefaultReplyPacing(h7);
 
   // H7b: Bare visit intent with no date/time — ask the buyer instead of falling to LLM escalation.
   // Fires only when isVisitActionRequest() is true but visitCommit was not committed (no time parsed).
@@ -1731,13 +1738,18 @@ export async function orchestrateWhatsAppBuyerTurn(
       where: { id: ctx.input.conversationId },
       data: { stage: 'visit_booking', stageEnteredAt: new Date() },
     }).catch(() => undefined);
-    return { audience: 'buyer', handled: true, terminal: true, text: askReply };
+    return withDefaultReplyPacing({ audience: 'buyer', handled: true, terminal: true, text: askReply });
   }
 
   const h8 = await handleVisitCommitReplyTurn(ctx, visitCommit, liveCtx);
-  if (h8) return h8;
+  if (h8) return withDefaultReplyPacing(h8);
 
   return handleFullAiTurn(ctx, visitCommit, callCommit, liveCtx, conversationState);
+}
+
+function withDefaultReplyPacing(result: TurnResult): TurnResult {
+  if (result.replyPacing) return result;
+  return { ...result, replyPacing: 'minimal' };
 }
 
 // ---------------------------------------------------------------------------

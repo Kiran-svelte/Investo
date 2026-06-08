@@ -1,6 +1,8 @@
 import config from '../config';
 import logger from '../config/logger';
 
+export type ReplyPacingMode = 'full' | 'minimal' | 'none';
+
 export interface WhatsAppPresenceConfig {
   provider?: 'meta';
   phoneNumberId?: string;
@@ -8,16 +10,24 @@ export interface WhatsAppPresenceConfig {
 }
 
 /** Human-like pause before outbound AI text (ms). */
-export function computeHumanReplyDelayMs(messageLength: number): number {
-  const base = 800;
-  const perChar = 12;
-  const cap = 4_500;
-  const jitter = Math.floor(Math.random() * 400);
+export function computeHumanReplyDelayMs(
+  messageLength: number,
+  mode: ReplyPacingMode = 'full',
+): number {
+  if (mode === 'none') return 0;
+  const base = mode === 'minimal' ? 100 : 200;
+  const perChar = mode === 'minimal' ? 1 : 3;
+  const cap = mode === 'minimal' ? 400 : 1_200;
+  const jitter = mode === 'minimal' ? 0 : Math.floor(Math.random() * 150);
   return Math.min(cap, base + messageLength * perChar + jitter);
 }
 
 function normalizeTo(to: string): string {
   return to.replace(/\D/g, '').replace(/^0+/, '');
+}
+
+export function isReplyPacingGloballyDisabled(): boolean {
+  return process.env.WHATSAPP_REPLY_PACING_ENABLED === 'false';
 }
 
 /**
@@ -90,8 +100,15 @@ export async function simulateHumanReplyPacing(input: {
   whatsappConfig: WhatsAppPresenceConfig;
   outboundTextLength: number;
   inboundMessageId?: string;
+  pacing?: ReplyPacingMode;
+  replyPacing?: ReplyPacingMode;
 }): Promise<void> {
+  const mode = input.replyPacing ?? input.pacing ?? 'full';
+  if (mode === 'none' || isReplyPacingGloballyDisabled()) return;
+
   await markInboundMessageRead(input.inboundMessageId, input.whatsappConfig);
-  await sendTypingIndicator(input.to, input.whatsappConfig);
-  await new Promise((r) => setTimeout(r, computeHumanReplyDelayMs(input.outboundTextLength)));
+  if (mode === 'full') {
+    await sendTypingIndicator(input.to, input.whatsappConfig);
+  }
+  await new Promise((r) => setTimeout(r, computeHumanReplyDelayMs(input.outboundTextLength, mode)));
 }
