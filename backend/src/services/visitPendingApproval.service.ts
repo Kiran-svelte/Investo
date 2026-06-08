@@ -3,11 +3,12 @@ import logger from '../config/logger';
 import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
 import { scheduleVisit } from './visitBooking.service';
 import { confirmVisitById, rescheduleVisitById } from './visitState.service';
-import { transitionLeadStatus } from './leadTransition.service';
+import { transitionLeadToVisitScheduled } from './leadTransition.service';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { emitVisitUpdated } from './visitLifecycle.service';
 import { logAgentAction } from './agent-action-log.service';
-import { formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
+import { logOutboundBranch } from './outboundTurnDebug.service';
+import { formatBuyerVisitPendingApproval, formatBuyerVisitScheduled } from '../utils/visitFormat.util';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 import {
   buildVisitApprovalIdempotencyKey,
@@ -95,6 +96,14 @@ export async function findPendingVisitApprovalForLead(input: {
 }
 
 async function sendVisitApprovalRequestToAgent(payload: VisitApprovalPayload): Promise<void> {
+  if (!payload.agentId) {
+    logger.warn('sendVisitApprovalRequestToAgent: no agentId on payload, skipping agent notify', {
+      approvalId: payload.approvalId,
+      companyId: payload.companyId,
+    });
+    return;
+  }
+
   const agent = await prisma.user.findUnique({
     where: { id: payload.agentId },
     select: { name: true, phone: true },
@@ -107,15 +116,23 @@ async function sendVisitApprovalRequestToAgent(payload: VisitApprovalPayload): P
     minute: '2-digit',
   });
 
-  const { notificationEngine } = await import('./notification.engine');
-  await notificationEngine.notify({
-    companyId: payload.companyId,
-    userId: payload.agentId,
-    type: 'visit_scheduled',
-    title: 'Site visit needs your approval',
-    message: `${payload.customerName || payload.customerPhone} requested a visit for ${payload.propertyName || 'a property'}`,
-    data: { pendingApproval: true, ...payload },
-  });
+  try {
+    const { notificationEngine } = await import('./notification.engine');
+    await notificationEngine.notify({
+      companyId: payload.companyId,
+      userId: payload.agentId,
+      type: 'visit_scheduled',
+      title: 'Site visit needs your approval',
+      message: `${payload.customerName || payload.customerPhone} requested a visit for ${payload.propertyName || 'a property'}`,
+      data: { pendingApproval: true, ...payload },
+    });
+  } catch (err: unknown) {
+    logger.warn('sendVisitApprovalRequestToAgent: in-app notify failed (non-fatal)', {
+      agentId: payload.agentId,
+      approvalId: payload.approvalId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   if (agent?.phone) {
     const { whatsappService } = await import('./whatsapp.service');
@@ -384,13 +401,13 @@ export async function resolveVisitApproval(
     select: { name: true, locationArea: true },
   });
 
-  const confirmText =
-    `*Visit confirmed!*\n\n` +
-    `*${property?.name || pending.propertyName || 'Property'}*${property?.locationArea ? ` - ${property.locationArea}` : ''}\n` +
-    `${scheduledAt.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })}\n` +
-    `${scheduledAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n` +
-    `Your host: *${agent?.name || 'Sales team'}*\n\n` +
-    `See you at the site. Reply if you need help from the team.`;
+  const mode = rescheduleVisitId ? 'rescheduled' : 'scheduled';
+  const confirmText = formatBuyerVisitScheduled(
+    scheduledAt,
+    property?.name || pending.propertyName || 'Property',
+    agent?.name ?? null,
+    mode,
+  );
 
   await whatsappService.sendCompanyTextMessage(pending.customerPhone, confirmText, companyId);
 
@@ -406,13 +423,20 @@ export async function resolveVisitApproval(
     },
   }).catch(() => undefined);
 
-  await transitionLeadStatus(pending.leadId, 'visit_scheduled', { force: false }).catch(
+  await transitionLeadToVisitScheduled(pending.leadId).catch(
     (err: unknown) => {
       logger.warn('resolveVisitApproval: lead status transition failed', {
         leadId: pending.leadId,
         error: err instanceof Error ? err.message : String(err),
       });
     },
+  );
+
+  logOutboundBranch(
+    'H-approval',
+    'visitPendingApproval:resolveVisitApproval',
+    rescheduleVisitId ? 'visit_approval_rescheduled' : 'visit_approval_confirmed',
+    { approvalId, leadId: pending.leadId, visitId: booking.visit.id, companyId },
   );
 
   emitVisitUpdated(companyId, booking.visit, rescheduleVisitId ? 'rescheduled' : 'confirmed');

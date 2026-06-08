@@ -55,10 +55,13 @@ jest.mock('../../services/inboundMessageGuard.service', () => ({
 
 jest.mock('../../services/agent/agent-memory.service', () => ({
   getOrCreateThreadId: jest.fn().mockResolvedValue('thread-viewer'),
+  getOrCreateAgentSession: jest.fn().mockResolvedValue({ id: 'session-viewer', threadId: 'thread-viewer' }),
 }));
 
 jest.mock('../../services/agent/confirmation.service', () => ({
   checkAndResolvePendingConfirmation: jest.fn().mockResolvedValue({ hasPending: false }),
+  executePendingAction: jest.fn().mockResolvedValue('done'),
+  handleAttendanceCheckRejected: jest.fn().mockResolvedValue('ok'),
 }));
 
 const mockCrmReply = jest.fn().mockResolvedValue('You have 3 visits today.');
@@ -89,6 +92,39 @@ jest.mock('../../services/agent/agent-session-messages.service', () => ({
 
 jest.mock('../../services/visitPendingApproval.service', () => ({
   tryHandleAgentVisitApprovalReply: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock('../../services/callRequest.service', () => ({
+  tryHandleAgentCallApprovalReply: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock('../../services/outboundTurnDebug.service', () => ({
+  beginOutboundTurn: jest.fn(),
+  endOutboundTurn: jest.fn(),
+  logOutboundBranch: jest.fn(),
+  logOutboundSend: jest.fn(),
+  claimPrimaryOutboundSend: jest.fn().mockReturnValue(true),
+  releasePrimaryOutboundClaim: jest.fn(),
+}));
+
+jest.mock('../../services/staffMessageForward.service', () => ({
+  tryStaffMessageForward: jest.fn().mockResolvedValue({ handled: false }),
+}));
+
+jest.mock('../../services/copilot/copilotButtonPolicy.service', () => ({
+  resolveCopilotComponents: jest.fn().mockReturnValue([]),
+}));
+
+jest.mock('../../services/attendanceWorkflow.service', () => ({
+  resolveAttendanceButtonCommand: jest.fn().mockReturnValue(null),
+}));
+
+jest.mock('../../services/lead-memory.service', () => ({
+  patchLeadMemory: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/agent/agent-graph.service', () => ({
+  invokeAgent: jest.fn().mockResolvedValue(null),
 }));
 
 import { routeCompanyScopedInbound } from '../../services/inboundWhatsAppRouting.service';

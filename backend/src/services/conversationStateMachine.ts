@@ -522,6 +522,7 @@ export class PolicyBrain {
           `EMPATHY FIRST: ${playbook.empathyFirst}`,
           `REFRAME: ${playbook.reframe}`,
           `BRIDGE: ${playbook.bridgeToValue}`,
+          `FALLBACK: ${playbook.fallbackOffer}`,
           'After addressing, try to gently move back toward the visit.',
         ],
       };

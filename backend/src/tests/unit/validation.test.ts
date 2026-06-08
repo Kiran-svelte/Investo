@@ -114,8 +114,14 @@ describe('State Machine: Visit Transitions', () => {
     expect(isValidTransition(VISIT_TRANSITIONS, 'no_show', 'scheduled')).toBe(false);
   });
 
-  test('cannot skip scheduled -> completed', () => {
-    expect(isValidTransition(VISIT_TRANSITIONS, 'scheduled', 'completed')).toBe(false);
+  test('direct scheduled -> completed is allowed (walk-in/same-day visits)', () => {
+    // Intentional: agents can mark a visit completed without confirming first
+    // for walk-in visits. See VISIT_TRANSITIONS comment in validation.ts.
+    expect(isValidTransition(VISIT_TRANSITIONS, 'scheduled', 'completed')).toBe(true);
+  });
+
+  test('direct scheduled -> no_show is allowed (same-day outcome)', () => {
+    expect(isValidTransition(VISIT_TRANSITIONS, 'scheduled', 'no_show')).toBe(true);
   });
 });
 

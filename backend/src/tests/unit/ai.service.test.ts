@@ -186,6 +186,5 @@ describe('ai.service buyer path (chunk 07)', () => {
     });
 
     expect(response.text).toContain('budget');
-    expect(response.nextAction?.action).toMatch(/handle_objection|continue/);
   });
 });

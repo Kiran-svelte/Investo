@@ -302,6 +302,90 @@ router.delete(
 );
 
 /**
+ * GET /api/leads/import/template
+ * Download CSV template for bulk import.
+ * MUST be registered before GET /:id to prevent Express shadowing.
+ */
+router.get(
+  '/import/template',
+  authorize('leads', 'create'),
+  async (_req: AuthRequest, res: Response) => {
+    const template = 'name,phone,email,budget_min,budget_max,location,property_type,source\n' +
+      'John Doe,+919876543210,john@email.com,5000000,10000000,Mumbai,apartment,website\n' +
+      'Jane Smith,9123456789,jane@email.com,3000000,7000000,Pune,villa,referral';
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=lead_import_template.csv');
+    res.send(template);
+  }
+);
+
+/**
+ * GET /api/leads/export/csv — supports same filters as list (?status=&search=&source=)
+ * MUST be registered before GET /:id to prevent Express shadowing.
+ */
+router.get(
+  '/export/csv',
+  authorize('leads', 'read'),
+  exportRateLimiter,
+  auditLog('export', 'leads'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      if (req.user!.role !== 'company_admin' && req.user!.role !== 'super_admin') {
+        res.status(403).json({ error: 'Only admins can export data' });
+        return;
+      }
+      const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
+      const leads = await prisma.lead.findMany({
+        where: where as any,
+        include: { assignedAgent: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      const rows = leads.map((l) => serializeLeadExportRow(l as LeadWithAgent).join(','));
+      const csv = [EXPORT_HEADERS.join(','), ...rows].join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=leads_export.csv');
+      res.send(csv);
+    } catch (err: any) {
+      logger.error('Failed to export leads', { error: err.message });
+      res.status(500).json({ error: 'Failed to export leads' });
+    }
+  }
+);
+
+/**
+ * GET /api/leads/export/json — filtered JSON export
+ * MUST be registered before GET /:id to prevent Express shadowing.
+ */
+router.get(
+  '/export/json',
+  authorize('leads', 'read'),
+  exportRateLimiter,
+  auditLog('export', 'leads'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      if (req.user!.role !== 'company_admin' && req.user!.role !== 'super_admin') {
+        res.status(403).json({ error: 'Only admins can export data' });
+        return;
+      }
+      const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
+      const leads = await prisma.lead.findMany({
+        where: where as any,
+        include: { assignedAgent: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename=leads_export.json');
+      res.json({ exported_at: new Date().toISOString(), count: leads.length, data: leads.map(mapLeadToSnakeCaseDTO) });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to export leads' });
+    }
+  }
+);
+
+/**
  * GET /api/leads/:id
  */
 router.get(
@@ -787,24 +871,6 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-/**
- * GET /api/leads/import/template
- * Download CSV template for bulk import
- */
-router.get(
-  '/import/template',
-  authorize('leads', 'create'),
-  async (_req: AuthRequest, res: Response) => {
-    const template = 'name,phone,email,budget_min,budget_max,location,property_type,source\n' +
-      'John Doe,+919876543210,john@email.com,5000000,10000000,Mumbai,apartment,website\n' +
-      'Jane Smith,9123456789,jane@email.com,3000000,7000000,Pune,villa,referral';
-
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=lead_import_template.csv');
-    res.send(template);
-  }
-);
-
 function serializeLeadExportRow(l: LeadWithAgent & { metadata?: unknown }): string[] {
   const meta = metadataToDto(l.metadata);
   return [
@@ -829,68 +895,5 @@ const EXPORT_HEADERS = [
   'Name', 'Phone', 'Email', 'Budget Min', 'Budget Max', 'Location', 'Type',
   'Status', 'Agent', 'Source', 'Lead Score', 'Tags', 'Source Detail', 'Created',
 ];
-
-/**
- * GET /api/leads/export/csv — supports same filters as list (?status=&search=&source=)
- */
-router.get(
-  '/export/csv',
-  authorize('leads', 'read'),
-  exportRateLimiter,
-  auditLog('export', 'leads'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const companyId = getCompanyId(req);
-      if (req.user!.role !== 'company_admin' && req.user!.role !== 'super_admin') {
-        res.status(403).json({ error: 'Only admins can export data' });
-        return;
-      }
-      const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
-      const leads = await prisma.lead.findMany({
-        where: where as any,
-        include: { assignedAgent: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-      const rows = leads.map((l) => serializeLeadExportRow(l as LeadWithAgent).join(','));
-      const csv = [EXPORT_HEADERS.join(','), ...rows].join('\n');
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=leads_export.csv');
-      res.send(csv);
-    } catch (err: any) {
-      logger.error('Failed to export leads', { error: err.message });
-      res.status(500).json({ error: 'Failed to export leads' });
-    }
-  }
-);
-
-/**
- * GET /api/leads/export/json — filtered JSON export
- */
-router.get(
-  '/export/json',
-  authorize('leads', 'read'),
-  exportRateLimiter,
-  auditLog('export', 'leads'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const companyId = getCompanyId(req);
-      if (req.user!.role !== 'company_admin' && req.user!.role !== 'super_admin') {
-        res.status(403).json({ error: 'Only admins can export data' });
-        return;
-      }
-      const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
-      const leads = await prisma.lead.findMany({
-        where: where as any,
-        include: { assignedAgent: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-      res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', 'attachment; filename=leads_export.json');
-      res.json({ exported_at: new Date().toISOString(), count: leads.length, data: leads.map(mapLeadToSnakeCaseDTO) });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Failed to export leads' });
-    }
-  }
-);
 
 export default router;

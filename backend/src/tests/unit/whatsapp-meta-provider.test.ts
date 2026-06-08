@@ -19,7 +19,7 @@ describe('MetaWhatsAppProvider (outbound)', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    mockFetch.mockReset();
   });
 
   describe('sendTextMessage', () => {
@@ -51,22 +51,32 @@ describe('MetaWhatsAppProvider (outbound)', () => {
       });
     });
 
-    test('returns structured API error details when response is not ok', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        text: async () => 'Invalid request',
-      });
+    test('wraps non-auth HTTP errors as status:500 after retries', async () => {
+      // Non-auth errors (400, 5xx) throw inside the retry loop → retried → caught → status:500.
+      // Mock both the initial attempt and the single retry.
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 400, text: async () => 'Invalid request' })
+        .mockResolvedValueOnce({ ok: false, status: 400, text: async () => 'Invalid request' });
 
       const result = await provider.sendTextMessage('+919876543210', 'Hello', companyConfig);
 
-      expect(result).toEqual({ success: false, status: 400, errorText: 'Invalid request' });
+      expect(result.success).toBe(false);
+      expect(result.status).toBe(500);
+      expect(result.errorText).toContain('Meta API 400');
     });
 
-    test('propagates unexpected failures (network, parsing)', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('network down'));
+    test('returns status:500 on network failures (does not propagate throw)', async () => {
+      // Network errors are caught inside the retry/circuit-breaker wrapper and
+      // returned as a structured error — callers should never receive a raw throw.
+      mockFetch
+        .mockRejectedValueOnce(new Error('network down'))
+        .mockRejectedValueOnce(new Error('network down'));
 
-      await expect(provider.sendTextMessage('+919876543210', 'Hello', companyConfig)).rejects.toThrow('network down');
+      const result = await provider.sendTextMessage('+919876543210', 'Hello', companyConfig);
+
+      expect(result.success).toBe(false);
+      expect(result.status).toBe(500);
+      expect(result.errorText).toContain('network down');
     });
   });
 

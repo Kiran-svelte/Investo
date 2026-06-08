@@ -29,4 +29,34 @@ describe('messagePolish.service', () => {
     expect(result.text.length).toBeLessThanOrEqual(203);
     expect(result.text).toContain('*Bold title*');
   });
+
+  test('LLM polish fails open to deterministic text after 3s timeout', async () => {
+    jest.resetModules();
+    process.env.POLISH_USE_LLM = '1';
+    jest.doMock('../../config', () => ({
+      __esModule: true,
+      default: {
+        ai: { openaiApiKey: 'test-key', kimiApiKey: '', openaiModel: 'gpt-4o', kimiApiBaseUrl: '', kimi25Model: '' },
+      },
+    }));
+    jest.doMock('../../config/logger', () => ({
+      __esModule: true,
+      default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+    }));
+
+    (global as unknown as { fetch: jest.Mock }).fetch = jest.fn(
+      () => new Promise(() => undefined),
+    );
+
+    const { polishOutboundMessage: polishWithTimeout } = await import('../../services/messagePolish.service');
+    const started = Date.now();
+    const result = await polishWithTimeout({
+      rawText: 'Hello buyer',
+      channel: 'whatsapp',
+    });
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(result.mode).toBe('deterministic');
+    expect(result.text).toBe('Hello buyer');
+    delete process.env.POLISH_USE_LLM;
+  });
 });

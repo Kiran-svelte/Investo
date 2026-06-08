@@ -32,6 +32,7 @@ import { sanitizeStaffInstructionsForBuyer } from '../../utils/buyerStaffCopyGua
 import type { AgentSessionMessage } from '../agent/agent-session-messages.service';
 import { WORKFLOW_ACTION_HANDLERS } from './actions';
 import { enrichWorkflowParams } from './actions/action-helpers';
+import { formatBuyerWorkflowCatalogForClassifier } from './workflow-catalog.util';
 import {
   allWorkflowIds,
   getWorkflowDefinition,
@@ -765,6 +766,14 @@ export async function runWorkflow(
   await finalizeWorkflowRun(workflowRunId, 'completed', stepsLog, undefined, stateSnapshot);
 
   if (!messages.length) {
+    if (runChannel === 'buyer' && workflowId === 'escalate_to_human') {
+      return {
+        ok: true,
+        reply: formatBuyerWorkflowReply(workflowId, ''),
+        workflowId,
+        completedSteps,
+      };
+    }
     return { ok: true, reply: null, workflowId, completedSteps };
   }
 
@@ -805,6 +814,10 @@ function stripBuyerInternalWorkflowLines(reply: string): string {
     .split(/\r?\n/)
     .filter((line) => !/^\s*lead marked\s/i.test(line.trim()))
     .filter((line) => !/^\s*visit reminders scheduled\.?\s*$/i.test(line.trim()))
+    .filter((line) => !/^\s*lead score updated/i.test(line.trim()))
+    .filter((line) => !/^\s*lead tagged:/i.test(line.trim()))
+    .filter((line) => !/^\s*urgent alert created/i.test(line.trim()))
+    .filter((line) => !/^\s*🚨\s*all\s+\d+\s+agents notified/i.test(line.trim()))
     .join('\n\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -866,6 +879,8 @@ export async function classifyWorkflowMessage(
     sessionLeadId?: string | null;
     sessionVisitId?: string | null;
     companyName: string;
+    /** When buyer, classifier catalog is limited to BUYER_WORKFLOW_IDS (H7). */
+    channel?: 'buyer' | 'staff';
   },
   llm: WorkflowLlmCaller = defaultWorkflowLlm,
 ): Promise<ClassifyWorkflowMessageResult> {
@@ -879,14 +894,19 @@ export async function classifyWorkflowMessage(
     day: 'numeric',
   });
 
+  const isBuyerChannel = input.channel === 'buyer';
+  const catalogBlock = isBuyerChannel
+    ? formatBuyerWorkflowCatalogForClassifier()
+    : formatWorkflowCatalog();
+
   const system = `Classify Investo WhatsApp CRM messages into one workflow.
 Return JSON only: {"workflow":"<id>","confidence":0.0-1.0,"parameters":{}}.
 Workflows:
-${formatWorkflowCatalog()}
+${catalogBlock}
 
 Rules:
 - Use exact workflow ids. Use unknown if none fit.
-- "update lead X status to visited" => update_status (NOT new_lead or list workflows).
+${isBuyerChannel ? '- Buyer channel only: use the listed buyer workflow ids; never staff-only ids like update_status or complete_visit.' : '- "update lead X status to visited" => update_status (NOT new_lead or list workflows).'}
 - Messages with "today" about lead STATUS are update_status, not schedule_visit.
 - "book/schedule a site visit" => schedule_visit. If date/time is missing, leave scheduledAt empty and let the workflow ask for it.
 - "liked it", "not interested", "will decide later" after a visit => mark_visit_outcome.
@@ -1475,6 +1495,7 @@ export async function classifyAndRunBuyerWorkflow(
         sessionLeadId: input.leadId,
         sessionVisitId: input.sessionVisitId,
         companyName: input.companyName,
+        channel: 'buyer',
       },
       deps?.llm,
     );

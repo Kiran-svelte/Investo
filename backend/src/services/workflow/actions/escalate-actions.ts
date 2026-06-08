@@ -50,6 +50,7 @@ export async function createUrgentAlert(ctx: ActionContext) {
     message: ctx.params.note ?? ctx.params.message ?? ctx.run.messageText,
     data: { leadId, escalatedBy: ctx.run.toolContext.userId },
   });
+  if (ctx.run.channel === 'buyer') return skip();
   return ok('Urgent alert created.');
 }
 
@@ -118,6 +119,7 @@ export async function notifyAllAgents(ctx: ActionContext) {
     result: `Notified ${agents.length} agents`,
   });
 
+  if (ctx.run.channel === 'buyer') return skip();
   return ok(`🚨 All ${agents.length} agents notified via WhatsApp and app.`);
 }
 

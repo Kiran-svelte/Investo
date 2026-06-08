@@ -22,6 +22,8 @@ import {
 import { resolveBuyerPropertyReference } from './buyerPropertyContext.service';
 import { formatBuyerVisitScheduled, formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
 import { isConversationAwaitingCallTime } from '../utils/conversationCallContext.util';
+import { isVisitAutoConfirmEnabled } from './visitAutoConfirm.service';
+import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
 import type { WorkflowId } from '../constants/workflow.constants';
 import type { WorkflowParams } from './workflow/workflow.types';
 
@@ -175,6 +177,60 @@ async function submitBuyerVisitApproval(input: {
     leadStatus: 'contacted',
   };
 }
+
+async function scheduleBuyerVisitDirect(input: {
+  companyId: string;
+  lead: CommitCustomerVisitInput['lead'];
+  propertyId: string;
+  scheduledAt: Date;
+}): Promise<CommitCustomerVisitResult> {
+  const booking = await scheduleVisit({
+    companyId: input.companyId,
+    leadId: input.lead.id,
+    propertyId: input.propertyId,
+    scheduledAt: input.scheduledAt,
+    idempotencyKey: buildVisitIdempotencyKey(
+      input.companyId,
+      input.lead.id,
+      input.scheduledAt.toISOString(),
+    ),
+    notes: 'Booked via WhatsApp text commit',
+  });
+
+  if (!booking.success || !booking.visit) {
+    logger.warn('Visit direct schedule failed during text commit', {
+      companyId: input.companyId,
+      leadId: input.lead.id,
+      error: booking.error,
+    });
+    return { committed: false };
+  }
+
+  const property = await prisma.property.findFirst({
+    where: { id: input.propertyId, companyId: input.companyId },
+    select: { name: true },
+  });
+  const agent = booking.visit.agentId
+    ? await prisma.user.findUnique({
+      where: { id: booking.visit.agentId },
+      select: { name: true },
+    })
+    : null;
+
+  return {
+    committed: true,
+    mode: 'scheduled',
+    scheduledAt: input.scheduledAt,
+    visitId: booking.visit.id,
+    customerReply: formatVisitConfirmation(
+      input.scheduledAt,
+      property?.name || 'Property',
+      agent?.name ?? null,
+    ),
+    leadStatus: 'visit_scheduled',
+  };
+}
+
 /**
  * Handles customer cancel / reschedule requests (buyer WhatsApp).
  */
@@ -530,6 +586,15 @@ export async function tryCommitCustomerVisitBooking(
       customerReply: formatVisitConfirmation(existing.scheduledAt, property?.name || 'Property', null),
       leadStatus: 'visit_scheduled',
     };
+  }
+
+  if (await isVisitAutoConfirmEnabled(companyId)) {
+    return scheduleBuyerVisitDirect({
+      companyId,
+      lead,
+      propertyId,
+      scheduledAt,
+    });
   }
 
   return submitBuyerVisitApproval({

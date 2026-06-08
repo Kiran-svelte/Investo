@@ -208,14 +208,6 @@ export class AutomationService {
         return;
       }
 
-      // Mark reminder as sent (only for 24h to avoid duplicate 1h reminders)
-      if (timing === '24h') {
-        await prisma.visit.update({
-          where: { id: visit.id },
-          data: { reminderSent: true },
-        });
-      }
-
       logger.info('Visit reminder sent', { visitId: visit.id, timing });
       void logAgentAction({
         companyId: visit.companyId,
@@ -615,6 +607,20 @@ export class AutomationService {
 
     if (!visit) {
       logger.warn('Agent notification skipped because visit no longer exists', { visitId });
+      return;
+    }
+
+    const alreadySent = await prisma.agentActionLog.findFirst({
+      where: {
+        companyId: visit.companyId,
+        action: 'visit_agent_notification_15m',
+        resourceType: 'visit',
+        resourceId: visit.id,
+      },
+      select: { id: true },
+    });
+    if (alreadySent) {
+      logger.debug('Agent 15m notification already sent', { visitId });
       return;
     }
 

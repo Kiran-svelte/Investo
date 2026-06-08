@@ -69,28 +69,6 @@ type PropertySummary = {
   images?: string[];
 };
 
-/** Immutable handler cascade — full.md PART III.O */
-export const BUYER_HANDLER_CASCADE = [
-  'H-start',
-  'H1',
-  'H0',
-  'visitCommit',
-  'H1b',
-  'H2',
-  'H2b',
-  'H2.5',
-  'callCommit',
-  'H-call',
-  'H3',
-  'H4',
-  'H5',
-  'H6',
-  'H7',
-  'H7b',
-  'H8',
-  'H9',
-] as const;
-
 // ---------------------------------------------------------------------------
 // Guard helpers
 // ---------------------------------------------------------------------------
@@ -1873,4 +1851,26 @@ export async function buildBuyerRapportTurnResult(input: {
 
   return { audience: 'buyer', handled: true, terminal: true, text, components };
 }
+
+/** Documented handler cascade for unit tests (full.md PART III.O). */
+export const BUYER_HANDLER_CASCADE = [
+  'H-start',
+  'H1',
+  'H0',
+  'visitCommit',
+  'H1b',
+  'H2',
+  'H2b',
+  'H2.5',
+  'callCommit',
+  'H-call',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'H7',
+  'H7b',
+  'H8',
+  'H9',
+] as const;
 

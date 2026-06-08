@@ -47,10 +47,35 @@ jest.mock('../../services/bookingApproval.service', () => ({
 
 jest.mock('../../services/visitState.service', () => ({
   confirmVisitById: (...args: unknown[]) => mockConfirmVisitById(...args),
+  rescheduleVisitById: jest.fn().mockResolvedValue({ success: false }),
 }));
 
 jest.mock('../../services/leadTransition.service', () => ({
   transitionLeadStatus: (...args: unknown[]) => mockTransitionLeadStatus(...args),
+  transitionLeadToVisitScheduled: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/outboundTurnDebug.service', () => ({
+  logOutboundBranch: jest.fn(),
+  beginOutboundTurn: jest.fn(),
+  endOutboundTurn: jest.fn(),
+  claimPrimaryOutboundSend: jest.fn().mockReturnValue(true),
+  releasePrimaryOutboundClaim: jest.fn(),
+}));
+
+jest.mock('../../services/visitLifecycle.service', () => ({
+  emitVisitUpdated: jest.fn(),
+  emitVisitCreated: jest.fn(),
+  scheduleVisitReminderJobs: jest.fn().mockResolvedValue(undefined),
+  cancelVisitReminderJobs: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/agent-action-log.service', () => ({
+  logAgentAction: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../utils/phoneMatch', () => ({
+  normalizeInboundWhatsAppPhone: jest.fn((phone: string) => phone),
 }));
 
 jest.mock('../../services/socket.service', () => ({

@@ -1,4 +1,4 @@
-import type { WorkflowId } from '../../constants/workflow.constants';
+import { BUYER_WORKFLOW_IDS, type WorkflowId } from '../../constants/workflow.constants';
 import { WORKFLOW_DEFINITIONS } from './workflow-registry';
 
 export type WorkflowRoutingKind = 'runWorkflow' | 'direct_tool';
@@ -223,4 +223,21 @@ export function formatWorkflowCatalogForTool(): string {
 
 export function getWorkflowGuideEntry(id: WorkflowId): WorkflowGuideEntry | undefined {
   return WORKFLOW_GUIDE.find((entry) => entry.id === id);
+}
+
+/** Buyer WhatsApp classifier targets (H7) — subset of WORKFLOW_GUIDE. */
+export const BUYER_WORKFLOW_GUIDE: WorkflowGuideEntry[] = WORKFLOW_GUIDE.filter((entry) =>
+  (BUYER_WORKFLOW_IDS as readonly string[]).includes(entry.id),
+);
+
+/**
+ * Compact buyer-only workflow catalog for the H7 LLM classifier.
+ * Excludes staff-only workflows (new_lead, update_status, complete_visit, etc.).
+ */
+export function formatBuyerWorkflowCatalogForClassifier(): string {
+  return BUYER_WORKFLOW_GUIDE.map((entry) => {
+    const def = WORKFLOW_DEFINITIONS.find((w) => w.id === entry.id);
+    const chain = (def?.steps ?? []).map((s) => s.action).join(' → ');
+    return `- ${entry.id}: ${entry.label}; steps: ${chain}`;
+  }).join('\n');
 }

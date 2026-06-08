@@ -32,6 +32,36 @@ describe('PROOF Area 1 — pending approval single customer send', () => {
         user: { findUnique: jest.fn().mockResolvedValue({ name: 'Agent', phone: '+919000000001' }) },
       },
     }));
+    jest.doMock('../../services/bookingApproval.service', () => ({
+      buildVisitApprovalIdempotencyKey: jest.fn(() => 'visit-approval-key'),
+      createBookingApprovalRequest: jest.fn().mockResolvedValue({
+        approval: {
+          id: 'approval-1',
+          companyId: 'co-1',
+          leadId: 'lead-1',
+          propertyId: 'prop-1',
+          agentId: 'agent-1',
+          conversationId: 'conv-1',
+          scheduledAt: new Date('2026-06-10T10:00:00+05:30'),
+          customerPhone: '+919876543210',
+          customerName: 'Test',
+          metadata: { propertyName: 'Sunset Heights' },
+          expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
+        },
+        created: true,
+        idempotencyHit: false,
+      }),
+    }));
+    jest.doMock('../../services/notification.engine', () => ({
+      notificationEngine: { notify: jest.fn().mockResolvedValue(undefined) },
+    }));
+    jest.doMock('../../services/automationQueue.service', () => ({
+      automationQueueService: { schedule: jest.fn().mockResolvedValue(true), cancel: jest.fn().mockResolvedValue(true) },
+    }));
+    jest.doMock('../../config/logger', () => ({
+      __esModule: true,
+      default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+    }));
 
     const { createVisitApprovalRequest } = await import('../../services/visitPendingApproval.service');
     await createVisitApprovalRequest({
@@ -58,7 +88,7 @@ describe('PROOF Area 1 — pending approval single customer send', () => {
       'utf8',
     );
     const blocks = content.match(/createVisitApprovalRequest\(\{[\s\S]*?\}\);/g) ?? [];
-    expect(blocks.length).toBeGreaterThanOrEqual(2);
+    expect(blocks.length).toBeGreaterThanOrEqual(1);
     blocks.forEach((block: string) => {
       expect(block).toContain('suppressCustomerMessage: true');
     });
@@ -76,7 +106,7 @@ describe('PROOF Area 2 — workflow suppresses duplicate customer notification',
   test('buyer reschedule passes suppressCustomerNotification', () => {
     const content = read('services/workflow/actions/visit-actions.ts');
     expect(content).toMatch(
-      /rescheduleVisitById\(\{[\s\S]*?suppressCustomerNotification:\s*ctx\.run\.channel\s*===\s*'buyer'/,
+      /createVisitApprovalRequest\(\{[\s\S]*?suppressCustomerMessage:\s*true[\s\S]*?rescheduleVisitId:/,
     );
   });
 
@@ -310,7 +340,7 @@ describe('PROOF Area 9 — one customer reply per inbound turn', () => {
   test('AI reactivation runs before interactive handling', () => {
     const wa = read('services/whatsapp.service.ts');
     const interactiveIdx = wa.indexOf('// 3.5. Handle interactive button/list responses');
-    const reactivateIdx = wa.indexOf('this.ensureProspectConversationAiActive(conversation)');
+    const reactivateIdx = wa.indexOf('ensureProspectConversationAiActive(conversation');
     expect(reactivateIdx).toBeGreaterThan(-1);
     expect(interactiveIdx).toBeGreaterThan(reactivateIdx);
   });

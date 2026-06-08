@@ -21,6 +21,7 @@ export interface PolishOutboundResult {
 
 const WHATSAPP_MAX = 4096;
 const DEFAULT_CUSTOMER_MAX = 1200;
+const POLISH_LLM_TIMEOUT_MS = 3_000;
 
 /**
  * Refines delivery (formatting, length, tone) without inventing facts.
@@ -45,7 +46,12 @@ export async function polishOutboundMessage(input: PolishOutboundInput): Promise
   }
 
   try {
-    const polished = await polishWithLlm(text, input.groundedFactsBlock || '', input.language || 'en', maxLen);
+    const polished = await Promise.race([
+      polishWithLlm(text, input.groundedFactsBlock || '', input.language || 'en', maxLen),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Polish LLM timed out after 3s')), POLISH_LLM_TIMEOUT_MS),
+      ),
+    ]);
     return { text: polished || text, mode: 'llm' };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

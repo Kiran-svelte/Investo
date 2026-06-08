@@ -15,17 +15,13 @@ import { setConversationAwaitingCallTime } from '../../utils/conversationCallCon
 import {
   parseVisitTimeInteractiveId,
   resolveVisitSlotToDate,
-  scheduleVisit,
 } from '../visitBooking.service';
 import { createVisitApprovalRequest } from '../visitPendingApproval.service';
 import { assignLeadRoundRobin } from '../leadAssignment.service';
-import {
-  formatBuyerVisitPendingApproval,
-  formatBuyerVisitScheduled,
-} from '../../utils/visitFormat.util';
+import { formatBuyerVisitPendingApproval } from '../../utils/visitFormat.util';
 import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
 import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
-import { confirmVisitById, rescheduleVisitById } from '../visitState.service';
+import { confirmVisitById } from '../visitState.service';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -388,13 +384,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
   });
   if (!property) {
-    return {
-      handled: true,
-      action: 'more-info-not-found',
-      turnResult: buyerTurn(
-        "I couldn't find details for that property right now. Tell me the project name or area and I'll shortlist options.",
-      ),
-    };
+    return null;
   }
 
   let details = buildWhatsAppPropertyDetailText(property);
@@ -769,75 +759,6 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
         `Your visit is already confirmed, so I won't change it automatically.\n\nI've notified the team with your preferred new time.`,
       ),
     };
-  }
-
-  const agentRecord: { name?: string | null } | null = null;
-  if (false) {
-    if (existingVisit) {
-      const reschedule = await rescheduleVisitById({
-        companyId: company.id,
-        visitId: existingVisit.id,
-        scheduledAt: proposedTime,
-        notes: 'Rescheduled via WhatsApp visit button',
-        suppressCustomerNotification: true,
-      });
-
-      if (reschedule.success && reschedule.visit) {
-        if (propertyId !== existingVisit.propertyId) {
-          await prisma.visit.update({
-            where: { id: existingVisit.id },
-            data: { propertyId },
-          });
-        }
-
-        return {
-          handled: true,
-          action: 'visit-rescheduled',
-          leadStatus: 'visit_scheduled',
-          newState: {
-            stage: 'confirmation',
-            selectedPropertyId: propertyId,
-            proposedVisitTime: proposedTime,
-          },
-          turnResult: buyerTurn(
-            `✅ *Visit rescheduled!*\n\n🏠 *${propertyName}*\n📅 ${proposedTime.toLocaleString('en-IN', {
-              timeZone: 'Asia/Kolkata',
-              weekday: 'long',
-              day: 'numeric',
-              month: 'long',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true,
-            })}\n\nSee you then! Reply if you need to change again.`,
-          ),
-        };
-      }
-    }
-
-    const booking = await scheduleVisit({
-      companyId: company.id,
-      leadId: lead.id,
-      propertyId,
-      scheduledAt: proposedTime,
-      agentId,
-      notes: 'Booked via WhatsApp visit button',
-    });
-
-    if (booking.success && booking.visit) {
-      return {
-        handled: true,
-        action: 'visit-scheduled',
-        leadStatus: 'visit_scheduled',
-        newState: {
-          stage: 'confirmation',
-          selectedPropertyId: propertyId,
-          proposedVisitTime: proposedTime,
-        },
-        turnResult: buyerTurn(
-          formatBuyerVisitScheduled(proposedTime, propertyName, agentRecord?.name ?? null),
-        ),
-      };
-    }
   }
 
   const agent = await prisma.user.findUnique({

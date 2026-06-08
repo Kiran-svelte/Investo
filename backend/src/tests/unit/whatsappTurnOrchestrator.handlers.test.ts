@@ -173,3 +173,40 @@ describe('whatsappTurnOrchestrator handlers (chunk 07)', () => {
     expect(block).toContain('isAllowedStageTransition');
   });
 });
+
+describe('whatsappTurnOrchestrator handlers (chunk 09)', () => {
+  const readOrchestrator = () => {
+    const fs = require('fs');
+    const path = require('path');
+    return fs.readFileSync(
+      path.join(__dirname, '../../services/whatsapp/whatsappTurnOrchestrator.service.ts'),
+      'utf8',
+    );
+  };
+
+  it('declares callCommit and H-call before H3 in cascade', () => {
+    expect(BUYER_HANDLER_CASCADE.indexOf('callCommit')).toBeGreaterThan(BUYER_HANDLER_CASCADE.indexOf('H2.5'));
+    expect(BUYER_HANDLER_CASCADE.indexOf('H-call')).toBe(BUYER_HANDLER_CASCADE.indexOf('callCommit') + 1);
+    expect(BUYER_HANDLER_CASCADE.indexOf('H3')).toBeGreaterThan(BUYER_HANDLER_CASCADE.indexOf('H-call'));
+  });
+
+  it('H-call uses hasActiveCall from tryCommitCustomerCallBooking', () => {
+    const block = readOrchestrator().slice(
+      readOrchestrator().indexOf('async function handleCallCommitReplyTurn'),
+      readOrchestrator().indexOf('async function handleVisitStatusTurn'),
+    );
+    expect(block).toContain("logOutboundBranch('H-call'");
+    expect(block).toContain('callCommit.hasActiveCall');
+    expect(block).toContain('ctx.input.conversationStage');
+    expect(block).not.toContain('hasActiveCall: true,');
+  });
+
+  it('orchestrator invokes tryCommitCustomerCallBooking before H-call handler', () => {
+    const body = readOrchestrator().slice(
+      readOrchestrator().indexOf('export async function orchestrateWhatsAppBuyerTurn'),
+      readOrchestrator().indexOf('function withDefaultReplyPacing'),
+    );
+    expect(body.indexOf('tryCommitCustomerCallBooking')).toBeLessThan(body.indexOf('handleCallCommitReplyTurn'));
+    expect(body).toContain('interactiveId: ctx.input.interactiveId');
+  });
+});

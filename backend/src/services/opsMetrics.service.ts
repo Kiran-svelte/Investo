@@ -119,3 +119,6 @@ export async function recordDailyOpsRollup(): Promise<void> {
   const snap = await getOpsMetricsSnapshot();
   await cacheSet(`ops:rollup:${day}`, snap.counters, 86_400 * 8);
 }
+
+/** UTC cron: 2:00 AM IST — nightly ops counter rollup. */
+export const DAILY_OPS_ROLLUP_CRON = '30 20 * * *';

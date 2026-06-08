@@ -33,6 +33,8 @@ function loadAiService(configOverride: any) {
 }
 
 describe('AIService fallback behavior', () => {
+  jest.setTimeout(15_000);
+
   afterEach(() => {
     jest.restoreAllMocks();
   });

@@ -135,6 +135,7 @@ export async function answerAmenities(ctx: ActionContext) {
 }
 
 export async function notifyIfHot(ctx: ActionContext) {
+  if (ctx.run.channel === 'buyer') return skip();
   const leadId = requireLeadId(ctx);
   if (!leadId) return skip();
   const msg = (ctx.params.message ?? '').toLowerCase();

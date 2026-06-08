@@ -4,6 +4,7 @@ import logger from '../../config/logger';
 import prisma from '../../config/prisma';
 import { CRON_SCHEDULES } from '../../constants/agent-ai.constants';
 import { logAgentAction, purgeOldActionLogs } from '../agent-action-log.service';
+import { recordDailyOpsRollup, DAILY_OPS_ROLLUP_CRON } from '../opsMetrics.service';
 import { cleanupExpiredConfirmations } from './confirmation.service';
 import { formatDateIST, formatTimeIST, maskPhone, visitStatusEmoji } from './response-formatter.service';
 
@@ -76,13 +77,31 @@ async function sendVisitReminders(): Promise<CronRunResult> {
   const now = new Date();
   const soon = new Date(now.getTime() + 60 * 60 * 1000);
   const visits = await prisma.visit.findMany({
-    where: { scheduledAt: { gte: now, lte: soon }, status: { in: ['scheduled', 'confirmed'] }, reminderSent: false },
+    where: { scheduledAt: { gte: now, lte: soon }, status: { in: ['scheduled', 'confirmed'] } },
     include: { agent: true, lead: true, property: true },
   });
   for (const visit of visits) {
     if (!visit.agent.phone) continue;
+    const alreadySent = await prisma.agentActionLog.findFirst({
+      where: {
+        companyId: visit.companyId,
+        action: 'cron_visit_agent_reminder',
+        resourceType: 'visit',
+        resourceId: visit.id,
+      },
+      select: { id: true },
+    });
+    if (alreadySent) continue;
     await sendNotification(visit.agent.phone, visit.companyId, [`*Visit Reminder*`, `${visit.lead?.customerName ?? 'Unknown'} (${maskPhone(visit.lead?.phone)})`, `${visit.property?.name ?? 'TBD'} at ${formatTimeIST(visit.scheduledAt)}`].join('\n'));
-    await prisma.visit.update({ where: { id: visit.id }, data: { reminderSent: true } });
+    void logAgentAction({
+      companyId: visit.companyId,
+      triggeredBy: 'cron',
+      action: 'cron_visit_agent_reminder',
+      resourceType: 'visit',
+      resourceId: visit.id,
+      status: 'success',
+      result: 'Agent visit reminder sent (1h window)',
+    });
     affected.add(visit.companyId);
   }
   return affected.result();
@@ -902,6 +921,10 @@ export function startCronScheduler(): void {
     cron.schedule(CRON_SCHEDULES.NIGHTLY_CONVERSATION_SUMMARY, wrap('refreshNightlyConversationSummaries', refreshNightlyConversationSummaries)),
     // Auto-expire pending visit/call approvals older than 4 hours — every 30 minutes.
     cron.schedule(CRON_SCHEDULES.PENDING_APPROVAL_EXPIRE, wrap('expireStalePendingApprovals', expireStalePendingApprovals)),
+    cron.schedule(DAILY_OPS_ROLLUP_CRON, wrap('recordDailyOpsRollup', async () => {
+      await recordDailyOpsRollup();
+      return {};
+    })),
   );
   logger.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }

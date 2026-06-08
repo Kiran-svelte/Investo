@@ -137,6 +137,30 @@ function createRouteContractApp(): { app: Express; mockPrisma: MockPrisma } {
     buildAddressFromProperty: jest.fn(),
   }));
 
+  jest.doMock('../../services/propertyKnowledge.service', () => ({
+    __esModule: true,
+    indexPropertyKnowledge: jest.fn().mockResolvedValue({ ok: true, chunkCount: 1 }),
+    loadPropertyKnowledgeIndexPayload: jest.fn().mockResolvedValue({ draftData: null, mediaExtractions: [] }),
+    deletePropertyKnowledge: jest.fn().mockResolvedValue(undefined),
+  }));
+
+  jest.doMock('../../services/propertyCompleteness.service', () => ({
+    __esModule: true,
+    assessPropertyCompleteness: jest.fn().mockReturnValue({ score: 100, missingFields: [] }),
+    getUserCatalogCompletenessBlock: jest.fn().mockResolvedValue(null),
+  }));
+
+  jest.doMock('../../middleware/subscriptionEnforcement', () => ({
+    __esModule: true,
+    enforcePlanLimit: () => noopMiddleware(),
+    requireActivePaidSubscription: () => noopMiddleware(),
+  }));
+
+  jest.doMock('../../middleware/requirePropertyPublisher', () => ({
+    __esModule: true,
+    requirePropertyPublisher: noopMiddleware(),
+  }));
+
   let leadRouter: any;
   let propertyRouter: any;
 

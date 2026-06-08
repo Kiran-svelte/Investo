@@ -73,6 +73,7 @@ describe('automation post-visit follow-up', () => {
   test('visit reminder message is customer-readable and not mojibake', async () => {
     (prisma.visit.findUnique as jest.Mock).mockResolvedValue({
       id: 'visit-1',
+      status: 'confirmed',
       companyId: 'company-1',
       scheduledAt: new Date('2026-04-09T10:00:00.000Z'),
       lead: {

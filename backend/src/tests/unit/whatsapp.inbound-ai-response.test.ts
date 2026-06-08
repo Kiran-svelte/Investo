@@ -65,15 +65,7 @@ jest.mock('../../services/ai.service', () => ({
   },
 }));
 
-jest.mock('../../services/conversionEngine.service', () => ({
-  __esModule: true,
-  buildConversionContext: jest.fn().mockResolvedValue({
-    exactPropertyIds: [],
-    alternativePropertyIds: [],
-    promptBlock: '',
-    emiSnippet: null,
-  }),
-}));
+
 
 jest.mock('../../services/neverSayNoEngine.service', () => ({
   __esModule: true,

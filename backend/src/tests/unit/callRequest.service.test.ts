@@ -77,6 +77,8 @@ jest.mock('../../config/logger', () => ({
 import prisma from '../../config/prisma';
 import {
   confirmCallRequest,
+  ensureCallRequestsSchema,
+  resolveCallApproval,
   scheduleCallRequest,
 } from '../../services/callRequest.service';
 
@@ -112,6 +114,11 @@ describe('callRequest.service', () => {
       created: true,
       idempotencyHit: false,
     });
+  });
+
+  it('does not run runtime DDL for call_requests (Prisma migration owns schema)', async () => {
+    await ensureCallRequestsSchema();
+    expect(mockExecuteRaw).not.toHaveBeenCalled();
   });
 
   it('creates buyer call requests as pending approval without customer reminder jobs', async () => {
@@ -153,6 +160,47 @@ describe('callRequest.service', () => {
       'call-1',
       expect.any(Date),
       expect.objectContaining({ callId: 'call-1', companyId: 'company-1', leadId: 'lead-1' }),
+    );
+  });
+
+  it('sends agent WhatsApp approve/decline buttons on new call request', async () => {
+    const scheduledAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    mockQueryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([callRow({ scheduled_at: scheduledAt })]);
+
+    await scheduleCallRequest({
+      companyId: 'company-1',
+      leadId: 'lead-1',
+      scheduledAt,
+    });
+
+    expect(mockSendButtons).toHaveBeenCalledWith(
+      '+918888877777',
+      'company-1',
+      expect.stringContaining('Callback request'),
+      [
+        { id: 'call-approve-call-1', title: '✅ Approve' },
+        { id: 'call-decline-call-1', title: '❌ Decline' },
+      ],
+    );
+  });
+
+  it('confirms call on agent approval and resolves booking approval', async () => {
+    const scheduledAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    mockFindPendingApproval.mockResolvedValue({
+      id: 'approval-1',
+      callRequestId: 'call-1',
+      leadId: 'lead-1',
+      scheduledAt,
+    });
+    mockQueryRaw.mockResolvedValueOnce([callRow({ scheduled_at: scheduledAt, status: 'confirmed' })]);
+
+    const result = await resolveCallApproval('call-1', true, 'company-1', 'agent-1');
+
+    expect(result.ok).toBe(true);
+    expect(mockResolveApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ approvalId: 'approval-1', status: 'approved' }),
     );
   });
 });

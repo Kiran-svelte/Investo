@@ -84,8 +84,14 @@ export function parseRescheduleTargetFromMessage(
   );
   if (tailMatch?.[1]) {
     const tail = tailMatch[1].trim();
-    const fromTail = parseVisitDateTimeFromMessage(tail, reference);
-    if (fromTail) return fromTail;
+
+    // Only trust the chrono result when the tail contains an explicit time.
+    // Without one, chrono defaults to noon — we apply 10:00 IST instead.
+    const tailHasExplicitTime = TIME_PATTERN.test(tail);
+    if (tailHasExplicitTime) {
+      const fromTail = parseVisitDateTimeFromMessage(tail, reference);
+      if (fromTail) return fromTail;
+    }
 
     // Tail has a recognisable day but no time — default to 10:00 IST.
     const dayOnly = tail.match(new RegExp(DAY_PATTERN_SOURCE, 'i'));
@@ -93,6 +99,12 @@ export function parseRescheduleTargetFromMessage(
       const synthetic = `${dayOnly[0]} 10am`;
       const fallback = parseVisitDateTimeFromMessage(synthetic, reference);
       if (fallback) return fallback;
+    }
+
+    // No day name — try full tail parse as a last resort.
+    if (!dayOnly) {
+      const fromTail = parseVisitDateTimeFromMessage(tail, reference);
+      if (fromTail) return fromTail;
     }
   }
 

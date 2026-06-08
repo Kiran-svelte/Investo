@@ -1,10 +1,16 @@
 /**
- * Debug-only outbound turn tracing (session 00edec).
- * Tracks how many WhatsApp sends fire per inbound message.
+ * Outbound turn tracing — MCP-debuggable structured log layer.
+ *
+ * Every call to logOutboundBranch, logOutboundSend, and claimPrimaryOutboundSend
+ * emits a structured JSON log line at `debug` level. In production Railway logs
+ * these appear under the `outbound_trace` event field, filterable with:
+ *   railway logs | grep outbound_trace
+ *
+ * The module also enforces the one-primary-outbound-per-turn invariant via
+ * claimPrimaryOutboundSend. No external HTTP call is made — all output goes
+ * through the standard logger.
  */
-
-const DEBUG_ENDPOINT = 'http://127.0.0.1:7737/ingest/e570e274-2b9f-4460-95d9-ffd83c68631e';
-const DEBUG_SESSION = '44596a';
+import logger from '../config/logger';
 
 export type OutboundTurnChannel = 'buyer' | 'staff' | 'system';
 
@@ -21,18 +27,36 @@ export interface OutboundTurnContext {
 
 let activeTurn: OutboundTurnContext | null = null;
 
+/**
+ * Emits a structured debug log line for MCP / Railway log inspection.
+ *
+ * @param hypothesisId - Handler label (e.g. 'H2', 'H-start').
+ * @param location - `filename:function` for stack traceability.
+ * @param event - Short event name (snake_case).
+ * @param data - Arbitrary context fields.
+ */
 function emit(
-  _hypothesisId: string,
-  _location: string,
-  _message: string,
-  _data: Record<string, unknown>,
+  hypothesisId: string,
+  location: string,
+  event: string,
+  data: Record<string, unknown>,
 ): void {
-  // Debug ingest disabled — claimPrimaryOutboundSend / turn budget remain active.
+  logger.debug('outbound_trace', {
+    hypothesisId,
+    location,
+    event,
+    ...data,
+  });
 }
 
+/**
+ * Starts a new turn context. Call once per inbound message before any handler runs.
+ *
+ * @param ctx - Turn identity fields (channel, companyId, messageId, phone, route).
+ */
 export function beginOutboundTurn(ctx: Omit<OutboundTurnContext, 'sendCount' | 'primarySendCount'>): void {
   activeTurn = { ...ctx, sendCount: 0, primarySendCount: 0 };
-  emit('H2', 'outboundTurnDebug.service.ts:beginOutboundTurn', 'inbound_turn_started', {
+  emit('H0', 'outboundTurnDebug:beginOutboundTurn', 'inbound_turn_started', {
     channel: ctx.channel,
     inboundMessageId: ctx.inboundMessageId ?? null,
     companyId: ctx.companyId ?? null,
@@ -40,6 +64,14 @@ export function beginOutboundTurn(ctx: Omit<OutboundTurnContext, 'sendCount' | '
   });
 }
 
+/**
+ * Logs which handler branch fired. Call at the top of each handler's happy-path.
+ *
+ * @param hypothesisId - Handler label per full.md cascade (H-start, H1, H2, …).
+ * @param location - Source location string for grep.
+ * @param branch - Snake-case branch name matching full.md routing table.
+ * @param extra - Optional additional context fields.
+ */
 export function logOutboundBranch(
   hypothesisId: string,
   location: string,
@@ -56,6 +88,15 @@ export function logOutboundBranch(
   });
 }
 
+/**
+ * Logs an outbound WhatsApp send and increments the turn send counter.
+ *
+ * @param hypothesisId - Handler label.
+ * @param location - Source location string.
+ * @param source - Descriptor of what generated this send (e.g. 'ai_reply', 'h2_rapport').
+ * @param preview - First 100 chars of the outbound text (not logged in full to avoid PII risk).
+ * @param extra - Optional additional context fields.
+ */
 export function logOutboundSend(
   hypothesisId: string,
   location: string,
@@ -78,8 +119,13 @@ export function logOutboundSend(
   });
 }
 
+/**
+ * Ends the current turn and logs the final send counts.
+ *
+ * @param status - Outcome label (e.g. 'replied', 'skipped', 'error').
+ */
 export function endOutboundTurn(status: string): void {
-  emit('H1', 'outboundTurnDebug.service.ts:endOutboundTurn', 'inbound_turn_finished', {
+  emit('END', 'outboundTurnDebug:endOutboundTurn', 'inbound_turn_finished', {
     status,
     totalSends: activeTurn?.sendCount ?? 0,
     primarySendCount: activeTurn?.primarySendCount ?? 0,
@@ -90,6 +136,12 @@ export function endOutboundTurn(status: string): void {
   activeTurn = null;
 }
 
+/**
+ * Returns how many WhatsApp sends have occurred in the current turn.
+ * Used by tests to assert the one-outbound invariant.
+ *
+ * @returns Current send count, 0 if no active turn.
+ */
 export function getActiveTurnSendCount(): number {
   return activeTurn?.sendCount ?? 0;
 }
@@ -98,7 +150,18 @@ function normalizePhoneTail(value: string | null | undefined): string {
   return (value ?? '').replace(/\D/g, '').slice(-10);
 }
 
-/** At most one primary text/interactive bubble per inbound turn (media addon is separate). */
+/**
+ * Enforces the one-primary-outbound-per-turn invariant.
+ *
+ * Returns false (and emits a log) if a primary send has already been claimed this turn
+ * for the same recipient. Staff/system sends to different phones are never blocked.
+ *
+ * @param hypothesisId - Handler label requesting the send.
+ * @param location - Source location string.
+ * @param source - Descriptor of the caller.
+ * @param recipient - Recipient E.164 phone (optional; if missing, block is skipped).
+ * @returns true if the caller may proceed with the send; false if it must be suppressed.
+ */
 export function claimPrimaryOutboundSend(
   hypothesisId: string,
   location: string,
@@ -121,7 +184,14 @@ export function claimPrimaryOutboundSend(
   return true;
 }
 
-/** Release a primary claim when interactive API fails so text fallback can send. */
+/**
+ * Releases a primary send claim when the interactive API call fails, allowing
+ * the text fallback path to send instead.
+ *
+ * @param hypothesisId - Handler label releasing the claim.
+ * @param location - Source location string.
+ * @param source - Descriptor of the caller.
+ */
 export function releasePrimaryOutboundClaim(
   hypothesisId: string,
   location: string,

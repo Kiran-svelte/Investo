@@ -339,6 +339,7 @@ export async function runInboundProspectGuards(
   if (!customerTurnClaimed) {
     logOutboundBranch('H2', 'whatsapp.service.ts:concurrent', 'concurrent_customer_blocked', {
       companyId,
+      inboundTraceId: msg.messageId ? msg.messageId.slice(-8) : undefined,
     });
     await enqueueConcurrentInboundRetry(companyId, customerPhone, msg);
     logInboundSkipped('concurrent_customer_processing', {

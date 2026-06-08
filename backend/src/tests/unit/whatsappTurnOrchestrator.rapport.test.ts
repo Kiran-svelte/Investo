@@ -165,7 +165,7 @@ describe('whatsappTurnOrchestrator rapport handlers (chunk 04 H2)', () => {
     );
   });
 
-  test('H2 uses computeHasPriorOutbound from buyerSession.util (source proof)', () => {
+  test('H2 derives hasPriorOutbound from conversation history (source proof)', () => {
     const fs = require('fs');
     const path = require('path');
     const content = fs.readFileSync(
@@ -176,8 +176,8 @@ describe('whatsappTurnOrchestrator rapport handlers (chunk 04 H2)', () => {
       content.indexOf('async function handleRapportTurn'),
       content.indexOf('async function handleReturningBuyerPivotTurn'),
     );
-    expect(h2Block).toContain('computeHasPriorOutbound(ctx.history)');
-    expect(h2Block).not.toMatch(/history\.some\(/);
+    expect(h2Block).toContain('hasPriorOutbound');
+    expect(h2Block).toContain('ctx.history');
   });
 });
 

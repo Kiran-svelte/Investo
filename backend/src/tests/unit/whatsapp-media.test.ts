@@ -66,6 +66,7 @@ jest.mock('../../services/outboundTurnDebug.service', () => ({
   logOutboundBranch: jest.fn(),
   logOutboundSend: jest.fn(),
   claimPrimaryOutboundSend: jest.fn().mockReturnValue(true),
+  releasePrimaryOutboundClaim: jest.fn(),
 }));
 
 describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
