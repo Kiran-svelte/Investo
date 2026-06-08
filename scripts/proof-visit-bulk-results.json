@@ -1,0 +1,47 @@
+{
+  "runAt": "2026-06-08T10:11:33.149Z",
+  "pass": 8,
+  "fail": 0,
+  "results": [
+    {
+      "id": "health",
+      "ok": true,
+      "detail": "uptime=375s"
+    },
+    {
+      "id": "bulk-parse-quoted",
+      "ok": true,
+      "detail": "2 phones"
+    },
+    {
+      "id": "bulk-parse-forward-alias",
+      "ok": true,
+      "detail": "forward alias ok"
+    },
+    {
+      "id": "buyer-lead",
+      "ok": true,
+      "detail": "2d329f83-7a70-4bde-bc83-64a4d88bc7a9"
+    },
+    {
+      "id": "visit-pending-approval",
+      "ok": true,
+      "detail": "67da15d9-cdd5-4b3d-b9f7-b1151d39ede6 @ 2026-06-11T03:30:00.000Z"
+    },
+    {
+      "id": "agent-confirm-visit",
+      "ok": true,
+      "detail": "Visit confirmed for 11/6/2026, 9:00:00 am. Customer notified, lead status update"
+    },
+    {
+      "id": "visit-db-lead-status",
+      "ok": true,
+      "detail": "visit=560fe51c-4125-43e4-90fc-cf70fe2c8b6d status=visit_scheduled"
+    },
+    {
+      "id": "visit-confirm-audit",
+      "ok": true,
+      "detail": "visit_confirmed_by_agent logged"
+    }
+  ]
+}

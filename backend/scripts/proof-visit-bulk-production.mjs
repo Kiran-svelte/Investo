@@ -6,17 +6,22 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { parseStaffForwardCommand } from '../src/services/staffMessageForward.service.ts';
-import { resolveVisitApproval } from '../src/services/visitPendingApproval.service.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const vars = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', '.railway-prod-vars.json'), 'utf8').replace(/^\uFEFF/, ''));
+process.env.DATABASE_URL = process.env.DATABASE_URL || vars.DATABASE_URL;
+process.env.DIRECT_URL = process.env.DIRECT_URL || vars.DIRECT_URL || vars.DATABASE_URL;
+process.env.NODE_ENV = 'production';
+
 const BASE = process.env.PROD_API_BASE || 'https://investo-backend-production.up.railway.app';
 const E2E_TOKEN = process.env.E2E_WEBHOOK_PROOF_TOKEN || vars.E2E_WEBHOOK_PROOF_TOKEN || 'investo-handset-e2e-v1';
 const COMPANY_ID = 'a9c308d8-1083-4981-bd46-3667e0474e8e';
 const PHONE_NUMBER_ID = vars.WHATSAPP_PHONE_NUMBER_ID || '1090528010807708';
+
+const { parseStaffForwardCommand } = await import('../src/services/staffMessageForward.service.js');
+const { resolveVisitApproval } = await import('../src/services/visitPendingApproval.service.js');
+const { PrismaClient } = await import('@prisma/client');
+const { PrismaPg } = await import('@prisma/adapter-pg');
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: vars.DATABASE_URL }) });
 
@@ -81,7 +86,7 @@ async function waitForLead(phone, timeoutSec = 45) {
 }
 
 async function waitForPendingApproval(leadId, since, timeoutSec = 60) {
-  const model = (prisma as any).bookingApprovalRequest;
+  const model = prisma.bookingApprovalRequest;
   if (!model?.findFirst) return null;
   for (let i = 0; i < timeoutSec / 3; i++) {
     await sleep(3000);
@@ -131,8 +136,18 @@ async function main() {
   });
   const propName = prop?.name || 'Sunset Heights';
   const buyerPhone = randPhone();
+  const slotDate = new Date();
+  slotDate.setDate(slotDate.getDate() + 21 + Math.floor(Math.random() * 14));
+  slotDate.setHours(15, 30, 0, 0);
+  const slotLabel = slotDate.toLocaleDateString('en-IN', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  });
+  const visitMsg = `Book a site visit for ${propName} on ${slotLabel} at 3:30 pm`;
 
-  const wh = await sendBuyerWebhook(buyerPhone, `Book a site visit for ${propName} next Sunday 2pm`);
+  const wh = await sendBuyerWebhook(buyerPhone, visitMsg);
   if (!wh.ok) {
     fail('buyer-webhook', `status not 200`);
     process.exitCode = 1;
@@ -167,10 +182,14 @@ async function main() {
     pass('visit-pending-approval', `${approval.id} @ ${approval.scheduledAt.toISOString()}`);
 
     const agentId = approval.agentId;
-    const resolved = await resolveVisitApproval(approval.id, true, COMPANY_ID, agentId);
-    if (!resolved.ok) {
-      fail('agent-confirm-visit', resolved.message);
-    } else {
+    let resolved;
+    try {
+      resolved = await resolveVisitApproval(approval.id, true, COMPANY_ID, agentId);
+    } catch (err) {
+      fail('agent-confirm-visit', err instanceof Error ? err.message : String(err));
+      resolved = { ok: false };
+    }
+    if (resolved?.ok) {
       pass('agent-confirm-visit', resolved.message.slice(0, 80));
 
       await sleep(2000);
@@ -195,6 +214,8 @@ async function main() {
       });
       if (confirmLog) pass('visit-confirm-audit', 'visit_confirmed_by_agent logged');
       else fail('visit-confirm-audit', 'missing audit log');
+    } else if (resolved && !resolved.ok) {
+      fail('agent-confirm-visit', resolved.message || 'confirm failed');
     }
   }
 
