@@ -43,6 +43,7 @@ const STATUS_COLORS: Record<string, string> = {
   no_show: 'bg-orange-100 text-orange-700 border-orange-200',
 };
 const VISIT_TRANSITIONS: Record<string, string[]> = {
+  pending_approval: ['scheduled', 'cancelled'],
   scheduled: ['confirmed', 'cancelled'],
   confirmed: ['completed', 'no_show', 'cancelled'],
   completed: [], cancelled: [], no_show: [],

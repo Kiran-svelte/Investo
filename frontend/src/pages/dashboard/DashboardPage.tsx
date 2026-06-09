@@ -7,6 +7,7 @@ import useCompanyFeatures from '../../hooks/useCompanyFeatures';
 import api from '../../services/api';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
+import { ensureArray } from '../../utils/safeApiData';
 import {
   Users, Building2, Calendar, TrendingUp, MessageSquare,
   IndianRupee, ArrowUpRight, ArrowDownRight, Phone, MapPin,
@@ -62,6 +63,7 @@ const STATUS_BADGE: Record<string, string> = {
   negotiation: 'bg-orange-100 text-orange-700',
   closed_won: 'bg-green-100 text-green-700',
   closed_lost: 'bg-red-100 text-red-700',
+  pending_approval: 'bg-amber-100 text-amber-800',
   scheduled: 'bg-brand-100 text-brand-800',
   confirmed: 'bg-green-100 text-green-700',
 };
@@ -100,10 +102,10 @@ const DashboardPage: React.FC = () => {
         api.get('/analytics/recent-leads'),
         api.get('/analytics/upcoming-visits'),
       ]);
-      setStats(statsRes.data.data);
-      setTrends(trendsRes.data.data);
-      setRecentLeads(leadsRes.data.data);
-      setUpcomingVisits(visitsRes.data.data);
+      setStats(statsRes.data?.data ?? null);
+      setTrends(trendsRes.data?.data ?? null);
+      setRecentLeads(ensureArray<RecentLead>(leadsRes.data?.data));
+      setUpcomingVisits(ensureArray<UpcomingVisit>(visitsRes.data?.data));
     } catch {
       setLoadError('Could not load dashboard data. Try refreshing the page.');
       setStats(null);
