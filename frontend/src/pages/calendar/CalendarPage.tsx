@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
@@ -63,6 +63,7 @@ const CalendarPage: React.FC = () => {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [visitDeleting, setVisitDeleting] = useState(false);
   const [visitActionError, setVisitActionError] = useState<string | null>(null);
+  const initialNavigateDone = useRef(false);
 
   const getDateRange = useCallback(() => {
     const from = new Date(currentDate); const to = new Date(currentDate);
@@ -77,14 +78,50 @@ const CalendarPage: React.FC = () => {
       setLoading(true);
       setLoadError(null);
       const { from, to } = getDateRange();
-      const res = await api.get(`/calendar/events?from=${from.toISOString()}&to=${to.toISOString()}`);
-      setVisits(res.data.data);
-    } catch {
+      const fromIso = from.toISOString();
+      const toIso = to.toISOString();
+      // #region agent log
+      fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:request',message:'calendar events request',data:{fromIso,toIso,view,currentDate:currentDate.toISOString(),initialNavigateDone:initialNavigateDone.current},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      const res = await api.get(`/calendar/events?from=${fromIso}&to=${toIso}`);
+      const events = Array.isArray(res.data?.data) ? res.data.data as Visit[] : [];
+      // #region agent log
+      fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:response',message:'calendar events response',data:{count:events.length,firstScheduledAt:events[0]?.scheduled_at??null},timestamp:Date.now(),hypothesisId:'A,C'})}).catch(()=>{});
+      // #endregion
+
+      if (events.length === 0 && !initialNavigateDone.current) {
+        initialNavigateDone.current = true;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const horizon = new Date(today);
+        horizon.setFullYear(horizon.getFullYear() + 1);
+        try {
+          const upcomingRes = await api.get(
+            `/calendar/events?from=${today.toISOString()}&to=${horizon.toISOString()}`,
+          );
+          const upcoming = Array.isArray(upcomingRes.data?.data) ? upcomingRes.data.data as Visit[] : [];
+          // #region agent log
+          fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:upcoming',message:'upcoming events lookup',data:{count:upcoming.length,firstScheduledAt:upcoming[0]?.scheduled_at??null,willNavigate:upcoming.length>0},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          if (upcoming.length > 0) {
+            setCurrentDate(new Date(upcoming[0].scheduled_at));
+            return;
+          }
+        } catch {
+          // fall through — show empty range
+        }
+      }
+
+      setVisits(events);
+    } catch (err: unknown) {
+      // #region agent log
+      fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:error',message:'calendar events failed',data:{status:(err as {response?:{status?:number}})?.response?.status??null},timestamp:Date.now(),hypothesisId:'B,E'})}).catch(()=>{});
+      // #endregion
       setLoadError('Could not load calendar events for this date range.');
       setVisits([]);
     }
     finally { setLoading(false); }
-  }, [getDateRange]);
+  }, [getDateRange, view, currentDate]);
 
   useEffect(() => { loadVisits(); }, [loadVisits]);
 
