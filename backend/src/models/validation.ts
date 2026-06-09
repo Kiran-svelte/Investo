@@ -91,10 +91,13 @@ export const LEAD_TRANSITIONS: Record<LeadStatus, LeadStatus[]> = {
 };
 
 // Visit statuses
-export const VISIT_STATUSES = ['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'] as const;
+export const VISIT_STATUSES = ['pending_approval', 'scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'] as const;
 export type VisitStatus = typeof VISIT_STATUSES[number];
 
 export const VISIT_TRANSITIONS: Record<VisitStatus, VisitStatus[]> = {
+  // pending_approval → scheduled means an agent approved it from the dashboard calendar.
+  // pending_approval → cancelled means an agent declined it.
+  pending_approval: ['scheduled', 'cancelled'],
   // Allow direct scheduled → completed for walk-in / same-day visits where the
   // agent completes the visit without going through the confirmed state.
   // Also allow scheduled → no_show for the same reason.

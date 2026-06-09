@@ -311,7 +311,7 @@ router.get(
       const companyId = getCompanyId(req);
       const where: any = {
         companyId,
-        status: { in: ['scheduled', 'confirmed'] },
+        status: { in: ['pending_approval', 'scheduled', 'confirmed'] },
         scheduledAt: { gte: new Date() },
       };
 

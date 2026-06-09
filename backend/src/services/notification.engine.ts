@@ -427,7 +427,10 @@ class NotificationEngine {
       const customerName = lead.customerName || 'there';
       let whatsappMsg = '';
 
-      if (newStatus === 'confirmed') {
+      if (newStatus === 'scheduled' && oldStatus === 'pending_approval') {
+        // Agent approved a pending_approval visit from the dashboard — notify the buyer.
+        whatsappMsg = `Hi ${customerName}! 🎉\n\nYour visit request has been *approved*!\n\n📅 Visit scheduled for: *${timeStr}*\n\nWe look forward to meeting you! If you need to reschedule, just let us know.`;
+      } else if (newStatus === 'confirmed') {
         whatsappMsg = `Hi ${customerName}! ✅\n\nYour property visit is *confirmed* for:\n📅 ${timeStr}\n\nWe look forward to seeing you!`;
       } else if (newStatus === 'cancelled') {
         whatsappMsg = `Hi ${customerName},\n\nYour scheduled visit for ${timeStr} has been *cancelled*.\n\nWould you like to reschedule? Reply with your preferred date and time.`;
