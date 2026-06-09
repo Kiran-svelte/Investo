@@ -8,13 +8,14 @@ const FORWARD_QUOTED_RE = /^(?:send|forward)\s+(["'])([\s\S]+?)\1\s+to\s+(.+)$/i
 const FORWARD_UNQUOTED_RE = /^(?:send|forward)\s+(.+?)\s+to\s+([\d\s,+()-]+)$/i;
 
 function parsePhoneList(raw: string): string[] {
-  const trimmed = raw.trim();
+  const trimmed = raw.trim().replace(/\s+and\s+/gi, ',');
   const chunks = trimmed.includes(',') || trimmed.includes(';')
     ? trimmed.split(/[,;\n]+/)
     : trimmed.split(/\s+/);
   return chunks
     .map((part) => part.trim())
     .filter(Boolean)
+    .filter((part) => !/^and$/i.test(part))
     .map((part) => normalizeInboundWhatsAppPhone(part.replace(/^\+/, '+')));
 }
 

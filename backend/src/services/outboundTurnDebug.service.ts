@@ -23,6 +23,8 @@ export interface OutboundTurnContext {
   customerPhone?: string | null;
   sendCount: number;
   primarySendCount: number;
+  /** Staff bulk forward: track external recipients so each phone gets one send per turn. */
+  staffRecipientTails?: Set<string>;
 }
 
 let activeTurn: OutboundTurnContext | null = null;
@@ -171,6 +173,25 @@ export function claimPrimaryOutboundSend(
   if (!activeTurn) return true;
   const buyerTail = normalizePhoneTail(activeTurn.customerPhone);
   const recipientTail = normalizePhoneTail(recipient);
+
+  // Staff bulk forward: allow multiple distinct customer numbers in one copilot turn.
+  if (activeTurn.channel === 'staff' && recipientTail) {
+    activeTurn.staffRecipientTails ??= new Set<string>();
+    if (activeTurn.staffRecipientTails.has(recipientTail)) {
+      emit(hypothesisId, location, 'primary_outbound_blocked', {
+        source,
+        reason: 'duplicate_staff_recipient',
+        recipientTail,
+        primarySendCount: activeTurn.primarySendCount,
+        inboundMessageId: activeTurn.inboundMessageId ?? null,
+      });
+      return false;
+    }
+    activeTurn.staffRecipientTails.add(recipientTail);
+    activeTurn.primarySendCount += 1;
+    return true;
+  }
+
   if (buyerTail && recipientTail && buyerTail !== recipientTail) return true;
   if (activeTurn.primarySendCount >= 1) {
     emit(hypothesisId, location, 'primary_outbound_blocked', {

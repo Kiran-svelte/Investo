@@ -52,4 +52,18 @@ describe('outbound turn budget (one customer reply per turn)', () => {
     releasePrimaryOutboundClaim('H5', 'test', 'buttons_failed');
     expect(claimPrimaryOutboundSend('H5', 'test', 'fallback_text', '+919876543210')).toBe(true);
   });
+
+  test('staff bulk forward allows multiple distinct customer phones in one turn', () => {
+    beginOutboundTurn({
+      channel: 'staff',
+      inboundMessageId: 'wamid-staff-bulk',
+      companyId: 'co-1',
+      route: 'staff_copilot',
+    });
+
+    expect(claimPrimaryOutboundSend('OUT-TEXT', 'test', 'bulk-1', '+919036165603')).toBe(true);
+    expect(claimPrimaryOutboundSend('OUT-TEXT', 'test', 'bulk-2', '+919876543210')).toBe(true);
+    expect(claimPrimaryOutboundSend('OUT-TEXT', 'test', 'bulk-3', '6363062930')).toBe(true);
+    expect(claimPrimaryOutboundSend('OUT-TEXT', 'test', 'bulk-1-dup', '+919036165603')).toBe(false);
+  });
 });
