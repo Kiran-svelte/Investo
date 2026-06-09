@@ -80,14 +80,10 @@ const CalendarPage: React.FC = () => {
       const { from, to } = getDateRange();
       const fromIso = from.toISOString();
       const toIso = to.toISOString();
-      // #region agent log
-      fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:request',message:'calendar events request',data:{fromIso,toIso,view,currentDate:currentDate.toISOString(),initialNavigateDone:initialNavigateDone.current},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
+
       const res = await api.get(`/calendar/events?from=${fromIso}&to=${toIso}`);
       const events = Array.isArray(res.data?.data) ? res.data.data as Visit[] : [];
-      // #region agent log
-      fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:response',message:'calendar events response',data:{count:events.length,firstScheduledAt:events[0]?.scheduled_at??null},timestamp:Date.now(),hypothesisId:'A,C'})}).catch(()=>{});
-      // #endregion
+
 
       if (events.length === 0 && !initialNavigateDone.current) {
         initialNavigateDone.current = true;
@@ -100,9 +96,7 @@ const CalendarPage: React.FC = () => {
             `/calendar/events?from=${today.toISOString()}&to=${horizon.toISOString()}`,
           );
           const upcoming = Array.isArray(upcomingRes.data?.data) ? upcomingRes.data.data as Visit[] : [];
-          // #region agent log
-          fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:upcoming',message:'upcoming events lookup',data:{count:upcoming.length,firstScheduledAt:upcoming[0]?.scheduled_at??null,willNavigate:upcoming.length>0},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
+
           if (upcoming.length > 0) {
             setCurrentDate(new Date(upcoming[0].scheduled_at));
             return;
@@ -114,9 +108,7 @@ const CalendarPage: React.FC = () => {
 
       setVisits(events);
     } catch (err: unknown) {
-      // #region agent log
-      fetch('http://127.0.0.1:7407/ingest/08c352ca-9a3e-4688-aaa0-de0d81037270',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'582783'},body:JSON.stringify({sessionId:'582783',location:'CalendarPage.tsx:loadVisits:error',message:'calendar events failed',data:{status:(err as {response?:{status?:number}})?.response?.status??null},timestamp:Date.now(),hypothesisId:'B,E'})}).catch(()=>{});
-      // #endregion
+
       setLoadError('Could not load calendar events for this date range.');
       setVisits([]);
     }
