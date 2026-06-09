@@ -101,6 +101,11 @@ describe('GET /api/health', () => {
     expect(response.body.environment).toBe('test');
     expect(response.body.dependencies?.db?.status).toBe('ok');
     expect(typeof response.body.dependencies?.db?.latency_ms).toBe('number');
+    expect(response.body.dependencies?.property_knowledge_embeddings).toEqual({
+      status: 'ok',
+      provider: 'openai',
+      detail: 'ok',
+    });
     expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 

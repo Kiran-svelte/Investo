@@ -186,7 +186,11 @@ router.get('/', async (_req: Request, res: Response) => {
 
         mail: { status: mail.status },
 
-        property_knowledge_embeddings: { status: propertyKnowledgeEmbeddings.status },
+        property_knowledge_embeddings: {
+          status: propertyKnowledgeEmbeddings.status,
+          provider: propertyKnowledgeEmbeddings.provider,
+          detail: propertyKnowledgeEmbeddings.detail,
+        },
 
         whatsapp_inbound: whatsappInbound,
 
