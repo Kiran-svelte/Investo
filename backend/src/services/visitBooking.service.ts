@@ -271,16 +271,44 @@ export function parseVisitTimeInteractiveId(interactiveId: string): {
   return null;
 }
 
+/** IST offset in milliseconds: UTC+05:30 = 5.5 * 3600 * 1000 */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/**
+ * Resolve a slot suffix (e.g. 'tomorrow-10am', 'dayafter') to a UTC Date
+ * that corresponds to the correct IST wall-clock time shown to the buyer.
+ *
+ * Railway (and most cloud hosts) run in UTC. Using `new Date()` + `setHours(10)`
+ * sets 10:00 UTC = 15:30 IST — a 5.5-hour error. Instead we compute "today" and
+ * "tomorrow" in IST, set the hours in IST, then convert back to UTC for DB storage.
+ */
 export function resolveVisitSlotToDate(slot: string): Date {
-  const proposedTime = new Date();
-  if (slot.includes('tomorrow')) {
-    proposedTime.setDate(proposedTime.getDate() + 1);
-    if (slot.includes('10am')) proposedTime.setHours(10, 0, 0, 0);
-    else if (slot.includes('3pm')) proposedTime.setHours(15, 0, 0, 0);
-    else proposedTime.setHours(11, 0, 0, 0);
-  } else if (slot.includes('dayafter')) {
-    proposedTime.setDate(proposedTime.getDate() + 2);
-    proposedTime.setHours(11, 0, 0, 0);
-  }
-  return proposedTime;
+  // Current moment expressed in IST (UTC+5:30)
+  const nowUtcMs = Date.now();
+  const nowIst = new Date(nowUtcMs + IST_OFFSET_MS);
+
+  // Target calendar date in IST
+  let daysToAdd = 0;
+  if (slot.includes('tomorrow')) daysToAdd = 1;
+  else if (slot.includes('dayafter')) daysToAdd = 2;
+
+  // Target hour in IST
+  let targetHourIst = 11; // default 11 AM IST
+  if (slot.includes('10am')) targetHourIst = 10;
+  else if (slot.includes('3pm')) targetHourIst = 15;
+
+  // Build target datetime in IST then convert to UTC for DB storage.
+  // Date.UTC sets a moment in UTC; using IST hours here gives us "10:00 IST expressed as UTC".
+  const istWallClockAsUtc = new Date(Date.UTC(
+    nowIst.getUTCFullYear(),
+    nowIst.getUTCMonth(),
+    nowIst.getUTCDate() + daysToAdd,
+    targetHourIst,
+    0,
+    0,
+    0,
+  ));
+
+  // Subtract the IST offset to get the true UTC equivalent for DB storage.
+  return new Date(istWallClockAsUtc.getTime() - IST_OFFSET_MS);
 }

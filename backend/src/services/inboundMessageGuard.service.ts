@@ -61,12 +61,14 @@ export async function claimInboundMessageDb(
       });
       return false;
     }
-    logger.warn('Inbound message DB dedup failed — falling back to Redis only', {
+    logger.error('Inbound message DB dedup failed — rejecting message to prevent duplicate processing', {
       companyId,
       whatsappMessageId: trimmed,
       error: err instanceof Error ? err.message : String(err),
     });
-    return true;
+    // Safe-by-default: return false (reject) so a transient DB error cannot cause
+    // duplicate AI responses. Meta will retry; the retry will succeed once DB recovers.
+    return false;
   }
 }
 
@@ -225,7 +227,7 @@ export async function claimCustomerInboundFingerprint(
   companyId: string,
   phone: string,
   messageText: string,
-  ttlSeconds = 90,
+  ttlSeconds = 180,
 ): Promise<boolean> {
   const phoneKey = phone.replace(/\D/g, '').slice(-10);
   if (!phoneKey || !messageText.trim()) return true;

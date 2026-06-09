@@ -518,61 +518,96 @@ export class WhatsAppService {
     ) {
       const { findCompanyUserByPhone } = await import('./inboundWhatsAppRouting.service');
       const companyUser = await findCompanyUserByPhone(customerPhone, companyId);
-      if (companyUser) {
-        if (
-          msg.interactiveId.startsWith('visit-approve-') ||
-          msg.interactiveId.startsWith('visit-decline-')
-        ) {
-          const { tryHandleVisitApprovalInteractive } = await import('./visitPendingApproval.service');
-          const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
-            userId: companyUser.userId,
-            companyId: companyUser.companyId,
-            phone: companyUser.phone,
-          });
-          if (handled) {
-            void logAgentAction({
-              companyId,
-              triggeredBy: 'inbound_message',
-              action: 'visitApprovalInteractive',
-              actorId: companyUser.userId,
-              resourceType: 'visit',
-              status: 'success',
-              inputs: { interactiveId: msg.interactiveId },
-            });
-            return {
-              status: 'processed',
-              reason: 'visit_approval_handled',
-              companyId,
-              propagation: notAttempted,
-            };
-          }
-        } else {
-          const { tryHandleCallApprovalInteractive } = await import('./callRequest.service');
-          const handled = await tryHandleCallApprovalInteractive(msg.interactiveId, {
-            userId: companyUser.userId,
-            companyId: companyUser.companyId,
-            phone: companyUser.phone,
-          });
-          if (handled) {
-            void logAgentAction({
-              companyId,
-              triggeredBy: 'inbound_message',
-              action: 'callApprovalInteractive',
-              actorId: companyUser.userId,
-              resourceType: 'call_request',
-              status: 'success',
-              inputs: { interactiveId: msg.interactiveId },
-            });
-            return {
-              status: 'processed',
-              reason: 'call_approval_handled',
-              companyId,
-              propagation: notAttempted,
-            };
-          }
+
+      if (!companyUser) {
+        // Agent's phone is not registered — send them a clear error instead of silence.
+        logger.warn('Approval interactive: agent phone not found in user table', {
+          companyId,
+          customerPhone: maskPhoneNumberForLogs(customerPhone),
+          interactiveId: msg.interactiveId,
+        });
+        if (whatsappConfig) {
+          await this.sendCompanyTextMessage(
+            customerPhone,
+            '⚠️ This action could not be processed because your phone number is not registered in the system. Please contact your admin.',
+            companyId,
+          );
         }
+        return { status: 'processed', reason: 'approval_phone_not_found', companyId, propagation: notAttempted };
+      }
+
+      if (
+        msg.interactiveId.startsWith('visit-approve-') ||
+        msg.interactiveId.startsWith('visit-decline-')
+      ) {
+        const { tryHandleVisitApprovalInteractive } = await import('./visitPendingApproval.service');
+        const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
+          userId: companyUser.userId,
+          companyId: companyUser.companyId,
+          phone: companyUser.phone,
+        });
+        if (handled) {
+          void logAgentAction({
+            companyId,
+            triggeredBy: 'inbound_message',
+            action: 'visitApprovalInteractive',
+            actorId: companyUser.userId,
+            resourceType: 'visit',
+            status: 'success',
+            inputs: { interactiveId: msg.interactiveId },
+          });
+          return {
+            status: 'processed',
+            reason: 'visit_approval_handled',
+            companyId,
+            propagation: notAttempted,
+          };
+        }
+        // Approval not found — likely already expired or processed. Tell the agent.
+        if (whatsappConfig) {
+          await this.sendCompanyTextMessage(
+            customerPhone,
+            '⚠️ This visit request could not be found. It may have already been approved, declined, or expired. Check the dashboard for the current visit status.',
+            companyId,
+          );
+        }
+        return { status: 'processed', reason: 'visit_approval_not_found', companyId, propagation: notAttempted };
+      } else {
+        const { tryHandleCallApprovalInteractive } = await import('./callRequest.service');
+        const handled = await tryHandleCallApprovalInteractive(msg.interactiveId, {
+          userId: companyUser.userId,
+          companyId: companyUser.companyId,
+          phone: companyUser.phone,
+        });
+        if (handled) {
+          void logAgentAction({
+            companyId,
+            triggeredBy: 'inbound_message',
+            action: 'callApprovalInteractive',
+            actorId: companyUser.userId,
+            resourceType: 'call_request',
+            status: 'success',
+            inputs: { interactiveId: msg.interactiveId },
+          });
+          return {
+            status: 'processed',
+            reason: 'call_approval_handled',
+            companyId,
+            propagation: notAttempted,
+          };
+        }
+        // Call request not found — likely already handled or expired. Tell the agent.
+        if (whatsappConfig) {
+          await this.sendCompanyTextMessage(
+            customerPhone,
+            '⚠️ This call request could not be found. It may have already been confirmed, declined, or expired.',
+            companyId,
+          );
+        }
+        return { status: 'processed', reason: 'call_approval_not_found', companyId, propagation: notAttempted };
       }
     }
+
 
     // Company staff (dashboard users) → agent copilot or staff notice — never the prospect AI flow.
     const staffRoute = await routeCompanyScopedInbound({

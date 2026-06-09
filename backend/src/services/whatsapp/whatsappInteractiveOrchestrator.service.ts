@@ -22,6 +22,8 @@ import { formatBuyerVisitPendingApproval } from '../../utils/visitFormat.util';
 import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
 import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
 import { confirmVisitById } from '../visitState.service';
+import { maskPhone } from '../agent/tools/format-helpers';
+import { logAgentAction } from '../agent-action-log.service';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -726,15 +728,57 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
   }
 
   if (!agentId) {
+    // No agent available via round-robin — escalate to admins so the visit intent is not lost.
+    // Previously this was a silent black-hole: buyer got "our team will call you" but nothing happened.
+    logger.warn('handleVisitTimeSlot: no agent available for round-robin — notifying admins', {
+      companyId: company.id,
+      leadId: lead.id,
+      propertyId: parsed.propertyId,
+      proposedTime: proposedTime.toISOString(),
+    });
+    void (async () => {
+      try {
+        const admins = await prisma.user.findMany({
+          where: { companyId: company.id, role: 'company_admin', status: 'active', phone: { not: null } },
+          select: { phone: true },
+        });
+        const { whatsappService } = await import('../whatsapp.service');
+        const customerName = lead.customerName || 'A buyer';
+        const propertyNameStr = parsed.propertyId;
+        const timeStr = proposedTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+        const adminMsg = `🚨 *Unassigned Visit Request*\n${customerName} (${maskPhone(lead.phone ?? '')}) selected a visit slot for ${propertyNameStr} at ${timeStr}.\n\nNo agent was available. Please assign an agent and confirm this visit from the dashboard.`;
+        for (const admin of admins) {
+          if (admin.phone) {
+            await whatsappService.sendCompanyTextMessage(admin.phone, adminMsg, company.id);
+          }
+        }
+        void logAgentAction({
+          companyId: company.id,
+          triggeredBy: 'automation',
+          action: 'visit_slot_no_agent_escalated',
+          resourceType: 'lead',
+          resourceId: lead.id,
+          status: 'skipped',
+          result: `Buyer selected visit at ${proposedTime.toISOString()} but no agent available`,
+        });
+      } catch (err: unknown) {
+        logger.error('Failed to notify admins of unassigned visit slot', {
+          companyId: company.id,
+          leadId: lead.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
     return {
       handled: true,
       action: 'visit-no-agent',
       leadStatus: 'contacted',
       turnResult: buyerTurn(
-        'Thanks for choosing a time! Our sales team will call you shortly to confirm your visit.',
+        "Thanks for selecting a time! We're getting your visit set up and our team will confirm the details with you shortly. 🗓️",
       ),
     };
   }
+
 
   const propertyName = property?.name ?? 'Property';
 

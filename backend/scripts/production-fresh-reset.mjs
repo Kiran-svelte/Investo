@@ -3,24 +3,38 @@
  * Wipe all tenant CRM data and recreate a single super admin.
  * Usage:
  *   node scripts/production-fresh-reset.mjs --confirm
+ *   node scripts/production-fresh-reset.mjs --confirm --prod
  *   SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=... node scripts/production-fresh-reset.mjs --confirm
  */
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
 import { PrismaNeon } from '@prisma/adapter-neon';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { neonConfig } from '@neondatabase/serverless';
 import ws from 'ws';
+import { Redis } from '@upstash/redis';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
+const ROOT = path.resolve(__dirname, '../..');
+
+if (process.argv.includes('--prod')) {
+  const varsPath = path.join(ROOT, 'scripts', '.railway-prod-vars.json');
+  const vars = JSON.parse(fs.readFileSync(varsPath, 'utf8').replace(/^\uFEFF/, ''));
+  for (const [key, value] of Object.entries(vars)) {
+    if (typeof value === 'string' && !process.env[key]) process.env[key] = value;
+  }
+} else {
+  dotenv.config({ path: path.join(__dirname, '..', '.env') });
+}
 
 neonConfig.webSocketConstructor = ws;
 
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'big.investo.sol@gmail.com').trim().toLowerCase();
-const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Investo@2112';
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Investo@321';
 const SUPER_ADMIN_NAME = process.env.SUPER_ADMIN_NAME || 'Investo Super Admin';
 
 const confirm = process.argv.includes('--confirm');
@@ -36,8 +50,25 @@ if (!confirm) {
   process.exit(1);
 }
 
-const adapter = new PrismaNeon({ connectionString: databaseUrl });
-const prisma = new PrismaClient({ adapter });
+function createPrismaClient(connectionString) {
+  const isNeon = /neon\.tech/i.test(connectionString);
+  const adapter = isNeon
+    ? new PrismaNeon({ connectionString })
+    : new PrismaPg({ connectionString });
+  return new PrismaClient({ adapter });
+}
+
+const dbHost = (() => {
+  try {
+    return new URL(databaseUrl.replace(/^postgresql:/, 'postgres:')).hostname;
+  } catch {
+    return 'unknown';
+  }
+})();
+
+console.log(`Target database: ${dbHost}`);
+
+const prisma = createPrismaClient(databaseUrl);
 
 async function wipeKnowledgeChunks() {
   try {
@@ -60,12 +91,33 @@ async function safeDelete(label, fn) {
   }
 }
 
+async function flushRedisCache() {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) {
+    console.warn('Skip Redis flush (UPSTASH_REDIS_REST_URL/TOKEN not set)');
+    return;
+  }
+  try {
+    const redis = new Redis({ url, token });
+    await redis.flushdb();
+    console.log('Redis cache flushed');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Redis flush failed: ${message}`);
+  }
+}
+
 async function wipeAllBusinessData() {
   await wipeKnowledgeChunks();
 
   const steps = [
     ['messages', () => prisma.message.deleteMany()],
+    ['inbound_whatsapp_dedup', () => prisma.inboundWhatsappDedup.deleteMany()],
     ['agent_action_logs', () => prisma.agentActionLog.deleteMany()],
+    ['workflow_run_records', () => prisma.workflowRunRecord.deleteMany()],
+    ['workflow_idempotency_keys', () => prisma.workflowIdempotencyKey.deleteMany()],
+    ['booking_approval_requests', () => prisma.bookingApprovalRequest.deleteMany()],
     ['pending_actions', () => prisma.pendingAction.deleteMany()],
     ['agent_sessions', () => prisma.agentSession.deleteMany()],
     ['property_import_media_blobs', () => prisma.propertyImportMediaBlob.deleteMany()],
@@ -145,6 +197,7 @@ async function createSuperAdmin(enterprisePlanId) {
 async function main() {
   console.log('Wiping all companies, users, leads, properties, conversations…');
   await wipeAllBusinessData();
+  await flushRedisCache();
 
   const enterprisePlanId = await ensurePlans();
   await createSuperAdmin(enterprisePlanId);
