@@ -380,13 +380,25 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       ? interactiveId.replace('more-info-', '')
       : conversation.selectedPropertyId;
 
-  if (!propertyId) return null;
+  if (!propertyId) {
+    return {
+      handled: true as const,
+      turnResult: buyerTurn(
+        `I don't have a specific property selected yet. Could you let me know which property you'd like more details about? You can mention the name or location.`,
+      ),
+    };
+  }
 
   const property = await prisma.property.findFirst({
     where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
   });
   if (!property) {
-    return null;
+    return {
+      handled: true as const,
+      turnResult: buyerTurn(
+        `I'm sorry, that property details are no longer available. Would you like me to share our other available properties?`,
+      ),
+    };
   }
 
   let details = buildWhatsAppPropertyDetailText(property);
