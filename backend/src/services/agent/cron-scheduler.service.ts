@@ -76,8 +76,10 @@ async function sendVisitReminders(): Promise<CronRunResult> {
   const affected = trackCompanyIds();
   const now = new Date();
   const soon = new Date(now.getTime() + 60 * 60 * 1000);
+  // Only remind for confirmed visits. Sending reminders for 'scheduled' (pending-approval) visits
+  // confuses agents because they haven't confirmed the visit yet.
   const visits = await prisma.visit.findMany({
-    where: { scheduledAt: { gte: now, lte: soon }, status: { in: ['scheduled', 'confirmed'] } },
+    where: { scheduledAt: { gte: now, lte: soon }, status: 'confirmed' },
     include: { agent: true, lead: true, property: true },
   });
   for (const visit of visits) {
