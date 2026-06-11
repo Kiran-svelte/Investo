@@ -112,6 +112,7 @@ describe('visitPendingApproval.service', () => {
     const result = await resolveVisitApproval('appr-1', true, 'co-1', 'agent-1');
 
     expect(result.ok).toBe(true);
+    expect(result.message).toMatch(/10:00\s*am/i);
     expect(mockScheduleVisit).toHaveBeenCalled();
     expect(mockConfirmVisitById).toHaveBeenCalledWith(
       expect.objectContaining({ companyId: 'co-1', visitId: 'visit-1', suppressCustomerNotification: true }),

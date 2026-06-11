@@ -9,6 +9,7 @@ import { emitVisitUpdated } from './visitLifecycle.service';
 import { logAgentAction } from './agent-action-log.service';
 import { logOutboundBranch } from './outboundTurnDebug.service';
 import { formatBuyerVisitPendingApproval, formatBuyerVisitScheduled } from '../utils/visitFormat.util';
+import { formatISTDateTime, formatISTDateTimeLong } from '../utils/dateTime.util';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
 import {
   buildVisitApprovalIdempotencyKey,
@@ -108,13 +109,7 @@ async function sendVisitApprovalRequestToAgent(payload: VisitApprovalPayload): P
     where: { id: payload.agentId },
     select: { name: true, phone: true },
   });
-  const whenLabel = new Date(payload.scheduledAt).toLocaleString('en-IN', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const whenLabel = formatISTDateTime(new Date(payload.scheduledAt));
 
   try {
     const { notificationEngine } = await import('./notification.engine');
@@ -255,7 +250,7 @@ export async function reschedulePendingVisitApprovalForBuyer(input: {
   return {
     handled: true,
     scheduledAt: input.scheduledAt,
-    reply: `${formatBuyerVisitPendingApproval()}\n\nUpdated requested time: ${input.scheduledAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+    reply: `${formatBuyerVisitPendingApproval()}\n\nUpdated requested time: ${formatISTDateTimeLong(input.scheduledAt)}`,
   };
 }
 
@@ -466,7 +461,7 @@ export async function resolveVisitApproval(
 
   return {
     ok: true,
-    message: `Visit confirmed for ${scheduledAt.toLocaleString('en-IN')}. Customer notified, lead status updated, and calendar synced.`,
+    message: `Visit confirmed for ${formatISTDateTimeLong(scheduledAt)}. Customer notified, lead status updated, and calendar synced.`,
   };
 }
 

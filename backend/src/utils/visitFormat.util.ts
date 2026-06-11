@@ -3,15 +3,10 @@
  * All buyer-visible visit status messages should use these functions.
  */
 
+import { formatISTDateTimeLong } from './dateTime.util';
+
 function formatVisitDateTime(scheduledAt: Date): string {
-  return scheduledAt.toLocaleString('en-IN', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Kolkata',
-  });
+  return formatISTDateTimeLong(scheduledAt);
 }
 
 /**

@@ -8,6 +8,7 @@ import {
 import { notificationEngine } from './notification.engine';
 import { emitVisitCreated } from './visitLifecycle.service';
 import { incrementOpsMetric } from './opsMetrics.service';
+import { IST_OFFSET_MS } from '../utils/dateTime.util';
 
 export interface ScheduleVisitInput {
   companyId: string;
@@ -270,9 +271,6 @@ export function parseVisitTimeInteractiveId(interactiveId: string): {
   }
   return null;
 }
-
-/** IST offset in milliseconds: UTC+05:30 = 5.5 * 3600 * 1000 */
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
 /**
  * Resolve a slot suffix (e.g. 'tomorrow-10am', 'dayafter') to a UTC Date

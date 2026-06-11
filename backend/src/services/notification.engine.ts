@@ -4,23 +4,7 @@ import config from '../config';
 import { NotificationType as PrismaNotificationType } from '@prisma/client';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { withRetry } from './notificationRetry.service';
-
-
-/**
- * IST locale formatter used throughout notification messages.
- * @param date - Date to format
- * @returns Human-readable date-time string in IST
- */
-function formatISTDateTime(date: Date): string {
-  return date.toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatISTDateTime } from '../utils/dateTime.util';
 
 /**
  * Send a WhatsApp message to a user using their company's configured WhatsApp.
@@ -363,13 +347,7 @@ class NotificationEngine {
     suppressCustomerNotification = false,
   ): Promise<void> {
     const visitTime = new Date(visit.scheduledAt);
-    const timeStr = visitTime.toLocaleString('en-IN', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const timeStr = formatISTDateTime(visitTime);
 
     // Notify agent
     const notifType = (
@@ -477,22 +455,8 @@ class NotificationEngine {
      */
     suppressCustomerNotification = false,
   ): Promise<void> {
-    const oldTimeStr = oldTime.toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    const newTimeStr = newTime.toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const oldTimeStr = formatISTDateTime(oldTime);
+    const newTimeStr = formatISTDateTime(newTime);
 
     const customerName = lead?.customerName || lead?.phone || 'Customer';
     const propertyName = visit.property?.name ?? 'Property';

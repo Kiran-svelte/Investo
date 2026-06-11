@@ -1,13 +1,25 @@
 const mockNotificationCreate = jest.fn().mockResolvedValue({ id: 'notif-1' });
 const mockUserFindUnique = jest.fn();
+const mockUserFindMany = jest.fn().mockResolvedValue([]);
 const mockLeadFindUnique = jest.fn();
+const mockSendCompanyTextMessage = jest.fn().mockResolvedValue(true);
 
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
   default: {
     notification: { create: (...args: unknown[]) => mockNotificationCreate(...args) },
-    user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
+    user: {
+      findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
+      findMany: (...args: unknown[]) => mockUserFindMany(...args),
+    },
     lead: { findUnique: (...args: unknown[]) => mockLeadFindUnique(...args) },
+  },
+}));
+
+jest.mock('../../services/whatsapp.service', () => ({
+  whatsappService: {
+    sendCompanyTextMessage: (...args: unknown[]) => mockSendCompanyTextMessage(...args),
+    sendMessage: jest.fn().mockResolvedValue(true),
   },
 }));
 
@@ -23,6 +35,10 @@ jest.mock('../../services/socket.service', () => ({
 jest.mock('../../config', () => ({
   __esModule: true,
   default: { whatsapp: {}, env: 'test' },
+}));
+
+jest.mock('../../services/notificationRetry.service', () => ({
+  withRetry: (fn: () => Promise<unknown>) => fn(),
 }));
 
 import { notificationEngine } from '../../services/notification.engine';
@@ -130,5 +146,39 @@ describe('notificationEngine.onLeadAssigned()', () => {
     );
 
     expect(mockNotificationCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('notificationEngine.onVisitStatusChange()', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUserFindUnique.mockResolvedValue({ phone: '+919888877777' });
+  });
+
+  test('formats confirmed visit time in IST for agent WhatsApp', async () => {
+    const tenAmIst = new Date('2026-06-12T04:30:00.000Z');
+
+    await notificationEngine.onVisitStatusChange(
+      {
+        id: 'visit-1',
+        companyId: 'company-1',
+        agentId: 'agent-1',
+        scheduledAt: tenAmIst,
+        property: { name: 'Sunset Heights' },
+      },
+      'scheduled',
+      'confirmed',
+      { customerName: 'Kannada media', phone: '+919999988888' },
+      { settings: {} },
+      true,
+    );
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mockSendCompanyTextMessage).toHaveBeenCalledWith(
+      '+919888877777',
+      expect.stringMatching(/10:00\s*am/i),
+      'company-1',
+    );
   });
 });

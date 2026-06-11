@@ -45,6 +45,7 @@ import {
   resolveVisitSlotToDate,
   scheduleVisit,
 } from '../../services/visitBooking.service';
+import { formatISTDateTime } from '../../utils/dateTime.util';
 
 describe('visitBooking.service', () => {
   const propertyId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
@@ -67,12 +68,14 @@ describe('visitBooking.service', () => {
     expect(parseVisitTimeInteractiveId('visit-time-short-bad')).toBeNull();
   });
 
-  test('resolveVisitSlotToDate sets tomorrow 10am', () => {
+  test('resolveVisitSlotToDate stores 10am IST as 04:30 UTC', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-11T10:00:00.000Z'));
     const d = resolveVisitSlotToDate('tomorrow-10am');
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    expect(d.getDate()).toBe(tomorrow.getDate());
-    expect(d.getHours()).toBe(10);
+    jest.useRealTimers();
+
+    expect(d.toISOString()).toBe('2026-06-12T04:30:00.000Z');
+    expect(formatISTDateTime(d)).toMatch(/10:00\s*am/i);
   });
 
   test('scheduleVisit rejects leads that cannot enter visit_scheduled before creating a visit', async () => {

@@ -19,6 +19,7 @@ import {
 import { createVisitApprovalRequest, findPendingVisitApprovalForLead } from '../visitPendingApproval.service';
 import { assignLeadRoundRobin } from '../leadAssignment.service';
 import { formatBuyerVisitPendingApprovalReply } from '../../utils/visitFormat.util';
+import { formatISTDateTime, formatISTDateTimeLong, formatISTShortDate, getISTDatePlusDays } from '../../utils/dateTime.util';
 import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
 import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
 import { confirmVisitById } from '../visitState.service';
@@ -122,26 +123,16 @@ async function routeInteractiveAction(
   return null;
 }
 
-function getIstDatePlusDays(days: number): Date {
-  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  return new Date(Date.now() + IST_OFFSET_MS + days * DAY_MS - IST_OFFSET_MS);
-}
-
-function formatShortDate(d: Date): string {
-  return d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
 function buildVisitSlotButtons(propertyId: string): WhatsAppComponent {
-  const tomorrow = getIstDatePlusDays(1);
-  const dayAfter = getIstDatePlusDays(2);
+  const tomorrow = getISTDatePlusDays(1);
+  const dayAfter = getISTDatePlusDays(2);
   const pid = propertyId || 'x';
   return {
     kind: 'buttons',
     buttons: [
-      { id: `visit-time-${pid}-tomorrow-10am`, title: `${formatShortDate(tomorrow)} 10AM` },
-      { id: `visit-time-${pid}-tomorrow-3pm`, title: `${formatShortDate(tomorrow)} 3PM` },
-      { id: `visit-time-${pid}-dayafter`, title: `${formatShortDate(dayAfter)}` },
+      { id: `visit-time-${pid}-tomorrow-10am`, title: `${formatISTShortDate(tomorrow)} 10AM` },
+      { id: `visit-time-${pid}-tomorrow-3pm`, title: `${formatISTShortDate(tomorrow)} 3PM` },
+      { id: `visit-time-${pid}-dayafter`, title: `${formatISTShortDate(dayAfter)}` },
     ],
   };
 }
@@ -179,15 +170,7 @@ async function handleVisitConfirm(params: InteractiveActionParams): Promise<Inte
     };
   }
 
-  const visitDate = new Date(existingVisit.scheduledAt).toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const visitDate = formatISTDateTimeLong(new Date(existingVisit.scheduledAt));
   const propName = (existingVisit.property as { name?: string })?.name ?? 'the property';
 
   logger.info('Visit confirmed via interactive CTA', { visitId: existingVisit.id, leadId: lead.id });
@@ -479,15 +462,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   let buttonComponent: WhatsAppComponent;
 
   if (activeVisit) {
-    const visitDate = new Date(activeVisit.scheduledAt).toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      weekday: 'long',
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+    const visitDate = formatISTDateTimeLong(new Date(activeVisit.scheduledAt));
     const visitPropName = (activeVisit.property as { name?: string })?.name ?? 'the property';
     const visitAlreadyConfirmed = activeVisit.status === 'confirmed';
     outboundText =
@@ -509,15 +484,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
           ],
     };
   } else if (pendingApproval) {
-    const visitDate = new Date(pendingApproval.scheduledAt).toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      weekday: 'long',
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+    const visitDate = formatISTDateTimeLong(new Date(pendingApproval.scheduledAt));
     const visitPropName = pendingApproval.propertyName ?? 'the property';
     outboundText =
       `Your visit request for *${visitPropName}* on ${visitDate} is awaiting team approval ⏳\n\n` + details;
@@ -835,7 +802,7 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
         const { whatsappService } = await import('../whatsapp.service');
         const customerName = lead.customerName || 'A buyer';
         const propertyNameStr = parsed.propertyId;
-        const timeStr = proposedTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+        const timeStr = formatISTDateTime(proposedTime, { hour12: true });
         const adminMsg = `🚨 *Unassigned Visit Request*\n${customerName} (${maskPhone(lead.phone ?? '')}) selected a visit slot for ${propertyNameStr} at ${timeStr}.\n\nNo agent was available. Please assign an agent and confirm this visit from the dashboard.`;
         for (const admin of admins) {
           if (admin.phone) {

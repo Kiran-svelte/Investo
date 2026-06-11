@@ -5,6 +5,7 @@ import config from '../config';
 import { whatsappService } from './whatsapp.service';
 import { automationQueueService, AutomationJobType } from './automationQueue.service';
 import { logAgentAction } from './agent-action-log.service';
+import { formatISTDateLong, formatISTTime } from '../utils/dateTime.util';
 
 function getCompanyWhatsAppConfig(company: any): {
   provider: 'meta';
@@ -158,15 +159,8 @@ export class AutomationService {
   private async sendVisitReminder(visit: any, timing: '24h' | '1h'): Promise<void> {
     try {
       const visitTime = new Date(visit.scheduledAt);
-      const timeStr = visitTime.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      const dateStr = visitTime.toLocaleDateString('en-IN', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-      });
+      const timeStr = formatISTTime(visitTime);
+      const dateStr = formatISTDateLong(visitTime);
 
       const customerName = visit.lead?.customerName;
       const propertyName = visit.property?.name;
