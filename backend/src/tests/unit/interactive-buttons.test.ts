@@ -102,6 +102,7 @@ jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => {
 
 jest.mock('../../services/visitPendingApproval.service', () => ({
   createVisitApprovalRequest: jest.fn().mockResolvedValue({ approvalId: 'approval-1' }),
+  findPendingVisitApprovalForLead: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('../../services/callRequest.service', () => ({

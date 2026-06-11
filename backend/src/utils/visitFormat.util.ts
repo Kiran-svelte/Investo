@@ -54,3 +54,11 @@ export function formatBuyerVisitCancelled(
 export function formatBuyerVisitPendingApproval(agentName?: string | null): string {
   return `Thanks! I've shared your preferred visit time with our sales specialist *${agentName || 'team'}*. You'll receive WhatsApp confirmation once they approve the slot. 🙂`;
 }
+
+/** Pending-approval reply with the requested slot — used by typed and button booking paths. */
+export function formatBuyerVisitPendingApprovalReply(
+  scheduledAt: Date,
+  agentName?: string | null,
+): string {
+  return `${formatBuyerVisitPendingApproval(agentName)}\n\nRequested time: ${formatVisitDateTime(scheduledAt)}`;
+}

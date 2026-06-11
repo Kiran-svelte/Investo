@@ -103,6 +103,17 @@ function resolveVisitButtons(ctx: BuyerButtonContext): WhatsAppComponent | null 
     ? `Your visit for *${ctx.visitProperty}*${ctx.visitTime ? ` on ${ctx.visitTime}` : ''} 🗓️`
     : 'You have an upcoming site visit 🗓️';
 
+  if (ctx.visitStatus === 'pending_approval') {
+    return {
+      kind: 'buttons',
+      buttons: [
+        { id: 'visit-reschedule', title: '📅 Change Time' },
+        { id: pid ? `more-info-${pid}` : 'more-info', title: '🏗️ Property Details' },
+        { id: 'call-me', title: '📞 Call Agent' },
+      ],
+    };
+  }
+
   if (ctx.visitStatus === 'confirmed') {
     return {
       kind: 'buttons',

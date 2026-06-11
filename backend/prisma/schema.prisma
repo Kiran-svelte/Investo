@@ -873,6 +873,7 @@ enum MessageStatus {
 }
 
 enum VisitStatus {
+  pending_approval
   scheduled
   confirmed
   completed

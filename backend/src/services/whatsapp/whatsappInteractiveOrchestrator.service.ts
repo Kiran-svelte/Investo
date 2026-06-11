@@ -16,9 +16,9 @@ import {
   parseVisitTimeInteractiveId,
   resolveVisitSlotToDate,
 } from '../visitBooking.service';
-import { createVisitApprovalRequest } from '../visitPendingApproval.service';
+import { createVisitApprovalRequest, findPendingVisitApprovalForLead } from '../visitPendingApproval.service';
 import { assignLeadRoundRobin } from '../leadAssignment.service';
-import { formatBuyerVisitPendingApproval } from '../../utils/visitFormat.util';
+import { formatBuyerVisitPendingApprovalReply } from '../../utils/visitFormat.util';
 import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
 import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
 import { confirmVisitById } from '../visitState.service';
@@ -201,7 +201,7 @@ async function handleVisitConfirm(params: InteractiveActionParams): Promise<Inte
 }
 
 async function handleVisitReschedule(params: InteractiveActionParams): Promise<InteractiveActionResult> {
-  const { lead } = params;
+  const { lead, company } = params;
   const existingVisit = await prisma.visit.findFirst({
     where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
     orderBy: { scheduledAt: 'asc' },
@@ -209,6 +209,21 @@ async function handleVisitReschedule(params: InteractiveActionParams): Promise<I
   });
 
   if (!existingVisit) {
+    const pending = await findPendingVisitApprovalForLead({
+      companyId: company.id,
+      leadId: lead.id,
+    });
+    if (pending) {
+      return {
+        handled: true,
+        action: 'visit-reschedule-pending-approval',
+        newState: { stage: 'visit_booking', selectedPropertyId: pending.propertyId },
+        turnResult: buyerTurn(
+          `📅 Let's find a new time for your visit to *${pending.propertyName || 'the property'}*. When works best for you?`,
+          [buildVisitSlotButtons(pending.propertyId)],
+        ),
+      };
+    }
     return {
       handled: true,
       action: 'visit-reschedule-no-visit',
@@ -233,6 +248,34 @@ async function handleVisitReschedule(params: InteractiveActionParams): Promise<I
 
 async function handleBookVisit(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { interactiveId, lead, conversation, company } = params;
+
+  const pending = await findPendingVisitApprovalForLead({
+    companyId: company.id,
+    leadId: lead.id,
+  });
+  if (pending) {
+    const agent = await prisma.user.findUnique({
+      where: { id: pending.agentId },
+      select: { name: true },
+    });
+    return {
+      handled: true,
+      action: 'book-visit-already-pending',
+      newState: { stage: 'visit_booking', selectedPropertyId: pending.propertyId },
+      turnResult: buyerTurn(
+        formatBuyerVisitPendingApprovalReply(new Date(pending.scheduledAt), agent?.name),
+        [{
+          kind: 'buttons',
+          buttons: [
+            { id: 'visit-reschedule', title: '📅 Change Time' },
+            { id: `more-info-${pending.propertyId}`, title: '🏗️ Property Details' },
+            { id: 'call-me', title: '📞 Call Agent' },
+          ],
+        }],
+      ),
+    };
+  }
+
   const propertyId =
     interactiveId.replace('book-visit-', '') !== 'book-visit'
       ? interactiveId.replace('book-visit-', '')
@@ -417,6 +460,9 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     orderBy: { scheduledAt: 'asc' },
     include: { property: { select: { name: true } } },
   });
+  const pendingApproval = activeVisit
+    ? null
+    : await findPendingVisitApprovalForLead({ companyId: company.id, leadId: lead.id });
 
   let outboundText = details;
   let buttonComponent: WhatsAppComponent;
@@ -450,6 +496,27 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
             { id: 'visit-reschedule', title: '📅 Reschedule' },
             { id: 'call-me', title: '📞 Call Agent' },
           ],
+    };
+  } else if (pendingApproval) {
+    const visitDate = new Date(pendingApproval.scheduledAt).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+    const visitPropName = pendingApproval.propertyName ?? 'the property';
+    outboundText =
+      `Your visit request for *${visitPropName}* on ${visitDate} is awaiting team approval ⏳\n\n` + details;
+    buttonComponent = {
+      kind: 'buttons',
+      buttons: [
+        { id: 'visit-reschedule', title: '📅 Change Time' },
+        { id: `more-info-${propertyId}`, title: '🏗️ Property Details' },
+        { id: 'call-me', title: '📞 Call Agent' },
+      ],
     };
   } else {
     buttonComponent = {
@@ -843,7 +910,7 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
       selectedPropertyId: propertyId,
       proposedVisitTime: proposedTime,
     },
-    turnResult: buyerTurn(formatBuyerVisitPendingApproval(agent?.name)),
+    turnResult: buyerTurn(formatBuyerVisitPendingApprovalReply(proposedTime, agent?.name)),
   };
 }
 

@@ -14,6 +14,7 @@
 
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { findPendingVisitApprovalForLead } from './visitPendingApproval.service';
 
 /** Represents an upcoming or recent visit for CTA and prompt injection. */
 export interface ActiveVisitContext {
@@ -61,6 +62,7 @@ function toISTString(date: Date): string {
  */
 function visitStatusLabel(status: string): string {
   const map: Record<string, string> = {
+    pending_approval: '⏳ PENDING APPROVAL',
     scheduled: '📅 SCHEDULED',
     confirmed: '✅ CONFIRMED',
     completed: '✔️ COMPLETED',
@@ -140,10 +142,27 @@ export async function getLiveLeadContext(
     const activeVisit = upcoming ? toVisitContext(upcoming) : null;
     const recentCompletedVisit = recentCompleted ? toVisitContext(recentCompleted) : null;
 
+    let resolvedActiveVisit = activeVisit;
+    if (!resolvedActiveVisit) {
+      const pendingApproval = await findPendingVisitApprovalForLead({ companyId, leadId });
+      if (pendingApproval) {
+        resolvedActiveVisit = {
+          visitId: pendingApproval.approvalId,
+          propertyId: pendingApproval.propertyId,
+          propertyName: pendingApproval.propertyName ?? null,
+          status: 'pending_approval',
+          scheduledAt: new Date(pendingApproval.scheduledAt),
+          agentName: globalAgent?.name ?? null,
+          agentPhone: globalAgent?.phone ?? null,
+          notes: null,
+        };
+      }
+    }
+
     const promptBlock = buildPromptBlock({
       leadStatus: lead.status,
       leadName: lead.customerName,
-      activeVisit,
+      activeVisit: resolvedActiveVisit,
       recentCompletedVisit,
       assignedAgentName: globalAgent?.name ?? null,
       assignedAgentPhone: globalAgent?.phone ?? null,
@@ -152,7 +171,7 @@ export async function getLiveLeadContext(
     return {
       leadStatus: lead.status,
       leadName: lead.customerName,
-      activeVisit,
+      activeVisit: resolvedActiveVisit,
       recentCompletedVisit,
       assignedAgentName: globalAgent?.name ?? null,
       assignedAgentPhone: globalAgent?.phone ?? null,
@@ -231,7 +250,9 @@ function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
   lines.push('');
   lines.push(
     ctx.activeVisit
-      ? '⚠️ This client ALREADY HAS a scheduled visit. Do NOT offer to book another visit. Offer: Confirm, Reschedule, or Cancel.'
+      ? ctx.activeVisit.status === 'pending_approval'
+        ? '⚠️ This client has a visit request awaiting agent approval. Do NOT offer to book another visit. Offer: Change time, property details, or call agent.'
+        : '⚠️ This client ALREADY HAS a scheduled visit. Do NOT offer to book another visit. Offer: Confirm, Reschedule, or Cancel.'
       : ctx.recentCompletedVisit
         ? '⚠️ This client has visited before. Ask about their experience and next steps, do NOT start from scratch.'
         : '',
@@ -261,6 +282,8 @@ export function buildVisitAwareGreeting(
   const statusPreamble =
     visit.status === 'confirmed'
       ? 'Your site visit is *confirmed* ✅'
+      : visit.status === 'pending_approval'
+        ? 'Your site visit request is *awaiting team approval* ⏳'
       : visit.status === 'scheduled'
         ? 'You have an upcoming site visit 🗓️'
         : `Your visit status: *${visit.status}*`;

@@ -20,7 +20,7 @@ import {
   reschedulePendingVisitApprovalForBuyer,
 } from './visitPendingApproval.service';
 import { resolveBuyerPropertyReference } from './buyerPropertyContext.service';
-import { formatBuyerVisitScheduled, formatBuyerVisitPendingApproval } from '../utils/visitFormat.util';
+import { formatBuyerVisitScheduled, formatBuyerVisitPendingApprovalReply } from '../utils/visitFormat.util';
 import { isConversationAwaitingCallTime } from '../utils/conversationCallContext.util';
 import { isVisitAutoConfirmEnabled } from './visitAutoConfirm.service';
 import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
@@ -160,20 +160,11 @@ async function submitBuyerVisitApproval(input: {
     rescheduleVisitId: input.rescheduleVisitId,
   });
 
-  const whenLabel = input.scheduledAt.toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
   return {
     committed: true,
     mode: 'pending_approval',
     scheduledAt: input.scheduledAt,
-    customerReply: `${formatBuyerVisitPendingApproval()}\n\nRequested time: ${whenLabel}`,
+    customerReply: formatBuyerVisitPendingApprovalReply(input.scheduledAt),
     leadStatus: 'contacted',
   };
 }
