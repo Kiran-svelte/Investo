@@ -112,7 +112,7 @@ jest.mock('../../services/staffMessageForward.service', () => ({
 }));
 
 jest.mock('../../services/copilot/copilotButtonPolicy.service', () => ({
-  resolveCopilotComponents: jest.fn().mockReturnValue([]),
+  resolveCopilotComponents: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../../services/attendanceWorkflow.service', () => ({

@@ -1,5 +1,6 @@
 import type { WhatsAppComponent } from '../../types/whatsapp-turn.types';
 import {
+  resolveCopilotComponentsAsync,
   resolveStaffCopilotQuickActions,
   shouldSendCopilotShortcutMenu,
   type CopilotQuickActionInput,
@@ -11,11 +12,18 @@ export type { CopilotReplyKind, CopilotQuickActionInput };
 export { shouldSendCopilotShortcutMenu };
 
 /**
- * Resolve staff copilot quick-action buttons for one turn.
+ * Resolve staff copilot quick-action components for one turn.
+ * Now async — uses LLM-generated contextual buttons instead of hardcoded rules.
  * Returns at most one button component, or empty when no menu fits.
+ *
+ * @param input.replyKind - Classification of the outbound reply.
+ * @param input.outboundText - Full outbound reply text.
+ * @returns Resolved WhatsApp component array (0 or 1 items).
  */
-export function resolveCopilotComponents(input: CopilotQuickActionInput): WhatsAppComponent[] {
-  const actions = resolveStaffCopilotQuickActions(input);
-  if (!actions?.length) return [];
-  return [{ kind: 'buttons', buttons: actions }];
+export async function resolveCopilotComponents(
+  input: CopilotQuickActionInput,
+): Promise<WhatsAppComponent[]> {
+  return resolveCopilotComponentsAsync(input);
 }
+
+export { resolveStaffCopilotQuickActions };

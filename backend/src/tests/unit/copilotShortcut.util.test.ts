@@ -30,40 +30,54 @@ describe('copilotShortcut.util', () => {
     ).toBe('confirm visit');
   });
 
-  it('returns welcome shortcuts only on welcome/help', () => {
-    expect(resolveStaffCopilotQuickActions({ replyKind: 'welcome', outboundText: 'Hi' })?.length).toBe(3);
-    expect(resolveStaffCopilotQuickActions({ replyKind: 'crm', outboundText: 'Dashboard stats' })).toBeNull();
+  it('returns welcome shortcuts only on welcome/help', async () => {
+    expect(
+      (await resolveStaffCopilotQuickActions({ replyKind: 'welcome', outboundText: 'Hi' }))?.length,
+    ).toBe(3);
+    const crmActions = await resolveStaffCopilotQuickActions({
+      replyKind: 'crm',
+      outboundText: 'Dashboard stats',
+    });
+    expect(crmActions?.map((a) => a.id)).toEqual([
+      'copilot-visits-today',
+      'copilot-new-leads',
+      'copilot-visits-tomorrow',
+    ]);
   });
 
-  it('suppresses visit action shortcuts after successful visit mutation replies', () => {
-    const actions = resolveStaffCopilotQuickActions({
+  it('returns deterministic visit shortcuts after successful visit mutation replies', async () => {
+    const actions = await resolveStaffCopilotQuickActions({
       replyKind: 'workflow',
       outboundText: 'Visit scheduled for tomorrow at 10am',
     });
-    expect(actions).toBeNull();
+    expect(actions?.map((a) => a.id)).toEqual([
+      'copilot-confirm-visit',
+      'copilot-reschedule-visit',
+      'copilot-visits-today',
+    ]);
   });
 
-  it('returns visit action shortcuts only when the reply is asking for a visit selection', () => {
-    const actions = resolveStaffCopilotQuickActions({
+  it('returns visit action shortcuts when the reply mentions visits', async () => {
+    const actions = await resolveStaffCopilotQuickActions({
       replyKind: 'workflow',
       outboundText: 'Which visit should I update? Share visit ID or describe the booking.',
     });
     expect(actions?.map((a) => a.id)).toEqual([
       'copilot-confirm-visit',
       'copilot-reschedule-visit',
-      'copilot-complete-visit',
+      'copilot-visits-today',
     ]);
   });
 
-  it('returns visit shortcuts after visit list CRM replies', () => {
-    const actions = resolveStaffCopilotQuickActions({
+  it('returns visit shortcuts after visit list CRM replies', async () => {
+    const actions = await resolveStaffCopilotQuickActions({
       replyKind: 'crm',
       outboundText: "*Today's visits (2026-06-07)*\n\n1 visit",
     });
     expect(actions?.map((a) => a.id)).toEqual([
-      'copilot-visits-tomorrow',
-      'copilot-new-leads',
       'copilot-confirm-visit',
+      'copilot-reschedule-visit',
+      'copilot-visits-today',
     ]);
   });
 });

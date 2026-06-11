@@ -134,7 +134,7 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Prom
     // Mirror the WhatsApp copilot's contextual quick-action buttons so the
     // dashboard chat can render the same shortcut chips.
     const { resolveCopilotComponents } = await import('../services/copilot/copilotButtonPolicy.service');
-    const components = resolveCopilotComponents({ replyKind, outboundText: reply });
+    const components = await resolveCopilotComponents({ replyKind, outboundText: reply });
     const quickActions =
       components[0]?.kind === 'buttons' ? components[0].buttons : [];
 
