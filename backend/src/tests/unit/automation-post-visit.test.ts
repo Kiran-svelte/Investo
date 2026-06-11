@@ -17,6 +17,13 @@ jest.mock('../../config/prisma', () => ({
 jest.mock('../../services/whatsapp.service', () => ({
   whatsappService: {
     sendMessage: jest.fn().mockResolvedValue(true),
+    sendCompanyTextMessage: jest.fn().mockResolvedValue(true),
+    resolveCompanyWhatsAppConfig: jest.fn().mockResolvedValue({
+      provider: 'meta',
+      phoneNumberId: 'phone-1',
+      accessToken: 'token-1',
+      verifyToken: 'verify-1',
+    }),
   },
 }));
 
@@ -49,6 +56,7 @@ describe('automation post-visit follow-up', () => {
       phone: '+919876543210',
       language: 'en',
       locationPreference: 'Bangalore',
+      companyId: 'company-1',
       company: {
         whatsappPhone: '+911',
         settings: {
@@ -65,7 +73,8 @@ describe('automation post-visit follow-up', () => {
     });
 
     expect(processed).toEqual(['visit_post_follow_up']);
-    const sentMessage = (whatsappService.sendMessage as jest.Mock).mock.calls[0]?.[1] as string;
+    const sentMessage = (whatsappService.sendMessage as jest.Mock).mock.calls[0]?.[1] as string
+      ?? (whatsappService.sendCompanyTextMessage as jest.Mock).mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('How was your site visit yesterday?');
     expect(sentMessage).not.toMatch(/[ðàâ]/);
   });
@@ -75,8 +84,10 @@ describe('automation post-visit follow-up', () => {
       id: 'visit-1',
       status: 'confirmed',
       companyId: 'company-1',
+      leadId: 'lead-1',
       scheduledAt: new Date('2026-04-09T10:00:00.000Z'),
       lead: {
+        id: 'lead-1',
         customerName: 'Asha',
         phone: '+919876543210',
         language: 'en',
@@ -96,7 +107,8 @@ describe('automation post-visit follow-up', () => {
 
     await (automationService as any).executeQueuedJob('visit_reminder_24h', { visitId: 'visit-1' });
 
-    const sentMessage = (whatsappService.sendMessage as jest.Mock).mock.calls[0]?.[1] as string;
+    const sentMessage = (whatsappService.sendMessage as jest.Mock).mock.calls[0]?.[1] as string
+      ?? (whatsappService.sendCompanyTextMessage as jest.Mock).mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('Reminder: Your property visit is scheduled for tomorrow.');
     expect(sentMessage).toContain('Property: Sunset Heights, Indiranagar');
     expect(sentMessage).not.toMatch(/[ðàâ]/);

@@ -1,5 +1,6 @@
 import logger from '../config/logger';
 import prisma from '../config/prisma';
+import { isGlobalFeatureEnabled } from '../utils/featureRollout.util';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 
 export type VisitSocketChange =
@@ -126,13 +127,18 @@ export async function rescheduleVisitReminderJobs(
 export async function reconcileOrphanedVisitReminders(): Promise<number> {
   try {
     const { automationQueueService } = await import('./automationQueue.service');
+    const reliableNotifications = isGlobalFeatureEnabled('reliableCustomerNotifications');
     const windowStart = new Date();
-    // Only look ahead 25h so we don't reschedule visits whose 24h window has passed.
-    const windowEnd = new Date(Date.now() + 25 * 60 * 60 * 1000);
+    // Default: 25h ahead for confirmed visits only. Reliable mode: 7 days, scheduled + confirmed.
+    const windowEnd = reliableNotifications
+      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      : new Date(Date.now() + 25 * 60 * 60 * 1000);
 
     const upcomingVisits = await prisma.visit.findMany({
       where: {
-        status: 'confirmed',
+        status: reliableNotifications
+          ? { in: ['scheduled', 'confirmed'] }
+          : 'confirmed',
         scheduledAt: { gte: windowStart, lte: windowEnd },
       },
       select: { id: true, scheduledAt: true, companyId: true, leadId: true },

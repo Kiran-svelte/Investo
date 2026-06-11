@@ -40,24 +40,33 @@ exports.automationService = exports.AutomationService = void 0;
 const uuid_1 = require("uuid");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
-const config_1 = __importDefault(require("../config"));
 const whatsapp_service_1 = require("./whatsapp.service");
 const automationQueue_service_1 = require("./automationQueue.service");
 const agent_action_log_service_1 = require("./agent-action-log.service");
-function getCompanyWhatsAppConfig(company) {
-    const settings = company?.settings || {};
-    const whatsapp = settings.whatsapp || {};
-    const meta = whatsapp.meta || whatsapp;
-    const phoneNumberId = meta.phoneNumberId || config_1.default.whatsapp.phoneNumberId;
-    const accessToken = meta.accessToken || config_1.default.whatsapp.accessToken;
-    const verifyToken = meta.verifyToken || config_1.default.whatsapp.verifyToken;
-    return {
-        provider: 'meta',
-        phoneNumberId,
-        accessToken,
-        verifyToken,
-        isCompanyConfigured: Boolean(meta.phoneNumberId && meta.accessToken),
-    };
+const dateTime_util_1 = require("../utils/dateTime.util");
+const featureRollout_util_1 = require("../utils/featureRollout.util");
+const featureShadow_util_1 = require("../utils/featureShadow.util");
+function isVisitEligibleForCustomerReminder(status, leadId) {
+    if (status === 'confirmed')
+        return true;
+    if (status !== 'scheduled')
+        return false;
+    return Boolean(leadId && (0, featureRollout_util_1.isFeatureEnabledForLead)(leadId, 'reliableCustomerNotifications'));
+}
+async function sendCustomerAutomationWhatsApp(input) {
+    return (0, featureShadow_util_1.shadowCompare)({
+        featureName: 'customerAutomationWhatsApp',
+        featureKey: 'reliableCustomerNotifications',
+        leadId: input.leadId,
+        oldFn: async () => {
+            const whatsappConfig = await whatsapp_service_1.whatsappService.resolveCompanyWhatsAppConfig(input.companyId);
+            if (!whatsappConfig?.phoneNumberId || !whatsappConfig?.accessToken) {
+                return false;
+            }
+            return whatsapp_service_1.whatsappService.sendMessage(input.phone, input.message, whatsappConfig);
+        },
+        newFn: async () => whatsapp_service_1.whatsappService.sendCompanyTextMessage(input.phone, input.message, input.companyId),
+    });
 }
 /**
  * Automation Service - handles scheduled tasks through a durable queue-backed workflow:
@@ -162,15 +171,8 @@ class AutomationService {
     async sendVisitReminder(visit, timing) {
         try {
             const visitTime = new Date(visit.scheduledAt);
-            const timeStr = visitTime.toLocaleTimeString('en-IN', {
-                hour: '2-digit',
-                minute: '2-digit',
-            });
-            const dateStr = visitTime.toLocaleDateString('en-IN', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long',
-            });
+            const timeStr = (0, dateTime_util_1.formatISTTime)(visitTime);
+            const dateStr = (0, dateTime_util_1.formatISTDateLong)(visitTime);
             const customerName = visit.lead?.customerName;
             const propertyName = visit.property?.name;
             const locationArea = visit.property?.locationArea;
@@ -183,32 +185,20 @@ class AutomationService {
                 logger_1.default.debug('Visit reminder skipped because customer phone is missing', { visitId: visit.id, timing });
                 return;
             }
-            const whatsappConfig = getCompanyWhatsAppConfig(visit.company);
-            if (!whatsappConfig.isCompanyConfigured ||
-                !whatsappConfig.phoneNumberId ||
-                !whatsappConfig.accessToken) {
-                logger_1.default.debug('Visit reminder skipped because company WhatsApp is not configured', {
-                    visitId: visit.id,
-                    timing,
-                });
+            const leadId = visit.leadId ?? visit.lead?.id;
+            if (!leadId) {
+                logger_1.default.debug('Visit reminder skipped because lead id is missing', { visitId: visit.id, timing });
                 return;
             }
-            const sent = await whatsapp_service_1.whatsappService.sendMessage(customerPhone, message, {
-                provider: whatsappConfig.provider,
-                phoneNumberId: whatsappConfig.phoneNumberId,
-                accessToken: whatsappConfig.accessToken,
-                verifyToken: whatsappConfig.verifyToken,
+            const sent = await sendCustomerAutomationWhatsApp({
+                leadId,
+                companyId: visit.companyId,
+                phone: customerPhone,
+                message,
             });
             if (!sent) {
                 logger_1.default.warn('Visit reminder WhatsApp send failed', { visitId: visit.id, timing });
                 return;
-            }
-            // Mark reminder as sent (only for 24h to avoid duplicate 1h reminders)
-            if (timing === '24h') {
-                await prisma_1.default.visit.update({
-                    where: { id: visit.id },
-                    data: { reminderSent: true },
-                });
             }
             logger_1.default.info('Visit reminder sent', { visitId: visit.id, timing });
             void (0, agent_action_log_service_1.logAgentAction)({
@@ -375,21 +365,11 @@ class AutomationService {
                 logger_1.default.debug('Follow-up skipped because lead phone is missing', { leadId: lead.id, reason });
                 return;
             }
-            const whatsappConfig = getCompanyWhatsAppConfig(lead.company);
-            if (!whatsappConfig.isCompanyConfigured ||
-                !whatsappConfig.phoneNumberId ||
-                !whatsappConfig.accessToken) {
-                logger_1.default.debug('Follow-up skipped because company WhatsApp is not configured', {
-                    leadId: lead.id,
-                    reason,
-                });
-                return;
-            }
-            const sent = await whatsapp_service_1.whatsappService.sendMessage(lead.phone, message, {
-                provider: whatsappConfig.provider,
-                phoneNumberId: whatsappConfig.phoneNumberId,
-                accessToken: whatsappConfig.accessToken,
-                verifyToken: whatsappConfig.verifyToken,
+            const sent = await sendCustomerAutomationWhatsApp({
+                leadId: lead.id,
+                companyId: lead.companyId,
+                phone: lead.phone,
+                message,
             });
             if (!sent) {
                 logger_1.default.warn('Follow-up WhatsApp send failed', { leadId: lead.id, reason });
@@ -512,6 +492,16 @@ class AutomationService {
             case 'call_reminder_1h':
                 await this.executeCallReminder(String(data.callId), String(data.companyId), String(data.leadId));
                 return;
+            case 'booking_approval_agent_nudge': {
+                const { sendBookingApprovalAgentNudge } = await Promise.resolve().then(() => __importStar(require('./bookingApproval.service')));
+                await sendBookingApprovalAgentNudge(String(data.approvalId));
+                return;
+            }
+            case 'booking_approval_expire': {
+                const { expireBookingApproval } = await Promise.resolve().then(() => __importStar(require('./bookingApproval.service')));
+                await expireBookingApproval(String(data.approvalId));
+                return;
+            }
             case 'retry_concurrent_inbound':
                 await this.executeConcurrentInboundRetry(data);
                 return;
@@ -536,13 +526,17 @@ class AutomationService {
         const visit = await prisma_1.default.visit.findUnique({
             where: { id: visitId },
             include: {
-                lead: { select: { customerName: true, phone: true, language: true } },
+                lead: { select: { id: true, customerName: true, phone: true, language: true } },
                 property: { select: { name: true, locationArea: true } },
                 company: { select: { whatsappPhone: true, settings: true } },
             },
         });
         if (!visit) {
             logger_1.default.warn('Visit reminder skipped because visit no longer exists', { visitId, timing });
+            return;
+        }
+        if (!isVisitEligibleForCustomerReminder(visit.status, visit.leadId ?? visit.lead?.id)) {
+            logger_1.default.debug('Visit reminder skipped because visit is not eligible', { visitId, timing, status: visit.status });
             return;
         }
         const phone = visit.lead?.phone;
@@ -558,6 +552,19 @@ class AutomationService {
         });
         if (!visit) {
             logger_1.default.warn('Agent notification skipped because visit no longer exists', { visitId });
+            return;
+        }
+        const alreadySent = await prisma_1.default.agentActionLog.findFirst({
+            where: {
+                companyId: visit.companyId,
+                action: 'visit_agent_notification_15m',
+                resourceType: 'visit',
+                resourceId: visit.id,
+            },
+            select: { id: true },
+        });
+        if (alreadySent) {
+            logger_1.default.debug('Agent 15m notification already sent', { visitId });
             return;
         }
         await this.createAgentNotification(visit);
@@ -652,7 +659,7 @@ class AutomationService {
             const rows = await prisma_1.default.$queryRawUnsafe(`SELECT status, scheduled_at, agent_id FROM call_requests
          WHERE id = $1::uuid AND company_id = $2::uuid`, callId, companyId);
             const call = rows[0];
-            if (!call || !['scheduled', 'confirmed'].includes(call.status)) {
+            if (!call || call.status !== 'confirmed') {
                 logger_1.default.debug('callReminder: call no longer active, skipping', { callId });
                 return;
             }
@@ -728,6 +735,7 @@ class AutomationService {
             interactiveId: data.interactiveId ? String(data.interactiveId) : undefined,
             interactiveType: data.interactiveType,
             businessDisplayPhone: data.businessDisplayPhone ? String(data.businessDisplayPhone) : undefined,
+            queuedReplay: data.queuedReplay === true || data.queuedReplay === 'true',
         });
         logger_1.default.info('retry_concurrent_inbound processed', {
             companyId: data.companyId,

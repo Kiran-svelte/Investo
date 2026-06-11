@@ -530,6 +530,8 @@ const config = {
     ),
     /** When true, compare old vs new paths and log mismatches even when serving old behavior. */
     shadowMode: process.env.FEATURE_SHADOW_MODE === 'true',
+    /** Visit/call reminders + nurture follow-ups via sendCompanyTextMessage and broader visit eligibility. */
+    reliableCustomerNotifications: process.env.FEATURE_RELIABLE_CUSTOMER_NOTIFICATIONS === 'true',
   },
 };
 

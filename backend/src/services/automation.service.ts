@@ -1,34 +1,45 @@
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
-import config from '../config';
 import { whatsappService } from './whatsapp.service';
 import { automationQueueService, AutomationJobType } from './automationQueue.service';
 import { logAgentAction } from './agent-action-log.service';
 import { formatISTDateLong, formatISTTime } from '../utils/dateTime.util';
+import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
+import { shadowCompare } from '../utils/featureShadow.util';
 
-function getCompanyWhatsAppConfig(company: any): {
-  provider: 'meta';
-  phoneNumberId: string;
-  accessToken: string;
-  verifyToken: string;
-  isCompanyConfigured: boolean;
-} {
-  const settings = (company?.settings as any) || {};
-  const whatsapp = settings.whatsapp || {};
+function isVisitEligibleForCustomerReminder(
+  status: string,
+  leadId: string | null | undefined,
+): boolean {
+  if (status === 'confirmed') return true;
+  if (status !== 'scheduled') return false;
+  return Boolean(leadId && isFeatureEnabledForLead(leadId, 'reliableCustomerNotifications'));
+}
 
-  const meta = whatsapp.meta || whatsapp;
-  const phoneNumberId = meta.phoneNumberId || config.whatsapp.phoneNumberId;
-  const accessToken = meta.accessToken || config.whatsapp.accessToken;
-  const verifyToken = meta.verifyToken || config.whatsapp.verifyToken;
-
-  return {
-    provider: 'meta',
-    phoneNumberId,
-    accessToken,
-    verifyToken,
-    isCompanyConfigured: Boolean(meta.phoneNumberId && meta.accessToken),
-  };
+async function sendCustomerAutomationWhatsApp(input: {
+  leadId: string;
+  companyId: string;
+  phone: string;
+  message: string;
+}): Promise<boolean> {
+  return shadowCompare({
+    featureName: 'customerAutomationWhatsApp',
+    featureKey: 'reliableCustomerNotifications',
+    leadId: input.leadId,
+    oldFn: async () => {
+      const whatsappConfig = await whatsappService.resolveCompanyWhatsAppConfig(input.companyId);
+      if (!whatsappConfig?.phoneNumberId || !whatsappConfig?.accessToken) {
+        return false;
+      }
+      return whatsappService.sendMessage(input.phone, input.message, whatsappConfig);
+    },
+    newFn: async () => whatsappService.sendCompanyTextMessage(
+      input.phone,
+      input.message,
+      input.companyId,
+    ),
+  });
 }
 
 /**
@@ -177,24 +188,17 @@ export class AutomationService {
         return;
       }
 
-      const whatsappConfig = getCompanyWhatsAppConfig(visit.company);
-      if (
-        !whatsappConfig.isCompanyConfigured ||
-        !whatsappConfig.phoneNumberId ||
-        !whatsappConfig.accessToken
-      ) {
-        logger.debug('Visit reminder skipped because company WhatsApp is not configured', {
-          visitId: visit.id,
-          timing,
-        });
+      const leadId = visit.leadId ?? visit.lead?.id;
+      if (!leadId) {
+        logger.debug('Visit reminder skipped because lead id is missing', { visitId: visit.id, timing });
         return;
       }
 
-      const sent = await whatsappService.sendMessage(customerPhone, message, {
-        provider: whatsappConfig.provider,
-        phoneNumberId: whatsappConfig.phoneNumberId,
-        accessToken: whatsappConfig.accessToken,
-        verifyToken: whatsappConfig.verifyToken,
+      const sent = await sendCustomerAutomationWhatsApp({
+        leadId,
+        companyId: visit.companyId,
+        phone: customerPhone,
+        message,
       });
 
       if (!sent) {
@@ -380,24 +384,11 @@ export class AutomationService {
         return;
       }
 
-      const whatsappConfig = getCompanyWhatsAppConfig(lead.company);
-      if (
-        !whatsappConfig.isCompanyConfigured ||
-        !whatsappConfig.phoneNumberId ||
-        !whatsappConfig.accessToken
-      ) {
-        logger.debug('Follow-up skipped because company WhatsApp is not configured', {
-          leadId: lead.id,
-          reason,
-        });
-        return;
-      }
-
-      const sent = await whatsappService.sendMessage(lead.phone, message, {
-        provider: whatsappConfig.provider,
-        phoneNumberId: whatsappConfig.phoneNumberId,
-        accessToken: whatsappConfig.accessToken,
-        verifyToken: whatsappConfig.verifyToken,
+      const sent = await sendCustomerAutomationWhatsApp({
+        leadId: lead.id,
+        companyId: lead.companyId,
+        phone: lead.phone,
+        message,
       });
 
       if (!sent) {
@@ -571,7 +562,7 @@ export class AutomationService {
     const visit = await prisma.visit.findUnique({
       where: { id: visitId },
       include: {
-        lead: { select: { customerName: true, phone: true, language: true } },
+        lead: { select: { id: true, customerName: true, phone: true, language: true } },
         property: { select: { name: true, locationArea: true } },
         company: { select: { whatsappPhone: true, settings: true } },
       },
@@ -581,8 +572,8 @@ export class AutomationService {
       logger.warn('Visit reminder skipped because visit no longer exists', { visitId, timing });
       return;
     }
-    if (visit.status !== 'confirmed') {
-      logger.debug('Visit reminder skipped because visit is not confirmed', { visitId, timing, status: visit.status });
+    if (!isVisitEligibleForCustomerReminder(visit.status, visit.leadId ?? visit.lead?.id)) {
+      logger.debug('Visit reminder skipped because visit is not eligible', { visitId, timing, status: visit.status });
       return;
     }
 

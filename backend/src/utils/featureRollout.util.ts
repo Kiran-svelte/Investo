@@ -3,12 +3,14 @@ import config from '../config';
 export type FeatureKey =
   | 'advancedLeadUx'
   | 'contextualCopilotButtons'
-  | 'customGreetingTemplate';
+  | 'customGreetingTemplate'
+  | 'reliableCustomerNotifications';
 
 const FEATURE_KEYS: FeatureKey[] = [
   'advancedLeadUx',
   'contextualCopilotButtons',
   'customGreetingTemplate',
+  'reliableCustomerNotifications',
 ];
 
 function isFeatureKey(value: string): value is FeatureKey {

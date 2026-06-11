@@ -354,6 +354,10 @@ const config = {
         skipIpWhitelist: process.env.SKIP_IP_WHITELIST === 'true',
         webhookMaxSize: process.env.WHATSAPP_WEBHOOK_MAX_SIZE || '1mb',
         dedupTtlSeconds: parseInt(process.env.WHATSAPP_DEDUP_TTL_SECONDS || '300', 10),
+        /** When false, skips typing indicator and artificial reply delay entirely. */
+        replyPacingEnabled: process.env.WHATSAPP_REPLY_PACING_ENABLED !== 'false',
+        /** Shared secret for signed production handset E2E proofs (X-Investo-E2E-Token header). */
+        e2eWebhookProofToken: process.env.E2E_WEBHOOK_PROOF_TOKEN || '',
     },
     ai: {
         provider: process.env.AI_PROVIDER || 'openai',
@@ -461,6 +465,20 @@ const config = {
     enterpriseAgent: {
         enabled: process.env.ENTERPRISE_AGENT_ENABLED === 'true',
         mode: (process.env.ENTERPRISE_AGENT_MODE || 'augment'),
+    },
+    features: {
+        /** Post-visit buttons, advanced lead stage sync, skip re-qualification. */
+        advancedLeadUx: process.env.FEATURE_ADVANCED_LEAD_UX === 'true',
+        /** Deterministic staff copilot button fallback on CRM replies. */
+        contextualCopilotButtons: process.env.FEATURE_CONTEXTUAL_COPILOT_BUTTONS === 'true',
+        /** H2 greeting template path (post-visit / advanced returning replies). */
+        customGreetingTemplate: process.env.FEATURE_CUSTOM_GREETING_TEMPLATE === 'true',
+        /** 0–100: share of leads that receive flagged UX when globally enabled. */
+        rolloutPercentage: Math.min(100, Math.max(0, parseInt(process.env.FEATURE_ROLLOUT_PERCENTAGE || '0', 10) || 0)),
+        /** When true, compare old vs new paths and log mismatches even when serving old behavior. */
+        shadowMode: process.env.FEATURE_SHADOW_MODE === 'true',
+        /** Visit/call reminders + nurture follow-ups via sendCompanyTextMessage and broader visit eligibility. */
+        reliableCustomerNotifications: process.env.FEATURE_RELIABLE_CUSTOMER_NOTIFICATIONS === 'true',
     },
 };
 exports.default = config;
