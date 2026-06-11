@@ -1257,6 +1257,11 @@ export async function tryRunBuyerWorkflow(input: {
     workflowId = 'escalate_to_human';
   } else if (/\b(price|cost|how much|rate)\b/.test(text)) workflowId = 'price_inquiry';
   else if (/\b(available|availability|units left|in stock)\b/.test(text)) workflowId = 'availability_check';
+  else if (/\b(how many|number of|total)\b[\s\S]{0,40}\b(project|projects|properties|inventory|ongoing)\b/.test(text)) {
+    workflowId = 'availability_check';
+  } else if (/\b(do you|have you|got|any)\b[\s\S]{0,40}\b(villas?|apartments?|plots?|properties|projects?)\b/.test(text)) {
+    workflowId = 'availability_check';
+  } else if (/\b(\d)\s*bhk\b/.test(text)) workflowId = 'availability_check';
   else if (/\b(amenit|pool|gym|clubhouse)\b/.test(text)) workflowId = 'amenities_question';
   else if (/\b(talk\s+to|speak\s+to|human|agent|call\s+me|callback|call\s+back)\b/.test(text)) workflowId = 'escalate_to_human';
   if (!workflowId) return null;

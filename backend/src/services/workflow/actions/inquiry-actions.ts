@@ -1,5 +1,25 @@
 import type { ActionContext } from './action-helpers';
 import { fail, failToolResult, ok, requireLeadId, runNamedTool, skip } from './action-helpers';
+import {
+  formatBuyerCatalogEmpty,
+  formatBuyerCatalogMatches,
+  formatInventoryCountReply,
+  isInventoryCountQuery,
+} from '../../../utils/formatBuyerCatalog.util';
+import {
+  getInventorySummary,
+  matchCatalogPropertiesForQuery,
+} from '../../../services/propertyKnowledge.service';
+
+async function resolveBuyerCatalogReply(companyId: string, message: string): Promise<string> {
+  if (isInventoryCountQuery(message)) {
+    const summary = await getInventorySummary(companyId);
+    return formatInventoryCountReply(summary);
+  }
+  const matches = await matchCatalogPropertiesForQuery({ companyId, query: message, limit: 5 });
+  if (!matches.length) return formatBuyerCatalogEmpty(message);
+  return formatBuyerCatalogMatches(matches);
+}
 
 export async function fetchPropertyPrice(ctx: ActionContext) {
   if (ctx.params.propertyId) {
@@ -25,7 +45,14 @@ export async function fetchPropertyPrice(ctx: ActionContext) {
     message: ctx.params.message ?? ctx.run.messageText,
   });
   if (catalog.ok === false) return failToolResult(catalog);
-  ctx.state.lastMessage = catalog.text;
+  if ((ctx.run.channel ?? 'staff') === 'buyer') {
+    ctx.state.lastMessage = await resolveBuyerCatalogReply(
+      ctx.run.toolContext.companyId,
+      ctx.params.message ?? ctx.run.messageText,
+    );
+  } else {
+    ctx.state.lastMessage = catalog.text;
+  }
   return skip();
 }
 
@@ -35,8 +62,13 @@ export async function respondPrice(ctx: ActionContext) {
 }
 
 export async function checkInventory(ctx: ActionContext) {
+  const message = ctx.params.message ?? ctx.run.messageText;
+  if ((ctx.run.channel ?? 'staff') === 'buyer') {
+    ctx.state.lastMessage = await resolveBuyerCatalogReply(ctx.run.toolContext.companyId, message);
+    return skip();
+  }
   const result = await runNamedTool(ctx.run.toolContext, 'searchCatalogByCustomerMessage', {
-    message: ctx.params.message ?? ctx.run.messageText,
+    message,
   });
   if (result.ok === false) return failToolResult(result);
   ctx.state.lastMessage = result.text;

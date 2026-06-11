@@ -2349,8 +2349,14 @@ export class WhatsAppService {
 
     if (hasText) {
       let body = result.text!.trim();
-      if (media?.kind === 'media' && media.url) {
-        body = this.appendFoldedMediaToBody(body, media);
+      const mediaItems = (result.components ?? []).filter((c) => c.kind === 'media');
+      for (const media of mediaItems) {
+        if (!media.url) continue;
+        if (media.mime.startsWith('image/')) {
+          await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig).catch(() => undefined);
+        } else {
+          await this.sendDocument(to, media.url, 'brochure.pdf', media.caption ?? null, whatsappConfig).catch(() => undefined);
+        }
       }
       await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);
     }

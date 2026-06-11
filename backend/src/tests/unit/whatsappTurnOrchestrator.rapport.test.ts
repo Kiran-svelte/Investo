@@ -18,6 +18,11 @@ const mockPrismaMessageCreate = jest.fn().mockResolvedValue({});
 const mockPrismaConversationUpdate = jest.fn().mockResolvedValue({});
 const mockRunWorkflow = jest.fn();
 const mockClassifyAndRunBuyerWorkflow = jest.fn();
+const mockResolvePropertyBrowseTurn = jest.fn();
+
+jest.mock('../../utils/propertyBrowseTurn.util', () => ({
+  resolvePropertyBrowseTurn: (...args: unknown[]) => mockResolvePropertyBrowseTurn(...args),
+}));
 
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
@@ -235,20 +240,24 @@ describe('whatsappTurnOrchestrator property browse (chunk 04 H2.5)', () => {
     expect(isPropertyBrowsingIntent('call me')).toBe(false);
   });
 
-  test('H2.5 calls runWorkflow(availability_check) not classifyAndRunBuyerWorkflow', async () => {
+  test('isPropertyBrowsingIntent matches type and count queries', () => {
+    expect(isPropertyBrowsingIntent('Do you guys have villa ?')).toBe(true);
+    expect(isPropertyBrowsingIntent('How many projects are there ongoing')).toBe(true);
+    expect(isPropertyBrowsingIntent('Any 4bhk properties ?')).toBe(true);
+  });
+
+  test('H2.5 uses resolvePropertyBrowseTurn not classifyAndRunBuyerWorkflow', async () => {
+    mockResolvePropertyBrowseTurn.mockResolvedValueOnce({
+      reply: 'Here are *2* matching options:\n\n*Sunset Heights*',
+      propertyIds: ['p1', 'p2'],
+      properties: [{ id: 'p1', name: 'Sunset Heights' }],
+      components: [{ kind: 'list', title: 'View projects', sections: [] }],
+    });
     const ctx = baseTurnCtx({ messageText: 'show me properties' });
     const result = await orchestrateWhatsAppBuyerTurn(ctx, baseConversationState());
 
     expect(result.handled).toBe(true);
-    expect(result.text).toContain('matching projects');
-    expect(mockRunWorkflow).toHaveBeenCalledWith(
-      'availability_check',
-      expect.objectContaining({
-        channel: 'buyer',
-        sessionLeadId: 'lead-1',
-      }),
-      expect.objectContaining({ leadId: 'lead-1' }),
-    );
+    expect(mockResolvePropertyBrowseTurn).toHaveBeenCalled();
     expect(mockClassifyAndRunBuyerWorkflow).not.toHaveBeenCalled();
   });
 
@@ -268,8 +277,7 @@ describe('whatsappTurnOrchestrator property browse (chunk 04 H2.5)', () => {
       content.indexOf('async function handlePropertyBrowsingTurn'),
       content.indexOf('async function handleMemoryRecallTurn'),
     );
-    expect(h25Block).toContain("runWorkflow('availability_check'");
-    expect(h25Block).toMatch(/const \{ runWorkflow \} = await import/);
+    expect(h25Block).toContain('resolvePropertyBrowseTurn');
     expect(h25Block).not.toMatch(/await classifyAndRunBuyerWorkflow\(/);
   });
 });

@@ -110,9 +110,11 @@ export function isHumanTakeoverActive(conversation: { status: string; aiEnabled:
 /** Cap turn components to one customer-visible payload: interactive wins over separate media. */
 export function enforceTurnComponentBudget(components: WhatsAppComponent[]): WhatsAppComponent[] {
   const interactive = components.find((c) => c.kind === 'buttons' || c.kind === 'list');
+  const media = components.filter((c) => c.kind === 'media');
+  if (interactive && media.length) return [...media.slice(0, 2), interactive];
   if (interactive) return [interactive];
-  const media = components.find((c) => c.kind === 'media');
-  return media ? [media] : [];
+  if (media.length) return media.slice(0, 2);
+  return [];
 }
 
 export function resolveHeroMediaComponent(
@@ -124,7 +126,9 @@ export function resolveHeroMediaComponent(
     return brochureResolution.mediaComponent;
   }
 
-  if (stage !== 'shortlist' && stage !== 'commitment') return undefined;
+  if (stage !== 'shortlist' && stage !== 'commitment' && stage !== 'qualify' && stage !== 'rapport') {
+    return undefined;
+  }
 
   for (const property of properties) {
     const images = property.images;
@@ -740,6 +744,11 @@ export function isPropertyBrowsingIntent(messageText: string): boolean {
   return (
     // Bare keyword — highest signal
     /^\s*(property|properties|projects?|flats?|apartments?|villas?|plots?)\s*$/i.test(t) ||
+    // "do you have villa(s)" / "any 4bhk"
+    /\b(do you|have you|got|any)\b[\s\S]{0,40}\b(villas?|apartments?|flats?|plots?|properties|projects?)\b/i.test(t) ||
+    /\b(\d)\s*bhk\b/i.test(t) ||
+    // inventory count
+    /\b(how many|number of|total)\b[\s\S]{0,40}\b(project|projects|properties|inventory|ongoing)\b/i.test(t) ||
     // "show me / list / see properties"
     /\b(show|list|see|view|display|get|give|tell)\s+(me\s+)?(your\s+|the\s+|all\s+|available\s+)?(properties|property|projects?|listings?|inventory|flats?|apartments?|villas?|plots?)\b/i.test(t) ||
     // "what properties / projects do you have"
@@ -778,47 +787,29 @@ async function handlePropertyBrowsingTurn(
     messagePreview: ctx.input.messageText.slice(0, 40),
   });
 
-  // DETERMINISTIC FAST-PATH: run availability_check directly — no LLM classifier.
-  // classifyAndRunBuyerWorkflow routes through the LLM which can emit
-  // human_escalated on temperature drift. For bare property-listing intent
-  // we always want inventory search, so we skip straight to runWorkflow.
-  const { runWorkflow } = await import('../workflow/workflow-engine.service');
-  const buyerWorkflowRun = {
-    toolContext: {
-      userId: 'system',
-      companyId: ctx.companyId,
-      userRole: 'company_admin' as const,
-      userName: 'System',
-      channel: 'buyer' as const,
-    },
+  const { resolvePropertyBrowseTurn } = await import('../../utils/propertyBrowseTurn.util');
+  const browse = await resolvePropertyBrowseTurn({
+    companyId: ctx.companyId,
     messageText: ctx.input.messageText,
-    recentMessages: [],
-    companyName: ctx.companyName,
-    sessionLeadId: ctx.input.leadId,
-    sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
-    channel: 'buyer' as const,
-  };
-  const workflowResult = await runWorkflow('availability_check', buyerWorkflowRun, {
-    leadId: ctx.input.leadId,
-    propertyId: ctx.input.conversationSelectedPropertyId ?? undefined,
-    message: ctx.input.messageText,
+    stage: conversationStage,
   });
+  if (!browse) return null;
 
-  const rawReply = workflowResult.reply?.trim();
-  if (!rawReply) return null;
-
-  const safeReply = stripBuyerInternalMetadata(rawReply);
+  const safeReply = stripBuyerInternalMetadata(browse.reply);
   await prisma.message.create({
     data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
   });
 
-  const visitTime = resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt);
-  const components = resolveBuyerComponents({
-    stage: conversationStage,
-    outboundText: safeReply,
-    propertyId: ctx.input.conversationSelectedPropertyId,
-    ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
-  });
+  if (browse.propertyIds.length) {
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: {
+        recommendedPropertyIds: browse.propertyIds,
+        selectedPropertyId: browse.propertyIds[0] ?? null,
+        ...(browse.propertyIds.length === 1 ? { stage: 'shortlist' as const } : {}),
+      },
+    }).catch(() => undefined);
+  }
 
   fireMemoryExtraction({
     leadId: ctx.input.leadId,
@@ -828,7 +819,13 @@ async function handlePropertyBrowsingTurn(
     liveCtx,
   });
 
-  return { audience: 'buyer', handled: true, terminal: true, text: safeReply, components };
+  return {
+    audience: 'buyer',
+    handled: true,
+    terminal: true,
+    text: safeReply,
+    components: enforceTurnComponentBudget(browse.components),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1077,6 +1074,52 @@ async function handleVisitCommitWorkflowTurn(
 // H7: Classifier workflow
 // ---------------------------------------------------------------------------
 
+async function resolveBuyerWorkflowComponents(input: {
+  companyId: string;
+  conversationId: string;
+  messageText: string;
+  conversationStage: string;
+  outboundText: string;
+  resolvedPropertyId: string | null;
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>;
+  leadId: string;
+}): Promise<WhatsAppComponent[]> {
+  const { isInventoryCountQuery, isPropertyTypeBrowseQuery } = await import('../../utils/formatBuyerCatalog.util');
+  const isCatalogTurn =
+    isPropertyBrowsingIntent(input.messageText)
+    || isInventoryCountQuery(input.messageText)
+    || isPropertyTypeBrowseQuery(input.messageText)
+    || /\b(active project|matching options|couldn't find a \*\d BHK)/i.test(input.outboundText);
+
+  if (isCatalogTurn) {
+    const { resolvePropertyBrowseTurn } = await import('../../utils/propertyBrowseTurn.util');
+    const browse = await resolvePropertyBrowseTurn({
+      companyId: input.companyId,
+      messageText: input.messageText,
+      stage: input.conversationStage,
+    });
+    if (browse?.propertyIds.length) {
+      await prisma.conversation.update({
+        where: { id: input.conversationId },
+        data: {
+          recommendedPropertyIds: browse.propertyIds,
+          selectedPropertyId: browse.propertyIds[0] ?? null,
+        },
+      }).catch(() => undefined);
+    }
+    if (browse) {
+      return enforceTurnComponentBudget(browse.components);
+    }
+  }
+
+  return resolveBuyerComponents({
+    stage: input.conversationStage,
+    outboundText: input.outboundText,
+    propertyId: input.resolvedPropertyId,
+    ...buyerButtonFlagsFromLive(input.liveCtx, input.leadId),
+  });
+}
+
 /**
  * Runs the LLM workflow classifier then executes the matched workflow.
  *
@@ -1136,11 +1179,15 @@ async function handleClassifierWorkflowTurn(
     }).catch(() => undefined);
   }
 
-  const components = resolveBuyerComponents({
-    stage: conversationStage,
+  const components = await resolveBuyerWorkflowComponents({
+    companyId: ctx.companyId,
+    conversationId: ctx.input.conversationId,
+    messageText: ctx.input.messageText,
+    conversationStage,
     outboundText: safeReply,
-    propertyId: resolvedPropertyId,
-    ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
+    resolvedPropertyId,
+    liveCtx,
+    leadId: ctx.input.leadId,
   });
 
   fireMemoryExtraction({ leadId: ctx.input.leadId, messageText: ctx.input.messageText, outboundText: safeReply, workflowId: undefined, liveCtx });

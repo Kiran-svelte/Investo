@@ -173,17 +173,22 @@ export async function resolveBrochureForAiTurn(input: {
     properties: input.properties,
   });
 
+  const proactive = selectPropertiesForProactiveShortlist({
+    aiText: input.aiText,
+    properties: input.properties,
+  });
+
+  const chosen = targets[0] ?? proactive[0];
   const cleanedText = stripBrochureLinksFromText(input.aiText);
 
-  if (targets.length === 0 || !targets[0].brochureUrl) {
+  if (!chosen?.brochureUrl) {
     return { cleanedText, mediaComponent: null };
   }
 
-  const target = targets[0];
-  const publicUrl = await resolveBrochureUrlForWhatsApp(target.brochureUrl);
+  const publicUrl = await resolveBrochureUrlForWhatsApp(chosen.brochureUrl);
   if (!publicUrl) {
     logger.warn('resolveBrochureForAiTurn: could not resolve presigned URL', {
-      propertyId: target.id,
+      propertyId: chosen.id,
     });
     return { cleanedText, mediaComponent: null };
   }
@@ -194,7 +199,25 @@ export async function resolveBrochureForAiTurn(input: {
       kind: 'media',
       url: publicUrl,
       mime: 'application/pdf',
-      caption: `📎 ${target.name} — Brochure`,
+      caption: `📎 ${chosen.name} — Brochure`,
     },
   };
+}
+
+/** When AI discusses exactly one property, proactively attach brochure (no explicit ask). */
+export function selectPropertiesForProactiveShortlist(input: {
+  aiText: string;
+  properties: PropertyBrochureSource[];
+}): PropertyBrochureSource[] {
+  const withBrochure = input.properties.filter((p) => p.brochureUrl);
+  if (!withBrochure.length) return [];
+
+  const mentioned = withBrochure.filter((p) => {
+    const name = normalizeName(p.name);
+    return name.length >= 3 && normalizeName(input.aiText).includes(name);
+  });
+
+  if (mentioned.length === 1) return [mentioned[0]];
+  if (withBrochure.length === 1 && input.aiText.length > 40) return [withBrochure[0]];
+  return [];
 }

@@ -307,11 +307,10 @@ describe('PROOF Area 9 — one customer reply per inbound turn', () => {
     expect(orch).toContain('focusedPropertyBlock');
   });
 
-  test('sendTurnResult folds media into text instead of second bubble', () => {
+  test('sendTurnResult sends native media before text and buttons', () => {
     const wa = read('services/whatsapp.service.ts');
-    expect(wa).toContain('appendFoldedMediaToBody');
-    expect(wa).toContain('appendFoldedMediaToBody');
-    expect(wa).not.toContain('sendTurnResult_media_addon');
+    expect(wa).toContain('sendImage(to, media.url');
+    expect(wa).toContain('sendDocument(to, media.url');
   });
 
   test('orchestrator catch does not sendMessage — single dispatch via sendTurnResult', () => {

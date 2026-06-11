@@ -728,6 +728,13 @@ export async function searchPropertyKnowledge(
 
 const PROPERTY_TYPE_PATTERN = /\b(apartment|flat|villa|plot|land|commercial|shop|office)\b/i;
 
+export function parseBedroomsFromQuery(query: string): number | null {
+  const match = query.match(/\b(\d)\s*bhk\b/i);
+  if (!match) return null;
+  const n = parseInt(match[1], 10);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? n : null;
+}
+
 export function parsePropertyTypeFromQuery(query: string): string | null {
   const match = query.match(PROPERTY_TYPE_PATTERN);
   if (!match) {
@@ -750,7 +757,9 @@ export function parseLocationTokensFromQuery(query: string): string[] {
   const stop = new Set([
     'near', 'in', 'at', 'around', 'for', 'the', 'a', 'an', 'looking', 'want', 'need',
     'villa', 'apartment', 'flat', 'plot', 'land', 'commercial', 'property', 'project',
-    'brochure', 'details', 'send', 'show', 'me', 'please',
+    'brochure', 'details', 'send', 'show', 'me', 'please', 'you', 'guys', 'have', 'any',
+    'how', 'many', 'there', 'ongoing', 'these', 'those', 'this', 'that', 'could', 'would',
+    'also', 'about', 'with', 'from', 'your', 'our', 'are', 'was', 'were', 'does', 'did',
   ]);
   return query
     .toLowerCase()
@@ -758,6 +767,25 @@ export function parseLocationTokensFromQuery(query: string): string[] {
     .split(/\s+/)
     .map((t) => t.trim())
     .filter((t) => t.length >= 3 && !stop.has(t));
+}
+
+export async function getInventorySummary(companyId: string): Promise<{
+  total: number;
+  upcoming: number;
+  byType: Record<string, number>;
+}> {
+  const rows = await prisma.property.findMany({
+    where: { companyId, status: { in: ['available', 'upcoming'] } },
+    select: { propertyType: true, status: true },
+  });
+  const byType: Record<string, number> = {};
+  let upcoming = 0;
+  for (const row of rows) {
+    const type = row.propertyType || 'other';
+    byType[type] = (byType[type] ?? 0) + 1;
+    if (row.status === 'upcoming') upcoming += 1;
+  }
+  return { total: rows.length, upcoming, byType };
 }
 
 export async function matchCatalogPropertiesForQuery(input: {
@@ -772,10 +800,14 @@ export async function matchCatalogPropertiesForQuery(input: {
   locationArea: string | null;
   brochureUrl: string | null;
   status: string | null;
+  bedrooms: number | null;
+  priceMin: unknown;
+  priceMax: unknown;
   score: number;
 }>> {
   const limit = input.limit ?? 5;
   const propertyType = parsePropertyTypeFromQuery(input.query);
+  const bedrooms = parseBedroomsFromQuery(input.query);
   const locationTokens = parseLocationTokensFromQuery(input.query);
 
   const where: Record<string, unknown> = {
@@ -784,6 +816,9 @@ export async function matchCatalogPropertiesForQuery(input: {
   };
   if (propertyType) {
     where.propertyType = propertyType;
+  }
+  if (bedrooms != null) {
+    where.bedrooms = bedrooms;
   }
 
   const candidates = await prisma.property.findMany({
@@ -798,9 +833,14 @@ export async function matchCatalogPropertiesForQuery(input: {
       locationArea: true,
       brochureUrl: true,
       status: true,
+      bedrooms: true,
+      priceMin: true,
+      priceMax: true,
       description: true,
     },
   });
+
+  const hasStructuredFilter = Boolean(propertyType || bedrooms != null);
 
   const scored = candidates.map((p) => {
     const haystack = [
@@ -814,7 +854,9 @@ export async function matchCatalogPropertiesForQuery(input: {
       .join(' ')
       .toLowerCase();
 
-    let score = propertyType && p.propertyType === propertyType ? 2 : 0;
+    let score = 0;
+    if (propertyType && p.propertyType === propertyType) score += 2;
+    if (bedrooms != null && p.bedrooms === bedrooms) score += 3;
     for (const token of locationTokens) {
       if (haystack.includes(token)) {
         score += 3;
@@ -823,9 +865,24 @@ export async function matchCatalogPropertiesForQuery(input: {
     return { ...p, score };
   });
 
-  return scored
-    .filter((p) => p.score > 0 || locationTokens.length === 0)
+  const filtered = scored.filter((p) => {
+    if (propertyType && p.propertyType !== propertyType) return false;
+    if (bedrooms != null && p.bedrooms !== bedrooms) return false;
+    if (p.score > 0) return true;
+    if (!hasStructuredFilter && locationTokens.length === 0) return true;
+    return false;
+  });
+
+  const seen = new Set<string>();
+  return filtered
     .sort((a, b) => b.score - a.score)
+    .filter((p) => {
+      const nameKey = p.name.toLowerCase().trim();
+      if (seen.has(p.id) || seen.has(`name:${nameKey}`)) return false;
+      seen.add(p.id);
+      seen.add(`name:${nameKey}`);
+      return true;
+    })
     .slice(0, limit);
 }
 
