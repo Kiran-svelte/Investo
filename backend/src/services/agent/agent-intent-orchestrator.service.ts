@@ -27,7 +27,12 @@ import { runWorkflowForIntent } from '../workflow/workflow-engine.service';
 import { workflowIdForIntent } from '../workflow/workflow-registry';
 import { isVisitListQueryMessage } from '../visitIntentFromMessage.service';
 import { tryResolveVisitListReply } from './agent-crm-query.service';
-import { parseBulkSendCommand, MAX_BULK_SEND_RECIPIENTS } from '../../utils/bulk-send-parser.util';
+import { MAX_BULK_SEND_RECIPIENTS } from '../../utils/bulk-send-parser.util';
+import {
+  executeBulkWhatsAppForward,
+  formatBulkForwardIntentReply,
+  resolveBulkForwardPlan,
+} from '../bulk-whatsapp-forward.service';
 
 export { extractLeadIdsFromText, extractLeadNamesFromAssistantMessages, resolveLeadForIntent } from './agent-lead-resolution.service';
 
@@ -930,44 +935,25 @@ async function executeBulkForward(
   parameters: IntentParameters,
   rawMessage: string,
 ): Promise<string> {
-  const parsed = parseBulkSendCommand(rawMessage);
+  const plan = resolveBulkForwardPlan(
+    rawMessage,
+    typeof parameters.message === 'string' ? parameters.message : null,
+    parameters.phoneNumbers,
+  );
 
-  const messageBody =
-    (typeof parameters.message === 'string' && parameters.message.trim())
-      ? parameters.message.trim()
-      : parsed?.body ?? '';
-
-  const phonesFromParams = Array.isArray(parameters.phoneNumbers)
-    ? parameters.phoneNumbers.map(String).map((phone) => phone.trim()).filter(Boolean)
-    : [];
-  const phones = phonesFromParams.length > 0 ? phonesFromParams : (parsed?.phones ?? []);
-
-  if (!messageBody) {
+  if (!plan?.body) {
     return 'Please specify the message to forward.\n\nExample: _"Forward \\"Tomorrow is holiday\\" to 9876543210 and 9019655080"_';
   }
 
-  if (phones.length === 0) {
+  if (plan.phones.length === 0) {
     return 'No valid phone numbers found. Please include 10-digit mobile numbers in your message.\n\nExample: _"Forward \\"Tomorrow is holiday\\" to 9876543210 and 9019655080"_';
   }
 
-  const cappedPhones = phones.slice(0, MAX_BULK_SEND_RECIPIENTS);
-  const { whatsappService } = await import('../whatsapp.service');
-  const sent: string[] = [];
-  const failed: string[] = [];
-
-  for (const phone of cappedPhones) {
-    try {
-      await (whatsappService as any).sendCompanyTextMessage(phone, messageBody, context.companyId);
-      sent.push(phone);
-    } catch (err: unknown) {
-      logger.warn('Bulk forward send failed', {
-        phone,
-        companyId: context.companyId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      failed.push(phone);
-    }
-  }
+  const result = await executeBulkWhatsAppForward({
+    companyId: context.companyId,
+    body: plan.body,
+    phones: plan.phones,
+  });
 
   void logAgentAction({
     companyId: context.companyId,
@@ -975,25 +961,15 @@ async function executeBulkForward(
     action: 'intent_bulk_forward',
     actorId: context.userId,
     actorRole: context.userRole,
-    inputs: { recipients: cappedPhones.length, preview: messageBody.slice(0, 100) },
-    result: `sent:${sent.length} failed:${failed.length}`,
-    status: failed.length === cappedPhones.length ? 'failed' : 'success',
+    inputs: { recipients: plan.phones.length, preview: plan.body.slice(0, 100) },
+    result: `sent:${result.sent.length} failed:${result.failed.length}`,
+    status: result.failed.length === plan.phones.length ? 'failed' : 'success',
   });
 
-  const summary = [
-    `📤 *Bulk Forward Complete*`,
-    ``,
-    `Message: _"${messageBody.slice(0, 80)}${messageBody.length > 80 ? '…' : ''}"_`,
-    ``,
-    sent.length ? `✅ Sent to (${sent.length}): ${sent.join(', ')}` : null,
-    failed.length ? `❌ Failed (${failed.length}): ${failed.join(', ')}` : null,
-    phones.length > MAX_BULK_SEND_RECIPIENTS
-      ? `⚠️ Only first ${MAX_BULK_SEND_RECIPIENTS} recipients processed (cap limit).`
-      : null,
-  ]
-    .filter((line): line is string => line !== null)
-    .join('\n');
-
+  const summary = formatBulkForwardIntentReply(result);
+  if (plan.phones.length > MAX_BULK_SEND_RECIPIENTS) {
+    return `${summary}\n⚠️ Only first ${MAX_BULK_SEND_RECIPIENTS} recipients processed (cap limit).`;
+  }
   return summary;
 }
 

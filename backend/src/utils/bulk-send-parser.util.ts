@@ -46,6 +46,15 @@ const PHONE_TOKEN_RE = /(?:\+?91[-\s]?)?[6-9]\d{9}/g;
 /** Quoted body: anything between matching single or double quotes. */
 const QUOTED_BODY_RE = /(?:send|forward|bulk\s+forward)\s+(['"]).+?\1\s+to\s+/i;
 
+/** Normalize smart quotes and invisible Unicode from WhatsApp clients. */
+function normalizeBulkCommandText(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u200b-\u200f\u2028\u2029\ufeff]/g, '');
+}
+
 /**
  * Extracts all phone numbers from the raw message string.
  * Returns a deduplicated array of normalised phone strings.
@@ -129,7 +138,7 @@ function isSendCommand(raw: string): boolean {
  * @returns {@link BulkSendParseResult} or null.
  */
 export function parseBulkSendCommand(rawMessage: string): BulkSendParseResult | null {
-  const trimmed = rawMessage.trim();
+  const trimmed = normalizeBulkCommandText(rawMessage);
 
   if (!isSendCommand(trimmed)) return null;
 

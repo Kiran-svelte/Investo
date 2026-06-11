@@ -95,8 +95,16 @@ export function createBulkMessageTools(context: ToolContext): AgentTool[] {
         // Send sequentially to avoid hammering the Meta rate limit.
         for (const { original, phone } of normalized) {
           try {
-            await whatsappService.sendCompanyTextMessage(phone, message, context.companyId);
-            results.push({ phone: maskPhone(phone), status: 'sent' });
+            const ok = await whatsappService.sendStaffBulkTextMessage(phone, message, context.companyId);
+            if (ok) {
+              results.push({ phone: maskPhone(phone), status: 'sent' });
+            } else {
+              results.push({
+                phone: maskPhone(original),
+                status: 'failed',
+                error: 'WhatsApp send rejected',
+              });
+            }
 
             // Log the outbound message against the lead's conversation if it exists.
             const conversation = await prisma.conversation.findFirst({

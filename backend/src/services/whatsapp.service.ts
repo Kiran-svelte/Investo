@@ -1557,6 +1557,16 @@ export class WhatsAppService {
     return this.sendMessage(to, text, whatsappConfig);
   }
 
+  /**
+   * Staff bulk-forward outbound — one text per distinct recipient per copilot turn.
+   * Never filters by staff/client/stranger; sends to the exact phone provided.
+   */
+  async sendStaffBulkTextMessage(to: string, text: string, companyId: string): Promise<boolean> {
+    const whatsappConfig = await this.resolveCompanyWhatsAppConfig(companyId);
+    if (!whatsappConfig) return false;
+    return this.sendMessage(to, text, whatsappConfig, { staffBulkRecipient: true });
+  }
+
   async sendCompanyInteractiveButtons(
     to: string,
     companyId: string,
@@ -1611,13 +1621,26 @@ export class WhatsAppService {
    * Send a message via WhatsApp Cloud API.
    * Uses company-specific config for multi-tenant support.
    */
-  async sendMessage(to: string, text: string, whatsappConfig: CompanyWhatsAppConfig): Promise<boolean> {
+  async sendMessage(
+    to: string,
+    text: string,
+    whatsappConfig: CompanyWhatsAppConfig,
+    options?: { staffBulkRecipient?: boolean },
+  ): Promise<boolean> {
     if (!text.trim()) {
       logger.error('Refusing to send empty WhatsApp message');
       return false;
     }
 
-    if (!claimPrimaryOutboundSend('OUT-TEXT', 'whatsapp.service.ts:sendMessage', 'sendMessage', to)) {
+    if (
+      !claimPrimaryOutboundSend(
+        'OUT-TEXT',
+        'whatsapp.service.ts:sendMessage',
+        options?.staffBulkRecipient ? 'staff_bulk_recipient' : 'sendMessage',
+        to,
+        options?.staffBulkRecipient === true,
+      )
+    ) {
       logger.warn('Blocked duplicate primary WhatsApp text send for this inbound turn');
       return false;
     }

@@ -169,13 +169,15 @@ export function claimPrimaryOutboundSend(
   location: string,
   source: string,
   recipient?: string | null,
+  staffBulkRecipient = false,
 ): boolean {
   if (!activeTurn) return true;
   const buyerTail = normalizePhoneTail(activeTurn.customerPhone);
   const recipientTail = normalizePhoneTail(recipient);
 
-  // Staff bulk forward: allow multiple distinct customer numbers in one copilot turn.
-  if (activeTurn.channel === 'staff' && recipientTail) {
+  // Staff bulk forward: allow multiple distinct numbers in one copilot turn.
+  // staffBulkRecipient=true also applies when channel was not set to staff (dashboard copilot).
+  if (recipientTail && (activeTurn.channel === 'staff' || staffBulkRecipient)) {
     activeTurn.staffRecipientTails ??= new Set<string>();
     if (activeTurn.staffRecipientTails.has(recipientTail)) {
       emit(hypothesisId, location, 'primary_outbound_blocked', {

@@ -1,44 +1,36 @@
 import logger from '../config/logger';
 import { logAgentAction } from './agent-action-log.service';
-import { normalizeInboundWhatsAppPhone } from '../utils/phoneMatch';
-import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import type { CompanyUserMatch } from './inboundWhatsAppRouting.service';
+import { parseBulkSendCommand } from '../utils/bulk-send-parser.util';
+import {
+  executeBulkWhatsAppForward,
+  formatBulkForwardStaffReply,
+  resolveBulkForwardPlan,
+} from './bulk-whatsapp-forward.service';
 
-const FORWARD_QUOTED_RE = /^(?:send|forward)\s+(["'])([\s\S]+?)\1\s+to\s+(.+)$/i;
-const FORWARD_UNQUOTED_RE = /^(?:send|forward)\s+(.+?)\s+to\s+([\d\s,+()-]+)$/i;
-
-function parsePhoneList(raw: string): string[] {
-  const trimmed = raw.trim().replace(/\s+and\s+/gi, ',');
-  const chunks = trimmed.includes(',') || trimmed.includes(';')
-    ? trimmed.split(/[,;\n]+/)
-    : trimmed.split(/\s+/);
-  return chunks
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !/^and$/i.test(part))
-    .map((part) => normalizeInboundWhatsAppPhone(part.replace(/^\+/, '+')));
+/**
+ * Re-exported for callers that used the legacy function name.
+ * Delegates to the canonical unified parser.
+ *
+ * @param message - Raw staff message text.
+ * @returns Parsed { body, phones } or null.
+ */
+export function parseStaffForwardCommand(
+  message: string,
+): { body: string; phones: string[] } | null {
+  return parseBulkSendCommand(message);
 }
 
-export function parseStaffForwardCommand(message: string): { body: string; phones: string[] } | null {
-  const trimmed = message.trim();
-
-  const quoted = trimmed.match(FORWARD_QUOTED_RE);
-  if (quoted) {
-    const body = quoted[2].trim();
-    const phones = parsePhoneList(quoted[3]);
-    if (body && phones.length > 0) return { body, phones };
-  }
-
-  const unquoted = trimmed.match(FORWARD_UNQUOTED_RE);
-  if (unquoted) {
-    const body = unquoted[1].trim();
-    const phones = parsePhoneList(unquoted[2]);
-    if (body && phones.length > 0) return { body, phones };
-  }
-
-  return null;
-}
-
+/**
+ * Handle a WhatsApp "send/forward message to phones" command from a staff user.
+ * Uses the unified bulk-send parser so behaviour is identical to the LLM intent path.
+ *
+ * @param input.user - Authenticated staff user.
+ * @param input.messageText - Raw staff WhatsApp message text.
+ * @returns { handled: true, text } if the command was recognised and processed,
+ *          { handled: false } to fall through to the next handler.
+ * @throws Never — all send failures are caught and surfaced in the reply text.
+ */
 export async function tryStaffMessageForward(input: {
   user: CompanyUserMatch;
   messageText: string;
@@ -46,25 +38,15 @@ export async function tryStaffMessageForward(input: {
   if (input.user.userRole === 'viewer') {
     return { handled: false };
   }
-  const parsed = parseStaffForwardCommand(input.messageText);
-  if (!parsed) return { handled: false };
 
-  const { whatsappService } = await import('./whatsapp.service');
-  const sent: string[] = [];
-  const failed: string[] = [];
+  const plan = resolveBulkForwardPlan(input.messageText);
+  if (!plan) return { handled: false };
 
-  for (const phone of parsed.phones) {
-    try {
-      await whatsappService.sendCompanyTextMessage(phone, parsed.body, input.user.companyId);
-      sent.push(maskPhoneNumberForLogs(phone));
-    } catch (err: unknown) {
-      failed.push(maskPhoneNumberForLogs(phone));
-      logger.warn('staffMessageForward: send failed', {
-        phone: maskPhoneNumberForLogs(phone),
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  const result = await executeBulkWhatsAppForward({
+    companyId: input.user.companyId,
+    body: plan.body,
+    phones: plan.phones,
+  });
 
   void logAgentAction({
     companyId: input.user.companyId,
@@ -73,25 +55,16 @@ export async function tryStaffMessageForward(input: {
     actorId: input.user.userId,
     actorRole: input.user.userRole,
     resourceType: 'message',
-    inputs: { phones: parsed.phones.length, bodyPreview: parsed.body.slice(0, 80) },
-    result: `sent=${sent.length} failed=${failed.length}`,
-    status: sent.length ? 'success' : 'failed',
+    inputs: { phones: plan.phones.length, bodyPreview: plan.body.slice(0, 80) },
+    result: `sent=${result.sent.length} failed=${result.failed.length}`,
+    status: result.sent.length ? 'success' : 'failed',
   });
 
-  if (!sent.length) {
-    return {
-      handled: true,
-      text: `I couldn't deliver that message to any of those numbers. Check the phone format (e.g. 9036165603,919876543210).`,
-    };
+  if (!result.sent.length && !result.failed.length) {
+    logger.warn('staffMessageForward: no recipients after plan resolution', {
+      preview: input.messageText.slice(0, 80),
+    });
   }
 
-  const lines = [
-    `*Message sent* to ${sent.length} number${sent.length === 1 ? '' : 's'}:`,
-    ...sent.map((p) => `• ${p}`),
-  ];
-  if (failed.length) {
-    lines.push('', `Failed: ${failed.join(', ')}`);
-  }
-  lines.push('', `Message: "${parsed.body.slice(0, 200)}${parsed.body.length > 200 ? '…' : ''}"`);
-  return { handled: true, text: lines.join('\n') };
+  return { handled: true, text: formatBulkForwardStaffReply(result) };
 }

@@ -66,4 +66,24 @@ describe('outbound turn budget (one customer reply per turn)', () => {
     expect(claimPrimaryOutboundSend('OUT-TEXT', 'test', 'bulk-3', '6363062930')).toBe(true);
     expect(claimPrimaryOutboundSend('OUT-TEXT', 'test', 'bulk-1-dup', '+919036165603')).toBe(false);
   });
+
+  test('staffBulkRecipient flag allows multi-recipient sends outside staff channel', () => {
+    beginOutboundTurn({
+      channel: 'buyer',
+      inboundMessageId: 'wamid-buyer-bulk',
+      companyId: 'co-1',
+      customerPhone: '+919876543210',
+      route: 'buyer_inbound',
+    });
+
+    expect(
+      claimPrimaryOutboundSend('OUT-TEXT', 'test', 'staff_bulk_recipient', '+919036165603', true),
+    ).toBe(true);
+    expect(
+      claimPrimaryOutboundSend('OUT-TEXT', 'test', 'staff_bulk_recipient', '+919000000001', true),
+    ).toBe(true);
+    expect(
+      claimPrimaryOutboundSend('OUT-TEXT', 'test', 'staff_bulk_recipient', '+919036165603', true),
+    ).toBe(false);
+  });
 });

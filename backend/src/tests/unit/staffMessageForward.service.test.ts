@@ -34,8 +34,14 @@ describe('staffMessageForward.service', () => {
   });
 
   test('parseStaffForwardCommand supports and-separated phones', () => {
-    const parsed = parseStaffForwardCommand('send "Hello" to 9036165603 and 919876543210 and 9876543210');
+    const parsed = parseStaffForwardCommand('send "Hello" to 9036165603 and 9019655080 and 9876543210');
     expect(parsed?.phones).toHaveLength(3);
+  });
+
+  test('parseStaffForwardCommand supports smart quotes from mobile keyboards', () => {
+    const parsed = parseStaffForwardCommand('send “Hello team” to 9036165603, 9876543210');
+    expect(parsed?.body).toBe('Hello team');
+    expect(parsed?.phones).toHaveLength(2);
   });
 
   test('returns null for invalid commands', () => {
