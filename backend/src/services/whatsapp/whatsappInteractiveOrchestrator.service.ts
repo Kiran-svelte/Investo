@@ -111,6 +111,7 @@ async function routeInteractiveAction(
     return handleGenericVisitSlot(params);
   }
   if (interactiveId === 'call-me' || interactiveId === 'callback-request') return handleCallMe(params);
+  if (interactiveId === 'share-visit-feedback') return handleShareVisitFeedback(params);
   if (interactiveId === 'call-cancel') return handleCallCancel(params);
   if (interactiveId === 'call-reschedule') return handleCallReschedule(params);
   if (interactiveId === 'more-info' || interactiveId.startsWith('more-info-')) {
@@ -323,6 +324,16 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     turnResult: buyerTurn(
       `Great choice! 🏠 Let's schedule your visit to *${property.name}*.\n\nWhen would you prefer to visit?`,
       [buildVisitSlotButtons(propertyId)],
+    ),
+  };
+}
+
+async function handleShareVisitFeedback(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  return {
+    handled: true,
+    action: 'share-visit-feedback',
+    turnResult: buyerTurn(
+      'We would love to hear about your visit! Please share your feedback here — our team reads every message.',
     ),
   };
 }

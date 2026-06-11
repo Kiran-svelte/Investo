@@ -2352,6 +2352,8 @@ export class WhatsAppService {
       outboundText?: string;
       /** True when the lead has a scheduled or confirmed site visit. */
       hasActiveVisit?: boolean;
+      /** True when buyer completed a recent site visit with no active booking. */
+      hasCompletedVisit?: boolean;
       /** Status string of the active visit (e.g. 'scheduled', 'confirmed'). */
       visitStatus?: string;
       /** Property name for the active visit — used in button body text. */
@@ -2371,6 +2373,7 @@ export class WhatsAppService {
       recommendedPropertyIds: context.recommendedPropertyIds,
       properties: context.properties,
       hasActiveVisit: context.hasActiveVisit,
+      hasCompletedVisit: context.hasCompletedVisit,
       visitStatus: context.visitStatus,
       visitProperty: context.visitProperty,
       visitTime: context.visitTime,

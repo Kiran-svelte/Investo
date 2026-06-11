@@ -19,6 +19,8 @@ export type BuyerButtonContext = {
   visitTime?: string;
   /** When true, suppress greeting-stage filter buttons (returning buyer short ack). */
   isReturningGreeting?: boolean;
+  /** When true, buyer completed a recent site visit — show post-visit buttons, not "Book Free Visit". */
+  hasCompletedVisit?: boolean;
 };
 
 const STAGE_REPLIES: Partial<
@@ -93,6 +95,17 @@ function resolveCallButtons(_ctx: BuyerButtonContext): WhatsAppComponent {
       { id: 'call-reschedule', title: '📅 Change Time' },
       { id: 'call-cancel', title: '❌ Cancel Call' },
       { id: 'call-me', title: '📞 Call Agent' },
+    ],
+  };
+}
+
+function resolvePostVisitButtons(): WhatsAppComponent {
+  return {
+    kind: 'buttons',
+    buttons: [
+      { id: 'share-visit-feedback', title: 'Share Feedback' },
+      { id: 'call-me', title: 'Talk to Agent' },
+      { id: 'filter-apartment', title: 'See More Options' },
     ],
   };
 }
@@ -182,6 +195,10 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
 
   if (ctx.hasActiveVisit && visitStages.includes(ctx.stage)) {
     return [resolveVisitButtons(ctx)!];
+  }
+
+  if (ctx.hasCompletedVisit && !ctx.hasActiveVisit) {
+    return [resolvePostVisitButtons()];
   }
 
   const stageConfig = STAGE_REPLIES[ctx.stage];

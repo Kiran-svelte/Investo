@@ -27,6 +27,7 @@ import { runWorkflowForIntent } from '../workflow/workflow-engine.service';
 import { workflowIdForIntent } from '../workflow/workflow-registry';
 import { isVisitListQueryMessage } from '../visitIntentFromMessage.service';
 import { tryResolveVisitListReply } from './agent-crm-query.service';
+import { parseBulkSendCommand, MAX_BULK_SEND_RECIPIENTS } from '../../utils/bulk-send-parser.util';
 
 export { extractLeadIdsFromText, extractLeadNamesFromAssistantMessages, resolveLeadForIntent } from './agent-lead-resolution.service';
 
@@ -51,6 +52,7 @@ export interface IntentParameters {
   scheduledAt?: string;
   message?: string;
   messageText?: string;
+  phoneNumbers?: string[];
 }
 
 export interface ClassifyIntentResult {
@@ -184,6 +186,28 @@ function normalizeToolName(value: unknown, tools: AgentActionTool[]): string | u
 function getIntentDefaultTool(intent: AgentIntent, tools: AgentActionTool[]): string | undefined {
   const mapped = INTENT_TOOL_MAP[intent];
   return normalizeToolName(mapped, tools);
+}
+
+function filterIntentsForAvailableTools(tools: AgentActionTool[]): AgentIntent[] {
+  const toolNames = new Set(tools.map((tool) => tool.name));
+  return (AGENT_INTENTS as readonly AgentIntent[]).filter((intent) => {
+    if (intent === 'unknown') return false;
+    if (DETERMINISTIC_DELEGATE_INTENTS.has(intent)) return false;
+    const mapped = INTENT_TOOL_MAP[intent];
+    if (!mapped) return false;
+    return toolNames.has(mapped);
+  });
+}
+
+/** Role-aware reply when a classified intent has no matching tool for this staff role. */
+export function buildRoleBlockedIntentReply(userRole: string, intent: AgentIntent): string {
+  if (userRole === 'viewer') {
+    return (
+      'You have *read-only* access. I can show leads, visits, properties, and analytics from here. ' +
+      'Use the Investo dashboard for write actions like status updates or bulk sends.'
+    );
+  }
+  return `That action isn't available for your role. Use the Investo dashboard for ${intent.replace(/_/g, ' ')}.`;
 }
 
 function getActionToolsForContext(context: ToolContext): AgentActionTool[] {
@@ -473,9 +497,11 @@ export async function classifyAgentIntent(
   llm: LlmCaller = defaultLlmCaller,
   availableTools: AgentActionTool[] = [],
 ): Promise<ClassifyIntentResult> {
+  const roleIntents = filterIntentsForAvailableTools(availableTools);
+  const intentList = roleIntents.length > 0 ? roleIntents.join(', ') : 'unknown';
   const system = `You classify WhatsApp messages from real-estate CRM staff into one intent.
 Return JSON only: {"intent":"<intent>","toolName":"<exact action handler or null>","confidence":0.0-1.0,"parameters":{}}.
-Intents: ${AGENT_INTENTS.join(', ')}.
+Intents: ${intentList}.
 Available deterministic action handlers for this staff role:
 ${formatToolCatalogForPrompt(availableTools)}.
 Disambiguation rules (apply in order, use the FIRST matching rule):
@@ -531,6 +557,7 @@ export async function extractAgentIntentParameters(
   const system = `Extract structured CRM action parameters from staff WhatsApp messages.
 Return JSON only: {"intent":"...","toolName":"<exact action handler or null>","parameters":{...},"missingFields":[]}.
 Allowed status values: ${LEAD_PIPELINE_STATUSES.join(', ')}.
+For bulk_send_to_phones and bulk_forward: required parameters are message (quoted text body or text after "send"/"forward") and phoneNumbers (array of phone strings). Always populate both when present in the user message.
 Available deterministic action handlers:
 ${formatToolCatalogForPrompt(availableTools)}.
 Use recent chat to resolve leadName -> prefer leadId when ID appears in history.
@@ -602,6 +629,12 @@ export async function executeAgentIntent(
   );
   if (!actionClaimed) {
     return null;
+  }
+
+  const actionTools = options?.actionTools ?? getActionToolsForContext(context);
+  const requiredTool = extracted.toolName ?? getIntentDefaultTool(intent, actionTools);
+  if (requiredTool && !findTool(actionTools, requiredTool)) {
+    return buildRoleBlockedIntentReply(context.userRole, intent);
   }
 
   const started = Date.now();
@@ -693,15 +726,14 @@ export async function executeAgentIntent(
       if (mutation.handled && mutation.reply) return mutation.reply;
     }
 
-    if (intent === 'bulk_forward') {
+    if (intent === 'bulk_forward' || intent === 'bulk_send_to_phones') {
       return executeBulkForward(context, parameters, options?.messageText ?? '');
     }
 
-    const actionTools = options?.actionTools ?? getActionToolsForContext(context);
     const toolName = extracted.toolName ?? getIntentDefaultTool(intent, actionTools);
     const tool = findTool(actionTools, toolName);
     if (!tool) {
-      return null;
+      return buildRoleBlockedIntentReply(context.userRole, intent);
     }
 
     const enriched = await enrichToolParameters(
@@ -819,6 +851,12 @@ export async function classifyAndExecuteAgentIntent(
       return null;
     }
 
+    const classifiedToolName =
+      classified.toolName ?? getIntentDefaultTool(classified.intent, actionTools);
+    if (classifiedToolName && !findTool(actionTools, classifiedToolName)) {
+      return buildRoleBlockedIntentReply(params.toolContext.userRole, classified.intent);
+    }
+
     if (
       (classified.intent === 'cancel_visit' || classified.intent === 'reschedule_visit')
       && isVisitListQueryMessage(params.messageText)
@@ -877,51 +915,13 @@ export async function classifyAndExecuteAgentIntent(
   }
 }
 
-/** Maximum recipients per single bulk_forward request to prevent abuse. */
-const MAX_BULK_FORWARD_RECIPIENTS = 20;
-
-/**
- * Extracts the message body and recipient phone numbers from a bulk_forward staff command.
- * Handles patterns like:
- *   "Bulk forward [message] to 6363062930 and 9019655080"
- *   "Forward this to 9876543210, 8765432109"
- *
- * @param rawMessage - The full staff WhatsApp message text.
- * @param parameters - LLM-extracted intent parameters (may have message/phones).
- * @returns Parsed phones and message body.
- */
-function parseBulkForwardRequest(
-  rawMessage: string,
-  parameters: IntentParameters,
-): { phones: string[]; messageBody: string } {
-  // Extract all 10+ digit phone numbers from the raw message.
-  const phoneMatches = rawMessage.match(/(?:\+?91[-\s]?)?[6-9]\d{9}/g) ?? [];
-  const phones = [...new Set(phoneMatches.map((p) => p.replace(/[-\s]/g, '')))];
-
-  // Extract message body: everything between quotes OR after "forward" keyword.
-  let messageBody = typeof parameters.message === 'string' ? parameters.message.trim() : '';
-  if (!messageBody) {
-    // Try to extract quoted content
-    const quotedMatch = rawMessage.match(/["']([^"']+)["']/);
-    if (quotedMatch) {
-      messageBody = quotedMatch[1].trim();
-    } else {
-      // Fall back: strip the command prefix and phone numbers to get message body
-      const withoutPhones = rawMessage.replace(/(?:\+?91[-\s]?)?[6-9]\d{9}/g, '').replace(/,\s*/g, ' ');
-      const bodyMatch = withoutPhones.match(/(?:forward|send)\s+(?:this\s+)?(?:exact\s+)?(?:message\s+)?(.+?)(?:\s+to\s+|\s*$)/i);
-      messageBody = bodyMatch ? bodyMatch[1].trim() : withoutPhones.replace(/\b(bulk|forward|send|to)\b/gi, '').trim();
-    }
-  }
-
-  return { phones, messageBody };
-}
-
 /**
  * Executes a bulk_forward intent: sends a message to multiple phone numbers.
- * Capped at MAX_BULK_FORWARD_RECIPIENTS per request. Never sends to empty message.
+ * Delegates phone/body extraction to the canonical parseBulkSendCommand utility.
+ * Capped at MAX_BULK_SEND_RECIPIENTS per request. Never sends to an empty message.
  *
  * @param context - Tool context with companyId and userId for authorization.
- * @param parameters - LLM-extracted intent parameters.
+ * @param parameters - LLM-extracted intent parameters (message body hint).
  * @param rawMessage - Original staff message for phone/body extraction.
  * @returns WhatsApp-formatted summary of sends and failures.
  */
@@ -930,7 +930,17 @@ async function executeBulkForward(
   parameters: IntentParameters,
   rawMessage: string,
 ): Promise<string> {
-  const { phones, messageBody } = parseBulkForwardRequest(rawMessage, parameters);
+  const parsed = parseBulkSendCommand(rawMessage);
+
+  const messageBody =
+    (typeof parameters.message === 'string' && parameters.message.trim())
+      ? parameters.message.trim()
+      : parsed?.body ?? '';
+
+  const phonesFromParams = Array.isArray(parameters.phoneNumbers)
+    ? parameters.phoneNumbers.map(String).map((phone) => phone.trim()).filter(Boolean)
+    : [];
+  const phones = phonesFromParams.length > 0 ? phonesFromParams : (parsed?.phones ?? []);
 
   if (!messageBody) {
     return 'Please specify the message to forward.\n\nExample: _"Forward \\"Tomorrow is holiday\\" to 9876543210 and 9019655080"_';
@@ -940,7 +950,7 @@ async function executeBulkForward(
     return 'No valid phone numbers found. Please include 10-digit mobile numbers in your message.\n\nExample: _"Forward \\"Tomorrow is holiday\\" to 9876543210 and 9019655080"_';
   }
 
-  const cappedPhones = phones.slice(0, MAX_BULK_FORWARD_RECIPIENTS);
+  const cappedPhones = phones.slice(0, MAX_BULK_SEND_RECIPIENTS);
   const { whatsappService } = await import('../whatsapp.service');
   const sent: string[] = [];
   const failed: string[] = [];
@@ -977,8 +987,8 @@ async function executeBulkForward(
     ``,
     sent.length ? `✅ Sent to (${sent.length}): ${sent.join(', ')}` : null,
     failed.length ? `❌ Failed (${failed.length}): ${failed.join(', ')}` : null,
-    phones.length > MAX_BULK_FORWARD_RECIPIENTS
-      ? `⚠️ Only first ${MAX_BULK_FORWARD_RECIPIENTS} recipients processed (cap limit).`
+    phones.length > MAX_BULK_SEND_RECIPIENTS
+      ? `⚠️ Only first ${MAX_BULK_SEND_RECIPIENTS} recipients processed (cap limit).`
       : null,
   ]
     .filter((line): line is string => line !== null)

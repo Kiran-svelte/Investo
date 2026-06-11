@@ -46,4 +46,19 @@ describe('buyerButtonPolicy.service', () => {
       }),
     ).toEqual([]);
   });
+
+  test('shows post-visit buttons instead of Book Free Visit', () => {
+    const components = resolveBuyerComponents({
+      stage: 'rapport',
+      outboundText: 'How did you find the property after your visit?',
+      hasCompletedVisit: true,
+    });
+    expect(components).toHaveLength(1);
+    expect(components[0].kind).toBe('buttons');
+    if (components[0].kind !== 'buttons') return;
+    const ids = components[0].buttons.map((b) => b.id);
+    expect(ids).toContain('share-visit-feedback');
+    expect(ids).toContain('call-me');
+    expect(ids).not.toContain('book-visit');
+  });
 });

@@ -73,6 +73,7 @@ import {
   classifyAndExecuteAgentIntent,
   extractAgentIntentParameters,
   executeAgentIntent,
+  buildRoleBlockedIntentReply,
 } from '../../services/agent/agent-intent-orchestrator.service';
 import { resolveLeadForIntent } from '../../services/agent/agent-lead-resolution.service';
 import { updateLeadStatusById } from '../../services/agent/lead-status-actions';
@@ -237,5 +238,18 @@ describe('agent-intent-orchestrator.service', () => {
       null,
     );
     expect(reply).toContain('Which lead');
+  });
+
+  it('returns read-only reply for viewer when write tool is unavailable', async () => {
+    const viewerCtx: ToolContext = { ...ctx, userRole: 'viewer' };
+    const reply = await executeAgentIntent(
+      viewerCtx,
+      { intent: 'update_lead_status', toolName: 'updateLeadStatus', parameters: { status: 'visited' } },
+      [],
+      null,
+      { actionTools: [] },
+    );
+    expect(reply).toBe(buildRoleBlockedIntentReply('viewer', 'update_lead_status'));
+    expect(reply?.toLowerCase()).toContain('read-only');
   });
 });

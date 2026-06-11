@@ -82,6 +82,7 @@ interface AiSettingsInput {
   responseTone?: string;
   persuasionLevel?: number;
   defaultLanguage?: string;
+  greetingTemplate?: string | null;
   businessDescription?: string;
   operatorContact?: unknown;
   agentName?: string;
@@ -214,7 +215,21 @@ export class AIService {
 
     // Initialize or use existing state
     let state = request.conversationState || conversationStateManager.createInitialState();
-    
+
+    // Returning buyers with CRM progress should not restart qualification at rapport.
+    const advancedLeadStatuses = new Set(['visit_scheduled', 'visited', 'negotiation', 'closed_won']);
+    if (
+      state.stage === 'rapport'
+      && request.lead?.status
+      && advancedLeadStatuses.has(request.lead.status)
+    ) {
+      const advancedStage =
+        request.lead.status === 'negotiation' || request.lead.status === 'closed_won'
+          ? 'commitment'
+          : 'shortlist';
+      state = { ...state, stage: advancedStage, previousStage: 'rapport' };
+    }
+
     // If this conversation was previously escalated but AI is still active (conversation.status = ai_active),
     // the state machine stage may still be 'human_escalated' in the DB — reset it to rapport so the
     // policy brain and LLM don't inherit the escalation prompt focus that says 'DO NOT handle further'.

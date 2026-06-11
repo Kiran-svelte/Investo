@@ -4,6 +4,7 @@ import {
   resolveStaffCopilotQuickActions,
   type CopilotReplyKind,
 } from '../utils/copilotShortcut.util';
+import { buildRoleBlockedIntentReply } from '../services/agent/agent-intent-orchestrator.service';
 
 export type StaffCopilotInput =
   | {
@@ -15,17 +16,23 @@ export type StaffCopilotInput =
       mode: 'quick-actions';
       replyKind: CopilotReplyKind;
       outboundText: string;
+    }
+  | {
+      mode: 'viewer-read-only-intent';
+      intent: 'update_lead_status';
     };
 
 export type StaffCopilotExpected = {
   command?: string;
   buttonIds?: string[];
   noButtons?: boolean;
+  replyContains?: string;
 };
 
 export type StaffCopilotActual = {
   command?: string;
   buttonIds?: string[];
+  replyText?: string;
 };
 
 export const staffCopilotEvalCases: Array<EvalCase<StaffCopilotInput, StaffCopilotExpected>> = [
@@ -48,7 +55,7 @@ export const staffCopilotEvalCases: Array<EvalCase<StaffCopilotInput, StaffCopil
   {
     id: 'staff-buttons-welcome',
     category: 'staff-copilot',
-    description: 'Welcome/help replies get the base CRM shortcut menu.',
+    description: 'Welcome/help replies get the base CRM shortcut menu (deterministic, no LLM).',
     severity: 'medium',
     input: {
       mode: 'quick-actions',
@@ -60,34 +67,36 @@ export const staffCopilotEvalCases: Array<EvalCase<StaffCopilotInput, StaffCopil
     },
   },
   {
-    id: 'staff-buttons-after-success-suppressed',
+    id: 'staff-buttons-confirmation-suppressed',
     category: 'staff-copilot',
-    description: 'Successful workflow mutation should not get repeated shortcut spam.',
+    description: 'Pending-confirmation turns should never emit shortcut buttons.',
     severity: 'high',
     input: {
       mode: 'quick-actions',
-      replyKind: 'workflow',
-      outboundText: 'Lead Scenario Buyer status updated to visited.',
+      replyKind: 'confirmation',
+      outboundText: 'Reply "yes" to confirm or "no" to cancel.',
     },
     expected: { noButtons: true },
   },
   {
-    id: 'staff-buttons-visit-choice',
+    id: 'staff-viewer-update-lead-read-only',
     category: 'staff-copilot',
-    description: 'Visit ambiguity prompts get visit-specific actions.',
-    severity: 'medium',
-    input: {
-      mode: 'quick-actions',
-      replyKind: 'workflow',
-      outboundText: 'Which visit should I update?',
-    },
-    expected: {
-      buttonIds: ['copilot-confirm-visit', 'copilot-reschedule-visit', 'copilot-complete-visit'],
-    },
+    description: 'Viewer role attempting update_lead_status gets read-only notice before execution.',
+    severity: 'high',
+    input: { mode: 'viewer-read-only-intent', intent: 'update_lead_status' },
+    expected: { replyContains: 'read-only' },
   },
 ];
 
-export function evaluateStaffCopilot(input: StaffCopilotInput): StaffCopilotActual {
+/**
+ * Evaluate a single staff copilot case.
+ * Quick-actions evaluation is async because button resolution may call an LLM.
+ * Inbound-command evaluation remains synchronous (deterministic mapping).
+ *
+ * @param input - The eval case input.
+ * @returns Resolved actual output for comparison against expected.
+ */
+export async function evaluateStaffCopilot(input: StaffCopilotInput): Promise<StaffCopilotActual> {
   if (input.mode === 'inbound-command') {
     return {
       command: resolveCopilotInboundCommand({
@@ -97,7 +106,13 @@ export function evaluateStaffCopilot(input: StaffCopilotInput): StaffCopilotActu
     };
   }
 
-  const buttons = resolveStaffCopilotQuickActions({
+  if (input.mode === 'viewer-read-only-intent') {
+    return {
+      replyText: buildRoleBlockedIntentReply('viewer', input.intent),
+    };
+  }
+
+  const buttons = await resolveStaffCopilotQuickActions({
     replyKind: input.replyKind,
     outboundText: input.outboundText,
   });

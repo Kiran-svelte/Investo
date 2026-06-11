@@ -130,6 +130,32 @@ export async function routeCompanyScopedInbound(params: {
     return { handled: false, route: { kind: 'customer' } };
   }
 
+  const senderLast10 = phoneLast10(normalizedPhone);
+  if (senderLast10) {
+    const prisma = await getPrisma();
+    const buyerLeads = await prisma.lead.findMany({
+      where: { companyId: params.companyId },
+      select: { id: true, customerName: true, status: true, phone: true },
+      take: 500,
+    });
+    const matchingBuyerLead = buyerLeads.find((lead) => {
+      if (!lead.phone) return false;
+      return phoneLast10(lead.phone) === senderLast10;
+    });
+    if (matchingBuyerLead) {
+      logger.warn('Staff phone match supersedes potential buyer lead — customer AI suppressed', {
+        companyId: params.companyId,
+        userId: companyUser.userId,
+        userRole: companyUser.userRole,
+        staffPhone: maskPhoneNumberForLogs(normalizedPhone),
+        buyerLeadId: matchingBuyerLead.id,
+        buyerLeadName: matchingBuyerLead.customerName,
+        buyerLeadStatus: matchingBuyerLead.status,
+        messagePreview: params.messageText.slice(0, 80),
+      });
+    }
+  }
+
   if (AGENT_COPILOT_ROLES.has(companyUser.userRole)) {
     const { tryHandleAgentVisitApprovalReply } = await import('./visitPendingApproval.service');
     const visitApprovalHandled = await tryHandleAgentVisitApprovalReply(companyUser, params.messageText);

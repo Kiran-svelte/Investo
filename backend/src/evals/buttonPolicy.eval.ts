@@ -86,6 +86,21 @@ export const buttonPolicyEvalCases: Array<EvalCase<ButtonPolicyInput, ButtonPoli
       noButtons: true,
     },
   },
+  {
+    id: 'buttons-post-visit-no-book-visit',
+    category: 'button-policy',
+    description: 'Post-visit buyers get feedback/agent/options buttons, not Book Free Visit.',
+    severity: 'high',
+    input: {
+      stage: 'rapport',
+      outboundText: 'How did you find the property after your visit?',
+      hasCompletedVisit: true,
+    },
+    expected: {
+      buttonIds: ['share-visit-feedback', 'call-me', 'filter-apartment'],
+      forbiddenButtonIds: ['book-visit'],
+    },
+  },
 ];
 
 export function evaluateButtonPolicy(input: ButtonPolicyInput): ButtonPolicyActual {

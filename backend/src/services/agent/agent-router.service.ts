@@ -8,6 +8,10 @@ import { ToolContext } from './agent-state';
 import { isCopilotGreeting, normalizeCopilotInboundText } from '../../utils/copilotGreeting.util';
 import { resolveCopilotInboundCommand, type CopilotReplyKind } from '../../utils/copilotShortcut.util';
 import { resolveCopilotComponents } from '../copilot/copilotButtonPolicy.service';
+import {
+  buildCopilotWelcomeMessage,
+  getCompanyDefaultLanguage,
+} from '../../utils/copilotWelcome.util';
 import { resolveAttendanceButtonCommand } from '../attendanceWorkflow.service';
 import {
   claimStaffCopilotTurn,
@@ -21,26 +25,9 @@ import {
   logOutboundSend,
 } from '../outboundTurnDebug.service';
 
-/**
- * Builds a deterministic welcome/help message for the agent copilot.
- * Shown whenever a staff user sends a greeting or "help" command.
- *
- * @param userName - Display name of the staff user.
- * @param companyName - Name of the company.
- * @returns Formatted WhatsApp-ready welcome string.
- */
-function buildCopilotWelcomeMessage(userName: string, companyName: string): string {
-  const name = userName.trim() || 'there';
-  return (
-    `*Hi ${name}!* Welcome to *Investo Copilot* for *${companyName}*.\n\n` +
-    `I can help you with:\n` +
-    `- *Visits* - "visits today", "visits tomorrow", "visits on 6th June"\n` +
-    `- *Leads* - "new leads today", "get lead Rahul", "update lead status"\n` +
-    `- *Properties* - "list properties", "property details"\n` +
-    `- *Analytics* - "dashboard stats", "my performance"\n` +
-    `- *Actions* - "confirm visit", "mark lead visited", "send brochure"\n\n` +
-    `Just type your command or tap a shortcut below.`
-  );
+async function buildLocalizedCopilotWelcome(user: CompanyUserMatch): Promise<string> {
+  const lang = await getCompanyDefaultLanguage(user.companyId);
+  return buildCopilotWelcomeMessage(user.userName, user.companyName, lang);
 }
 
 async function getPrisma() {
@@ -143,7 +130,7 @@ async function handleAgentMessage(
 
   // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
   if (isCopilotGreeting(normalizedText)) {
-    const text = buildCopilotWelcomeMessage(user.userName, user.companyName);
+    const text = await buildLocalizedCopilotWelcome(user);
     const { getOrCreateAgentSession } = await import('./agent-memory.service');
     const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
     const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
@@ -362,7 +349,7 @@ async function handleAgentMessage(
     .trim();
   if (isCopilotGreeting(aggressivelyNormalized) || aggressivelyNormalized.length === 0) {
     return {
-      text: buildCopilotWelcomeMessage(user.userName, user.companyName),
+      text: await buildLocalizedCopilotWelcome(user),
       replyKind: 'welcome',
     };
   }
@@ -429,7 +416,7 @@ async function handleAgentMessage(
       agentReply = fallback;
       replyKind = 'crm';
     } else if (isCopilotGreeting(normalizedText)) {
-      agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+      agentReply = await buildLocalizedCopilotWelcome(user);
       replyKind = 'welcome';
     } else {
       agentReply =
@@ -450,7 +437,7 @@ async function handleAgentMessage(
   // help menu so the user always gets a useful response.
   const isLlmRefusal = /could\s+not\s+complete|unable\s+to\s+(retrieve|process)|try\s+a\s+shorter/i.test(agentReply);
   if (isLlmRefusal && aggressivelyNormalized.length < 30) {
-    agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+    agentReply = await buildLocalizedCopilotWelcome(user);
     replyKind = 'welcome';
   }
 
@@ -531,7 +518,7 @@ export async function routeIfInternalUserForCompany(
       logOutboundSend('H4', 'agent-router.service.ts:send', 'staff_primary_text', response);
       await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
     }
-    const components = resolveCopilotComponents({ replyKind, outboundText: response });
+    const components = await resolveCopilotComponents({ replyKind, outboundText: response });
     const quickActions = components[0]?.kind === 'buttons' ? components[0].buttons : null;
     if (quickActions?.length) {
       logOutboundBranch('H4', 'agent-router.service.ts:quickActions', 'staff_quick_actions', {

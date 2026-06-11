@@ -99,22 +99,32 @@ describe('Investo eval suite', () => {
     });
   });
 
-  it('staff copilot evals pass', () => {
-    const outcomes = runEvalCases(staffCopilotEvalCases, (testCase) => {
-      const actual = evaluateStaffCopilot(testCase.input);
-      const expected = testCase.expected;
-      const commandSatisfied = expected.command ? actual.command === expected.command : true;
-      const buttonsSatisfied = expected.buttonIds
-        ? expected.buttonIds.every((id) => actual.buttonIds?.includes(id))
-        : true;
-      const noButtonsSatisfied = expected.noButtons ? (actual.buttonIds ?? []).length === 0 : true;
+  it('staff copilot evals pass', async () => {
+    const outcomes = await Promise.all(
+      staffCopilotEvalCases.map(async (testCase) => {
+        const actual = await evaluateStaffCopilot(testCase.input);
+        const expected = testCase.expected;
+        const commandSatisfied = expected.command ? actual.command === expected.command : true;
+        const buttonsSatisfied = expected.buttonIds
+          ? expected.buttonIds.every((id) => actual.buttonIds?.includes(id))
+          : true;
+        const noButtonsSatisfied = expected.noButtons ? (actual.buttonIds ?? []).length === 0 : true;
+        const replyContainsSatisfied = expected.replyContains
+          ? (actual.replyText ?? '').toLowerCase().includes(expected.replyContains.toLowerCase())
+          : true;
 
-      return {
-        actual,
-        passed: commandSatisfied && buttonsSatisfied && noButtonsSatisfied,
-        reason: `command=${actual.command ?? ''}; buttons=${actual.buttonIds?.join(',') ?? ''}`,
-      };
-    });
+        return {
+          id: testCase.id,
+          category: testCase.category,
+          description: testCase.description,
+          severity: testCase.severity,
+          expected: testCase.expected,
+          actual,
+          passed: commandSatisfied && buttonsSatisfied && noButtonsSatisfied && replyContainsSatisfied,
+          reason: `command=${actual.command ?? ''}; buttons=${actual.buttonIds?.join(',') ?? ''}; reply=${actual.replyText ?? ''}`,
+        };
+      }),
+    );
 
     expect(formatEvalFailures(outcomes)).toBe('');
     expect(summarizeEvalOutcomes(outcomes)).toMatchObject({

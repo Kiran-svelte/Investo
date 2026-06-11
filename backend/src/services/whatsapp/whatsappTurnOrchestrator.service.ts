@@ -450,6 +450,7 @@ async function handleRapportTurn(
   ctx: BuyerTurnRuntimeContext,
   visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
   conversationStage: string,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
 ): Promise<TurnResult | null> {
   if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
 
@@ -476,10 +477,35 @@ async function handleRapportTurn(
   }
 
   const rapportReply = buildBuyerRapportReply(ctx.companyName, { isReturning, locationPreference });
-  const safeReply = stripBuyerInternalMetadata(rapportReply);
+  let safeReply: string;
+  if (isReturning) {
+    safeReply = stripBuyerInternalMetadata(rapportReply);
+  } else {
+    const aiSettings = await prisma.aiSetting.findUnique({
+      where: { companyId: ctx.companyId },
+      select: { greetingTemplate: true, defaultLanguage: true },
+    });
+    const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
+    const fastPath = buildFastPathCustomerReply({
+      customerMessage: ctx.input.messageText,
+      companyName: ctx.companyName,
+      customerName: ctx.input.leadCustomerName,
+      aiSettings,
+      conversationHistory: ctx.history,
+      conversationStage,
+      upcomingVisit: liveCtx.activeVisit,
+    });
+    safeReply = stripBuyerInternalMetadata(fastPath?.text ?? rapportReply);
+  }
+
   const components = isReturning
     ? []
-    : resolveBuyerComponents({ stage: conversationStage, outboundText: safeReply, isReturningGreeting: false });
+    : resolveBuyerComponents({
+        stage: conversationStage,
+        outboundText: safeReply,
+        isReturningGreeting: false,
+        ...buyerButtonFlagsFromLive(liveCtx),
+      });
 
   await prisma.message.create({
     data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
@@ -645,10 +671,7 @@ async function handlePropertyBrowsingTurn(
     stage: conversationStage,
     outboundText: safeReply,
     propertyId: ctx.input.conversationSelectedPropertyId,
-    hasActiveVisit: Boolean(liveCtx.activeVisit),
-    visitStatus: liveCtx.activeVisit?.status,
-    visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-    visitTime,
+    ...buyerButtonFlagsFromLive(liveCtx),
   });
 
   fireMemoryExtraction({
@@ -797,15 +820,11 @@ async function handleVisitStatusTurn(
     companyName: ctx.companyName,
   });
 
-  const visitTime = resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt);
   const components = resolveBuyerComponents({
     stage: 'confirmation',
     outboundText: visitReply,
     propertyId: ctx.input.conversationSelectedPropertyId,
-    hasActiveVisit: Boolean(liveCtx.activeVisit),
-    visitStatus: liveCtx.activeVisit?.status,
-    visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-    visitTime,
+    ...buyerButtonFlagsFromLive(liveCtx),
   });
 
   await prisma.message.create({
@@ -875,15 +894,11 @@ async function handleVisitCommitWorkflowTurn(
     }).catch(() => undefined);
   }
 
-  const visitTime = resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt);
   const components = resolveBuyerComponents({
     stage: conversationStage,
     outboundText: safeReply,
     propertyId: suggestedPropertyId,
-    hasActiveVisit: Boolean(liveCtx.activeVisit),
-    visitStatus: liveCtx.activeVisit?.status,
-    visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-    visitTime,
+    ...buyerButtonFlagsFromLive(liveCtx),
   });
 
   fireMemoryExtraction({ leadId: ctx.input.leadId, messageText: ctx.input.messageText, outboundText: safeReply, workflowId: visitCommit.workflowSuggestion.workflowId, liveCtx });
@@ -953,15 +968,11 @@ async function handleClassifierWorkflowTurn(
     }).catch(() => undefined);
   }
 
-  const visitTime = resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt);
   const components = resolveBuyerComponents({
     stage: conversationStage,
     outboundText: safeReply,
     propertyId: resolvedPropertyId,
-    hasActiveVisit: Boolean(liveCtx.activeVisit),
-    visitStatus: liveCtx.activeVisit?.status,
-    visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-    visitTime,
+    ...buyerButtonFlagsFromLive(liveCtx),
   });
 
   fireMemoryExtraction({ leadId: ctx.input.leadId, messageText: ctx.input.messageText, outboundText: safeReply, workflowId: undefined, liveCtx });
@@ -1359,10 +1370,7 @@ async function handleFullAiTurn(
         propertyId: componentPropertyId,
         recommendedPropertyIds: componentRecommendedPropertyIds,
         properties: properties.map((p) => ({ id: p.id, name: p.name })),
-        hasActiveVisit: Boolean(liveCtx.activeVisit),
-        visitStatus: liveCtx.activeVisit?.status,
-        visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-        visitTime: resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
+        ...buyerButtonFlagsFromLive(liveCtx),
       })
     : [];
 
@@ -1425,6 +1433,16 @@ function resolveVisitTimeString(scheduledAt: unknown): string | undefined {
     minute: '2-digit',
     hour12: true,
   });
+}
+
+function buyerButtonFlagsFromLive(liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>) {
+  return {
+    hasActiveVisit: Boolean(liveCtx.activeVisit),
+    visitStatus: liveCtx.activeVisit?.status,
+    visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
+    visitTime: resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
+    hasCompletedVisit: Boolean(liveCtx.recentCompletedVisit && !liveCtx.activeVisit),
+  };
 }
 
 /**
@@ -1745,7 +1763,7 @@ export async function orchestrateWhatsAppBuyerTurn(
   const h1b = await handleDismissalTurn(ctx, visitCommit);
   if (h1b) return withDefaultReplyPacing(h1b);
 
-  const h2 = await handleRapportTurn(ctx, visitCommit, conversationState.stage);
+  const h2 = await handleRapportTurn(ctx, visitCommit, conversationState.stage, liveCtx);
   if (h2) return withDefaultReplyPacing(h2);
 
   const h2b = await handleReturningBuyerPivotTurn(ctx, visitCommit);
