@@ -20,6 +20,7 @@ import {
   resolveAdminLanguageCode,
   shouldSkipKnowledgeSearchForMessage,
 } from './customerMessageFastPath.service';
+import { isAdvancedLeadStatus, resolveStageFromLeadStatus } from '../utils/buyerLeadProgress.util';
 import {
   buildBuyerVisitStatusReply,
   isBuyerVisitStatusQuery,
@@ -216,18 +217,16 @@ export class AIService {
     // Initialize or use existing state
     let state = request.conversationState || conversationStateManager.createInitialState();
 
-    // Returning buyers with CRM progress should not restart qualification at rapport.
-    const advancedLeadStatuses = new Set(['visit_scheduled', 'visited', 'negotiation', 'closed_won']);
     if (
       state.stage === 'rapport'
       && request.lead?.status
-      && advancedLeadStatuses.has(request.lead.status)
+      && isAdvancedLeadStatus(request.lead.status)
     ) {
-      const advancedStage =
-        request.lead.status === 'negotiation' || request.lead.status === 'closed_won'
-          ? 'commitment'
-          : 'shortlist';
-      state = { ...state, stage: advancedStage, previousStage: 'rapport' };
+      state = {
+        ...state,
+        stage: resolveStageFromLeadStatus(request.lead.status),
+        previousStage: 'rapport',
+      };
     }
 
     // If this conversation was previously escalated but AI is still active (conversation.status = ai_active),

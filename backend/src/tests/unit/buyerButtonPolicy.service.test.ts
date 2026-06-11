@@ -61,4 +61,17 @@ describe('buyerButtonPolicy.service', () => {
     expect(ids).toContain('call-me');
     expect(ids).not.toContain('book-visit');
   });
+
+  test('post-visit buttons appear even on welcome-back greeting text', () => {
+    const components = resolveBuyerComponents({
+      stage: 'shortlist',
+      outboundText: 'Welcome back! How did your visit go?',
+      hasCompletedVisit: true,
+      isReturningGreeting: true,
+    });
+    expect(components).toHaveLength(1);
+    if (components[0].kind === 'buttons') {
+      expect(components[0].buttons.map((b) => b.id)).toContain('share-visit-feedback');
+    }
+  });
 });

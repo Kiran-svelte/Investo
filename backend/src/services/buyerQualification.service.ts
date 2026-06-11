@@ -1,6 +1,7 @@
 import type { LeadMemory } from './lead-memory.service';
 import { extractLeadMemoryDelta } from './buyer-memory-extract.service';
 import { patchLeadMemory } from './lead-memory.service';
+import { isAdvancedLeadStatus } from '../utils/buyerLeadProgress.util';
 
 function isRapportPhrase(message: string): boolean {
   return (
@@ -18,14 +19,17 @@ const EXPLICIT_INTENT =
 export type BuyerRapportContext = {
   /** True when the conversation already has prior AI/staff outbound messages. */
   hasPriorOutbound?: boolean;
+  /** CRM lead status — advanced leads skip generic rapport re-onboarding. */
+  leadStatus?: string | null;
 };
 
 export function isBuyerRapportMessage(message: string, ctx?: BuyerRapportContext): boolean {
   const t = message.trim();
   if (!t || EXPLICIT_INTENT.test(t)) return false;
   if (!isRapportPhrase(t)) return false;
-  // Bare greetings only trigger full welcome for strangers — returning buyers get short ack.
   const isBareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(t);
+  // Visited / negotiating buyers saying "interested in 3BHK" must reach shortlist/LLM — not rapport welcome.
+  if (!isBareGreeting && isAdvancedLeadStatus(ctx?.leadStatus)) return false;
   if (isBareGreeting && ctx?.hasPriorOutbound) return true;
   if (isBareGreeting && !ctx?.hasPriorOutbound) return true;
   return !isBareGreeting;

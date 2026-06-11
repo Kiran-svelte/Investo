@@ -50,8 +50,21 @@ export function resolveCustomerQuickActions(input: {
   properties?: CustomerQuickActionProperty[];
   hasActiveVisit?: boolean;
   hasActiveCall?: boolean;
+  hasCompletedVisit?: boolean;
 }): CustomerQuickActions | null {
   if (input.hasActiveVisit || input.hasActiveCall) return null;
+
+  if (input.hasCompletedVisit) {
+    const primaryId = pickPrimaryPropertyId(input);
+    const buttons = [
+      { id: 'share-visit-feedback', title: 'Share Feedback' },
+      { id: 'call-me', title: 'Talk to Agent' },
+      primaryId
+        ? { id: `more-info-${primaryId}`, title: 'See More Options' }
+        : { id: 'filter-apartment', title: 'See More Options' },
+    ];
+    return { body: 'What would you like to do next?', buttons };
+  }
 
   const actionableStages = new Set(['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation']);
   if (!actionableStages.has(input.stage)) return null;

@@ -86,6 +86,20 @@ export const staffCopilotEvalCases: Array<EvalCase<StaffCopilotInput, StaffCopil
     input: { mode: 'viewer-read-only-intent', intent: 'update_lead_status' },
     expected: { replyContains: 'read-only' },
   },
+  {
+    id: 'staff-buttons-crm-fallback',
+    category: 'staff-copilot',
+    description: 'CRM replies get deterministic shortcut buttons when LLM is unavailable.',
+    severity: 'medium',
+    input: {
+      mode: 'quick-actions',
+      replyKind: 'crm',
+      outboundText: 'Here are the visits scheduled for today across your team.',
+    },
+    expected: {
+      buttonIds: ['copilot-confirm-visit', 'copilot-reschedule-visit', 'copilot-visits-today'],
+    },
+  },
 ];
 
 /**

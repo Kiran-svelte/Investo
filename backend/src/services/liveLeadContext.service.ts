@@ -15,6 +15,7 @@
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { findPendingVisitApprovalForLead } from './visitPendingApproval.service';
+import { isPostVisitLeadStatus } from '../utils/buyerLeadProgress.util';
 
 /** Represents an upcoming or recent visit for CTA and prompt injection. */
 export interface ActiveVisitContext {
@@ -204,7 +205,10 @@ function buildEmptyContext(): LiveLeadContext {
  * Placed at the TOP of the prompt so it takes precedence over all RAG context.
  */
 function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
-  if (!ctx.activeVisit && !ctx.recentCompletedVisit) {
+  const postVisitByCrmStatus =
+    !ctx.activeVisit && isPostVisitLeadStatus(ctx.leadStatus);
+
+  if (!ctx.activeVisit && !ctx.recentCompletedVisit && !postVisitByCrmStatus) {
     // Still inject lead status so the AI doesn't treat a hot lead as new
     const lines = [
       '## 🔴 LIVE CLIENT STATE (real-time from CRM — highest priority)',
@@ -235,11 +239,25 @@ function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
 
   if (ctx.recentCompletedVisit && !ctx.activeVisit) {
     const v = ctx.recentCompletedVisit;
+    const daysSince = Math.floor(
+      (Date.now() - new Date(v.scheduledAt).getTime()) / (1000 * 60 * 60 * 24),
+    );
     lines.push('');
-    lines.push('### Recent Visit (completed)');
+    lines.push('### ✔️ COMPLETED SITE VISIT (recent)');
     lines.push(`- Property: ${v.propertyName ?? 'Unknown Property'}`);
-    lines.push(`- Visited: ${toISTString(v.scheduledAt)}`);
+    lines.push(`- Visited: ${toISTString(v.scheduledAt)} (${daysSince} day${daysSince === 1 ? '' : 's'} ago)`);
     if (v.notes) lines.push(`- Feedback: ${v.notes.slice(0, 200)}`);
+    lines.push('');
+    lines.push('🚫 STAGE OVERRIDE — DO NOT invite this customer to book a site visit.');
+    lines.push('   They have already visited. Instead: ask about their impression, decision timeline,');
+    lines.push('   budget finalisation, or next steps (negotiation / loan / booking amount).');
+  } else if (postVisitByCrmStatus) {
+    lines.push('');
+    lines.push('### ✔️ POST-VISIT CLIENT (CRM status)');
+    lines.push(`- CRM marks this lead as *${ctx.leadStatus}* — treat as post-visit.`);
+    lines.push('');
+    lines.push('🚫 STAGE OVERRIDE — DO NOT ask for area, budget, or BHK from scratch.');
+    lines.push('   DO NOT offer to book a first site visit. Focus on feedback, negotiation, or next steps.');
   }
 
   if (ctx.assignedAgentName) {
@@ -248,15 +266,26 @@ function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
   }
 
   lines.push('');
-  lines.push(
-    ctx.activeVisit
-      ? ctx.activeVisit.status === 'pending_approval'
-        ? '⚠️ This client has a visit request awaiting agent approval. Do NOT offer to book another visit. Offer: Change time, property details, or call agent.'
-        : '⚠️ This client ALREADY HAS a scheduled visit. Do NOT offer to book another visit. Offer: Confirm, Reschedule, or Cancel.'
-      : ctx.recentCompletedVisit
-        ? '⚠️ This client has visited before. Ask about their experience and next steps, do NOT start from scratch.'
-        : '',
-  );
+  if (ctx.activeVisit) {
+    if (ctx.activeVisit.status === 'pending_approval') {
+      lines.push(
+        '⚠️ RULE: Visit request is awaiting approval. Do NOT offer to book another visit.'
+        + ' Offer: Change time, share property details, or connect with agent.',
+      );
+    } else {
+      lines.push(
+        '⚠️ RULE: Customer ALREADY HAS a scheduled visit. Do NOT offer to book another.'
+        + ' Offer ONLY: Confirm, Reschedule, or Cancel.',
+      );
+    }
+  } else if (ctx.recentCompletedVisit || postVisitByCrmStatus) {
+    lines.push(
+      '🚫 ABSOLUTE RULE: This customer has ALREADY VISITED the property.'
+      + ' NEVER suggest booking a site visit. NEVER ask if they want to schedule a visit.'
+      + ' NEVER re-interrogate for area/budget/BHK unless they explicitly start a new search.'
+      + ' Focus ONLY on: their impression, decision, paperwork, booking amount, or loan.',
+    );
+  }
 
   return lines.filter((l) => l !== '').join('\n');
 }

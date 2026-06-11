@@ -21,6 +21,13 @@ import {
 } from '../visitIntentFromMessage.service';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
 import { buildSafeBuyerFallback } from '../../utils/safeBuyerFallback.util';
+import {
+  buildAdvancedReturningReply,
+  buildPostVisitWelcomeReply,
+  isAdvancedLeadStatus,
+  isPostVisitBuyer,
+  resolveStageFromLeadStatus,
+} from '../../utils/buyerLeadProgress.util';
 import { buildNeverSayNoContext } from '../neverSayNoEngine.service';
 import { criteriaFromLead } from '../alternativeInventory.service';
 import { sanitizeBuyerOutbound } from './whatsappResponseSanitizer.service';
@@ -461,7 +468,8 @@ async function handleRapportTurn(
     await import('../buyerQualification.service');
 
   const hasPriorOutbound = ctx.history.some((m) => m.senderType === 'ai' || m.senderType === 'agent');
-  if (!isBuyerRapportMessage(ctx.input.messageText, { hasPriorOutbound })) return null;
+  const rapportCtx = { hasPriorOutbound, leadStatus: liveCtx.leadStatus || ctx.input.leadStatus };
+  if (!isBuyerRapportMessage(ctx.input.messageText, rapportCtx)) return null;
 
   logOutboundBranch('H2', 'whatsappTurnOrchestrator:rapport', 'buyer_rapport_fast_path', {
     messagePreview: ctx.input.messageText.slice(0, 40),
@@ -469,17 +477,37 @@ async function handleRapportTurn(
   });
 
   const isReturning = isReturningBuyerGreeting(ctx.input.messageText, { hasPriorOutbound });
+  const postVisit = isPostVisitBuyer(liveCtx);
+  const advancedLead = isAdvancedLeadStatus(liveCtx.leadStatus || ctx.input.leadStatus);
   let locationPreference: string | null = null;
-  if (isReturning) {
+  if (isReturning || advancedLead) {
     const { getLeadMemory } = await import('../lead-memory.service');
     const memory = await getLeadMemory(ctx.input.leadId);
     locationPreference = memory.locationPreference ?? null;
   }
 
-  const rapportReply = buildBuyerRapportReply(ctx.companyName, { isReturning, locationPreference });
   let safeReply: string;
-  if (isReturning) {
-    safeReply = stripBuyerInternalMetadata(rapportReply);
+  if (postVisit && /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(ctx.input.messageText.trim())) {
+    safeReply = stripBuyerInternalMetadata(
+      buildPostVisitWelcomeReply({
+        customerName: ctx.input.leadCustomerName,
+        companyName: ctx.companyName,
+        propertyName: liveCtx.recentCompletedVisit?.propertyName ?? liveCtx.activeVisit?.propertyName,
+      }),
+    );
+  } else if (isReturning) {
+    safeReply = stripBuyerInternalMetadata(
+      buildBuyerRapportReply(ctx.companyName, { isReturning: true, locationPreference }),
+    );
+  } else if (advancedLead && hasPriorOutbound) {
+    safeReply = stripBuyerInternalMetadata(
+      buildAdvancedReturningReply({
+        customerName: ctx.input.leadCustomerName,
+        companyName: ctx.companyName,
+        leadStatus: liveCtx.leadStatus || ctx.input.leadStatus || 'visited',
+        locationPreference,
+      }),
+    );
   } else {
     const aiSettings = await prisma.aiSetting.findUnique({
       where: { companyId: ctx.companyId },
@@ -495,16 +523,18 @@ async function handleRapportTurn(
       conversationStage,
       upcomingVisit: liveCtx.activeVisit,
     });
-    safeReply = stripBuyerInternalMetadata(fastPath?.text ?? rapportReply);
+    safeReply = stripBuyerInternalMetadata(fastPath?.text ?? buildBuyerRapportReply(ctx.companyName));
   }
 
-  const components = isReturning
+  const buttonFlags = buyerButtonFlagsFromLive(liveCtx);
+  const components = (isReturning && !postVisit)
     ? []
     : resolveBuyerComponents({
-        stage: conversationStage,
+        stage: postVisit || advancedLead ? resolveStageFromLeadStatus(liveCtx.leadStatus || ctx.input.leadStatus || 'visited') : conversationStage,
         outboundText: safeReply,
-        isReturningGreeting: false,
-        ...buyerButtonFlagsFromLive(liveCtx),
+        isReturningGreeting: isReturning && !postVisit,
+        propertyId: liveCtx.recentCompletedVisit?.propertyId ?? ctx.input.conversationSelectedPropertyId,
+        ...buttonFlags,
       });
 
   await prisma.message.create({
@@ -733,8 +763,10 @@ async function handleMemoryRecallTurn(
 async function handleQualificationTurn(
   ctx: BuyerTurnRuntimeContext,
   visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
 ): Promise<TurnResult | null> {
   if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
+  if (isAdvancedLeadStatus(ctx.input.leadStatus) || isPostVisitBuyer(liveCtx)) return null;
   if (!shouldUseQualificationFastPath(ctx.input.messageText)) return null;
 
   const { isBuyerQualificationStatement, buildBuyerQualificationAckReply, patchLeadMemoryFromQualification } =
@@ -752,7 +784,14 @@ async function handleQualificationTurn(
     extractAndPatchLeadMemory({ leadId: ctx.input.leadId, messageText: ctx.input.messageText, outboundText: qualReply }),
   );
 
-  return { audience: 'buyer', handled: true, terminal: true, text: qualReply };
+  const components = resolveBuyerComponents({
+    stage: 'qualify',
+    outboundText: qualReply,
+    propertyId: ctx.input.conversationSelectedPropertyId,
+    ...buyerButtonFlagsFromLive(liveCtx),
+  });
+
+  return { audience: 'buyer', handled: true, terminal: true, text: qualReply, components };
 }
 
 // ---------------------------------------------------------------------------
@@ -1441,8 +1480,25 @@ function buyerButtonFlagsFromLive(liveCtx: Awaited<ReturnType<typeof getLiveLead
     visitStatus: liveCtx.activeVisit?.status,
     visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
     visitTime: resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
-    hasCompletedVisit: Boolean(liveCtx.recentCompletedVisit && !liveCtx.activeVisit),
+    hasCompletedVisit: isPostVisitBuyer(liveCtx),
   };
+}
+
+async function syncAdvancedLeadConversationStage(
+  conversationId: string,
+  conversationState: ConversationState,
+  leadStatus: string | null | undefined,
+): Promise<ConversationState> {
+  if (!leadStatus || !isAdvancedLeadStatus(leadStatus)) return conversationState;
+  if (conversationState.stage !== 'rapport') return conversationState;
+
+  const advancedStage = resolveStageFromLeadStatus(leadStatus);
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { stage: advancedStage, stageEnteredAt: new Date(), stageMessageCount: 0 },
+  }).catch(() => undefined);
+
+  return { ...conversationState, stage: advancedStage, previousStage: 'rapport' };
 }
 
 /**
@@ -1721,8 +1777,9 @@ export async function orchestrateWhatsAppBuyerTurn(
   ctx: BuyerTurnRuntimeContext,
   conversationState: ConversationState,
 ): Promise<TurnResult> {
+  let activeState = conversationState;
   // /start resets all booking/conversation state and re-enables AI — must run before H1.
-  const hStart = await handleStartFreshTurn(ctx, conversationState);
+  const hStart = await handleStartFreshTurn(ctx, activeState);
   if (hStart) return hStart;
 
   // H1 must run before any booking commits — human takeover is terminal and must
@@ -1758,12 +1815,17 @@ export async function orchestrateWhatsAppBuyerTurn(
   });
 
   const liveCtx = await getLiveLeadContext(ctx.input.leadId, ctx.companyId);
+  activeState = await syncAdvancedLeadConversationStage(
+    ctx.input.conversationId,
+    activeState,
+    liveCtx.leadStatus || ctx.input.leadStatus,
+  );
 
   // Rapport/dismissal before call commit — bare "Hi" must not fall through to LLM greeting templates.
   const h1b = await handleDismissalTurn(ctx, visitCommit);
   if (h1b) return withDefaultReplyPacing(h1b);
 
-  const h2 = await handleRapportTurn(ctx, visitCommit, conversationState.stage, liveCtx);
+  const h2 = await handleRapportTurn(ctx, visitCommit, activeState.stage, liveCtx);
   if (h2) return withDefaultReplyPacing(h2);
 
   const h2b = await handleReturningBuyerPivotTurn(ctx, visitCommit);
@@ -1771,7 +1833,7 @@ export async function orchestrateWhatsAppBuyerTurn(
 
   // H2.5 must run BEFORE callCommit and H3-H7 so property-browsing intents
   // never reach the LLM (H9) where temperature variance causes spurious escalation.
-  const h2_5 = await handlePropertyBrowsingTurn(ctx, visitCommit, liveCtx, conversationState.stage);
+  const h2_5 = await handlePropertyBrowsingTurn(ctx, visitCommit, liveCtx, activeState.stage);
   if (h2_5) return withDefaultReplyPacing(h2_5);
 
   const callCommit = await tryCommitCustomerCallBooking({
@@ -1788,16 +1850,16 @@ export async function orchestrateWhatsAppBuyerTurn(
   const h3 = await handleMemoryRecallTurn(ctx, visitCommit);
   if (h3) return withDefaultReplyPacing(h3);
 
-  const h4 = await handleQualificationTurn(ctx, visitCommit);
+  const h4 = await handleQualificationTurn(ctx, visitCommit, liveCtx);
   if (h4) return withDefaultReplyPacing(h4);
 
   const h5 = await handleVisitStatusTurn(ctx, visitCommit, liveCtx);
   if (h5) return withDefaultReplyPacing(h5);
 
-  const h6 = await handleVisitCommitWorkflowTurn(ctx, visitCommit, liveCtx, conversationState.stage, ctx.input.conversationSelectedPropertyId);
+  const h6 = await handleVisitCommitWorkflowTurn(ctx, visitCommit, liveCtx, activeState.stage, ctx.input.conversationSelectedPropertyId);
   if (h6) return withDefaultReplyPacing(h6);
 
-  const h7 = await handleClassifierWorkflowTurn(ctx, visitCommit, liveCtx, conversationState.stage, ctx.input.conversationSelectedPropertyId);
+  const h7 = await handleClassifierWorkflowTurn(ctx, visitCommit, liveCtx, activeState.stage, ctx.input.conversationSelectedPropertyId);
   if (h7) return withDefaultReplyPacing(h7);
 
   // H7b: Bare visit intent with no date/time — ask the buyer instead of falling to LLM escalation.
@@ -1825,7 +1887,7 @@ export async function orchestrateWhatsAppBuyerTurn(
   const h8 = await handleVisitCommitReplyTurn(ctx, visitCommit, liveCtx);
   if (h8) return withDefaultReplyPacing(h8);
 
-  return handleFullAiTurn(ctx, visitCommit, callCommit, liveCtx, conversationState);
+  return handleFullAiTurn(ctx, visitCommit, callCommit, liveCtx, activeState);
 }
 
 function withDefaultReplyPacing(result: TurnResult): TurnResult {
