@@ -21,6 +21,7 @@ import {
   shouldSkipKnowledgeSearchForMessage,
 } from './customerMessageFastPath.service';
 import { isAdvancedLeadStatus, resolveStageFromLeadStatus } from '../utils/buyerLeadProgress.util';
+import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
 import {
   buildBuyerVisitStatusReply,
   isBuyerVisitStatusQuery,
@@ -220,6 +221,8 @@ export class AIService {
     if (
       state.stage === 'rapport'
       && request.lead?.status
+      && request.lead.id
+      && isFeatureEnabledForLead(request.lead.id, 'advancedLeadUx')
       && isAdvancedLeadStatus(request.lead.status)
     ) {
       state = {

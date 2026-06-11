@@ -15,6 +15,7 @@
 import config from '../config';
 import logger from '../config/logger';
 import type { WhatsAppComponent } from '../types/whatsapp-turn.types';
+import { isGlobalFeatureEnabled } from './featureRollout.util';
 
 // ─── Button Catalogue ─────────────────────────────────────────────────────────
 
@@ -305,7 +306,6 @@ function parseButtonIds(raw: string): Array<{ id: string; title: string }> {
   }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
 
 function resolveDeterministicCopilotButtons(
   outboundText: string,
@@ -363,8 +363,14 @@ export async function resolveStaffCopilotQuickActions(
   const llmButtons = await resolveButtonsFromLlm(input.outboundText);
   if (llmButtons?.length) return llmButtons;
 
-  return resolveDeterministicCopilotButtons(input.outboundText);
+  if (isGlobalFeatureEnabled('contextualCopilotButtons')) {
+    return resolveDeterministicCopilotButtons(input.outboundText);
+  }
+
+  return null;
 }
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Resolve the WhatsApp interactive component block for one staff copilot turn.

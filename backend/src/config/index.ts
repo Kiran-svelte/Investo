@@ -515,6 +515,22 @@ const config = {
     enabled: process.env.ENTERPRISE_AGENT_ENABLED === 'true',
     mode: (process.env.ENTERPRISE_AGENT_MODE || 'augment') as 'augment' | 'replace',
   },
+
+  features: {
+    /** Post-visit buttons, advanced lead stage sync, skip re-qualification. */
+    advancedLeadUx: process.env.FEATURE_ADVANCED_LEAD_UX === 'true',
+    /** Deterministic staff copilot button fallback on CRM replies. */
+    contextualCopilotButtons: process.env.FEATURE_CONTEXTUAL_COPILOT_BUTTONS === 'true',
+    /** H2 greeting template path (post-visit / advanced returning replies). */
+    customGreetingTemplate: process.env.FEATURE_CUSTOM_GREETING_TEMPLATE === 'true',
+    /** 0–100: share of leads that receive flagged UX when globally enabled. */
+    rolloutPercentage: Math.min(
+      100,
+      Math.max(0, parseInt(process.env.FEATURE_ROLLOUT_PERCENTAGE || '0', 10) || 0),
+    ),
+    /** When true, compare old vs new paths and log mismatches even when serving old behavior. */
+    shadowMode: process.env.FEATURE_SHADOW_MODE === 'true',
+  },
 };
 
 export default config;

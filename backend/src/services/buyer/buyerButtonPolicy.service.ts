@@ -2,6 +2,9 @@ import type { NextBestAction } from '../conversationStateMachine';
 import type { WhatsAppComponent } from '../../types/whatsapp-turn.types';
 import { shouldAttachContextualQuickReplies, type QuickReplyRecentAction } from '../../utils/contextQuickReplies.util';
 import { resolveCustomerQuickActions } from '../../utils/customerQuickReplies.util';
+import { shadowCompareSync } from '../../utils/featureShadow.util';
+import { isPostVisitBuyer } from '../../utils/buyerLeadProgress.util';
+import type { LiveLeadContext } from '../liveLeadContext.service';
 
 export type BuyerButtonContext = {
   stage: string;
@@ -21,7 +24,25 @@ export type BuyerButtonContext = {
   isReturningGreeting?: boolean;
   /** When true, buyer completed a recent site visit — show post-visit buttons, not "Book Free Visit". */
   hasCompletedVisit?: boolean;
+  /** Lead id for rollout gating (optional). */
+  leadId?: string | null;
+  /** When set, legacy vs advanced post-visit detection uses live CRM context. */
+  liveLeadSnapshot?: Pick<LiveLeadContext, 'activeVisit' | 'recentCompletedVisit' | 'leadStatus'>;
 };
+
+function legacyHasCompletedVisit(ctx: BuyerButtonContext): boolean {
+  if (ctx.liveLeadSnapshot) {
+    return Boolean(ctx.liveLeadSnapshot.recentCompletedVisit && !ctx.liveLeadSnapshot.activeVisit);
+  }
+  return Boolean(ctx.hasCompletedVisit);
+}
+
+function advancedHasCompletedVisit(ctx: BuyerButtonContext): boolean {
+  if (ctx.liveLeadSnapshot) {
+    return isPostVisitBuyer(ctx.liveLeadSnapshot);
+  }
+  return Boolean(ctx.hasCompletedVisit);
+}
 
 const STAGE_REPLIES: Partial<
   Record<string, { body: string; buttons: Array<{ id: string; title: string }> }>
@@ -150,15 +171,35 @@ const BARE_GREETING_OUTBOUND =
 
 const VISIT_FLOW_STAGES = ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation', 'visit_booking'];
 
-/**
- * Resolve at most one interactive component for a buyer turn.
- * Returns empty array when no buttons should be sent.
- */
-export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
-  if (ctx.isReturningGreeting && !ctx.hasCompletedVisit) return [];
+function resolveBuyerComponentsLegacy(ctx: BuyerButtonContext): WhatsAppComponent[] {
+  const hasCompletedVisit = legacyHasCompletedVisit(ctx);
+  if (ctx.isReturningGreeting) return [];
 
   const outbound = ctx.outboundText.trim();
-  if (BARE_GREETING_OUTBOUND.test(outbound) && !ctx.hasCompletedVisit) return [];
+  if (BARE_GREETING_OUTBOUND.test(outbound)) return [];
+
+  if (hasCompletedVisit && !ctx.hasActiveVisit) {
+    return [resolvePostVisitButtons(ctx.propertyId)];
+  }
+
+  return resolveBuyerComponentsCore(ctx);
+}
+
+function resolveBuyerComponentsAdvanced(ctx: BuyerButtonContext): WhatsAppComponent[] {
+  const hasCompletedVisit = advancedHasCompletedVisit(ctx);
+  if (ctx.isReturningGreeting && !hasCompletedVisit) return [];
+
+  const outbound = ctx.outboundText.trim();
+  if (BARE_GREETING_OUTBOUND.test(outbound) && !hasCompletedVisit) return [];
+
+  if (hasCompletedVisit && !ctx.hasActiveVisit) {
+    return [resolvePostVisitButtons(ctx.propertyId)];
+  }
+
+  return resolveBuyerComponentsCore(ctx);
+}
+
+function resolveBuyerComponentsCore(ctx: BuyerButtonContext): WhatsAppComponent[] {
 
   if (ctx.stage === 'visit_booking') return [];
 
@@ -206,4 +247,23 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
   const pid = ctx.propertyId ?? '';
   const buttons = withPropertyIds(stageConfig.buttons, pid);
   return [{ kind: 'buttons', buttons }];
+}
+
+/**
+ * Resolve at most one interactive component for a buyer turn.
+ * Returns empty array when no buttons should be sent.
+ */
+export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
+  const leadId = ctx.leadId ?? null;
+  if (!leadId) {
+    return resolveBuyerComponentsAdvanced(ctx);
+  }
+
+  return shadowCompareSync({
+    featureName: 'resolveBuyerComponents',
+    featureKey: 'advancedLeadUx',
+    leadId,
+    oldFn: () => resolveBuyerComponentsLegacy(ctx),
+    newFn: () => resolveBuyerComponentsAdvanced(ctx),
+  });
 }

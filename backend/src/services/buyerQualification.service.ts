@@ -2,6 +2,7 @@ import type { LeadMemory } from './lead-memory.service';
 import { extractLeadMemoryDelta } from './buyer-memory-extract.service';
 import { patchLeadMemory } from './lead-memory.service';
 import { isAdvancedLeadStatus } from '../utils/buyerLeadProgress.util';
+import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
 
 function isRapportPhrase(message: string): boolean {
   return (
@@ -21,6 +22,8 @@ export type BuyerRapportContext = {
   hasPriorOutbound?: boolean;
   /** CRM lead status — advanced leads skip generic rapport re-onboarding. */
   leadStatus?: string | null;
+  /** Lead id for rollout gating. */
+  leadId?: string | null;
 };
 
 export function isBuyerRapportMessage(message: string, ctx?: BuyerRapportContext): boolean {
@@ -29,7 +32,14 @@ export function isBuyerRapportMessage(message: string, ctx?: BuyerRapportContext
   if (!isRapportPhrase(t)) return false;
   const isBareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(t);
   // Visited / negotiating buyers saying "interested in 3BHK" must reach shortlist/LLM — not rapport welcome.
-  if (!isBareGreeting && isAdvancedLeadStatus(ctx?.leadStatus)) return false;
+  if (
+    !isBareGreeting
+    && ctx?.leadId
+    && isFeatureEnabledForLead(ctx.leadId, 'advancedLeadUx')
+    && isAdvancedLeadStatus(ctx?.leadStatus)
+  ) {
+    return false;
+  }
   if (isBareGreeting && ctx?.hasPriorOutbound) return true;
   if (isBareGreeting && !ctx?.hasPriorOutbound) return true;
   return !isBareGreeting;
