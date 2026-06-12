@@ -13,5 +13,5 @@ restartPolicyMaxRetries = 5
 # Required env vars (set in Railway dashboard):
 # - DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET
 # - AWS_REGION (default: eu-north-1), AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-# - MAIL_FROM (verified SES sender), MAIL_TRANSPORT=ses-api (auto-selected in prod when AWS keys set)
+# - RESEND_API_KEY, MAIL_FROM (verified sender/domain in Resend)
 # - STORAGE_PROVIDER=aws (optional; defaults to aws)

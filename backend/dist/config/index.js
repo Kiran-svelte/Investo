@@ -261,30 +261,8 @@ const directUrl = resolveDirectUrl(databaseUrl);
 const neonPoolerConfigured = isNeonPoolerDatabaseUrl(databaseUrl);
 const supabasePoolerConfigured = isSupabasePoolerDatabaseUrl(databaseUrl);
 const databaseSslRequired = isSupabaseDatabaseUrl(databaseUrl) || databaseUrl.includes('sslmode=require');
-const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-const smtpSecure = process.env.SMTP_SECURE !== undefined
-    ? process.env.SMTP_SECURE === 'true'
-    : smtpPort === 465;
 const mailFrom = (process.env.MAIL_FROM || '').trim();
-const awsAccessKeyId = firstNonEmptyEnv('AWS_ACCESS_KEY_ID');
-const awsSecretAccessKey = firstNonEmptyEnv('AWS_SECRET_ACCESS_KEY');
-/**
- * Railway and many cloud hosts block outbound SMTP (port 587).
- * In production, prefer SES API (HTTPS) when IAM credentials and MAIL_FROM are available.
- */
-function resolveMailTransport() {
-    const explicit = (process.env.MAIL_TRANSPORT || '').trim().toLowerCase();
-    if (explicit === 'ses-api' || explicit === 'smtp') {
-        return explicit;
-    }
-    if (nodeEnv === 'production'
-        && awsAccessKeyId
-        && awsSecretAccessKey
-        && mailFrom) {
-        return 'ses-api';
-    }
-    return 'smtp';
-}
+const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
 const config = {
     env: nodeEnv,
     port: parseInt(process.env.PORT || '3001', 10),
@@ -301,16 +279,10 @@ const config = {
         signupEnabled: process.env.SELF_SERVICE_SIGNUP_ENABLED === 'true',
     },
     mail: {
-        // "smtp" or "ses-api" (AWS SES SendEmail — uses IAM keys; required on Railway)
-        transport: resolveMailTransport(),
-        // Email "From" address for transactional emails (password reset, invites, etc.)
+        transport: 'resend',
         from: mailFrom,
-        smtp: {
-            host: (process.env.SMTP_HOST || '').trim(),
-            port: smtpPort,
-            secure: smtpSecure,
-            user: (process.env.SMTP_USER || '').trim(),
-            pass: process.env.SMTP_PASS || '',
+        resend: {
+            apiKey: resendApiKey,
         },
     },
     db: {
@@ -356,6 +328,15 @@ const config = {
         dedupTtlSeconds: parseInt(process.env.WHATSAPP_DEDUP_TTL_SECONDS || '300', 10),
         /** When false, skips typing indicator and artificial reply delay entirely. */
         replyPacingEnabled: process.env.WHATSAPP_REPLY_PACING_ENABLED !== 'false',
+        /** Buyer H9 LLM wall timeout (ms). Default 12s fast / 28s when fast replies off. */
+        buyerLlmTimeoutMs: (() => {
+            const raw = process.env.WHATSAPP_BUYER_LLM_TIMEOUT_MS;
+            if (raw === undefined || raw.trim() === '') {
+                return process.env.FEATURE_FAST_WHATSAPP_REPLIES === 'false' ? 28000 : 12000;
+            }
+            const parsed = parseInt(raw, 10);
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : 12000;
+        })(),
         /** Shared secret for signed production handset E2E proofs (X-Investo-E2E-Token header). */
         e2eWebhookProofToken: process.env.E2E_WEBHOOK_PROOF_TOKEN || '',
     },
@@ -402,6 +383,14 @@ const config = {
         messageWindowSize: parseInt(process.env.AGENT_AI_MESSAGE_WINDOW || '10', 10),
         cronEnabled: process.env.AGENT_AI_CRON_ENABLED !== 'false',
         temperature: parseFloat(process.env.AGENT_AI_TEMPERATURE || '0'),
+        copilotTimeoutMs: (() => {
+            const raw = process.env.AGENT_AI_COPILOT_TIMEOUT_MS;
+            if (raw === undefined || raw.trim() === '') {
+                return process.env.FEATURE_FAST_WHATSAPP_REPLIES === 'false' ? 30000 : 18000;
+            }
+            const parsed = parseInt(raw, 10);
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : 18000;
+        })(),
     },
     storage: {
         provider: process.env.STORAGE_PROVIDER || 'aws',
@@ -467,18 +456,43 @@ const config = {
         mode: (process.env.ENTERPRISE_AGENT_MODE || 'augment'),
     },
     features: {
-        /** Post-visit buttons, advanced lead stage sync, skip re-qualification. */
-        advancedLeadUx: process.env.FEATURE_ADVANCED_LEAD_UX === 'true',
-        /** Deterministic staff copilot button fallback on CRM replies. */
+        /**
+         * Buyer WhatsApp UX (buttons, post-visit, returning buyer, property browse media).
+         * ON by default — set FEATURE_*=false to disable without redeploying code.
+         */
+        advancedLeadUx: process.env.FEATURE_ADVANCED_LEAD_UX !== 'false',
+        /** Staff copilot only — stays opt-in. */
         contextualCopilotButtons: process.env.FEATURE_CONTEXTUAL_COPILOT_BUTTONS === 'true',
-        /** H2 greeting template path (post-visit / advanced returning replies). */
-        customGreetingTemplate: process.env.FEATURE_CUSTOM_GREETING_TEMPLATE === 'true',
-        /** 0–100: share of leads that receive flagged UX when globally enabled. */
-        rolloutPercentage: Math.min(100, Math.max(0, parseInt(process.env.FEATURE_ROLLOUT_PERCENTAGE || '0', 10) || 0)),
+        customGreetingTemplate: process.env.FEATURE_CUSTOM_GREETING_TEMPLATE !== 'false',
+        /** 0–100 rollout bucket; default 100 so all leads get buyer UX unless tuned down. */
+        rolloutPercentage: (() => {
+            const raw = process.env.FEATURE_ROLLOUT_PERCENTAGE;
+            if (raw === undefined || raw.trim() === '')
+                return 100;
+            const parsed = parseInt(raw, 10);
+            if (!Number.isFinite(parsed))
+                return 100;
+            return Math.min(100, Math.max(0, parsed));
+        })(),
         /** When true, compare old vs new paths and log mismatches even when serving old behavior. */
         shadowMode: process.env.FEATURE_SHADOW_MODE === 'true',
-        /** Visit/call reminders + nurture follow-ups via sendCompanyTextMessage and broader visit eligibility. */
-        reliableCustomerNotifications: process.env.FEATURE_RELIABLE_CUSTOMER_NOTIFICATIONS === 'true',
+        reliableCustomerNotifications: process.env.FEATURE_RELIABLE_CUSTOMER_NOTIFICATIONS !== 'false',
+        /** fix.md PR-3: visited/negotiation leads skip rapport re-interrogation (no rollout bucket). */
+        fixMdReturningBuyerStage: process.env.FEATURE_FIX_MD_RETURNING_BUYER_STAGE !== 'false',
+        /** fix.md PR-3: ensure greetingTemplate is loaded on all buyer fast paths. */
+        fixMdCustomGreetingSelect: process.env.FEATURE_FIX_MD_CUSTOM_GREETING_SELECT !== 'false',
+        /** fix.md PR-4: structured log when staff phone matches buyer lead. */
+        fixMdStaffBuyerCollisionLog: process.env.FEATURE_FIX_MD_STAFF_BUYER_COLLISION_LOG !== 'false',
+        /** fix.md PR-4: block write intents for viewer before execution. */
+        fixMdCopilotRoleFilter: process.env.FEATURE_FIX_MD_COPILOT_ROLE_FILTER !== 'false',
+        /** fix.md PR-4: bulk_send_to_phones message extraction (prompt already updated). */
+        fixMdBulkSendExtract: process.env.FEATURE_FIX_MD_BULK_SEND_EXTRACT !== 'false',
+        /** fix.md PR-5: require hero image or brochure before publish/media sends. */
+        fixMdPropertyMediaCompleteness: process.env.FEATURE_FIX_MD_PROPERTY_MEDIA_COMPLETENESS !== 'false',
+        /** Staff attendance Reschedule button → ask customer → auto-reschedule (F-01). */
+        attendanceStaffRescheduleFlow: process.env.FEATURE_ATTENDANCE_STAFF_RESCHEDULE !== 'false',
+        /** Skip artificial WhatsApp delays; parallel prefetch; shorter LLM caps (default ON). */
+        fastWhatsAppReplies: process.env.FEATURE_FAST_WHATSAPP_REPLIES !== 'false',
     },
 };
 exports.default = config;

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
- * Set mail env on Railway Investo backend (SES API — Railway blocks SMTP port 587).
+ * Set Resend mail env on Railway Investo backend.
  *
  * Usage:
- *   $env:RAILWAY_TOKEN='...'   # account or project token from Railway dashboard
+ *   $env:RAILWAY_ACCOUNT_TOKEN='...'
+ *   $env:RESEND_API_KEY='re_...'
+ *   $env:MAIL_FROM='Investo <onboarding@resend.dev>'
  *   node scripts/update-railway-mail-env.mjs
  */
 import fs from 'fs';
@@ -17,7 +19,9 @@ const SERVICE_ID = process.env.RAILWAY_SERVICE_ID || 'c852103d-c0cd-4c2d-9740-d1
 const ENVIRONMENT_ID = process.env.RAILWAY_ENVIRONMENT_ID || '3abc148f-da0e-42d9-a82d-c68a737c956e';
 
 function resolveRailwayAuth() {
-  const fromEnv = process.env.RAILWAY_TOKEN?.trim() || process.env.RAILWAY_API_TOKEN?.trim();
+  const fromEnv = process.env.RAILWAY_TOKEN?.trim()
+    || process.env.RAILWAY_ACCOUNT_TOKEN?.trim()
+    || process.env.RAILWAY_API_TOKEN?.trim();
   if (fromEnv) return fromEnv.startsWith('Bearer ') ? fromEnv : `Bearer ${fromEnv}`;
   const mcpPath = path.join(process.env.USERPROFILE || process.env.HOME || '', '.cursor', 'mcp.json');
   if (fs.existsSync(mcpPath)) {
@@ -25,7 +29,7 @@ function resolveRailwayAuth() {
     const fromMcp = mcp.mcpServers?.render?.headers?.Authorization;
     if (fromMcp) return fromMcp;
   }
-  throw new Error('Set RAILWAY_TOKEN or RAILWAY_API_TOKEN');
+  throw new Error('Set RAILWAY_TOKEN or RAILWAY_ACCOUNT_TOKEN');
 }
 
 async function gql(auth, query, variables = {}) {
@@ -54,20 +58,42 @@ async function upsert(auth, name, value) {
   console.log(`Updated ${name}`);
 }
 
+async function removeVar(auth, name) {
+  try {
+    await gql(auth, 'mutation($input: VariableDeleteInput!) { variableDelete(input: $input) }', {
+      input: {
+        projectId: PROJECT_ID,
+        environmentId: ENVIRONMENT_ID,
+        serviceId: SERVICE_ID,
+        name,
+      },
+    });
+    console.log(`Removed ${name}`);
+  } catch (err) {
+    console.log(`Skip remove ${name}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function main() {
   const auth = resolveRailwayAuth();
-  const mailFrom = process.env.MAIL_FROM || 'Investo <big.investo.sol@gmail.com>';
-  const region = process.env.MAIL_AWS_REGION || process.env.AWS_REGION || 'eu-north-1';
+  const mailFrom = process.env.MAIL_FROM || 'Investo <onboarding@resend.dev>';
+  const resendApiKey = process.env.RESEND_API_KEY?.trim();
 
-  await upsert(auth, 'MAIL_TRANSPORT', 'ses-api');
+  if (!resendApiKey) {
+    throw new Error('Set RESEND_API_KEY before running this script');
+  }
+
+  await upsert(auth, 'RESEND_API_KEY', resendApiKey);
   await upsert(auth, 'MAIL_FROM', mailFrom);
-  await upsert(auth, 'MAIL_AWS_REGION', region);
+  await upsert(auth, 'MAIL_TRANSPORT', 'resend');
+
+  await removeVar(auth, 'MAIL_AWS_REGION');
 
   await gql(auth, 'mutation($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }', {
     serviceId: SERVICE_ID,
     environmentId: ENVIRONMENT_ID,
   });
-  console.log('Mail env updated; Railway redeploy triggered.');
+  console.log('Resend mail env updated; Railway redeploy triggered.');
 }
 
 main().catch((err) => {

@@ -286,68 +286,8 @@ const neonPoolerConfigured = isNeonPoolerDatabaseUrl(databaseUrl);
 const supabasePoolerConfigured = isSupabasePoolerDatabaseUrl(databaseUrl);
 const databaseSslRequired = isSupabaseDatabaseUrl(databaseUrl) || databaseUrl.includes('sslmode=require');
 
-const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-const smtpSecure = process.env.SMTP_SECURE !== undefined
-  ? process.env.SMTP_SECURE === 'true'
-  : smtpPort === 465;
-
 const mailFrom = (process.env.MAIL_FROM || '').trim();
-const awsAccessKeyId = firstNonEmptyEnv('AWS_ACCESS_KEY_ID');
-const awsSecretAccessKey = firstNonEmptyEnv('AWS_SECRET_ACCESS_KEY');
-const mailAwsAccessKeyId = firstNonEmptyEnv('MAIL_AWS_ACCESS_KEY_ID');
-const mailAwsSecretAccessKey = firstNonEmptyEnv('MAIL_AWS_SECRET_ACCESS_KEY');
-const mailAwsRegion = (process.env.MAIL_AWS_REGION || process.env.AWS_REGION || 'eu-north-1').trim();
-
-function isSmtpFullyConfigured(): boolean {
-  const host = (process.env.SMTP_HOST || '').trim();
-  const user = (process.env.SMTP_USER || '').trim();
-  const pass = process.env.SMTP_PASS || '';
-  return Boolean(host && user && pass && mailFrom);
-}
-
-function isSesApiReady(): boolean {
-  const keyId = mailAwsAccessKeyId || awsAccessKeyId;
-  const secret = mailAwsSecretAccessKey || awsSecretAccessKey;
-  return Boolean(keyId && secret && mailFrom);
-}
-
-function isCloudHostedRuntime(): boolean {
-  return Boolean(
-    process.env.RAILWAY_ENVIRONMENT
-    || process.env.RAILWAY_PROJECT_ID
-    || process.env.RENDER
-    || process.env.VERCEL
-  );
-}
-
-/**
- * Railway and many cloud hosts block outbound SMTP (port 587).
- * In production, prefer SES API (HTTPS) when IAM credentials and MAIL_FROM are available.
- * When only SES SMTP username/password are set on Railway, SMTP still fails — use MAIL_AWS_* IAM keys + ses-api.
- */
-function resolveMailTransport(): 'smtp' | 'ses-api' {
-  const explicit = (process.env.MAIL_TRANSPORT || '').trim().toLowerCase();
-  if (explicit === 'ses-api' || explicit === 'smtp') {
-    return explicit;
-  }
-
-  if (mailAwsAccessKeyId && mailAwsSecretAccessKey && mailFrom) {
-    return 'ses-api';
-  }
-
-  const smtpReady = isSmtpFullyConfigured();
-  const sesReady = isSesApiReady();
-
-  if (isCloudHostedRuntime() || nodeEnv === 'production') {
-    return sesReady ? 'ses-api' : 'smtp';
-  }
-
-  if (smtpReady) {
-    return 'smtp';
-  }
-
-  return sesReady ? 'ses-api' : 'smtp';
-}
+const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
 
 const config = {
   env: nodeEnv,
@@ -369,22 +309,10 @@ const config = {
   },
 
   mail: {
-    // "smtp" or "ses-api" (AWS SES SendEmail — uses IAM keys; required on Railway)
-    transport: resolveMailTransport(),
-    // Email "From" address for transactional emails (password reset, invites, etc.)
+    transport: 'resend' as const,
     from: mailFrom,
-    aws: {
-      accessKeyId: mailAwsAccessKeyId || awsAccessKeyId,
-      secretAccessKey: mailAwsSecretAccessKey || awsSecretAccessKey,
-      region: mailAwsRegion,
-      usesDedicatedMailKeys: Boolean(mailAwsAccessKeyId && mailAwsSecretAccessKey),
-    },
-    smtp: {
-      host: (process.env.SMTP_HOST || '').trim(),
-      port: smtpPort,
-      secure: smtpSecure,
-      user: (process.env.SMTP_USER || '').trim(),
-      pass: process.env.SMTP_PASS || '',
+    resend: {
+      apiKey: resendApiKey,
     },
   },
 

@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * Sync AWS S3 + SES SMTP + platform flags to Render, then trigger deploy.
+ * Sync AWS S3 + Resend mail + platform flags to Render, then trigger deploy.
  */
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { deriveSesSmtpPassword } from './lib/ses-smtp-password.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -38,9 +37,8 @@ async function upsert(auth, key, value) {
 
 async function main() {
   const auth = resolveRenderAuth();
-  const mailFrom = process.env.MAIL_FROM || 'Investo <big.investo.sol@gmail.com>';
-  const smtpUser = ACCESS_KEY;
-  const smtpPass = SECRET_KEY ? deriveSesSmtpPassword(SECRET_KEY, REGION) : '';
+  const mailFrom = process.env.MAIL_FROM || 'Investo <onboarding@resend.dev>';
+  const resendApiKey = process.env.RESEND_API_KEY?.trim() || '';
 
   const patch = {
     STORAGE_PROVIDER: 'aws',
@@ -54,13 +52,9 @@ async function main() {
     CORS_ORIGINS: 'https://biginvesto.online,https://www.biginvesto.online',
     PROPERTY_IMPORT_DB_UPLOAD: 'false',
     DB_AUTO_SEED: 'false',
-    SMTP_HOST: `email-smtp.${REGION}.amazonaws.com`,
-    SMTP_PORT: '587',
-    SMTP_SECURE: 'false',
-    SMTP_USER: smtpUser,
-    SMTP_PASS: smtpPass,
+    RESEND_API_KEY: resendApiKey,
     MAIL_FROM: mailFrom,
-    MAIL_TRANSPORT: 'ses-api',
+    MAIL_TRANSPORT: 'resend',
   };
 
   for (const [key, value] of Object.entries(patch)) {
