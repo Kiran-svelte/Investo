@@ -22,6 +22,8 @@ export interface PropertyUploadUrlInput {
   fileSize: number;
   propertyId?: string | null;
   assetType?: 'image' | 'brochure';
+  /** Default `property` — use `ai-greeting` for AI settings welcome attachments. */
+  uploadScope?: 'property' | 'ai-greeting';
 }
 
 export interface PropertyUploadUrlResult {
@@ -206,6 +208,17 @@ function buildRelativeObjectKey(input: PropertyUploadUrlInput): string {
   const extension = getMimeTypeExtension(input.mimeType);
   const cleanFileName = sanitizeFileName(input.fileName);
   const assetType = input.assetType || (input.mimeType === 'application/pdf' ? 'brochure' : 'image');
+
+  if (input.uploadScope === 'ai-greeting') {
+    return [
+      'companies',
+      input.companyId,
+      'ai-greeting',
+      assetType,
+      `${Date.now()}-${randomUUID()}-${cleanFileName}${extension}`,
+    ].join('/');
+  }
+
   const propertySegment = input.propertyId || 'draft';
 
   return [
@@ -414,6 +427,12 @@ class StorageService {
     }
 
     throw new Error('No object storage configured (AWS S3 or R2 required)');
+  }
+
+  async createAiGreetingMediaUploadUrl(
+    input: Omit<PropertyUploadUrlInput, 'propertyId' | 'uploadScope'>,
+  ): Promise<PropertyUploadUrlResult> {
+    return this.createPropertyUploadUrl({ ...input, uploadScope: 'ai-greeting' });
   }
 
   getPublicUrl(key: string): string {

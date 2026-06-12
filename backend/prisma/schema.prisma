@@ -612,6 +612,8 @@ model AiSetting {
   workingHours        Json         @default("{}") @map("working_hours")
   faqKnowledge        Json         @default("[]") @map("faq_knowledge")
   greetingTemplate    String?      @map("greeting_template") @db.Text
+  /// JSON array: hero image + brochure PDF sent with first-contact WhatsApp greeting.
+  greetingMedia       Json         @default("[]") @map("greeting_media")
   persuasionLevel     Int          @default(7) @map("persuasion_level")
   autoDetectLanguage  Boolean      @default(true) @map("auto_detect_language")
   defaultLanguage     String       @default("en") @map("default_language") @db.VarChar(5)

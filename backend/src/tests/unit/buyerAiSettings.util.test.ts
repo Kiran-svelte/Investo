@@ -21,6 +21,7 @@ describe('buyerAiSettings.util', () => {
   test('loadBuyerAiSettings selects greetingTemplate and defaultLanguage', async () => {
     mockFindUnique.mockResolvedValue({
       greetingTemplate: 'Welcome to {business_name}!',
+      greetingMedia: [],
       defaultLanguage: 'hi',
     });
 

@@ -3,11 +3,13 @@ import prisma from '../config/prisma';
 /** Fields required for buyer greeting fast paths — always include greetingTemplate. */
 export const BUYER_AI_SETTING_SELECT = {
   greetingTemplate: true,
+  greetingMedia: true,
   defaultLanguage: true,
 } as const;
 
 export type BuyerAiSettingsRecord = {
   greetingTemplate: string | null;
+  greetingMedia: unknown;
   defaultLanguage: string | null;
 } | null;
 

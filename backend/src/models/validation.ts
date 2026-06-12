@@ -329,6 +329,22 @@ export const createUserSchema = z.object({
   must_change_password: z.boolean().optional(),
 });
 
+export const greetingMediaItemSchema = z.object({
+  id: z.string().min(1).max(64),
+  kind: z.enum(['image', 'document']),
+  url: z.string().url().max(2000),
+  mimeType: z.string().min(3).max(100),
+  fileName: z.string().max(255).optional(),
+  caption: z.string().max(500).optional(),
+});
+
+export const createAiGreetingMediaUploadSchema = z.object({
+  file_name: z.string().min(1).max(255),
+  mime_type: z.enum(PROPERTY_ASSET_MIME_TYPES),
+  file_size: z.number().int().positive().max(20 * 1024 * 1024),
+  asset_type: z.enum(['image', 'brochure']),
+});
+
 export const aiSettingsSchema = z.object({
   business_name: z.string().max(255).optional().nullable(),
   business_description: z.string().optional().nullable(),
@@ -338,6 +354,7 @@ export const aiSettingsSchema = z.object({
   working_hours: z.record(z.any()).optional(),
   faq_knowledge: z.array(z.record(z.any())).optional(),
   greeting_template: z.string().optional().nullable(),
+  greeting_media: z.array(greetingMediaItemSchema).max(2).optional(),
   persuasion_level: z.number().int().min(1).max(10).optional(),
   auto_detect_language: z.boolean().optional(),
   default_language: z.string().max(5).optional(),

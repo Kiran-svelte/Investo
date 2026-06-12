@@ -343,6 +343,9 @@ async function applyCompatibilityPatches(): Promise<void> {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS agent_name VARCHAR(50) NOT NULL DEFAULT 'Riya'
   `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS greeting_media JSONB NOT NULL DEFAULT '[]'::jsonb
+  `);
 
   // Workflow saga + centralized lead memory (A+ gate).
   await prisma.$executeRawUnsafe(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_memory JSONB`);

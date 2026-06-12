@@ -31,6 +31,7 @@ import {
 import { isFeatureEnabledForLead } from '../../utils/featureRollout.util';
 import { shadowCompare } from '../../utils/featureShadow.util';
 import { loadBuyerAiSettings } from '../../utils/buyerAiSettings.util';
+import { mergeGreetingMediaComponents } from '../../utils/greetingMedia.util';
 import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
 import {
   getBuyerLlmTimeoutMs,
@@ -462,6 +463,21 @@ async function handleDismissalTurn(
 const BARE_GREETING_INBOUND =
   /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i;
 
+function finalizeRapportComponents(
+  components: WhatsAppComponent[],
+  input: {
+    isReturning: boolean;
+    liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>;
+    greetingMedia?: unknown;
+  },
+): WhatsAppComponent[] {
+  const merged = mergeGreetingMediaComponents(input.greetingMedia, components, {
+    isReturning: input.isReturning,
+    hasActiveVisit: Boolean(input.liveCtx.activeVisit),
+  });
+  return enforceTurnComponentBudget(merged);
+}
+
 async function buildLegacyRapportPayload(
   ctx: BuyerTurnRuntimeContext,
   input: {
@@ -485,10 +501,12 @@ async function buildLegacyRapportPayload(
   });
 
   let safeReply: string;
+  let greetingMedia: unknown;
   if (input.isReturning) {
     safeReply = stripBuyerInternalMetadata(rapportReply);
   } else {
     const aiSettings = await loadBuyerAiSettings(ctx.companyId);
+    greetingMedia = aiSettings?.greetingMedia;
     const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
     const fastPath = buildFastPathCustomerReply({
       customerMessage: ctx.input.messageText,
@@ -513,7 +531,14 @@ async function buildLegacyRapportPayload(
         ...buttonFlags,
       });
 
-  return { safeReply, components };
+  return {
+    safeReply,
+    components: finalizeRapportComponents(components, {
+      isReturning: input.isReturning,
+      liveCtx: input.liveCtx,
+      greetingMedia,
+    }),
+  };
 }
 
 async function buildAdvancedRapportPayload(
@@ -538,6 +563,7 @@ async function buildAdvancedRapportPayload(
   }
 
   let safeReply: string;
+  let greetingMedia: unknown;
   if (
     input.useCustomGreeting
     && input.postVisit
@@ -565,6 +591,7 @@ async function buildAdvancedRapportPayload(
     );
   } else {
     const aiSettings = await loadBuyerAiSettings(ctx.companyId);
+    greetingMedia = aiSettings?.greetingMedia;
     const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
     const fastPath = buildFastPathCustomerReply({
       customerMessage: ctx.input.messageText,
@@ -591,7 +618,14 @@ async function buildAdvancedRapportPayload(
         ...buttonFlags,
       });
 
-  return { safeReply, components };
+  return {
+    safeReply,
+    components: finalizeRapportComponents(components, {
+      isReturning: input.isReturning && !input.postVisit,
+      liveCtx: input.liveCtx,
+      greetingMedia,
+    }),
+  };
 }
 
 /**

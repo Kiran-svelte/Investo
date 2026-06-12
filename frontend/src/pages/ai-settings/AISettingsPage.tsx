@@ -3,12 +3,19 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
-  Save, Loader2, Plus, Trash2, Clock, MessageSquare, Smartphone, AlertCircle, CheckCircle
+  Save, Loader2, Plus, Trash2, Clock, MessageSquare, Smartphone, AlertCircle, CheckCircle,
+  ImagePlus, FileText, Upload,
 } from 'lucide-react';
 import InfoTooltip from '../../components/common/InfoTooltip';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
 import { PERSUASION_LEVEL_HELP, PROJECT_BUDGET_HELP } from '../../constants/aiFieldHelp';
+import {
+  canAddGreetingMedia,
+  testGreetingMedia,
+  uploadGreetingMediaFile,
+  type GreetingMediaItem,
+} from '../../services/greetingMedia';
 
 // ── Types ──────────────────────────────────────
 
@@ -25,6 +32,7 @@ interface AISettings {
   workingHours: { start: string; end: string };
   faqKnowledge: FAQItem[];
   greetingTemplate: string;
+  greetingMedia: GreetingMediaItem[];
   defaultLanguage: string;
   operatingLocations: string[];
   budgetRanges: { min: number; max: number };
@@ -67,6 +75,7 @@ const DEFAULT_SETTINGS: AISettings = {
   workingHours: { start: '09:00', end: '18:00' },
   faqKnowledge: [],
   greetingTemplate: '',
+  greetingMedia: [],
   defaultLanguage: 'en',
   operatingLocations: [],
   budgetRanges: { min: 0, max: 0 },
@@ -103,6 +112,9 @@ const AISettingsPage: React.FC = () => {
   const [connectionVerified, setConnectionVerified] = useState(false);
   // true if credentials have been saved at least once (fields are non-empty after loading)
   const [credentialsSaved, setCredentialsSaved] = useState(false);
+  const [greetingMediaUploading, setGreetingMediaUploading] = useState(false);
+  const [testingGreetingMedia, setTestingGreetingMedia] = useState(false);
+  const [greetingMediaMessage, setGreetingMediaMessage] = useState('');
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
@@ -116,6 +128,7 @@ const AISettingsPage: React.FC = () => {
         workingHours: d.workingHours || { start: '09:00', end: '18:00' },
         faqKnowledge: d.faqKnowledge || [],
         greetingTemplate: d.greetingTemplate || '',
+        greetingMedia: Array.isArray(d.greetingMedia) ? d.greetingMedia : [],
         defaultLanguage: d.defaultLanguage || 'en',
         operatingLocations: d.operatingLocations || [],
         budgetRanges: d.budgetRanges || { min: 0, max: 0 },
@@ -329,6 +342,74 @@ const AISettingsPage: React.FC = () => {
     }
   };
 
+  const handleGreetingMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (!canAddGreetingMedia(settings.greetingMedia.length)) {
+      setGreetingMediaMessage('You can attach up to 2 files (image + brochure).');
+      return;
+    }
+
+    setGreetingMediaUploading(true);
+    setGreetingMediaMessage('');
+    try {
+      const item = await uploadGreetingMediaFile(file);
+      setSettings(prev => ({
+        ...prev,
+        greetingMedia: [...prev.greetingMedia, item],
+      }));
+      setGreetingMediaMessage(`${file.name} uploaded — save settings to keep it.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      setGreetingMediaMessage(msg);
+    } finally {
+      setGreetingMediaUploading(false);
+    }
+  };
+
+  const removeGreetingMedia = (id: string) => {
+    setSettings(prev => ({
+      ...prev,
+      greetingMedia: prev.greetingMedia.filter(item => item.id !== id),
+    }));
+  };
+
+  const handleTestGreetingMedia = async () => {
+    if (!settings.greetingMedia.length) {
+      setGreetingMediaMessage('Add an image or brochure first.');
+      return;
+    }
+
+    setTestingGreetingMedia(true);
+    setGreetingMediaMessage('');
+    try {
+      await api.put('/ai-settings', {
+        greeting_template: settings.greetingTemplate,
+        greeting_media: settings.greetingMedia,
+      });
+      const result = await testGreetingMedia(settings.greetingMedia);
+      if (result.success) {
+        setGreetingMediaMessage('All greeting media URLs are reachable.');
+      } else {
+        const failed = result.items.filter(item => !item.ok);
+        setGreetingMediaMessage(
+          failed.length
+            ? `Could not reach ${failed.length} file(s). Check storage URLs are public HTTPS.`
+            : 'Some media URLs failed the reachability check.',
+        );
+      }
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : undefined;
+      setGreetingMediaMessage(msg || 'Failed to test greeting media');
+    } finally {
+      setTestingGreetingMedia(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -342,6 +423,7 @@ const AISettingsPage: React.FC = () => {
         working_hours: settings.workingHours,
         faq_knowledge: settings.faqKnowledge,
         greeting_template: settings.greetingTemplate,
+        greeting_media: settings.greetingMedia,
         default_language: settings.defaultLanguage,
         operating_locations: settings.operatingLocations,
       };
@@ -489,13 +571,85 @@ const AISettingsPage: React.FC = () => {
         {/* Greeting Template */}
         <div className="investo-card-pad space-y-4">
           <h2 className="text-lg font-semibold text-ink-primary">{t('ai_settings.greeting_template')}</h2>
+          <p className="text-sm text-ink-muted">
+            Sent on a buyer&apos;s first &quot;Hi&quot; on WhatsApp. Use {'{business_name}'} in the text.
+            Optional hero image and brochure PDF are sent with the greeting (max 2 files).
+          </p>
           <textarea
             name="greetingTemplate"
             value={settings.greetingTemplate}
             onChange={handleChange}
             rows={3}
+            placeholder="Hello! Welcome to {business_name}. How can I help you find your dream property today?"
             className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex items-center gap-2 px-3 py-2 bg-brand-50 text-brand-800 rounded-lg text-sm font-medium cursor-pointer hover:bg-brand-100">
+                {greetingMediaUploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                Add image or brochure
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="hidden"
+                  disabled={greetingMediaUploading || !canAddGreetingMedia(settings.greetingMedia.length)}
+                  onChange={handleGreetingMediaUpload}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={handleTestGreetingMedia}
+                disabled={testingGreetingMedia || settings.greetingMedia.length === 0}
+                className="px-3 py-2 border border-surface-border rounded-lg text-sm font-medium hover:bg-surface-subtle disabled:opacity-50"
+              >
+                {testingGreetingMedia ? 'Testing…' : 'Test media URLs'}
+              </button>
+            </div>
+
+            {greetingMediaMessage && (
+              <div className={`p-3 rounded-lg text-sm ${greetingMediaMessage.includes('reachable') || greetingMediaMessage.includes('uploaded') ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>
+                {greetingMediaMessage}
+              </div>
+            )}
+
+            {settings.greetingMedia.length === 0 ? (
+              <p className="text-sm text-ink-muted">No greeting media yet — text-only welcome.</p>
+            ) : (
+              <ul className="space-y-2">
+                {settings.greetingMedia.map(item => (
+                  <li key={item.id} className="flex items-center gap-3 border rounded-lg p-3">
+                    {item.kind === 'image' ? (
+                      <img src={item.url} alt="" className="h-14 w-14 rounded object-cover border" />
+                    ) : (
+                      <div className="h-14 w-14 rounded border bg-surface-subtle flex items-center justify-center">
+                        <FileText className="h-6 w-6 text-ink-muted" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-ink-primary truncate flex items-center gap-1">
+                        {item.kind === 'image' ? <ImagePlus className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+                        {item.fileName || (item.kind === 'image' ? 'Hero image' : 'Brochure PDF')}
+                      </p>
+                      <p className="text-xs text-ink-muted truncate">{item.url}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeGreetingMedia(item.id)}
+                      className="p-1.5 hover:bg-red-50 rounded text-red-400 hover:text-red-600"
+                      aria-label="Remove greeting media"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         {/* FAQ Knowledge */}
