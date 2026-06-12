@@ -1,6 +1,7 @@
 import { UserRole } from '@prisma/client';
 import config from '../config';
 import logger from '../config/logger';
+import { isFixMdEnabled } from '../utils/fixMdFeatures.util';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { normalizeInboundWhatsAppPhone, phoneLast10 } from '../utils/phoneMatch';
 
@@ -141,7 +142,8 @@ export async function routeCompanyScopedInbound(params: {
       return phoneLast10(lead.phone) === senderLast10;
     });
     if (matchingBuyerLead) {
-      logger.warn('Staff phone match supersedes potential buyer lead — customer AI suppressed', {
+      const collisionPayload = {
+        event: 'staff_buyer_phone_collision',
         companyId: params.companyId,
         userId: companyUser.userId,
         userRole: companyUser.userRole,
@@ -150,7 +152,13 @@ export async function routeCompanyScopedInbound(params: {
         buyerLeadName: matchingBuyerLead.customerName,
         buyerLeadStatus: matchingBuyerLead.status,
         messagePreview: params.messageText.slice(0, 80),
-      });
+        fixMdStaffBuyerCollisionLog: isFixMdEnabled('fixMdStaffBuyerCollisionLog'),
+      };
+      if (isFixMdEnabled('fixMdStaffBuyerCollisionLog')) {
+        logger.warn('Staff phone match supersedes potential buyer lead — customer AI suppressed', collisionPayload);
+      } else {
+        logger.info('Staff phone matched buyer lead (legacy log level)', collisionPayload);
+      }
     }
   }
 

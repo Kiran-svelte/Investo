@@ -16,6 +16,9 @@ jest.mock('../../config', () => ({
   default: {
     agentAi: { enabled: true, model: 'gpt-4o' },
     ai: { openaiApiKey: 'sk-test', openaiModel: 'gpt-4o' },
+    features: {
+      fixMdCopilotRoleFilter: true,
+    },
   },
 }));
 
@@ -251,5 +254,17 @@ describe('agent-intent-orchestrator.service', () => {
     );
     expect(reply).toBe(buildRoleBlockedIntentReply('viewer', 'update_lead_status'));
     expect(reply?.toLowerCase()).toContain('read-only');
+  });
+
+  it('blocks viewer write intent when mapped tool is missing (fix.md issue 4)', async () => {
+    const viewerCtx: ToolContext = { ...ctx, userRole: 'viewer' };
+    const reply = await executeAgentIntent(
+      viewerCtx,
+      { intent: 'update_lead_status', parameters: { leadName: 'Ravi', status: 'visited' } },
+      [],
+      null,
+      { actionTools: [] },
+    );
+    expect(reply).toBe(buildRoleBlockedIntentReply('viewer', 'update_lead_status'));
   });
 });

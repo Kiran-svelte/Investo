@@ -28,6 +28,7 @@ import { workflowIdForIntent } from '../workflow/workflow-registry';
 import { isVisitListQueryMessage } from '../visitIntentFromMessage.service';
 import { tryResolveVisitListReply } from './agent-crm-query.service';
 import { MAX_BULK_SEND_RECIPIENTS } from '../../utils/bulk-send-parser.util';
+import { isFixMdEnabled } from '../../utils/fixMdFeatures.util';
 import {
   executeBulkWhatsAppForward,
   formatBulkForwardIntentReply,
@@ -543,6 +544,14 @@ Disambiguation rules (apply in order, use the FIRST matching rule):
   }
 
   const intent = normalizeIntent(parsed.intent);
+  if (
+    isFixMdEnabled('fixMdCopilotRoleFilter')
+    && intent !== 'unknown'
+    && roleIntents.length > 0
+    && !roleIntents.includes(intent)
+  ) {
+    return { intent: 'unknown', confidence: 0, parameters: {} };
+  }
   return {
     intent,
     toolName: normalizeToolName(parsed.toolName, availableTools) ?? getIntentDefaultTool(intent, availableTools),
@@ -637,6 +646,13 @@ export async function executeAgentIntent(
   }
 
   const actionTools = options?.actionTools ?? getActionToolsForContext(context);
+  if (isFixMdEnabled('fixMdCopilotRoleFilter') && context.userRole === 'viewer') {
+    const roleIntents = filterIntentsForAvailableTools(actionTools);
+    if (!roleIntents.includes(intent)) {
+      return buildRoleBlockedIntentReply(context.userRole, intent);
+    }
+  }
+
   const requiredTool = extracted.toolName ?? getIntentDefaultTool(intent, actionTools);
   if (requiredTool && !findTool(actionTools, requiredTool)) {
     return buildRoleBlockedIntentReply(context.userRole, intent);
