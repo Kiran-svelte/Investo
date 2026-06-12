@@ -27,7 +27,8 @@ import { useBulkCsvImport } from './use-bulk-csv-import';
 import {
   BULK_IMPORT_ACCEPTED_EXTENSIONS,
   BULK_IMPORT_ACCEPTED_MIME_TYPES,
-  BULK_IMPORT_COLUMN_TARGET_OPTIONS,
+  BULK_IMPORT_FIELD_GROUPS,
+  BULK_IMPORT_FIELDS_BY_GROUP,
   BULK_IMPORT_PREVIEW_ROW_COUNT,
   BULK_IMPORT_STEPS,
   BULK_IMPORT_TARGET_FIELD_LABELS,
@@ -283,10 +284,15 @@ function MappingStep({
                           : 'border-brand-300 bg-brand-50 text-ink-primary'
                       }`}
                     >
-                      {BULK_IMPORT_COLUMN_TARGET_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {fieldLabel(option)}
-                        </option>
+                      <option value="skip">{fieldLabel('skip')}</option>
+                      {BULK_IMPORT_FIELD_GROUPS.map((group) => (
+                        <optgroup key={group} label={group}>
+                          {(BULK_IMPORT_FIELDS_BY_GROUP[group] ?? []).map((field) => (
+                            <option key={field.key} value={field.key}>
+                              {field.label}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   </td>

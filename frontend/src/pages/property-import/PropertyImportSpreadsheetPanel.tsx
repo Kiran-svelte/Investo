@@ -2,31 +2,19 @@ import { useMemo, useState } from 'react';
 import { FileSpreadsheet, Loader2 } from 'lucide-react';
 import api, { type ApiResponse } from '../../services/api';
 import {
+  BULK_IMPORT_FIELD_GROUPS,
+  BULK_IMPORT_FIELDS_BY_GROUP,
+} from '../../constants/property-import-fields.constants';
+import {
   PROPERTY_IMPORT_SPREADSHEET_MIME_TYPES,
   type PropertyImportDraft,
 } from '../../services/propertyImport';
+import { mergeSuggestedColumnMappings } from '../../utils/csv-column-auto-map';
 
 export interface SpreadsheetColumnMapping {
   source_column: string;
   target_field: string;
 }
-
-const TARGET_FIELDS = [
-  { value: '', label: 'Skip column' },
-  { value: 'name', label: 'Name' },
-  { value: 'builder', label: 'Builder' },
-  { value: 'location_city', label: 'City' },
-  { value: 'location_area', label: 'Area' },
-  { value: 'location_pincode', label: 'Pincode' },
-  { value: 'price_min', label: 'Price min' },
-  { value: 'price_max', label: 'Price max' },
-  { value: 'bedrooms', label: 'Bedrooms / BHK' },
-  { value: 'property_type', label: 'Property type' },
-  { value: 'description', label: 'Description' },
-  { value: 'rera_number', label: 'RERA' },
-  { value: 'status', label: 'Status' },
-];
-
 interface PropertyImportSpreadsheetPanelProps {
   draftId: string;
   projectName: string;
@@ -79,7 +67,11 @@ export default function PropertyImportSpreadsheetPanel({
       );
       const payload = data.data;
       setPreview(payload);
-      const suggested = Object.entries(payload.suggestedMapping || {}).map(([source_column, target_field]) => ({
+      const mergedMapping = mergeSuggestedColumnMappings(
+        payload.headers,
+        payload.suggestedMapping || {},
+      );
+      const suggested = Object.entries(mergedMapping).map(([source_column, target_field]) => ({
         source_column,
         target_field: target_field === 'skip' ? '' : target_field,
       }));
@@ -172,8 +164,15 @@ export default function PropertyImportSpreadsheetPanel({
                 }}
                 className="rounded border border-slate-200 px-2 py-1"
               >
-                {TARGET_FIELDS.map((field) => (
-                  <option key={field.value} value={field.value}>{field.label}</option>
+                <option value="">Skip column</option>
+                {BULK_IMPORT_FIELD_GROUPS.map((group) => (
+                  <optgroup key={group} label={group}>
+                    {(BULK_IMPORT_FIELDS_BY_GROUP[group] ?? []).map((field) => (
+                      <option key={field.key} value={field.key}>
+                        {field.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>

@@ -24,6 +24,10 @@ import {
   BULK_IMPORT_MAX_FILE_SIZE_BYTES,
   BULK_IMPORT_MAX_FILE_SIZE_LABEL,
 } from '../../constants/bulk-csv-import.constants';
+import {
+  autoDetectedHeadersFromMapping,
+  mergeSuggestedColumnMappings,
+} from '../../utils/csv-column-auto-map';
 
 /** Wizard step index. */
 export type BulkImportWizardStep = 0 | 1 | 2;
@@ -145,12 +149,9 @@ export function useBulkCsvImport(
       const result = await parseBulkImportFile(file);
       setParseResult(result);
 
-      const detectedHeaders = Object.entries(result.suggestedMapping)
-        .filter(([, field]) => field !== 'skip')
-        .map(([header]) => header);
-
-      setAutoDetectedHeaders(detectedHeaders);
-      setColumnMapping(result.suggestedMapping);
+      const mergedMapping = mergeSuggestedColumnMappings(result.headers, result.suggestedMapping);
+      setAutoDetectedHeaders(autoDetectedHeadersFromMapping(mergedMapping));
+      setColumnMapping(mergedMapping);
 
       // Derive a project name from the filename if not already set.
       if (!projectName) {

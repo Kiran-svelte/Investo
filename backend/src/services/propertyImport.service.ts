@@ -24,7 +24,7 @@ import {
   countMissingKnowledgeFields,
   isPropertyKnowledgeComplete,
 } from './propertyTypeKnowledge.service';
-import { csvImportService, type ColumnMapping } from './csv-import.service';
+import { csvImportService, serializePropertyRowData, type ColumnMapping } from './csv-import.service';
 import {
   buildBatchProgress,
   listPropertyImportUnits,
@@ -321,7 +321,7 @@ export class PropertyImportService {
       .filter((row) => row.isValid)
       .map((row, index) => ({
         label: row.data.name || `Row ${row.rowNumber}`,
-        unitData: row.data as unknown as Record<string, unknown>,
+        unitData: serializePropertyRowData(row.data),
         sortOrder: index,
       }));
 
@@ -369,7 +369,12 @@ export class PropertyImportService {
         approved_at: null,
       },
       batch_progress: buildBatchProgress(mappedUnits.length, 'spreadsheet_imported'),
-      csv_rows: candidates,
+      csv_rows: candidates.map((row) => ({
+        rowNumber: row.rowNumber,
+        isValid: row.isValid,
+        errors: row.errors,
+        data: serializePropertyRowData(row.data),
+      })),
       valid_count: validCount,
       invalid_count: invalidCount,
       ai_knowledge_context: csvImportService.buildAiKnowledgeContext(candidates, input.projectName),

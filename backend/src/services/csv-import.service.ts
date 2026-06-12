@@ -18,15 +18,38 @@ import {
   CRORE_MULTIPLIER,
   CSV_IMPORT_MAX_ROW_COUNT,
   LAKH_MULTIPLIER,
+  PRICE_SINGLE_FIELD,
   XLSX_MAGIC_BYTES,
   type PropertyTargetField,
 } from '../constants/csv-import.constants';
+import {
+  PROPERTY_IDENTITY_TARGET_FIELDS,
+  PROPERTY_IMPORT_FIELDS,
+  type PropertyImportFieldDef,
+} from '../constants/property-import-fields.constants';
 
 /** A single raw row returned from a parsed file. */
 export type RawRow = Record<string, string>;
 
 /** Auto-detected or manually supplied mapping of header → target field. */
-export type ColumnMapping = Record<string, PropertyTargetField | 'skip'>;
+export type ColumnMapping = Record<string, PropertyTargetField | typeof PRICE_SINGLE_FIELD | 'skip'>;
+
+/** Mapped and type-coerced property row data (all Indian-market import fields). */
+export type PropertyRowData = Record<string, unknown> & {
+  name: string | null;
+  builder: string | null;
+  location_city: string | null;
+  location_area: string | null;
+  location_pincode: string | null;
+  price_min: number | null;
+  price_max: number | null;
+  bedrooms: number | null;
+  property_type: string;
+  status: string;
+  rera_number: string | null;
+  description: string | null;
+  amenities: string[];
+};
 
 /** A typed, validated property candidate derived from one spreadsheet row. */
 export interface PropertyRowCandidate {
@@ -37,22 +60,12 @@ export interface PropertyRowCandidate {
   /** Human-readable validation error messages. */
   errors: string[];
   /** Mapped and type-coerced property data. */
-  data: {
-    name: string | null;
-    builder: string | null;
-    location_city: string | null;
-    location_area: string | null;
-    location_pincode: string | null;
-    price_min: number | null;
-    price_max: number | null;
-    bedrooms: number | null;
-    property_type: string;
-    status: string;
-    rera_number: string | null;
-    description: string | null;
-    amenities: string[];
-  };
+  data: PropertyRowData;
 }
+
+const FIELD_DEF_BY_KEY = new Map<string, PropertyImportFieldDef>(
+  PROPERTY_IMPORT_FIELDS.map((field) => [field.key, field]),
+);
 
 /** Result of a file parse operation. */
 export interface CsvParseResult {
@@ -83,17 +96,29 @@ function normaliseHeader(header: string): string {
 }
 
 /** Resolves a raw header to a target field using the alias table. */
-function resolveHeaderAlias(header: string): PropertyTargetField | 'skip' {
+function resolveHeaderAlias(header: string): PropertyTargetField | typeof PRICE_SINGLE_FIELD | 'skip' {
+  const trimmed = header.trim();
+  if (!trimmed || /^__empty/i.test(trimmed)) {
+    return 'skip';
+  }
+
+  // Prefer exact snake_case CRM column names (e.g. carpet_area_sqft, project_name).
+  const snakeKey = trimmed.toLowerCase().replace(/[\s-]+/g, '_');
+  if (FIELD_DEF_BY_KEY.has(snakeKey)) {
+    return snakeKey as PropertyTargetField;
+  }
+
   const normalised = normaliseHeader(header);
   const exact = COLUMN_ALIASES[normalised];
   if (exact) {
-    return exact as PropertyTargetField;
+    return exact as PropertyTargetField | typeof PRICE_SINGLE_FIELD;
   }
 
-  // Partial match: check if any alias key is a substring of the normalised header.
-  for (const [alias, field] of Object.entries(COLUMN_ALIASES)) {
+  // Partial match: prefer longer alias keys to avoid "price" matching "price per sqft".
+  const aliasEntries = Object.entries(COLUMN_ALIASES).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, field] of aliasEntries) {
     if (normalised.includes(alias)) {
-      return field as PropertyTargetField;
+      return field as PropertyTargetField | typeof PRICE_SINGLE_FIELD;
     }
   }
 
@@ -193,6 +218,76 @@ function parseAmenitiesString(value: string): string[] {
     .slice(0, 20);
 }
 
+function parsePlainNumber(value: string): number | null {
+  if (!value || !value.trim()) {
+    return null;
+  }
+  const cleaned = value.replace(/[,₹\s]/g, '').replace(/[^\d.-]/g, '');
+  const parsed = parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseBooleanCell(value: string): boolean | null {
+  if (!value || !value.trim()) {
+    return null;
+  }
+  const lower = value.trim().toLowerCase();
+  if (['yes', 'y', 'true', '1', 'available', 'included'].includes(lower)) {
+    return true;
+  }
+  if (['no', 'n', 'false', '0', 'na', 'n/a', 'not included'].includes(lower)) {
+    return false;
+  }
+  return null;
+}
+
+function coerceMappedValue(fieldKey: string, rawValue: string): unknown {
+  if (!rawValue.trim()) {
+    return null;
+  }
+
+  const fieldDef = FIELD_DEF_BY_KEY.get(fieldKey);
+  const fieldType = fieldDef?.type ?? 'string';
+
+  switch (fieldType) {
+    case 'currency':
+      return parseIndianCurrencyString(rawValue);
+    case 'number':
+      if (fieldKey === 'bedrooms') {
+        return parseBedroomCount(rawValue) ?? parsePlainNumber(rawValue);
+      }
+      return parsePlainNumber(rawValue);
+    case 'boolean':
+      return parseBooleanCell(rawValue);
+    case 'amenities':
+      return parseAmenitiesString(rawValue);
+    default:
+      return rawValue.trim();
+  }
+}
+
+function resolvePropertyName(getValue: (field: string) => string): string | null {
+  const explicitName = getValue('name');
+  if (explicitName) {
+    return explicitName;
+  }
+
+  const unitLabel = getValue('unit_label');
+  const projectName = getValue('project_name');
+
+  if (unitLabel && projectName) {
+    return `${projectName} ${unitLabel}`.trim();
+  }
+  if (unitLabel) {
+    return unitLabel;
+  }
+  if (projectName) {
+    return projectName;
+  }
+
+  return null;
+}
+
 /** Maps a single raw row to a `PropertyRowCandidate` using the supplied mapping. */
 function mapRowToCandidate(
   rawRow: RawRow,
@@ -202,59 +297,112 @@ function mapRowToCandidate(
 ): PropertyRowCandidate {
   const errors: string[] = [];
 
+  const headerByTarget = new Map<string, string>();
+  for (const [header, target] of Object.entries(mapping)) {
+    if (target && target !== 'skip' && !headerByTarget.has(target)) {
+      headerByTarget.set(target, header);
+    }
+  }
+
   const getValue = (targetField: string): string => {
-    const header = Object.entries(mapping).find(([, field]) => field === targetField)?.[0];
+    const header = headerByTarget.get(targetField);
     if (!header) {
       return '';
     }
     return (rawRow[header] ?? '').trim();
   };
 
-  const nameRaw = getValue('name');
-  const name = nameRaw || null;
-  if (!name) {
-    errors.push('Property name is required');
+  const data: PropertyRowData = {
+    name: null,
+    builder: null,
+    location_city: null,
+    location_area: null,
+    location_pincode: null,
+    price_min: null,
+    price_max: null,
+    bedrooms: null,
+    property_type: defaultPropertyType || 'apartment',
+    status: 'available',
+    rera_number: null,
+    description: null,
+    amenities: [],
+  };
+
+  for (const [target, header] of headerByTarget.entries()) {
+    const rawValue = (rawRow[header] ?? '').trim();
+    if (!rawValue) {
+      continue;
+    }
+
+    if (target === PRICE_SINGLE_FIELD) {
+      const parsed = parseIndianCurrencyString(rawValue);
+      if (parsed !== null) {
+        if (data.price_min === null) {
+          data.price_min = parsed;
+        }
+        if (data.price_max === null) {
+          data.price_max = parsed;
+        }
+      }
+      continue;
+    }
+
+    const coerced = coerceMappedValue(target, rawValue);
+    if (coerced === null || coerced === undefined) {
+      continue;
+    }
+
+    (data as Record<string, unknown>)[target] = coerced;
   }
 
-  const priceMinRaw = getValue('price_min');
-  const priceSingleRaw = getValue('price_single' as PropertyTargetField);
-  const priceMaxRaw = getValue('price_max');
+  data.name = resolvePropertyName(getValue);
+  if (!data.name) {
+    errors.push('Map at least one identity column: Property name, Unit label, or Project name');
+  }
 
-  const priceMin = parseIndianCurrencyString(priceMinRaw || priceSingleRaw);
-  const priceMax = parseIndianCurrencyString(priceMaxRaw || priceSingleRaw);
+  const priceField = parseIndianCurrencyString(getValue('price'));
+  if (data.price_min === null && priceField !== null) {
+    data.price_min = priceField;
+  }
+  if (data.price_max === null && priceField !== null) {
+    data.price_max = priceField;
+  }
 
-  if (priceMin !== null && priceMax !== null && priceMin > priceMax) {
+  if (data.price_min !== null && data.price_max !== null && data.price_min > data.price_max) {
     errors.push('Price min cannot be greater than price max');
   }
 
+  if (typeof data.bedrooms !== 'number') {
+    const bedroomParsed = parseBedroomCount(getValue('bedrooms')) ?? parseBedroomCount(getValue('bhk'));
+    data.bedrooms = bedroomParsed;
+  }
+
   const propertyTypeRaw = getValue('property_type');
-  const propertyType = normalisePropertyType(propertyTypeRaw, defaultPropertyType);
+  data.property_type = normalisePropertyType(
+    propertyTypeRaw || String(data.property_type ?? ''),
+    defaultPropertyType,
+  );
 
   const statusRaw = getValue('status');
-  const status = ALLOWED_PROPERTY_STATUSES.includes(statusRaw.toLowerCase() as typeof ALLOWED_PROPERTY_STATUSES[number])
+  data.status = ALLOWED_PROPERTY_STATUSES.includes(statusRaw.toLowerCase() as typeof ALLOWED_PROPERTY_STATUSES[number])
     ? statusRaw.toLowerCase()
     : normaliseStatus(statusRaw);
+
+  if (!Array.isArray(data.amenities)) {
+    data.amenities = parseAmenitiesString(getValue('amenities'));
+  }
 
   return {
     rowNumber,
     isValid: errors.length === 0,
     errors,
-    data: {
-      name,
-      builder: getValue('builder') || null,
-      location_city: getValue('location_city') || null,
-      location_area: getValue('location_area') || null,
-      location_pincode: getValue('location_pincode') || null,
-      price_min: priceMin,
-      price_max: priceMax,
-      bedrooms: parseBedroomCount(getValue('bedrooms')),
-      property_type: propertyType,
-      status,
-      rera_number: getValue('rera_number') || null,
-      description: getValue('description') || null,
-      amenities: parseAmenitiesString(getValue('amenities')),
-    },
+    data,
   };
+}
+
+/** Plain JSON-safe copy of row data for Prisma draft storage. */
+export function serializePropertyRowData(data: PropertyRowData): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
 }
 
 /** Parses a CSV buffer using PapaParse. */
@@ -434,16 +582,30 @@ export class CsvImportService {
     const rowLines = validRows.slice(0, 50).map((c) => {
       const parts: string[] = [];
       if (c.data.name) {
-        parts.push(c.data.name);
+        parts.push(String(c.data.name));
       }
       if (c.data.bedrooms) {
         parts.push(`${c.data.bedrooms}BHK`);
+      } else if (c.data.bhk) {
+        parts.push(String(c.data.bhk));
       }
       if (c.data.price_min) {
-        parts.push(formatPrice(c.data.price_min));
+        parts.push(formatPrice(c.data.price_min as number));
+      }
+      if (c.data.carpet_area_sqft) {
+        parts.push(`${c.data.carpet_area_sqft} sqft carpet`);
+      }
+      if (c.data.plot_area_sqft) {
+        parts.push(`${c.data.plot_area_sqft} sqft plot`);
+      }
+      if (c.data.facing) {
+        parts.push(`${c.data.facing} facing`);
       }
       if (c.data.location_area) {
-        parts.push(c.data.location_area);
+        parts.push(String(c.data.location_area));
+      }
+      if (c.data.possession_date) {
+        parts.push(String(c.data.possession_date));
       }
       return `  - ${parts.join(', ')}`;
     });
@@ -459,13 +621,15 @@ export class CsvImportService {
    * @throws Error if no name column is mapped
    */
   validateMapping(mapping: ColumnMapping, headers: string[]): void {
-    const hasNameMapping = Object.entries(mapping).some(
-      ([header, field]) => field === 'name' && headers.includes(header),
+    const hasIdentityMapping = Object.entries(mapping).some(
+      ([header, field]) =>
+        PROPERTY_IDENTITY_TARGET_FIELDS.includes(field as typeof PROPERTY_IDENTITY_TARGET_FIELDS[number])
+        && headers.includes(header),
     );
 
-    if (!hasNameMapping) {
+    if (!hasIdentityMapping) {
       throw new Error(
-        'Column mapping must include at least one column mapped to "Property Name". Update the mapping and try again.',
+        'Column mapping must include at least one identity column (Property name, Unit label, or Project name). Update the mapping and try again.',
       );
     }
   }

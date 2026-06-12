@@ -1,25 +1,12 @@
 import { CheckCircle2, Sparkles } from 'lucide-react';
+import { PROPERTY_IMPORT_FIELD_LABELS } from '../../constants/property-import-fields.constants';
 import {
   getPropertyImportMappingMetadata,
   getPropertyImportReviewMetadata,
   type PropertyImportFormValues,
 } from './propertyImport.utils';
 
-const FIELD_LABELS: Record<string, string> = {
-  name: 'Project name',
-  builder: 'Builder',
-  location_city: 'City',
-  location_area: 'Area',
-  location_pincode: 'Pincode',
-  price_min: 'Price min',
-  price_max: 'Price max',
-  bedrooms: 'Bedrooms',
-  property_type: 'Property type',
-  description: 'Description',
-  rera_number: 'RERA number',
-  status: 'Status',
-  amenities: 'Amenities',
-};
+const FIELD_LABELS: Record<string, string> = PROPERTY_IMPORT_FIELD_LABELS;
 
 interface PropertyImportMappingReviewProps {
   formValues: PropertyImportFormValues;

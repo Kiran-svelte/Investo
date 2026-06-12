@@ -19,6 +19,7 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
@@ -26,7 +27,7 @@ import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher
 import { auditLog } from '../middleware/audit';
 import logger from '../config/logger';
 import prisma from '../config/prisma';
-import { csvImportService, type ColumnMapping, type PropertyRowCandidate } from '../services/csv-import.service';
+import { csvImportService, serializePropertyRowData, type ColumnMapping, type PropertyRowCandidate } from '../services/csv-import.service';
 import { indexPropertyKnowledge } from '../services/propertyKnowledge.service';
 import {
   BULK_IMPORT_ACCEPTED_MIME_TYPES,
@@ -229,7 +230,7 @@ router.post(
               row_number: c.rowNumber,
               is_valid: c.isValid,
               errors: c.errors,
-              data: c.data,
+              data: serializePropertyRowData(c.data),
             })),
             valid_count: validCount,
             invalid_count: invalidCount,
@@ -242,7 +243,7 @@ router.post(
               reviewed_at: null,
               approved_at: null,
             },
-          },
+          } as Prisma.InputJsonValue,
         },
       });
 
@@ -336,25 +337,40 @@ router.post(
         const createdProperties = await Promise.all(
           validRows.map(async (row) => {
             const data = row.data;
+            const heroImage = typeof data.hero_image_url === 'string' && data.hero_image_url.trim()
+              ? data.hero_image_url.trim()
+              : null;
+            const brochureUrl = typeof data.brochure_url === 'string' && data.brochure_url.trim()
+              ? data.brochure_url.trim()
+              : null;
+            const lat = data.latitude != null ? Number(data.latitude) : null;
+            const lng = data.longitude != null ? Number(data.longitude) : null;
+
             return tx.property.create({
               data: {
                 companyId,
                 projectId,
-                name: data.name ?? projectName,
-                builder: data.builder ?? null,
-                locationCity: data.location_city ?? null,
-                locationArea: data.location_area ?? null,
-                locationPincode: data.location_pincode ?? null,
-                priceMin: data.price_min !== null ? String(data.price_min) as unknown as any : null,
-                priceMax: data.price_max !== null ? String(data.price_max) as unknown as any : null,
-                bedrooms: data.bedrooms ?? null,
+                name: (data.name as string | null) ?? projectName,
+                builder: (data.builder as string | null) ?? null,
+                locationCity: (data.location_city as string | null) ?? null,
+                locationArea: (data.location_area as string | null) ?? null,
+                locationPincode: (data.location_pincode as string | null) ?? null,
+                priceMin: data.price_min !== null && data.price_min !== undefined
+                  ? String(data.price_min) as unknown as any
+                  : null,
+                priceMax: data.price_max !== null && data.price_max !== undefined
+                  ? String(data.price_max) as unknown as any
+                  : null,
+                bedrooms: (data.bedrooms as number | null) ?? null,
                 propertyType: data.property_type as any,
-                amenities: data.amenities,
-                description: data.description ?? null,
-                reraNumber: data.rera_number ?? null,
+                amenities: Array.isArray(data.amenities) ? data.amenities : [],
+                description: (data.description as string | null) ?? null,
+                reraNumber: (data.rera_number as string | null) ?? null,
                 status: data.status as any,
-                images: [],
-                brochureUrl: null,
+                latitude: lat !== null && Number.isFinite(lat) ? String(lat) as unknown as any : null,
+                longitude: lng !== null && Number.isFinite(lng) ? String(lng) as unknown as any : null,
+                images: heroImage ? [heroImage] : [],
+                brochureUrl,
               },
             });
           }),
