@@ -5,6 +5,9 @@
 
 import { isBuyerVisitStatusQuery } from '../../services/buyerVisitQuery.service';
 import { isVisitSchedulingMessage, parseCustomVisitSlotFromMessage } from '../../services/visitIntentFromMessage.service';
+import { buildFastPathCustomerReply } from '../../services/customerMessageFastPath.service';
+import { resolveStageFromLeadStatus } from '../../utils/buyerLeadProgress.util';
+import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
 
 describe('critical-path smoke scenarios', () => {
   test('visit status query is recognized', () => {
@@ -22,5 +25,20 @@ describe('critical-path smoke scenarios', () => {
   test('brochure request matches explicit intent pattern', () => {
     const message = 'Send brochure for Sunset Heights';
     expect(/\b(brochure|pdf|send me)\b/i.test(message)).toBe(true);
+  });
+
+  test('custom greeting template is applied for first-contact Hi', () => {
+    const reply = buildFastPathCustomerReply({
+      customerMessage: 'Hi',
+      companyName: 'Lake Vista',
+      aiSettings: { greetingTemplate: 'Namaste from {business_name}!', defaultLanguage: 'en' },
+      conversationHistory: [],
+    });
+    expect(reply?.text).toBe('Namaste from Lake Vista!');
+  });
+
+  test('visited lead stage resolves to shortlist not rapport', () => {
+    expect(resolveStageFromLeadStatus('visited')).toBe('shortlist');
+    expect(shouldElevateReturningBuyerStage('lead-123')).toBe(true);
   });
 });

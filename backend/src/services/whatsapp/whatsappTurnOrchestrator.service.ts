@@ -30,6 +30,8 @@ import {
 } from '../../utils/buyerLeadProgress.util';
 import { isFeatureEnabledForLead } from '../../utils/featureRollout.util';
 import { shadowCompare } from '../../utils/featureShadow.util';
+import { loadBuyerAiSettings } from '../../utils/buyerAiSettings.util';
+import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
 import { buildNeverSayNoContext } from '../neverSayNoEngine.service';
 import { criteriaFromLead } from '../alternativeInventory.service';
 import { sanitizeBuyerOutbound } from './whatsappResponseSanitizer.service';
@@ -480,10 +482,7 @@ async function buildLegacyRapportPayload(
   if (input.isReturning) {
     safeReply = stripBuyerInternalMetadata(rapportReply);
   } else {
-    const aiSettings = await prisma.aiSetting.findUnique({
-      where: { companyId: ctx.companyId },
-      select: { greetingTemplate: true, defaultLanguage: true },
-    });
+    const aiSettings = await loadBuyerAiSettings(ctx.companyId);
     const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
     const fastPath = buildFastPathCustomerReply({
       customerMessage: ctx.input.messageText,
@@ -559,10 +558,7 @@ async function buildAdvancedRapportPayload(
       }),
     );
   } else {
-    const aiSettings = await prisma.aiSetting.findUnique({
-      where: { companyId: ctx.companyId },
-      select: { greetingTemplate: true, defaultLanguage: true },
-    });
+    const aiSettings = await loadBuyerAiSettings(ctx.companyId);
     const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
     const fastPath = buildFastPathCustomerReply({
       customerMessage: ctx.input.messageText,
@@ -2031,7 +2027,7 @@ export async function orchestrateWhatsAppBuyerTurn(
   });
 
   const liveCtx = await getLiveLeadContext(ctx.input.leadId, ctx.companyId);
-  if (isFeatureEnabledForLead(ctx.input.leadId, 'advancedLeadUx')) {
+  if (shouldElevateReturningBuyerStage(ctx.input.leadId)) {
     activeState = await syncAdvancedLeadConversationStage(
       ctx.input.conversationId,
       activeState,

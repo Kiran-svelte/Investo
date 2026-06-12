@@ -536,6 +536,18 @@ const config = {
     /** When true, compare old vs new paths and log mismatches even when serving old behavior. */
     shadowMode: process.env.FEATURE_SHADOW_MODE === 'true',
     reliableCustomerNotifications: process.env.FEATURE_RELIABLE_CUSTOMER_NOTIFICATIONS !== 'false',
+    /** fix.md PR-3: visited/negotiation leads skip rapport re-interrogation (no rollout bucket). */
+    fixMdReturningBuyerStage: process.env.FEATURE_FIX_MD_RETURNING_BUYER_STAGE !== 'false',
+    /** fix.md PR-3: ensure greetingTemplate is loaded on all buyer fast paths. */
+    fixMdCustomGreetingSelect: process.env.FEATURE_FIX_MD_CUSTOM_GREETING_SELECT !== 'false',
+    /** fix.md PR-4: structured log when staff phone matches buyer lead. */
+    fixMdStaffBuyerCollisionLog: process.env.FEATURE_FIX_MD_STAFF_BUYER_COLLISION_LOG !== 'false',
+    /** fix.md PR-4: block write intents for viewer before execution. */
+    fixMdCopilotRoleFilter: process.env.FEATURE_FIX_MD_COPILOT_ROLE_FILTER !== 'false',
+    /** fix.md PR-4: bulk_send_to_phones message extraction (prompt already updated). */
+    fixMdBulkSendExtract: process.env.FEATURE_FIX_MD_BULK_SEND_EXTRACT !== 'false',
+    /** fix.md PR-5: require hero image or brochure before publish/media sends. */
+    fixMdPropertyMediaCompleteness: process.env.FEATURE_FIX_MD_PROPERTY_MEDIA_COMPLETENESS !== 'false',
   },
 };
 
