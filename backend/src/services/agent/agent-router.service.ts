@@ -70,14 +70,9 @@ async function sendWhatsAppResponse(phone: string, companyId: string, message: s
     where: { id: companyId },
     select: { settings: true },
   });
-  const settings = (company?.settings as any) || {};
-  const whatsapp = settings?.whatsapp || {};
-  const outboundConfig = {
-    phoneNumberId: String(whatsapp.phoneNumberId || config.whatsapp.phoneNumberId || ''),
-    accessToken: String(whatsapp.accessToken || config.whatsapp.accessToken || ''),
-    verifyToken: String(whatsapp.verifyToken || config.whatsapp.verifyToken || ''),
-  };
-  await (whatsappService as any).sendMessage(phone, message, outboundConfig);
+  const outboundConfig = await whatsappService.resolveCompanyWhatsAppConfig(companyId);
+  if (!outboundConfig) return;
+  await whatsappService.sendMessage(phone, message, outboundConfig);
 }
 
 type AgentMessageResult = {

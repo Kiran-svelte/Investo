@@ -1,13 +1,15 @@
 import type { NextBestAction } from '../conversationStateMachine';
 import type { WhatsAppComponent } from '../../types/whatsapp-turn.types';
 import { shouldAttachContextualQuickReplies, type QuickReplyRecentAction } from '../../utils/contextQuickReplies.util';
-import { resolveCustomerQuickActions } from '../../utils/customerQuickReplies.util';
+import { resolveSituationBuyerButtons } from '../../utils/buyerSituationButtons.util';
 import { isPostVisitBuyer } from '../../utils/buyerLeadProgress.util';
 import type { LiveLeadContext } from '../liveLeadContext.service';
 
 export type BuyerButtonContext = {
   stage: string;
   outboundText: string;
+  /** Last buyer message — improves situation detection (optional). */
+  inboundMessageText?: string;
   nextAction?: NextBestAction;
   recentAction?: QuickReplyRecentAction;
   sentPropertyFilters?: boolean;
@@ -19,22 +21,14 @@ export type BuyerButtonContext = {
   visitStatus?: string;
   visitProperty?: string;
   visitTime?: string;
-  /** When true, suppress greeting-stage filter buttons (returning buyer short ack). */
   isReturningGreeting?: boolean;
-  /** When true, buyer completed a recent site visit — show post-visit buttons, not "Book Free Visit". */
   hasCompletedVisit?: boolean;
-  /** Lead id for rollout gating (optional). */
   leadId?: string | null;
-  /** When set, legacy vs advanced post-visit detection uses live CRM context. */
   liveLeadSnapshot?: Pick<LiveLeadContext, 'activeVisit' | 'recentCompletedVisit' | 'leadStatus'>;
 };
 
-function legacyHasCompletedVisit(ctx: BuyerButtonContext): boolean {
-  if (ctx.liveLeadSnapshot) {
-    return Boolean(ctx.liveLeadSnapshot.recentCompletedVisit && !ctx.liveLeadSnapshot.activeVisit);
-  }
-  return Boolean(ctx.hasCompletedVisit);
-}
+const BARE_GREETING_OUTBOUND =
+  /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i;
 
 function advancedHasCompletedVisit(ctx: BuyerButtonContext): boolean {
   if (ctx.liveLeadSnapshot) {
@@ -43,176 +37,24 @@ function advancedHasCompletedVisit(ctx: BuyerButtonContext): boolean {
   return Boolean(ctx.hasCompletedVisit);
 }
 
-const STAGE_REPLIES: Partial<
-  Record<string, { body: string; buttons: Array<{ id: string; title: string }> }>
-> = {
-  rapport: {
-    body: 'What are you looking for?',
-    buttons: [
-      { id: 'filter-apartment', title: 'Apartments' },
-      { id: 'filter-villa', title: 'Villas' },
-      { id: 'call-me', title: 'Call Me' },
-    ],
-  },
-  qualify: {
-    body: 'Filter by property type:',
-    buttons: [
-      { id: 'filter-apartment', title: 'Apartment' },
-      { id: 'filter-villa', title: 'Villa' },
-      { id: 'filter-plot', title: 'Plot' },
-    ],
-  },
-  shortlist: {
-    body: 'Ready for your next step?',
-    buttons: [
-      { id: 'book-visit', title: 'Book Free Visit' },
-      { id: 'emi-calculator', title: 'EMI Calculator' },
-      { id: 'call-me', title: 'Call Me' },
-    ],
-  },
-  commitment: {
-    body: "Let's take the next step",
-    buttons: [
-      { id: 'book-visit', title: 'Book Visit' },
-      { id: 'call-me', title: 'Call Me' },
-      { id: 'more-info', title: 'Show Location' },
-    ],
-  },
-  visit_booking: {
-    body: 'Pick a time that works for you',
-    buttons: [
-      { id: 'visit-slot-morning', title: 'Morning 10AM' },
-      { id: 'visit-slot-afternoon', title: 'Afternoon 3PM' },
-      { id: 'call-me', title: 'Call to Confirm' },
-    ],
-  },
-  confirmation: {
-    body: 'Anything else I can help with?',
-    buttons: [
-      { id: 'more-info', title: 'Property Details' },
-      { id: 'emi-calculator', title: 'EMI Calculator' },
-      { id: 'call-me', title: 'Call Me' },
-    ],
-  },
-};
-
-function withPropertyIds(
-  buttons: Array<{ id: string; title: string }>,
-  propertyId: string,
-): Array<{ id: string; title: string }> {
-  const pid = propertyId || '';
-  return buttons.map((btn) => {
-    if (btn.id === 'book-visit' && pid) return { ...btn, id: `book-visit-${pid}` };
-    if (btn.id === 'more-info' && pid) return { ...btn, id: `more-info-${pid}` };
-    return btn;
-  });
-}
-
-function resolveCallButtons(_ctx: BuyerButtonContext): WhatsAppComponent {
-  return {
-    kind: 'buttons',
-    buttons: [
-      { id: 'call-reschedule', title: 'Change Time' },
-      { id: 'call-cancel', title: 'Cancel Call' },
-      { id: 'call-me', title: 'Call Agent' },
-    ],
-  };
-}
-
-export function resolvePostVisitButtons(propertyId?: string | null): WhatsAppComponent {
-  const pid = propertyId?.trim() ?? '';
-  return {
-    kind: 'buttons',
-    buttons: [
-      { id: 'share-visit-feedback', title: 'Share Feedback' },
-      { id: 'call-me', title: 'Talk to Agent' },
-      { id: pid ? `more-info-${pid}` : 'filter-apartment', title: 'See More Options' },
-    ],
-  };
-}
-
-function resolveVisitButtons(ctx: BuyerButtonContext): WhatsAppComponent | null {
-  const pid = ctx.propertyId ?? '';
-  if (ctx.visitStatus === 'pending_approval') {
-    return {
-      kind: 'buttons',
-      buttons: [
-        { id: 'visit-reschedule', title: 'Change Time' },
-        { id: pid ? `more-info-${pid}` : 'more-info', title: 'Property Details' },
-        { id: 'call-me', title: 'Call Agent' },
-      ],
-    };
-  }
-
-  if (ctx.visitStatus === 'confirmed') {
-    return {
-      kind: 'buttons',
-      buttons: [
-        { id: 'visit-reschedule', title: 'Change Time' },
-        { id: pid ? `more-info-${pid}` : 'more-info', title: 'Property Details' },
-        { id: 'call-me', title: 'Call Agent' },
-      ],
-    };
-  }
-
-  return {
-    kind: 'buttons',
-    buttons: [
-      { id: 'visit-confirm', title: 'Confirm Visit' },
-      { id: 'visit-reschedule', title: 'Reschedule' },
-      { id: 'call-me', title: 'Call Agent' },
-    ],
-  };
-}
-
-const BARE_GREETING_OUTBOUND =
-  /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i;
-
-const VISIT_FLOW_STAGES = ['rapport', 'qualify', 'shortlist', 'commitment', 'confirmation', 'visit_booking'];
-
-function resolveBuyerComponentsLegacy(ctx: BuyerButtonContext): WhatsAppComponent[] {
-  const hasCompletedVisit = legacyHasCompletedVisit(ctx);
-  if (ctx.isReturningGreeting) return [];
-
-  const outbound = ctx.outboundText.trim();
-  if (BARE_GREETING_OUTBOUND.test(outbound)) return [];
-
-  if (hasCompletedVisit && !ctx.hasActiveVisit) {
-    return [resolvePostVisitButtons(ctx.propertyId)];
-  }
-
-  return resolveBuyerComponentsCore(ctx);
-}
-
-function resolveBuyerComponentsAdvanced(ctx: BuyerButtonContext): WhatsAppComponent[] {
+/**
+ * Resolve at most one interactive component for a buyer turn.
+ * Buttons are chosen from message situation + CRM context — not static stage menus.
+ */
+export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
   const hasCompletedVisit = advancedHasCompletedVisit(ctx);
-  if (ctx.isReturningGreeting && !hasCompletedVisit) return [];
+
+  if (ctx.isReturningGreeting && !hasCompletedVisit) {
+    return [];
+  }
 
   const outbound = ctx.outboundText.trim();
-  if (BARE_GREETING_OUTBOUND.test(outbound) && !hasCompletedVisit) return [];
-
-  if (hasCompletedVisit && !ctx.hasActiveVisit) {
-    return [resolvePostVisitButtons(ctx.propertyId)];
+  if (BARE_GREETING_OUTBOUND.test(outbound) && !hasCompletedVisit && !ctx.propertyId) {
+    return [];
   }
 
-  return resolveBuyerComponentsCore(ctx);
-}
-
-function resolveBuyerComponentsCore(ctx: BuyerButtonContext): WhatsAppComponent[] {
-
-  if (ctx.stage === 'visit_booking') return [];
-
-  const visitStages = VISIT_FLOW_STAGES;
-  if (ctx.hasActiveCall && visitStages.includes(ctx.stage)) {
-    return [resolveCallButtons(ctx)];
-  }
-
-  if (ctx.hasActiveVisit && visitStages.includes(ctx.stage)) {
-    return [resolveVisitButtons(ctx)!];
-  }
-
-  if (ctx.hasCompletedVisit && !ctx.hasActiveVisit) {
-    return [resolvePostVisitButtons(ctx.propertyId)];
+  if (ctx.stage === 'visit_booking') {
+    return [];
   }
 
   if (
@@ -227,31 +69,37 @@ function resolveBuyerComponentsCore(ctx: BuyerButtonContext): WhatsAppComponent[
     return [];
   }
 
-  const dynamic = resolveCustomerQuickActions({
+  const buttons = resolveSituationBuyerButtons({
     stage: ctx.stage,
     outboundText: ctx.outboundText,
-    selectedPropertyId: ctx.propertyId,
+    inboundMessageText: ctx.inboundMessageText,
+    propertyId: ctx.propertyId,
     recommendedPropertyIds: ctx.recommendedPropertyIds,
     properties: ctx.properties,
     hasActiveVisit: ctx.hasActiveVisit,
-    hasCompletedVisit: ctx.hasCompletedVisit,
+    hasActiveCall: ctx.hasActiveCall,
+    hasCompletedVisit,
+    visitStatus: ctx.visitStatus,
   });
-  if (dynamic) {
-    return [{ kind: 'buttons', buttons: dynamic.buttons }];
+
+  if (!buttons?.length) {
+    return [];
   }
 
-  const stageConfig = STAGE_REPLIES[ctx.stage];
-  if (!stageConfig) return [];
-
-  const pid = ctx.propertyId ?? '';
-  const buttons = withPropertyIds(stageConfig.buttons, pid);
   return [{ kind: 'buttons', buttons }];
 }
 
-/**
- * Resolve at most one interactive component for a buyer turn.
- * Returns empty array when no buttons should be sent.
- */
-export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
-  return resolveBuyerComponentsAdvanced(ctx);
+/** @deprecated Use resolveBuyerComponents — kept for interactive orchestrator imports. */
+export function resolvePostVisitButtons(propertyId?: string | null): WhatsAppComponent {
+  const buttons = resolveSituationBuyerButtons({
+    stage: 'confirmation',
+    outboundText: 'How was your visit?',
+    hasCompletedVisit: true,
+    propertyId,
+  }) ?? [
+    { id: 'share-visit-feedback', title: 'Share Feedback' },
+    { id: 'call-me', title: 'Talk to Agent' },
+    { id: 'filter-apartment', title: 'See More Options' },
+  ];
+  return { kind: 'buttons', buttons };
 }

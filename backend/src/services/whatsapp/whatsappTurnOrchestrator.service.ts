@@ -1689,10 +1689,13 @@ function buyerButtonContextFromTurn(
   },
 ) {
   return {
-    ...buyerButtonContextFromTurn(ctx, liveCtx),
+    ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
+    inboundMessageText: ctx.input.messageText,
     propertyId: extra?.propertyId ?? ctx.input.conversationSelectedPropertyId,
     recommendedPropertyIds:
-      extra?.recommendedPropertyIds ?? ctx.input.conversationRecommendedPropertyIds ?? [],
+      extra?.recommendedPropertyIds
+        ? [...extra.recommendedPropertyIds]
+        : [...(ctx.input.conversationRecommendedPropertyIds ?? [])],
     properties: extra?.properties,
   };
 }

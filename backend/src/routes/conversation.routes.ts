@@ -16,6 +16,7 @@ import {
   deleteConversationPermanently,
   ResourceDeleteError,
 } from '../services/resourceDelete.service';
+import { resolveCompanyWhatsAppConfigFromSettings } from '../utils/companyWhatsAppConfig.util';
 
 const router = Router();
 
@@ -35,15 +36,11 @@ router.use(propertyCompletenessGate);
 router.use(requireFeature('conversation_center'));
 
 function normalizeWhatsAppConfig(company: { settings: unknown; whatsappPhone: string | null }) {
-  const settings = (company.settings as any) || {};
-  const whatsapp = settings.whatsapp || {};
-  const meta = whatsapp.meta || whatsapp;
-
-  return {
+  return resolveCompanyWhatsAppConfigFromSettings(company.settings) ?? {
     provider: 'meta' as const,
-    phoneNumberId: meta.phoneNumberId || config.whatsapp.phoneNumberId,
-    accessToken: meta.accessToken || config.whatsapp.accessToken,
-    verifyToken: meta.verifyToken || config.whatsapp.verifyToken,
+    phoneNumberId: '',
+    accessToken: '',
+    verifyToken: '',
   };
 }
 

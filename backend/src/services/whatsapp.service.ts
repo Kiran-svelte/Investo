@@ -17,6 +17,10 @@ import { buildGroundedFactsBlock } from './groundingGuard.service';
 import { propertyToCompletenessInput } from './propertyCompleteness.service';
 import { normalizeInboundWhatsAppPhone, phonesMatchLast10 } from '../utils/phoneMatch';
 import {
+  allowPlatformWhatsAppCredentialFallback,
+  resolveCompanyWhatsAppConfigFromSettings,
+} from '../utils/companyWhatsAppConfig.util';
+import {
   routeCompanyScopedInbound,
 } from './inboundWhatsAppRouting.service';
 import {
@@ -224,21 +228,17 @@ export class WhatsAppService {
     // EXACT MATCH FOUND
     if (matches.length === 1) {
       const company = matches[0];
-      const settings = (company.settings as any) || {};
-      const whatsapp = (settings.whatsapp as any) || {};
-      const meta = (whatsapp.meta as any) || whatsapp;
-      const configuredId = normalizeStringLike(meta.phoneNumberId);
-      const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
-
-      return {
-        company,
-        config: {
-          provider: 'meta',
-          phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
-          accessToken: normalizeStringLike(meta.accessToken) || config.whatsapp.accessToken,
-          verifyToken: normalizeStringLike(meta.verifyToken) || config.whatsapp.verifyToken,
-        },
-      };
+      const tenantConfig = resolveCompanyWhatsAppConfigFromSettings(company.settings, {
+        phoneNumberIdHint: normalizedPhoneNumberId,
+      });
+      if (!tenantConfig) {
+        logger.error('Meta company resolution failed: tenant WhatsApp credentials incomplete', {
+          companyId: company.id,
+          phoneNumberId: normalizedPhoneNumberId,
+        });
+        return null;
+      }
+      return { company, config: tenantConfig };
     }
 
     if (matches.length > 1) {
@@ -254,9 +254,16 @@ export class WhatsAppService {
       }
     }
 
-    // NO EXPLICIT MAPPING FOUND
-    // Fallback logic: If WHATSAPP_PHONE_NUMBER_ID is set in env and matches the incoming ID,
-    // use the first active company (useful for single-tenant or initial setup).
+    // NO EXPLICIT MAPPING FOUND — enterprise mode: never guess tenant from Railway env in production.
+    if (!allowPlatformWhatsAppCredentialFallback()) {
+      logger.error('Meta company resolution failed: phoneNumberId is unmapped', {
+        phoneNumberId: normalizedPhoneNumberId,
+        totalCompanies: companies.length,
+        env: config.env,
+      });
+      return null;
+    }
+
     const globalPhoneId = normalizeStringLike(config.whatsapp.phoneNumberId);
     const globalAccessToken = normalizeStringLike(config.whatsapp.accessToken);
     if (globalPhoneId && globalPhoneId === normalizedPhoneNumberId && companies.length > 0) {
@@ -326,23 +333,13 @@ export class WhatsAppService {
   private buildMetaCompanyConfig(
     company: { settings: unknown },
     normalizedPhoneNumberId: string,
-    normalizeStringLike: (value: unknown) => string,
-  ): { company: typeof company; config: CompanyWhatsAppConfig } {
-    const settings = (company.settings as any) || {};
-    const whatsapp = (settings.whatsapp as any) || {};
-    const meta = (whatsapp.meta as any) || whatsapp;
-    const configuredId = normalizeStringLike(meta.phoneNumberId);
-    const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
-
-    return {
-      company,
-      config: {
-        provider: 'meta',
-        phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
-        accessToken: normalizeStringLike(meta.accessToken) || config.whatsapp.accessToken,
-        verifyToken: normalizeStringLike(meta.verifyToken) || config.whatsapp.verifyToken,
-      },
-    };
+    _normalizeStringLike: (value: unknown) => string,
+  ): { company: typeof company; config: CompanyWhatsAppConfig } | null {
+    const tenantConfig = resolveCompanyWhatsAppConfigFromSettings(company.settings, {
+      phoneNumberIdHint: normalizedPhoneNumberId,
+    });
+    if (!tenantConfig) return null;
+    return { company, config: tenantConfig };
   }
 
   private async resolveDuplicateMetaPhoneNumberMatches(
@@ -403,6 +400,9 @@ export class WhatsAppService {
       }
     }
 
+    if (!allowPlatformWhatsAppCredentialFallback()) {
+      // Enterprise: disambiguate duplicates only via display phone or existing lead — never Railway token.
+    } else {
     const globalAccessToken = normalizeStringLike(config.whatsapp.accessToken);
     if (globalAccessToken) {
       const tokenMatches = matches.filter((company) => {
@@ -417,6 +417,7 @@ export class WhatsAppService {
         });
         return this.buildMetaCompanyConfig(tokenMatches[0], normalizedPhoneNumberId, normalizeStringLike);
       }
+    }
     }
 
     const fallbackCompany = matches
@@ -1523,32 +1524,7 @@ export class WhatsAppService {
       select: { settings: true },
     });
     if (!company) return null;
-
-    const normalizeStringLike = (value: unknown): string => {
-      if (typeof value === 'string') return value.trim();
-      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-      return '';
-    };
-
-    const settings = (company.settings as any) || {};
-    const whatsapp = (settings.whatsapp as any) || {};
-    const meta = (whatsapp.meta as any) || {};
-
-    return {
-      provider: 'meta',
-      phoneNumberId:
-        normalizeStringLike(meta.phoneNumberId) ||
-        normalizeStringLike(whatsapp.phoneNumberId) ||
-        config.whatsapp.phoneNumberId,
-      accessToken:
-        normalizeStringLike(meta.accessToken) ||
-        normalizeStringLike(whatsapp.accessToken) ||
-        config.whatsapp.accessToken,
-      verifyToken:
-        normalizeStringLike(meta.verifyToken) ||
-        normalizeStringLike(whatsapp.verifyToken) ||
-        config.whatsapp.verifyToken,
-    };
+    return resolveCompanyWhatsAppConfigFromSettings(company.settings);
   }
 
   async sendCompanyTextMessage(to: string, text: string, companyId: string): Promise<boolean> {
@@ -1575,36 +1551,11 @@ export class WhatsAppService {
     headerText?: string,
     footerText?: string,
   ): Promise<boolean> {
-    const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: { settings: true },
-    });
-
-    const normalizeStringLike = (value: unknown): string => {
-      if (typeof value === 'string') return value.trim();
-      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-      return '';
-    };
-
-    const settings = (company?.settings as any) || {};
-    const whatsapp = (settings.whatsapp as any) || {};
-    const meta = (whatsapp.meta as any) || {};
-
-    const whatsappConfig: CompanyWhatsAppConfig = {
-      provider: 'meta',
-      phoneNumberId:
-        normalizeStringLike(meta.phoneNumberId) ||
-        normalizeStringLike(whatsapp.phoneNumberId) ||
-        config.whatsapp.phoneNumberId,
-      accessToken:
-        normalizeStringLike(meta.accessToken) ||
-        normalizeStringLike(whatsapp.accessToken) ||
-        config.whatsapp.accessToken,
-      verifyToken:
-        normalizeStringLike(meta.verifyToken) ||
-        normalizeStringLike(whatsapp.verifyToken) ||
-        config.whatsapp.verifyToken,
-    };
+    const whatsappConfig = await this.resolveCompanyWhatsAppConfig(companyId);
+    if (!whatsappConfig) {
+      logger.warn('sendCompanyInteractiveButtons skipped: tenant WhatsApp not configured', { companyId });
+      return false;
+    }
 
     const result = await this.sendInteractiveButtons(
       to,

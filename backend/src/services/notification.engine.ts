@@ -5,6 +5,10 @@ import { NotificationType as PrismaNotificationType } from '@prisma/client';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { withRetry } from './notificationRetry.service';
 import { formatISTDateTime } from '../utils/dateTime.util';
+import {
+  isCompanyWhatsAppConfigured,
+  resolveCompanyWhatsAppConfigFromSettings,
+} from '../utils/companyWhatsAppConfig.util';
 
 /**
  * Send a WhatsApp message to a user using their company's configured WhatsApp.
@@ -54,27 +58,26 @@ interface NotifyOptions {
   data?: Record<string, any>;
 }
 
-function getCompanyWhatsAppConfig(company: any): {
+function getCompanyWhatsAppConfig(company: { settings?: unknown }): {
   provider: 'meta';
   phoneNumberId: string;
   accessToken: string;
   verifyToken: string;
   isCompanyConfigured: boolean;
-} {
-  const settings = (company?.settings as any) || {};
-  const whatsapp = settings.whatsapp || {};
-
-  const meta = whatsapp.meta || whatsapp;
-  const phoneNumberId = meta.phoneNumberId || config.whatsapp.phoneNumberId;
-  const accessToken = meta.accessToken || config.whatsapp.accessToken;
-  const verifyToken = meta.verifyToken || config.whatsapp.verifyToken;
-
+} | null {
+  const resolved = resolveCompanyWhatsAppConfigFromSettings(company?.settings);
+  if (!resolved) {
+    return {
+      provider: 'meta',
+      phoneNumberId: '',
+      accessToken: '',
+      verifyToken: '',
+      isCompanyConfigured: false,
+    };
+  }
   return {
-    provider: 'meta',
-    phoneNumberId,
-    accessToken,
-    verifyToken,
-    isCompanyConfigured: Boolean(meta.phoneNumberId && meta.accessToken),
+    ...resolved,
+    isCompanyConfigured: isCompanyWhatsAppConfigured(company?.settings),
   };
 }
 
