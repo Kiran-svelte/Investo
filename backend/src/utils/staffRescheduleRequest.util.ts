@@ -1,4 +1,5 @@
 import prisma from '../config/prisma';
+import type { Prisma } from '@prisma/client';
 
 export type StaffRescheduleRequestMeta = {
   staff_reschedule_visit_id?: string;
@@ -52,5 +53,5 @@ export async function clearStaffRescheduleRequest(leadId: string): Promise<void>
   delete meta.staff_reschedule_visit_id;
   delete meta.staff_reschedule_agent_id;
   delete meta.staff_reschedule_requested_at;
-  await prisma.lead.update({ where: { id: leadId }, data: { metadata: meta } });
+  await prisma.lead.update({ where: { id: leadId }, data: { metadata: meta as Prisma.InputJsonValue } });
 }
