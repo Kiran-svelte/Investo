@@ -2,7 +2,6 @@ import type { NextBestAction } from '../conversationStateMachine';
 import type { WhatsAppComponent } from '../../types/whatsapp-turn.types';
 import { shouldAttachContextualQuickReplies, type QuickReplyRecentAction } from '../../utils/contextQuickReplies.util';
 import { resolveCustomerQuickActions } from '../../utils/customerQuickReplies.util';
-import { shadowCompareSync } from '../../utils/featureShadow.util';
 import { isPostVisitBuyer } from '../../utils/buyerLeadProgress.util';
 import type { LiveLeadContext } from '../liveLeadContext.service';
 
@@ -254,16 +253,5 @@ function resolveBuyerComponentsCore(ctx: BuyerButtonContext): WhatsAppComponent[
  * Returns empty array when no buttons should be sent.
  */
 export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
-  const leadId = ctx.leadId ?? null;
-  if (!leadId) {
-    return resolveBuyerComponentsAdvanced(ctx);
-  }
-
-  return shadowCompareSync({
-    featureName: 'resolveBuyerComponents',
-    featureKey: 'advancedLeadUx',
-    leadId,
-    oldFn: () => resolveBuyerComponentsLegacy(ctx),
-    newFn: () => resolveBuyerComponentsAdvanced(ctx),
-  });
+  return resolveBuyerComponentsAdvanced(ctx);
 }

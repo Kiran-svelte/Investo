@@ -497,7 +497,7 @@ async function buildLegacyRapportPayload(
     safeReply = stripBuyerInternalMetadata(fastPath?.text ?? rapportReply);
   }
 
-  const buttonFlags = buyerButtonFlagsFromLive(input.liveCtx, ctx.input.leadId);
+  const buttonFlags = buyerButtonContextFromTurn(ctx, input.liveCtx);
   const components = input.isReturning
     ? []
     : resolveBuyerComponents({
@@ -576,7 +576,7 @@ async function buildAdvancedRapportPayload(
     safeReply = stripBuyerInternalMetadata(fastPath?.text ?? buildBuyerRapportReply(ctx.companyName));
   }
 
-  const buttonFlags = buyerButtonFlagsFromLive(input.liveCtx, ctx.input.leadId);
+  const buttonFlags = buyerButtonContextFromTurn(ctx, input.liveCtx);
   const components = (input.isReturning && !input.postVisit)
     ? []
     : resolveBuyerComponents({
@@ -907,7 +907,7 @@ async function handleQualificationTurn(
         stage: 'qualify',
         outboundText: qualReply,
         propertyId: ctx.input.conversationSelectedPropertyId,
-        ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
+        ...buyerButtonContextFromTurn(ctx, liveCtx),
       })
     : [];
 
@@ -989,7 +989,7 @@ async function handleVisitStatusTurn(
     stage: 'confirmation',
     outboundText: visitReply,
     propertyId: ctx.input.conversationSelectedPropertyId,
-    ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
+    ...buyerButtonContextFromTurn(ctx, liveCtx),
   });
 
   await prisma.message.create({
@@ -1063,7 +1063,7 @@ async function handleVisitCommitWorkflowTurn(
     stage: conversationStage,
     outboundText: safeReply,
     propertyId: suggestedPropertyId,
-    ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
+    ...buyerButtonContextFromTurn(ctx, liveCtx),
   });
 
   fireMemoryExtraction({ leadId: ctx.input.leadId, messageText: ctx.input.messageText, outboundText: safeReply, workflowId: visitCommit.workflowSuggestion.workflowId, liveCtx });
@@ -1083,6 +1083,7 @@ async function resolveBuyerWorkflowComponents(input: {
   resolvedPropertyId: string | null;
   liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>;
   leadId: string;
+  recommendedPropertyIds?: string[];
 }): Promise<WhatsAppComponent[]> {
   const { isInventoryCountQuery, isPropertyTypeBrowseQuery } = await import('../../utils/formatBuyerCatalog.util');
   const isCatalogTurn =
@@ -1116,6 +1117,7 @@ async function resolveBuyerWorkflowComponents(input: {
     stage: input.conversationStage,
     outboundText: input.outboundText,
     propertyId: input.resolvedPropertyId,
+    recommendedPropertyIds: input.recommendedPropertyIds,
     ...buyerButtonFlagsFromLive(input.liveCtx, input.leadId),
   });
 }
@@ -1188,6 +1190,7 @@ async function handleClassifierWorkflowTurn(
     resolvedPropertyId,
     liveCtx,
     leadId: ctx.input.leadId,
+    recommendedPropertyIds: [...(ctx.input.conversationRecommendedPropertyIds ?? [])],
   });
 
   fireMemoryExtraction({ leadId: ctx.input.leadId, messageText: ctx.input.messageText, outboundText: safeReply, workflowId: undefined, liveCtx });
@@ -1575,19 +1578,25 @@ async function handleFullAiTurn(
   const componentRecommendedPropertyIds = hasPropertyContextPatch
     ? propertyContextPatch.recommendedPropertyIds
     : aiResponse.newState?.recommendedProperties;
-  const interactiveComponents = aiResponse.newState?.stage
-    ? resolveBuyerComponents({
-        stage: aiResponse.newState.stage,
-        outboundText,
-        nextAction: aiResponse.nextAction,
-        recentAction,
-        sentPropertyFilters: false,
-        propertyId: componentPropertyId,
-        recommendedPropertyIds: componentRecommendedPropertyIds,
-        properties: properties.map((p) => ({ id: p.id, name: p.name })),
-        ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
-      })
-    : [];
+  const interactiveComponents = resolveBuyerComponents({
+    stage: aiResponse.newState?.stage ?? conversationState.stage,
+    outboundText,
+    nextAction: aiResponse.nextAction,
+    recentAction,
+    sentPropertyFilters: false,
+    propertyId: componentPropertyId,
+    recommendedPropertyIds: componentRecommendedPropertyIds
+      ? [...componentRecommendedPropertyIds]
+      : [...(ctx.input.conversationRecommendedPropertyIds ?? [])],
+    properties: properties.map((p) => ({ id: p.id, name: p.name })),
+    ...buyerButtonContextFromTurn(ctx, liveCtx, {
+      propertyId: componentPropertyId,
+      recommendedPropertyIds: componentRecommendedPropertyIds
+        ? [...componentRecommendedPropertyIds]
+        : [...(ctx.input.conversationRecommendedPropertyIds ?? [])],
+      properties: properties.map((p) => ({ id: p.id, name: p.name })),
+    }),
+  });
 
   const heroMedia = resolveHeroMediaComponent(
     properties,
@@ -1666,6 +1675,25 @@ function buyerButtonFlagsFromLive(
       recentCompletedVisit: liveCtx.recentCompletedVisit,
       leadStatus: liveCtx.leadStatus,
     },
+  };
+}
+
+/** Visit state + conversation property context for contextual next-step buttons. */
+function buyerButtonContextFromTurn(
+  ctx: BuyerTurnRuntimeContext,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
+  extra?: {
+    propertyId?: string | null;
+    recommendedPropertyIds?: string[];
+    properties?: Array<{ id: string; name: string }>;
+  },
+) {
+  return {
+    ...buyerButtonContextFromTurn(ctx, liveCtx),
+    propertyId: extra?.propertyId ?? ctx.input.conversationSelectedPropertyId,
+    recommendedPropertyIds:
+      extra?.recommendedPropertyIds ?? ctx.input.conversationRecommendedPropertyIds ?? [],
+    properties: extra?.properties,
   };
 }
 

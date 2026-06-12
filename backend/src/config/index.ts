@@ -517,21 +517,25 @@ const config = {
   },
 
   features: {
-    /** Post-visit buttons, advanced lead stage sync, skip re-qualification. */
-    advancedLeadUx: process.env.FEATURE_ADVANCED_LEAD_UX === 'true',
-    /** Deterministic staff copilot button fallback on CRM replies. */
+    /**
+     * Buyer WhatsApp UX (buttons, post-visit, returning buyer, property browse media).
+     * ON by default — set FEATURE_*=false to disable without redeploying code.
+     */
+    advancedLeadUx: process.env.FEATURE_ADVANCED_LEAD_UX !== 'false',
+    /** Staff copilot only — stays opt-in. */
     contextualCopilotButtons: process.env.FEATURE_CONTEXTUAL_COPILOT_BUTTONS === 'true',
-    /** H2 greeting template path (post-visit / advanced returning replies). */
-    customGreetingTemplate: process.env.FEATURE_CUSTOM_GREETING_TEMPLATE === 'true',
-    /** 0–100: share of leads that receive flagged UX when globally enabled. */
-    rolloutPercentage: Math.min(
-      100,
-      Math.max(0, parseInt(process.env.FEATURE_ROLLOUT_PERCENTAGE || '0', 10) || 0),
-    ),
+    customGreetingTemplate: process.env.FEATURE_CUSTOM_GREETING_TEMPLATE !== 'false',
+    /** 0–100 rollout bucket; default 100 so all leads get buyer UX unless tuned down. */
+    rolloutPercentage: (() => {
+      const raw = process.env.FEATURE_ROLLOUT_PERCENTAGE;
+      if (raw === undefined || raw.trim() === '') return 100;
+      const parsed = parseInt(raw, 10);
+      if (!Number.isFinite(parsed)) return 100;
+      return Math.min(100, Math.max(0, parsed));
+    })(),
     /** When true, compare old vs new paths and log mismatches even when serving old behavior. */
     shadowMode: process.env.FEATURE_SHADOW_MODE === 'true',
-    /** Visit/call reminders + nurture follow-ups via sendCompanyTextMessage and broader visit eligibility. */
-    reliableCustomerNotifications: process.env.FEATURE_RELIABLE_CUSTOMER_NOTIFICATIONS === 'true',
+    reliableCustomerNotifications: process.env.FEATURE_RELIABLE_CUSTOMER_NOTIFICATIONS !== 'false',
   },
 };
 
