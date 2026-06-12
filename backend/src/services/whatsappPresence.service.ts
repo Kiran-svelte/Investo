@@ -1,5 +1,6 @@
 import config from '../config';
 import logger from '../config/logger';
+import { isReplyPacingDisabled } from '../utils/whatsappReplySpeed.util';
 
 export type ReplyPacingMode = 'full' | 'minimal' | 'none';
 
@@ -27,7 +28,7 @@ function normalizeTo(to: string): string {
 }
 
 export function isReplyPacingGloballyDisabled(): boolean {
-  return process.env.WHATSAPP_REPLY_PACING_ENABLED === 'false';
+  return isReplyPacingDisabled();
 }
 
 /**

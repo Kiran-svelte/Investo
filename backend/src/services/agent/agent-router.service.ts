@@ -13,6 +13,7 @@ import {
   getCompanyDefaultLanguage,
 } from '../../utils/copilotWelcome.util';
 import { resolveAttendanceButtonCommand } from '../attendanceWorkflow.service';
+import { getStaffCopilotTimeoutMs } from '../../utils/whatsappReplySpeed.util';
 import {
   claimStaffCopilotTurn,
   releaseStaffCopilotTurn,
@@ -511,12 +512,23 @@ export async function routeIfInternalUserForCompany(
   });
 
   try {
-    const { text: response, replyKind } = await handleAgentMessage(
-      user,
-      messageText,
-      interactiveId,
-      inboundMessageId,
-    );
+    const staffTimeoutMs = getStaffCopilotTimeoutMs();
+    const staffTurnStartedAt = Date.now();
+    const { text: response, replyKind } = await Promise.race([
+      handleAgentMessage(user, messageText, interactiveId, inboundMessageId),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Staff copilot timed out after ${staffTimeoutMs}ms`)),
+          staffTimeoutMs,
+        ),
+      ),
+    ]);
+    logger.info('Staff copilot turn completed', {
+      companyId: user.companyId,
+      userId: user.userId,
+      durationMs: Date.now() - staffTurnStartedAt,
+      replyKind,
+    });
     const outboundClaimed = await claimStaffCopilotOutboundReply(user.companyId, inboundMessageId);
     logOutboundBranch('H4', 'agent-router.service.ts:outbound', 'staff_primary_reply', {
       replyKind,

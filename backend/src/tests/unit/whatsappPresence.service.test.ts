@@ -45,16 +45,27 @@ describe('whatsappPresence.service', () => {
     expect(Date.now() - start).toBeLessThan(50);
   });
 
-  it('isReplyPacingGloballyDisabled reads env flag', () => {
-    const prev = process.env.WHATSAPP_REPLY_PACING_ENABLED;
+  it('isReplyPacingGloballyDisabled reads env and fast-reply flags', () => {
+    jest.resetModules();
+    const prevPacing = process.env.WHATSAPP_REPLY_PACING_ENABLED;
+    const prevFast = process.env.FEATURE_FAST_WHATSAPP_REPLIES;
     try {
+      process.env.FEATURE_FAST_WHATSAPP_REPLIES = 'false';
       process.env.WHATSAPP_REPLY_PACING_ENABLED = 'false';
-      expect(isReplyPacingGloballyDisabled()).toBe(true);
-      delete process.env.WHATSAPP_REPLY_PACING_ENABLED;
-      expect(isReplyPacingGloballyDisabled()).toBe(false);
+      jest.isolateModules(() => {
+        const { isReplyPacingGloballyDisabled: disabled } = require('../../services/whatsappPresence.service');
+        expect(disabled()).toBe(true);
+      });
+      process.env.WHATSAPP_REPLY_PACING_ENABLED = 'true';
+      jest.isolateModules(() => {
+        const { isReplyPacingGloballyDisabled: disabled } = require('../../services/whatsappPresence.service');
+        expect(disabled()).toBe(false);
+      });
     } finally {
-      if (prev === undefined) delete process.env.WHATSAPP_REPLY_PACING_ENABLED;
-      else process.env.WHATSAPP_REPLY_PACING_ENABLED = prev;
+      if (prevPacing === undefined) delete process.env.WHATSAPP_REPLY_PACING_ENABLED;
+      else process.env.WHATSAPP_REPLY_PACING_ENABLED = prevPacing;
+      if (prevFast === undefined) delete process.env.FEATURE_FAST_WHATSAPP_REPLIES;
+      else process.env.FEATURE_FAST_WHATSAPP_REPLIES = prevFast;
     }
   });
 });

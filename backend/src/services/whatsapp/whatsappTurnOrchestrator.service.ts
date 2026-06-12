@@ -32,6 +32,12 @@ import { isFeatureEnabledForLead } from '../../utils/featureRollout.util';
 import { shadowCompare } from '../../utils/featureShadow.util';
 import { loadBuyerAiSettings } from '../../utils/buyerAiSettings.util';
 import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
+import {
+  getBuyerLlmTimeoutMs,
+  resolveDefaultReplyPacing,
+  resolveLlmReplyPacing,
+  shouldSkipHeavyBuyerContext,
+} from '../../utils/whatsappReplySpeed.util';
 import { buildNeverSayNoContext } from '../neverSayNoEngine.service';
 import { criteriaFromLead } from '../alternativeInventory.service';
 import { sanitizeBuyerOutbound } from './whatsappResponseSanitizer.service';
@@ -1310,7 +1316,7 @@ async function handleFullAiTurn(
     if (replay) return replay;
   }
 
-  const aiSettings = await prisma.aiSetting.findUnique({ where: { companyId: ctx.companyId } });
+  const aiSettings = await loadBuyerAiSettings(ctx.companyId);
 
   const lead = await prisma.lead.findUnique({
     where: { id: ctx.input.leadId },
@@ -1324,28 +1330,29 @@ async function handleFullAiTurn(
     throw new Error(`Lead not found for buyer turn: ${ctx.input.leadId}`);
   }
 
-  const neverSayNoCtx = await buildNeverSayNoContext(
-    ctx.companyId,
-    criteriaFromLead({
+  const [neverSayNoCtx, resolvedPropertyId] = await Promise.all([
+    buildNeverSayNoContext(
+      ctx.companyId,
+      criteriaFromLead({
+        companyId: ctx.companyId,
+        budgetMin: lead.budgetMin,
+        budgetMax: lead.budgetMax,
+        locationPreference: lead.locationPreference,
+        propertyType: lead.propertyType,
+      }),
+      {
+        customerMessage: ctx.input.messageText,
+        customerName: lead.customerName,
+        language: lead.language,
+      },
+    ),
+    resolveBuyerPropertyReference({
       companyId: ctx.companyId,
-      budgetMin: lead.budgetMin,
-      budgetMax: lead.budgetMax,
-      locationPreference: lead.locationPreference,
-      propertyType: lead.propertyType,
+      messageText: ctx.input.messageText,
+      selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+      recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
     }),
-    {
-      customerMessage: ctx.input.messageText,
-      customerName: lead.customerName,
-      language: lead.language,
-    },
-  );
-
-  const resolvedPropertyId = await resolveBuyerPropertyReference({
-    companyId: ctx.companyId,
-    messageText: ctx.input.messageText,
-    selectedPropertyId: ctx.input.conversationSelectedPropertyId,
-    recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
-  });
+  ]);
 
   const propertyIdSet = [
     ...new Set([
@@ -1397,14 +1404,16 @@ async function handleFullAiTurn(
   const customerMessageCount = ctx.history.filter((m) => m.senderType === 'customer').length + 1;
 
   let conversationContextBlock = '';
-  try {
-    const { buildConversationContextBlock } = await import('../conversation-summary.service');
-    conversationContextBlock = await buildConversationContextBlock(ctx.input.conversationId, ctx.input.leadId, ctx.companyId);
-  } catch (err: unknown) {
-    logger.warn('Conversation context block skipped', {
-      leadId: ctx.input.leadId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+  if (!shouldSkipHeavyBuyerContext(ctx.input.messageText, ctx.history.length)) {
+    try {
+      const { buildConversationContextBlock } = await import('../conversation-summary.service');
+      conversationContextBlock = await buildConversationContextBlock(ctx.input.conversationId, ctx.input.leadId, ctx.companyId);
+    } catch (err: unknown) {
+      logger.warn('Conversation context block skipped', {
+        leadId: ctx.input.leadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   logOutboundBranch('H9', 'whatsappTurnOrchestrator:aiPath', 'buyer_ai_service_path', {
@@ -1413,6 +1422,7 @@ async function handleFullAiTurn(
   });
 
   type AiTurnResponse = Awaited<ReturnType<typeof aiService.generateResponse>>;
+  const buyerLlmTimeoutMs = getBuyerLlmTimeoutMs();
   let aiResponse: AiTurnResponse;
   try {
     aiResponse = await Promise.race([
@@ -1439,7 +1449,10 @@ async function handleFullAiTurn(
         focusedPropertyId: resolvedPropertyId ?? undefined,
       }),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('AI response timed out after 28s')), 28_000),
+        setTimeout(
+          () => reject(new Error(`AI response timed out after ${buyerLlmTimeoutMs}ms`)),
+          buyerLlmTimeoutMs,
+        ),
       ),
     ]);
   } catch (err: unknown) {
@@ -1627,7 +1640,7 @@ async function handleFullAiTurn(
     terminal: true,
     text: outboundText,
     components,
-    replyPacing: 'full',
+    replyPacing: resolveLlmReplyPacing(),
   };
 }
 
@@ -2007,26 +2020,27 @@ export async function orchestrateWhatsAppBuyerTurn(
     .map((m) => m.content)
     .slice(-7);
 
-  const visitCommit = await tryCommitCustomerVisitBooking({
-    companyId: ctx.companyId,
-    lead: {
-      id: ctx.input.leadId,
-      assignedAgentId: ctx.input.leadAssignedAgentId,
-      customerName: ctx.input.leadCustomerName,
-      status: ctx.input.leadStatus,
-    },
-    conversation: {
-      id: ctx.input.conversationId,
-      selectedPropertyId: ctx.input.conversationSelectedPropertyId,
-      proposedVisitTime: ctx.input.conversationProposedVisitTime,
-      recommendedPropertyIds: [...ctx.input.conversationRecommendedPropertyIds],
-    },
-    customerMessage: ctx.input.messageText,
-    customerPhone: ctx.customerPhone,
-    recentCustomerMessages,
-  });
-
-  const liveCtx = await getLiveLeadContext(ctx.input.leadId, ctx.companyId);
+  const [visitCommit, liveCtx] = await Promise.all([
+    tryCommitCustomerVisitBooking({
+      companyId: ctx.companyId,
+      lead: {
+        id: ctx.input.leadId,
+        assignedAgentId: ctx.input.leadAssignedAgentId,
+        customerName: ctx.input.leadCustomerName,
+        status: ctx.input.leadStatus,
+      },
+      conversation: {
+        id: ctx.input.conversationId,
+        selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+        proposedVisitTime: ctx.input.conversationProposedVisitTime,
+        recommendedPropertyIds: [...ctx.input.conversationRecommendedPropertyIds],
+      },
+      customerMessage: ctx.input.messageText,
+      customerPhone: ctx.customerPhone,
+      recentCustomerMessages,
+    }),
+    getLiveLeadContext(ctx.input.leadId, ctx.companyId),
+  ]);
   if (shouldElevateReturningBuyerStage(ctx.input.leadId)) {
     activeState = await syncAdvancedLeadConversationStage(
       ctx.input.conversationId,
@@ -2106,7 +2120,7 @@ export async function orchestrateWhatsAppBuyerTurn(
 
 function withDefaultReplyPacing(result: TurnResult): TurnResult {
   if (result.replyPacing) return result;
-  return { ...result, replyPacing: 'minimal' };
+  return { ...result, replyPacing: resolveDefaultReplyPacing() };
 }
 
 // ---------------------------------------------------------------------------

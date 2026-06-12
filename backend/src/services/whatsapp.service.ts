@@ -1245,6 +1245,7 @@ export class WhatsAppService {
     }
 
     const { orchestrateWhatsAppBuyerTurn } = await import('./whatsapp/whatsappTurnOrchestrator.service');
+    const buyerTurnStartedAt = Date.now();
     const turnResult = await orchestrateWhatsAppBuyerTurn(
       {
         input: {
@@ -1321,6 +1322,16 @@ export class WhatsAppService {
       };
     });
 
+    const buyerTurnMs = Date.now() - buyerTurnStartedAt;
+    logger.info('Buyer turn orchestration completed', {
+      companyId,
+      conversationId: conversation.id,
+      leadId: lead.id,
+      durationMs: buyerTurnMs,
+      replyPacing: turnResult.replyPacing ?? 'minimal',
+      handled: turnResult.handled,
+    });
+
     if (turnResult.text?.trim()) {
       pendingBuyerOutbound = {
         turnResult,
@@ -1364,12 +1375,19 @@ export class WhatsAppService {
       const { turnResult, conversationId } = pendingBuyerOutbound;
       const orchestratorClaimed = await claimOutboundAiReply(companyId, msg.messageId);
       if (orchestratorClaimed) {
+        const pacingStartedAt = Date.now();
         await simulateHumanReplyPacing({
           to: customerPhone,
           whatsappConfig: whatsappConfig!,
           outboundTextLength: turnResult.text!.length,
           inboundMessageId: msg.messageId,
           pacing: turnResult.replyPacing,
+        });
+        logger.info('Buyer outbound pacing completed', {
+          companyId,
+          conversationId,
+          pacingMs: Date.now() - pacingStartedAt,
+          mode: turnResult.replyPacing ?? 'minimal',
         });
         try {
           await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);

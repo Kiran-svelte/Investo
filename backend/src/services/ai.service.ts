@@ -46,6 +46,7 @@ import { extractDateTimeIso } from '../utils/parseDateTimeFromMessage.util';
 import { AI_GLOBAL_RULES_BLOCK } from '../constants/aiGlobalRules.constants';
 import { withBuyerLlmSafeParams } from '../constants/llmSafeParams.constants';
 import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
+import { getBuyerLlmTimeoutMs } from '../utils/whatsappReplySpeed.util';
 import { withRetry } from '../utils/retry';
 import { getCircuitBreaker } from '../utils/circuit-breaker';
 import {
@@ -735,7 +736,7 @@ ${PERSONALITY_BLOCK}`;
           const text = data.content?.[0]?.text || '';
           return this.parseAIResponse(text);
         },
-        { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25_000, label: 'claude_ai' },
+        { maxAttempts: 2, baseDelayMs: 500, timeoutMs: getBuyerLlmTimeoutMs(), label: 'claude_ai' },
       ),
     );
   }
@@ -776,7 +777,7 @@ ${PERSONALITY_BLOCK}`;
           const text = data.choices?.[0]?.message?.content || '';
           return this.parseAIResponse(text);
         },
-        { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25_000, label: 'kimi_ai' },
+        { maxAttempts: 2, baseDelayMs: 500, timeoutMs: getBuyerLlmTimeoutMs(), label: 'kimi_ai' },
       ),
     );
   }

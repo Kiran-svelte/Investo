@@ -398,6 +398,15 @@ const config = {
     dedupTtlSeconds: parseInt(process.env.WHATSAPP_DEDUP_TTL_SECONDS || '300', 10),
     /** When false, skips typing indicator and artificial reply delay entirely. */
     replyPacingEnabled: process.env.WHATSAPP_REPLY_PACING_ENABLED !== 'false',
+    /** Buyer H9 LLM wall timeout (ms). Default 12s fast / 28s when fast replies off. */
+    buyerLlmTimeoutMs: (() => {
+      const raw = process.env.WHATSAPP_BUYER_LLM_TIMEOUT_MS;
+      if (raw === undefined || raw.trim() === '') {
+        return process.env.FEATURE_FAST_WHATSAPP_REPLIES === 'false' ? 28_000 : 12_000;
+      }
+      const parsed = parseInt(raw, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 12_000;
+    })(),
     /** Shared secret for signed production handset E2E proofs (X-Investo-E2E-Token header). */
     e2eWebhookProofToken: process.env.E2E_WEBHOOK_PROOF_TOKEN || '',
   },
@@ -447,6 +456,14 @@ const config = {
     messageWindowSize: parseInt(process.env.AGENT_AI_MESSAGE_WINDOW || '10', 10),
     cronEnabled: process.env.AGENT_AI_CRON_ENABLED !== 'false',
     temperature: parseFloat(process.env.AGENT_AI_TEMPERATURE || '0'),
+    copilotTimeoutMs: (() => {
+      const raw = process.env.AGENT_AI_COPILOT_TIMEOUT_MS;
+      if (raw === undefined || raw.trim() === '') {
+        return process.env.FEATURE_FAST_WHATSAPP_REPLIES === 'false' ? 30_000 : 18_000;
+      }
+      const parsed = parseInt(raw, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 18_000;
+    })(),
   },
 
   storage: {
@@ -550,6 +567,8 @@ const config = {
     fixMdPropertyMediaCompleteness: process.env.FEATURE_FIX_MD_PROPERTY_MEDIA_COMPLETENESS !== 'false',
     /** Staff attendance Reschedule button → ask customer → auto-reschedule (F-01). */
     attendanceStaffRescheduleFlow: process.env.FEATURE_ATTENDANCE_STAFF_RESCHEDULE !== 'false',
+    /** Skip artificial WhatsApp delays; parallel prefetch; shorter LLM caps (default ON). */
+    fastWhatsAppReplies: process.env.FEATURE_FAST_WHATSAPP_REPLIES !== 'false',
   },
 };
 
