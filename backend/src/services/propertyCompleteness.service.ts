@@ -1,5 +1,6 @@
 import type { Property, PropertyImportDraft, PropertyType } from '@prisma/client';
 import prisma from '../config/prisma';
+import { isFixMdEnabled } from '../utils/fixMdFeatures.util';
 
 const RESIDENTIAL_TYPES: PropertyType[] = ['apartment', 'villa'];
 
@@ -11,6 +12,7 @@ export type PropertyCompletenessField =
   | 'price'
   | 'bedrooms'
   | 'descriptionOrBrochure'
+  | 'customerMedia'
   | 'status';
 
 export interface PropertyCompletenessResult {
@@ -29,6 +31,7 @@ export type PropertyLike = {
   bedrooms?: number | null;
   description?: string | null;
   brochureUrl?: string | null;
+  images?: unknown;
   status?: string | null;
 };
 
@@ -56,6 +59,19 @@ function isNonEmptyString(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function hasCustomerMedia(input: PropertyLike): boolean {
+  if (isNonEmptyString(input.brochureUrl)) return true;
+  const images = Array.isArray(input.images) ? input.images : [];
+  return images.some(
+    (url) => typeof url === 'string' && /^https?:\/\//i.test(url.trim()),
+  );
+}
+
+function pickDraftImages(data: Record<string, unknown>): unknown {
+  const raw = data.images ?? data.image_urls ?? data.imageUrls;
+  return Array.isArray(raw) ? raw : null;
+}
+
 const FIELD_LABELS: Record<PropertyCompletenessField, string> = {
   name: 'Property name',
   propertyType: 'Property type',
@@ -64,6 +80,7 @@ const FIELD_LABELS: Record<PropertyCompletenessField, string> = {
   price: 'Price (min or max)',
   bedrooms: 'Bedrooms (residential)',
   descriptionOrBrochure: 'Description or brochure',
+  customerMedia: 'Hero image or brochure PDF (WhatsApp media)',
   status: 'Listing status',
 };
 
@@ -88,6 +105,10 @@ export function assessPropertyCompleteness(input: PropertyLike): PropertyComplet
   const hasBrochure = isNonEmptyString(input.brochureUrl);
   if (!hasDescription && !hasBrochure) missingFields.push('descriptionOrBrochure');
 
+  if (isFixMdEnabled('fixMdPropertyMediaCompleteness') && !hasCustomerMedia(input)) {
+    missingFields.push('customerMedia');
+  }
+
   if (!isNonEmptyString(input.status)) missingFields.push('status');
 
   return {
@@ -108,6 +129,7 @@ export function assessDraftCompleteness(draftData: Record<string, unknown>): Pro
     bedrooms: pickDraftInt(draftData, ['bedrooms']),
     description: pickDraftString(draftData, ['description']),
     brochureUrl: pickDraftString(draftData, ['brochure_url', 'brochureUrl']),
+    images: pickDraftImages(draftData),
     status: pickDraftString(draftData, ['status']) || 'available',
   });
 }
@@ -232,6 +254,7 @@ export function propertyToCompletenessInput(property: Property): PropertyLike {
     bedrooms: property.bedrooms,
     description: property.description,
     brochureUrl: property.brochureUrl,
+    images: property.images,
     status: property.status,
   };
 }

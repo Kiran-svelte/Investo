@@ -15,6 +15,8 @@ describe('propertyCompleteness.service', () => {
     priceMax: 8_000_000,
     bedrooms: 2,
     description: 'Premium 2BHK with club house.',
+    brochureUrl: 'https://cdn.example.com/sunrise.pdf',
+    images: ['https://cdn.example.com/sunrise-hero.jpg'],
     status: 'available',
   };
 
@@ -48,6 +50,17 @@ describe('propertyCompleteness.service', () => {
       description: null,
     });
     expect(result.isPublishable).toBe(true);
+  });
+
+  test('requires hero image or brochure for WhatsApp media when fix-md flag active', () => {
+    const result = assessPropertyCompleteness({
+      ...completeResidential,
+      brochureUrl: null,
+      images: [],
+      description: 'Text only listing.',
+    });
+    expect(result.isPublishable).toBe(false);
+    expect(result.missingFields).toContain('customerMedia');
   });
 
   test('draft assessment reads snake_case keys', () => {
