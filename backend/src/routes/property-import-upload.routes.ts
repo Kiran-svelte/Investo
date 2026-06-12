@@ -1,8 +1,9 @@
 import express, { Router, Request, Response, NextFunction } from 'express';
+import logger from '../config/logger';
 import config from '../config';
 import prisma from '../config/prisma';
 import { storageService } from '../services/storage.service';
-import { parseAwsStorageKey, parseSupabaseStorageKey } from '../services/storageTargets';
+import { parseAwsStorageKey, parseR2StorageKey, parseSupabaseStorageKey } from '../services/storageTargets';
 
 class PropertyImportUploadError extends Error {
   statusCode: number;
@@ -102,8 +103,9 @@ async function persistUpload(uploadToken: string, contentType: string, bytes: Bu
     const isDbKey = media.storageKey.startsWith('db/property-import-media/');
     const isSupabaseKey = Boolean(parseSupabaseStorageKey(media.storageKey));
     const isAwsKey = Boolean(parseAwsStorageKey(media.storageKey));
+    const isR2Key = Boolean(parseR2StorageKey(media.storageKey));
 
-    if (!isDbKey && !isSupabaseKey && !isAwsKey) {
+    if (!isDbKey && !isSupabaseKey && !isAwsKey && !isR2Key) {
       throw new PropertyImportUploadError('Direct upload is not available for this token', 409);
     }
 
@@ -122,7 +124,7 @@ async function persistUpload(uploadToken: string, contentType: string, bytes: Bu
           bytes: toDatabaseBytes(bytes),
         },
       });
-    } else if (isAwsKey) {
+    } else if (isAwsKey || isR2Key) {
       const uploaded = await storageService.putObjectBytes(media.storageKey, bytes, media.mimeType);
       await tx.propertyImportMedia.update({
         where: { id: media.id },
@@ -206,7 +208,11 @@ router.put(
         return;
       }
 
-      res.status(500).json({ error: 'Failed to upload file' });
+      logger.error('Property import upload failed', {
+        uploadToken: String(req.params.uploadToken || ''),
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: err?.message || 'Failed to upload file' });
     }
   },
 );

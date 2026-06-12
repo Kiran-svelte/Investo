@@ -176,6 +176,9 @@ export function countMissingKnowledgeFields(draftData: Record<string, unknown> |
 }
 
 export function isPropertyKnowledgeComplete(draftData: Record<string, unknown> | null | undefined): boolean {
+  if (draftData?.import_flow_mode === 'image_auto') {
+    return true;
+  }
   const { gapCount, propertyType } = countMissingKnowledgeFields(draftData);
   if (!propertyType) {
     return false;

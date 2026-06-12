@@ -1,7 +1,7 @@
 import type { PropertyImportDraft } from '../../services/propertyImport';
 import type { PropertyImportFormValues } from './propertyImport.utils';
 import { getMissingMarketingQuestions, type MarketingKnowledgeQuestion } from './propertyImportKnowledgeQuestions';
-import { getPropertyImportReviewMetadata } from './propertyImport.utils';
+import { getPropertyImportReviewMetadata, isImageAutoImportFlow } from './propertyImport.utils';
 
 export interface PublishReadinessResult {
   ready: boolean;
@@ -52,7 +52,9 @@ export function getPublishReadiness(input: {
     blockers.push('Confirm extracted field mapping before publishing.');
   }
 
-  const missingQuestions = getMissingMarketingQuestions(formValues, draftData);
+  const missingQuestions = isImageAutoImportFlow(draftData)
+    ? []
+    : getMissingMarketingQuestions(formValues, draftData);
 
   if (missingQuestions.length > 0) {
     blockers.push('Answer the remaining AI knowledge questions.');

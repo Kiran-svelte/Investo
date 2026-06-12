@@ -40,6 +40,9 @@ export function assessProjectKnowledgeGaps(
   draftData?: Record<string, unknown> | null,
   _mappingMetadata?: PropertyImportMappingMetadata,
 ): MarketingKnowledgeQuestion[] {
+  if (draftData?.import_flow_mode === 'image_auto') {
+    return [];
+  }
   const propertyType = formValues.property_type.trim().toLowerCase();
   if (!propertyType) {
     return [];

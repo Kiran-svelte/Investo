@@ -506,3 +506,7 @@ export function getPropertyImportMediaLabel(status: PropertyImportMediaStatus): 
 export function getPropertyImportDraftStatusTone(status: PropertyImportDraftStatus): PropertyImportStageSummary['tone'] {
   return getPropertyImportStage({ status, extractionStatus: 'pending_upload' }).tone;
 }
+
+export function isImageAutoImportFlow(draftData?: Record<string, unknown> | null): boolean {
+  return draftData?.import_flow_mode === 'image_auto';
+}

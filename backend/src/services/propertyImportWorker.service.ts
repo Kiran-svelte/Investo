@@ -1,5 +1,6 @@
 import logger from '../config/logger';
 import prisma from '../config/prisma';
+import { applyImageImportAutoFlow } from '../utils/propertyImportAutoFlow.util';
 import { storageService } from './storage.service';
 import { propertyImportExtractorService } from './propertyImportExtractor.service';
 import {
@@ -599,6 +600,8 @@ export class PropertyImportWorkerService {
       where: { draftId },
       select: {
         status: true,
+        assetType: true,
+        mimeType: true,
       },
     });
 
@@ -634,7 +637,22 @@ export class PropertyImportWorkerService {
       return;
     }
 
-    const reviewData = (draft as { draftData?: Record<string, unknown> }).draftData ?? {} as Record<string, unknown>;
+    let reviewData = (draft as { draftData?: Record<string, unknown> }).draftData ?? {} as Record<string, unknown>;
+    const autoFlowData = applyImageImportAutoFlow(
+      reviewData,
+      media.map((item) => ({
+        assetType: (item as { assetType?: string | null }).assetType,
+        mimeType: (item as { mimeType?: string | null }).mimeType,
+      })),
+    );
+    if (autoFlowData !== reviewData) {
+      reviewData = autoFlowData;
+      await this.deps.db.propertyImportDraft.update({
+        where: { id: draftId },
+        data: { draftData: reviewData as object },
+      });
+    }
+
     const mappingProfile = normalizePropertyImportMappingProfile(reviewData.import_mapping ?? reviewData.importMapping);
     const reviewApproved = isPropertyImportReviewApproved(reviewData);
     const reviewPending = isPropertyImportReviewPending(reviewData);

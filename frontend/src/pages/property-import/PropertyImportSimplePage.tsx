@@ -38,6 +38,7 @@ import BulkCsvImportSection from './BulkCsvImportSection';
 import {
   PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
   createPropertyImportFormValues,
+  isImageAutoImportFlow,
   isPropertyImportTerminalStatus,
   serializePropertyImportFormValues,
   type PropertyImportFormValues,
@@ -170,6 +171,15 @@ export default function PropertyImportSimplePage() {
 
   const unitsCount = draft?.units?.length ?? 0;
 
+  const imageAutoFlow = isImageAutoImportFlow(draft?.draftData);
+
+  const visibleSteps = useMemo(
+    () => (imageAutoFlow
+      ? (['Type', 'Upload', 'Publish'] as const)
+      : SIMPLE_STEPS),
+    [imageAutoFlow],
+  );
+
   const activeStepIndex = useMemo(() => {
     if (!formValues.property_type.trim()) {
       return 0;
@@ -182,20 +192,33 @@ export default function PropertyImportSimplePage() {
     if (draft?.extractionStatus !== 'extracted' && !spreadsheetReady) {
       return 1;
     }
-    if (mappingReview.status === 'needs_review') {
+    if (!imageAutoFlow && mappingReview.status === 'needs_review') {
       return 2;
     }
-    if (publishReadiness.missingQuestions.length > 0) {
+    if (!imageAutoFlow && publishReadiness.missingQuestions.length > 0) {
       return 3;
     }
-    return 4;
+    return imageAutoFlow ? 2 : 4;
   }, [
     formValues.property_type,
     draft,
     publishReadiness.missingQuestions.length,
     mappingReview.status,
     unitsCount,
+    imageAutoFlow,
   ]);
+
+  const displayStepIndex = useMemo(() => {
+    if (!imageAutoFlow) {
+      return activeStepIndex;
+    }
+    if (activeStepIndex <= 1) {
+      return activeStepIndex;
+    }
+    return 2;
+  }, [activeStepIndex, imageAutoFlow]);
+
+  const isPublishStep = imageAutoFlow ? activeStepIndex >= 2 : activeStepIndex === 4;
 
   const syncFormFromDraft = useCallback((draftData: Record<string, unknown> | null | undefined) => {
     setFormValues(createPropertyImportFormValues(draftData));
@@ -414,44 +437,65 @@ export default function PropertyImportSimplePage() {
     })));
 
     try {
+      let successCount = 0;
+      let failCount = 0;
+
       for (const { id, file } of queue) {
         if (file.size > MAX_FILE_SIZE_BYTES) {
           setUploadItems((items) => items.map((e) => (
             e.id === id ? { ...e, status: 'failed', error: 'File too large' } : e
           )));
+          failCount += 1;
           continue;
         }
 
-        setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'registering' } : e)));
+        try {
+          setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'registering' } : e)));
 
-        const registered = await registerPropertyImportUpload(draftId, {
-          file_name: file.name,
-          mime_type: file.type,
-          file_size: file.size,
-          asset_type: inferPropertyImportAssetType(file),
-        });
+          const registered = await registerPropertyImportUpload(draftId, {
+            file_name: file.name,
+            mime_type: file.type,
+            file_size: file.size,
+            asset_type: inferPropertyImportAssetType(file),
+          });
 
-        setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'uploading' } : e)));
+          setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'uploading' } : e)));
 
-        await uploadPropertyImportFile(
-          registered.upload.upload_url,
-          file,
-          registered.upload.content_type,
-          () => {},
-          registered.upload.fallback_upload_url,
-        );
+          await uploadPropertyImportFile(
+            registered.upload.upload_url,
+            file,
+            registered.upload.content_type,
+            () => {},
+            registered.upload.fallback_upload_url,
+          );
 
-        setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'confirming' } : e)));
+          setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'confirming' } : e)));
 
-        const confirmed = await confirmPropertyImportUpload(draftId, registered.upload.upload_token);
-        if (confirmed.draft) {
-          applyDraftUpdate(confirmed.draft);
+          const confirmed = await confirmPropertyImportUpload(draftId, registered.upload.upload_token);
+          if (confirmed.draft) {
+            applyDraftUpdate(confirmed.draft);
+          }
+
+          setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'done' } : e)));
+          successCount += 1;
+        } catch (fileError) {
+          const message = getErrorMessage(fileError, 'Upload failed');
+          setUploadItems((items) => items.map((e) => (
+            e.id === id ? { ...e, status: 'failed', error: message } : e
+          )));
+          failCount += 1;
         }
-
-        setUploadItems((items) => items.map((e) => (e.id === id ? { ...e, status: 'done' } : e)));
       }
 
       await loadDraft(draftId, true);
+
+      if (failCount > 0 && successCount > 0) {
+        setPageError(`${successCount} file(s) uploaded. ${failCount} failed — retry the failed ones.`);
+      } else if (failCount > 0) {
+        setPageError('All uploads failed. Check your connection and try again.');
+      } else if (successCount > 0) {
+        setPageError('');
+      }
     } catch (error) {
       setPageError(getErrorMessage(error, 'Upload failed'));
     } finally {
@@ -624,9 +668,9 @@ export default function PropertyImportSimplePage() {
       {(importMode === 'ai' || Boolean(routeDraftId)) && (
         <>
           <nav className="investo-scroll-x flex gap-2 pb-1">
-            {SIMPLE_STEPS.map((label, index) => {
-              const done = index < activeStepIndex;
-              const current = index === activeStepIndex;
+            {visibleSteps.map((label, index) => {
+              const done = index < displayStepIndex;
+              const current = index === displayStepIndex;
               return (
                 <div
                   key={label}
@@ -680,9 +724,10 @@ export default function PropertyImportSimplePage() {
 
           {activeStepIndex === 1 && (
             <section className="rounded-2xl border border-surface-border bg-surface-elevated p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-ink-primary">Step 2 - Upload brochure</h2>
+              <h2 className="text-lg font-semibold text-ink-primary">Step 2 - Upload photos or brochure</h2>
               <p className="mt-1 text-sm text-ink-muted">
-                PDF, images, or CRM spreadsheet. We extract facts automatically - {SUPPORTED_FILE_LABELS.join(', ')}.
+                Upload property photos or a PDF brochure. We read them automatically — no manual Q&amp;A for image uploads.
+                {SUPPORTED_FILE_LABELS.join(', ')}.
               </p>
               <PropertyImportBatchProgress
                 draftData={draft?.draftData}
@@ -700,7 +745,7 @@ export default function PropertyImportSimplePage() {
               ) : draft?.extractionStatus === 'queued' || draft?.extractionStatus === 'processing' || draft?.status === 'extracting' ? (
                 <p className="mt-3 flex items-center gap-2 text-sm text-brand-800">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Extracting brochure...
+                  Extracting property details from your upload…
                 </p>
               ) : null}
 
@@ -784,7 +829,7 @@ export default function PropertyImportSimplePage() {
             </section>
           )}
 
-          {activeStepIndex === 2 && mappingReview.status === 'needs_review' && (
+          {activeStepIndex === 2 && mappingReview.status === 'needs_review' && !imageAutoFlow && (
             <section className="rounded-2xl border border-surface-border bg-surface-elevated p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-ink-primary">Step 3 - Review extraction</h2>
               <p className="mt-1 text-sm text-ink-muted">
@@ -805,7 +850,7 @@ export default function PropertyImportSimplePage() {
             </section>
           )}
 
-          {activeStepIndex === 3 && publishReadiness.missingQuestions.length > 0 && (
+          {activeStepIndex === 3 && publishReadiness.missingQuestions.length > 0 && !imageAutoFlow && (
             <section
               ref={knowledgeSectionRef}
               className="investo-card-pad border border-violet-200 shadow-sm"
@@ -863,7 +908,14 @@ export default function PropertyImportSimplePage() {
             </section>
           )}
 
-          {activeStepIndex === 4 && draft?.extractionStatus === 'extracted' && (
+          {imageAutoFlow && isPublishStep && draft?.extractionStatus === 'extracted' && (
+            <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900">
+              <Sparkles className="mr-2 inline h-4 w-4" />
+              Property details recognized from your photos. Review the project name and publish when ready.
+            </section>
+          )}
+
+          {isPublishStep && draft?.extractionStatus === 'extracted' && (
             <section className="rounded-2xl border border-surface-border bg-surface-elevated p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-ink-primary">Step 5 - Ready to go</h2>
               <PropertyImportBatchProgress

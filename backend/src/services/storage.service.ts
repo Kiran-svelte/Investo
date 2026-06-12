@@ -470,6 +470,20 @@ class StorageService {
       return uploadToSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath, bytes, contentType);
     }
 
+    const r2Key = parseR2StorageKey(storageKey);
+    if (r2Key) {
+      ensureR2Config();
+      await this.getR2Client().send(
+        new PutObjectCommand({
+          Bucket: config.storage.r2Bucket,
+          Key: r2Key,
+          Body: bytes,
+          ContentType: contentType,
+        }),
+      );
+      return { publicUrl: this.getR2PublicUrl(r2Key) };
+    }
+
     throw new Error('Direct putObjectBytes is not supported for this storage key');
   }
 
