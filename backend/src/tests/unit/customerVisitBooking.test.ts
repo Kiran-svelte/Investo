@@ -53,6 +53,10 @@ jest.mock('../../config/logger', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
+jest.mock('../../services/attendanceReschedule.service', () => ({
+  tryCompleteStaffRequestedReschedule: jest.fn().mockResolvedValue(null),
+}));
+
 import prisma from '../../config/prisma';
 import { tryCommitCustomerVisitBooking } from '../../services/customerVisitBooking.service';
 

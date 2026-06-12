@@ -347,7 +347,7 @@ export async function rescheduleVisitById(input: {
 
   await notifyRescheduled(updated.id, oldTime, Boolean(input.suppressCustomerNotification));
   emitVisitUpdated(input.companyId, updated, 'rescheduled');
-  if (updated.leadId && updated.status === 'confirmed') {
+  if (updated.leadId) {
     void rescheduleVisitReminderJobs(updated.id, updated.scheduledAt, input.companyId, updated.leadId);
   }
   return { success: true, visit: updated, oldStatus };

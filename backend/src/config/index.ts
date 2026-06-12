@@ -548,6 +548,8 @@ const config = {
     fixMdBulkSendExtract: process.env.FEATURE_FIX_MD_BULK_SEND_EXTRACT !== 'false',
     /** fix.md PR-5: require hero image or brochure before publish/media sends. */
     fixMdPropertyMediaCompleteness: process.env.FEATURE_FIX_MD_PROPERTY_MEDIA_COMPLETENESS !== 'false',
+    /** Staff attendance Reschedule button → ask customer → auto-reschedule (F-01). */
+    attendanceStaffRescheduleFlow: process.env.FEATURE_ATTENDANCE_STAFF_RESCHEDULE !== 'false',
   },
 };
 

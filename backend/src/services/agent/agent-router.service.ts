@@ -173,6 +173,20 @@ async function handleAgentMessage(
       orderBy: { createdAt: 'desc' },
     });
     if (pendingAttendance) {
+      const { isAttendanceStaffRescheduleEnabled, handleAttendanceCheckReschedule } =
+        await import('../attendanceReschedule.service');
+      if (isAttendanceStaffRescheduleEnabled()) {
+        const params = (pendingAttendance.actionParams ?? {}) as Record<string, unknown>;
+        const text = await handleAttendanceCheckReschedule({
+          companyId: user.companyId,
+          sessionId: session.id,
+          agentUserId: user.userId,
+          agentPhone: user.phone,
+          pendingActionId: pendingAttendance.id,
+          params,
+        });
+        return { text, replyKind: 'confirmation' };
+      }
       const params = (pendingAttendance.actionParams ?? {}) as Record<string, unknown>;
       const customerName =
         typeof params.customerName === 'string' ? params.customerName : 'the customer';

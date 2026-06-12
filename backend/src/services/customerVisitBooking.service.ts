@@ -373,6 +373,16 @@ export async function tryCommitCustomerVisitBooking(
   const { companyId, lead, conversation, customerMessage, customerPhone, recentCustomerMessages } =
     input;
 
+  const { tryCompleteStaffRequestedReschedule } = await import('./attendanceReschedule.service');
+  const staffReschedule = await tryCompleteStaffRequestedReschedule({
+    companyId,
+    leadId: lead.id,
+    customerMessage,
+  });
+  if (staffReschedule?.committed) {
+    return staffReschedule;
+  }
+
   if (isVisitCancelOrRescheduleMessage(customerMessage)) {
     const activeVisit = await prisma.visit.findFirst({
       where: {
