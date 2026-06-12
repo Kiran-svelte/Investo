@@ -19,7 +19,7 @@ describe('propertyImportAutoFlow.util', () => {
     ])).toBe(false);
   });
 
-  test('auto flow approves review and skips knowledge for image uploads with extracted identity', () => {
+  test('auto flow approves review and skips knowledge for any image-only upload', () => {
     const result = applyImageImportAutoFlow(
       {
         name: 'Sunset Heights',
@@ -37,10 +37,19 @@ describe('propertyImportAutoFlow.util', () => {
     expect(isImageAutoImportFlow(result)).toBe(true);
   });
 
-  test('does not auto flow when identity is missing', () => {
+  test('auto flow still applies with only property type from the upload form', () => {
     const result = applyImageImportAutoFlow(
       { property_type: 'apartment' },
       [{ assetType: 'image', mimeType: 'image/png' }],
+    );
+    expect(result.import_flow_mode).toBe(IMAGE_AUTO_FLOW_MODE);
+    expect(isImageAutoImportFlow(result)).toBe(true);
+  });
+
+  test('does not auto flow for PDF brochure uploads', () => {
+    const result = applyImageImportAutoFlow(
+      { property_type: 'apartment', name: 'Test' },
+      [{ assetType: 'brochure', mimeType: 'application/pdf' }],
     );
     expect(result.import_flow_mode).toBeUndefined();
   });

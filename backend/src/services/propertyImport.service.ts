@@ -24,6 +24,7 @@ import {
   countMissingKnowledgeFields,
   isPropertyKnowledgeComplete,
 } from './propertyTypeKnowledge.service';
+import { isImageAutoImportFlow } from '../utils/propertyImportAutoFlow.util';
 import { csvImportService, serializePropertyRowData, type ColumnMapping } from './csv-import.service';
 import {
   buildBatchProgress,
@@ -266,7 +267,10 @@ export class PropertyImportService {
       const propertyType = asTrimmedString(draftData.property_type ?? draftData.propertyType) || null;
       const knowledgeDeferred =
         draftData.knowledge_gate_deferred === true || draftData.knowledgeGateDeferred === true;
-      const { gapCount } = countMissingKnowledgeFields(draftData);
+      const imageAuto = isImageAutoImportFlow(draftData);
+      const { gapCount } = imageAuto
+        ? { gapCount: 0 }
+        : countMissingKnowledgeFields(draftData);
 
       return {
         id: row.id,
@@ -1457,6 +1461,9 @@ export class PropertyImportService {
     for (const candidate of drafts) {
       const draftData = (candidate.draftData || {}) as Record<string, unknown>;
       if (draftData.knowledge_gate_deferred === true || draftData.knowledgeGateDeferred === true) {
+        continue;
+      }
+      if (isImageAutoImportFlow(draftData)) {
         continue;
       }
       const name = asTrimmedString(draftData.name);

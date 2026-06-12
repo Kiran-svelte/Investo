@@ -38,9 +38,9 @@ import BulkCsvImportSection from './BulkCsvImportSection';
 import {
   PROPERTY_IMPORT_DEFAULT_FORM_VALUES,
   createPropertyImportFormValues,
-  isImageAutoImportFlow,
   isPropertyImportTerminalStatus,
   serializePropertyImportFormValues,
+  shouldSkipPropertyImportKnowledge,
   type PropertyImportFormValues,
 } from './propertyImport.utils';
 import { PROPERTY_KNOWLEDGE_TYPES, type PropertyKnowledgeType } from './propertyTypeKnowledgeSchema';
@@ -171,7 +171,10 @@ export default function PropertyImportSimplePage() {
 
   const unitsCount = draft?.units?.length ?? 0;
 
-  const imageAutoFlow = isImageAutoImportFlow(draft?.draftData);
+  const imageAutoFlow = shouldSkipPropertyImportKnowledge({
+    draftData: draft?.draftData,
+    mediaAssets: draft?.mediaAssets,
+  });
 
   const visibleSteps = useMemo(
     () => (imageAutoFlow
@@ -256,12 +259,18 @@ export default function PropertyImportSimplePage() {
     if (!routeDraftId || !draft || isPropertyImportTerminalStatus(draft.status)) {
       return;
     }
-    if (publishReadiness.missingQuestions.length > 0 && draft.extractionStatus === 'extracted') {
+    if (
+      !imageAutoFlow
+      && publishReadiness.missingQuestions.length > 0
+      && draft.extractionStatus === 'extracted'
+    ) {
       return;
     }
-    const interval = window.setInterval(() => void loadDraft(routeDraftId, true), 5000);
-    return () => window.clearInterval(interval);
-  }, [draft, loadDraft, routeDraftId, publishReadiness.missingQuestions.length]);
+    if (draft.extractionStatus === 'extracted' || draft.extractionStatus === 'processing' || draft.extractionStatus === 'queued') {
+      const interval = window.setInterval(() => void loadDraft(routeDraftId, true), 5000);
+      return () => window.clearInterval(interval);
+    }
+  }, [draft, imageAutoFlow, loadDraft, routeDraftId, publishReadiness.missingQuestions.length]);
 
   const handleConfirmMapping = async () => {
     if (!draft?.id) {

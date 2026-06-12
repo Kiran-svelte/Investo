@@ -159,6 +159,10 @@ export function countMissingKnowledgeFields(draftData: Record<string, unknown> |
     return { propertyType: '', gapCount: 0, missingKeys: [] };
   }
 
+  if (draftData.import_flow_mode === 'image_auto') {
+    return { propertyType: asString(draftData.property_type ?? draftData.propertyType), gapCount: 0, missingKeys: [] };
+  }
+
   const propertyType = asString(draftData.property_type ?? draftData.propertyType);
   if (!propertyType) {
     return { propertyType: '', gapCount: 0, missingKeys: [] };

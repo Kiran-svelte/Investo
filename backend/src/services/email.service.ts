@@ -254,18 +254,29 @@ export class EmailService {
       <p>If you did not request this, you can ignore this email.</p>
     `;
 
-    await this.sendEmail({
-      from: config.mail.from,
-      to: params.toEmail,
-      subject,
-      text,
-      html,
-    });
+    try {
+      await this.sendEmail({
+        from: config.mail.from,
+        to: params.toEmail,
+        subject,
+        text,
+        html,
+      });
 
-    logger.info('Password reset email sent', {
-      userEmail: params.toEmail,
-    });
-    return { sent: true };
+      logger.info('Password reset email sent', {
+        userEmail: params.toEmail,
+        transport: config.mail.transport,
+      });
+      return { sent: true };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Password reset email failed', {
+        userEmail: params.toEmail,
+        transport: config.mail.transport,
+        error: message,
+      });
+      return { sent: false, reason: message };
+    }
   }
 
   async sendWelcomeInviteEmail(params: WelcomeInviteEmailParams): Promise<boolean> {

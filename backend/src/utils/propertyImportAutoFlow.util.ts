@@ -3,7 +3,15 @@
  */
 
 const IMAGE_ASSET_TYPES = new Set(['image']);
-const VISION_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const VISION_MIMES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/pjpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
 
 export const IMAGE_AUTO_FLOW_MODE = 'image_auto';
 
@@ -26,7 +34,7 @@ export function isImageOnlyPropertyImportMedia(
       return true;
     }
     const mime = String(item.mimeType || '').toLowerCase();
-    return VISION_MIMES.has(mime);
+    return VISION_MIMES.has(mime) || mime.startsWith('image/');
   });
 }
 
@@ -75,9 +83,13 @@ function syncExtractedFieldsToTypeKnowledge(draftData: Record<string, unknown>):
     typeKnowledge.amenities = amenities.map(String).filter(Boolean).slice(0, 12).join(', ');
   }
 
-  const areaKeys = ['carpet_area_sqft', 'built_up_area_sqft', 'plot_area_sqft', 'commercial_area_sqft'] as const;
-  for (const key of areaKeys) {
-    const direct = draftData[key] ?? draftData[key.replace(/_sqft$/, '')];
+  const scalarKeys = [
+    'carpet_area_sqft', 'built_up_area_sqft', 'plot_area_sqft', 'commercial_area_sqft',
+    'facing', 'floor_number', 'tower_name', 'possession_date', 'parking', 'location_area',
+    'location_city', 'rera_number', 'description',
+  ] as const;
+  for (const key of scalarKeys) {
+    const direct = draftData[key];
     if (direct != null && String(direct).trim() && !typeKnowledge[key]) {
       typeKnowledge[key] = String(direct).trim();
     }
@@ -91,27 +103,11 @@ function syncExtractedFieldsToTypeKnowledge(draftData: Record<string, unknown>):
   return typeKnowledge;
 }
 
-function hasMinimumExtractedIdentity(draftData: Record<string, unknown>): boolean {
-  const name = String(draftData.name || '').trim();
-  const hasLocation = Boolean(
-    String(draftData.location_city || draftData.locationCity || '').trim()
-    || String(draftData.location_area || draftData.locationArea || '').trim(),
-  );
-  const hasPrice = Boolean(formatPriceLabel(draftData));
-  const bedrooms = draftData.bedrooms ?? draftData.bhk;
-  const hasBedrooms = bedrooms != null && String(bedrooms).trim().length > 0;
-  return Boolean(name) || (hasLocation && (hasPrice || hasBedrooms));
-}
-
 export function applyImageImportAutoFlow(
   draftData: Record<string, unknown>,
   media: Array<{ assetType?: string | null; mimeType?: string | null }>,
 ): Record<string, unknown> {
   if (!isImageOnlyPropertyImportMedia(media)) {
-    return draftData;
-  }
-
-  if (!hasMinimumExtractedIdentity(draftData)) {
     return draftData;
   }
 

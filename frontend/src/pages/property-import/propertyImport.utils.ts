@@ -510,3 +510,30 @@ export function getPropertyImportDraftStatusTone(status: PropertyImportDraftStat
 export function isImageAutoImportFlow(draftData?: Record<string, unknown> | null): boolean {
   return draftData?.import_flow_mode === 'image_auto';
 }
+
+export function isImageOnlyPropertyImportMedia(
+  media: Array<{ assetType?: string | null; mimeType?: string | null }>,
+): boolean {
+  if (media.length === 0) {
+    return false;
+  }
+  return media.every((item) => {
+    const assetType = String(item.assetType || '').toLowerCase();
+    if (assetType === 'image') {
+      return true;
+    }
+    const mime = String(item.mimeType || '').toLowerCase();
+    return mime.startsWith('image/');
+  });
+}
+
+/** Image uploads skip manual mapping review and AI knowledge Q&A. */
+export function shouldSkipPropertyImportKnowledge(input: {
+  draftData?: Record<string, unknown> | null;
+  mediaAssets?: Array<{ assetType?: string | null; mimeType?: string | null }>;
+}): boolean {
+  if (isImageAutoImportFlow(input.draftData)) {
+    return true;
+  }
+  return isImageOnlyPropertyImportMedia(input.mediaAssets ?? []);
+}

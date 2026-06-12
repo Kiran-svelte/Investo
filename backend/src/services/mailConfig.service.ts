@@ -3,9 +3,25 @@ import { isSesApiConfigured } from './ses-email.service';
 
 export type MailTransport = 'smtp' | 'ses-api';
 
+function isAwsSesSmtpHost(host: string): boolean {
+  return host.includes('amazonaws.com') || host.includes('email-smtp.');
+}
+
 function isSmtpConfigured(): boolean {
   const smtp = config.mail.smtp;
-  return Boolean(smtp.host?.trim() && Number.isFinite(smtp.port) && smtp.port > 0 && config.mail.from?.trim());
+  const host = smtp.host?.trim() || '';
+  const hasHostAndPort = Boolean(host && Number.isFinite(smtp.port) && smtp.port > 0);
+  const hasFrom = Boolean(config.mail.from?.trim());
+
+  if (!hasHostAndPort || !hasFrom) {
+    return false;
+  }
+
+  if (isAwsSesSmtpHost(host) || smtp.user?.trim()) {
+    return Boolean(smtp.user?.trim() && smtp.pass);
+  }
+
+  return true;
 }
 
 /**
@@ -24,7 +40,7 @@ export function getMailTransportLabel(): string {
 
 export function getMailNotConfiguredDetail(): string {
   if (config.mail.transport === 'ses-api') {
-    return 'AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and MAIL_FROM are required for SES API email.';
+    return 'Set MAIL_FROM plus MAIL_AWS_ACCESS_KEY_ID / MAIL_AWS_SECRET_ACCESS_KEY (or AWS IAM keys with ses:SendEmail) for SES API email.';
   }
-  return 'SMTP_HOST and MAIL_FROM are required for password reset and invite emails.';
+  return 'Set SMTP_HOST, SMTP_USER, SMTP_PASS, and MAIL_FROM for password reset and invite emails.';
 }
