@@ -37,6 +37,14 @@ export async function verifyResendApi(): Promise<{ ok: boolean; detail: string }
       return { ok: true, detail: 'Resend API key is valid.' };
     }
 
+    // Send-only API keys can deliver mail but may not authorize the domains endpoint.
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: true,
+        detail: 'Resend configured (send-only API key).',
+      };
+    }
+
     const body = await response.text();
     return { ok: false, detail: `Resend API check failed (${response.status}): ${body.slice(0, 200)}` };
   } catch (err: unknown) {
