@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.14",
-    "deployNote": "v0.1.14-company-specific-ai-inventory-buttons",
+    "version": "0.1.15",
+    "deployNote": "v0.1.15-returning-buyer-unified-welcome-ux",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {
