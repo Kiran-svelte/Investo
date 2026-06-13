@@ -1,4 +1,5 @@
 import type { Property } from '@prisma/client';
+import { getPropertyPromptLimits } from '../utils/propertyPromptLimits.util';
 
 /** Full property row shape passed into buyer LLM prompts. */
 export interface PropertyAiPromptInput {
@@ -19,9 +20,6 @@ export interface PropertyAiPromptInput {
   brochureUrl?: string | null;
   hasImages: boolean;
 }
-
-const DESCRIPTION_PROMPT_MAX = 400;
-const FOCUSED_DESCRIPTION_MAX = 900;
 
 function toNumber(value: unknown): number | null {
   if (value == null) return null;
@@ -98,14 +96,15 @@ export function propertyToAiPromptInput(property: Property): PropertyAiPromptInp
 
 /** One-line catalog entry for AVAILABLE PROPERTIES block. */
 export function formatPropertyCatalogLine(property: PropertyAiPromptInput): string {
+  const limits = getPropertyPromptLimits();
   const location = [property.locationArea, property.locationCity, property.locationPincode]
     .filter(Boolean)
     .join(', ');
   const bhk = property.bedrooms ? `${property.bedrooms}BHK` : '';
   const type = property.propertyType ?? '';
-  const amenities = property.amenities.slice(0, 8).join(', ');
+  const amenities = property.amenities.slice(0, limits.catalogAmenitiesMax).join(', ');
   const desc = property.description?.trim()
-    ? ` | About: ${truncateText(property.description, DESCRIPTION_PROMPT_MAX)}`
+    ? ` | About: ${truncateText(property.description, limits.descriptionPromptMax)}`
     : '';
   const builder = property.builder ? ` | Builder: ${property.builder}` : '';
   const rera = property.reraNumber ? ` | RERA: ${property.reraNumber}` : '';
@@ -128,6 +127,7 @@ export function formatPropertyCatalogLine(property: PropertyAiPromptInput): stri
 
 /** Expanded block when buyer is discussing one specific listing. */
 export function buildFocusedPropertyPromptBlock(property: PropertyAiPromptInput): string {
+  const limits = getPropertyPromptLimits();
   const lines = [
     `## FOCUSED PROPERTY (customer is asking about this listing — use these facts first)`,
     `Name: ${property.name}`,
@@ -145,7 +145,7 @@ export function buildFocusedPropertyPromptBlock(property: PropertyAiPromptInput)
   ].filter(Boolean) as string[];
 
   if (property.description?.trim()) {
-    lines.push(`Description:\n${truncateText(property.description, FOCUSED_DESCRIPTION_MAX)}`);
+    lines.push(`Description:\n${truncateText(property.description, limits.focusedDescriptionMax)}`);
   }
 
   lines.push(
@@ -155,7 +155,6 @@ export function buildFocusedPropertyPromptBlock(property: PropertyAiPromptInput)
   return lines.join('\n');
 }
 
-/** Deterministic WhatsApp copy for More Info / location-adjacent flows. */
 /** Backfill sparse Property rows from indexed catalog chunks (common after partial imports). */
 export function supplementPropertyFromKnowledgeContent(
   property: PropertyAiPromptInput,
@@ -243,6 +242,7 @@ export async function enrichAiPropertiesFromKnowledge(
     limit: number,
   ) => Promise<Array<{ content: string }>>,
 ): Promise<PropertyAiPromptInput[]> {
+  const enrichLimit = getPropertyPromptLimits().enrichKnowledgeChunks;
   return Promise.all(
     properties.map(async (property) => {
       const needsEnrichment =
@@ -252,7 +252,7 @@ export async function enrichAiPropertiesFromKnowledge(
         || (!property.locationArea && !property.locationCity);
       if (!needsEnrichment) return property;
 
-      const chunks = await getChunks(companyId, property.id, 2);
+      const chunks = await getChunks(companyId, property.id, enrichLimit);
       if (!chunks.length) return property;
 
       return supplementPropertyFromKnowledgeContent(
@@ -264,13 +264,14 @@ export async function enrichAiPropertiesFromKnowledge(
 }
 
 export function buildWhatsAppPropertyDetailText(property: Property): string {
+  const limits = getPropertyPromptLimits();
   const input = propertyToAiPromptInput(property);
   const location = [property.locationArea, property.locationCity].filter(Boolean).join(', ');
 
   const lines = [
     `🏠 *${property.name}*`,
     '',
-    property.description?.trim() ? truncateText(property.description, 600) : null,
+    property.description?.trim() ? truncateText(property.description, limits.whatsappDescriptionMax) : null,
     property.description?.trim() ? '' : null,
     `💰 Price: ${formatPriceRange(input.priceMin, input.priceMax)}`,
     property.propertyType ? `🏢 Type: ${property.propertyType}` : null,
@@ -278,7 +279,9 @@ export function buildWhatsAppPropertyDetailText(property: Property): string {
     location ? `📍 Location: ${location}` : null,
     property.builder ? `🏗️ Builder: ${property.builder}` : null,
     property.reraNumber ? `📋 RERA: ${property.reraNumber}` : null,
-    input.amenities.length ? `✨ Amenities: ${input.amenities.slice(0, 12).join(', ')}` : null,
+    input.amenities.length
+      ? `✨ Amenities: ${input.amenities.slice(0, limits.whatsappAmenitiesMax).join(', ')}`
+      : null,
   ].filter((line) => line !== null && line !== '') as string[];
 
   return lines.join('\n');
