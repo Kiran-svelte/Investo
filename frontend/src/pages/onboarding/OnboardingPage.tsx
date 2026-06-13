@@ -55,15 +55,6 @@ interface AIConfig {
   greeting_template: string;
 }
 
-type ApiLikeError = {
-  response?: {
-    data?: {
-      error?: string;
-      message?: string;
-    };
-  };
-};
-
 interface Invite {
   name: string;
   email: string;
