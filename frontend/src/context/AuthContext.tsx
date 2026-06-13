@@ -10,9 +10,11 @@ import { AxiosError } from 'axios';
 import api, {
   ApiResponse,
   AuthTokens,
+  applyAuthSessionFromLoginResponse,
   clearTokens,
   getAccessToken,
   getRefreshToken,
+  isCookieSessionMode,
   isTransientAuthError,
   refreshAuthTokens,
   setTokens,
@@ -87,7 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const loadUser = useCallback(async () => {
     const token = getAccessToken();
-    if (!token) {
+    if (!token && !isCookieSessionMode()) {
       setIsLoading(false);
       return;
     }
@@ -147,11 +149,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const { data } = await api.post<
-          ApiResponse<{ user: AuthUser; tokens: AuthTokens }>
+          ApiResponse<{ user: AuthUser; tokens: AuthTokens; session?: { storage?: string } }>
         >('/auth/login', { email, password });
 
         const { user: loggedInUser, tokens } = data.data;
-        setTokens(tokens.access_token, tokens.refresh_token);
+        applyAuthSessionFromLoginResponse(data.data.session);
+        if (!isCookieSessionMode()) {
+          setTokens(tokens.access_token, tokens.refresh_token);
+        }
         setUser(loggedInUser);
         return loggedInUser;
       } catch (err) {
@@ -190,7 +195,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     const { access_token, refresh_token } = await refreshAuthTokens();
-    setTokens(access_token, refresh_token);
+    if (!isCookieSessionMode()) {
+      setTokens(access_token, refresh_token);
+    }
   }, []);
 
   // ── Memoised context value ───────────────────

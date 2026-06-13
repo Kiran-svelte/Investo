@@ -5,6 +5,7 @@ import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { cacheGet, cacheSet } from '../config/redis';
+import { readAccessTokenFromCookies } from '../utils/authSessionCookies.util';
 
 const AUTH_CACHE_TTL_SECONDS = 300; // 5 minutes
 
@@ -77,12 +78,14 @@ export interface AuthRequest extends Request {
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const cookieToken = readAccessTokenFromCookies(req.headers.cookie);
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const token = bearerToken || cookieToken;
+
+  if (!token) {
     res.status(401).json({ error: 'Authentication required' });
     return;
   }
-
-  const token = authHeader.split(' ')[1];
   // Use a short hash of the token as the cache key (tokens are large and sensitive)
   const tokenCacheKey = `auth:user:${Buffer.from(token).toString('base64').slice(-40)}`;
 

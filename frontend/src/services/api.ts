@@ -5,10 +5,14 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 import { withAuthRefreshLock } from './authRefreshLock';
+import {
+  COOKIE_SESSION_MODE,
+  disableCookieSessionMode,
+  enableCookieSessionMode,
+  isCookieSessionMode,
+} from '../utils/authSessionMode';
 
-// ──────────────────────────────────────────────
-// Shared response / error types
-// ──────────────────────────────────────────────
+export { isCookieSessionMode, enableCookieSessionMode, disableCookieSessionMode, COOKIE_SESSION_MODE } from '../utils/authSessionMode';
 
 /** Standard envelope returned by every API endpoint. */
 export interface ApiResponse<T = unknown> {
@@ -37,13 +41,18 @@ export interface AuthTokens {
 const TOKEN_KEY = 'investo_access_token';
 const REFRESH_KEY = 'investo_refresh_token';
 
-export const getAccessToken = (): string | null =>
-  localStorage.getItem(TOKEN_KEY);
+export const getAccessToken = (): string | null => {
+  if (isCookieSessionMode()) return null;
+  return localStorage.getItem(TOKEN_KEY);
+};
 
-export const getRefreshToken = (): string | null =>
-  localStorage.getItem(REFRESH_KEY);
+export const getRefreshToken = (): string | null => {
+  if (isCookieSessionMode()) return null;
+  return localStorage.getItem(REFRESH_KEY);
+};
 
 export const setTokens = (access: string, refresh: string): void => {
+  if (isCookieSessionMode()) return;
   localStorage.setItem(TOKEN_KEY, access);
   localStorage.setItem(REFRESH_KEY, refresh);
 };
@@ -51,11 +60,34 @@ export const setTokens = (access: string, refresh: string): void => {
 export const clearTokens = (): void => {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
+  disableCookieSessionMode();
 };
+
+export function applyAuthSessionFromLoginResponse(session?: { storage?: string }): void {
+  if (session?.storage === COOKIE_SESSION_MODE) {
+    enableCookieSessionMode();
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    return;
+  }
+  disableCookieSessionMode();
+}
 
 export const refreshAuthTokens = async (): Promise<AuthTokens> => {
   return withAuthRefreshLock(async () => {
-    const refreshToken = getRefreshToken();
+    if (isCookieSessionMode()) {
+      const { data } = await api.post<ApiResponse<AuthTokens & { session?: { storage?: string } }>>(
+        '/auth/refresh',
+        {},
+      );
+      applyAuthSessionFromLoginResponse(data.data?.session);
+      return {
+        access_token: data.data.access_token,
+        refresh_token: data.data.refresh_token,
+      };
+    }
+
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
 
     if (!refreshToken) {
       throw new Error('Refresh token missing');
@@ -180,6 +212,7 @@ const api: AxiosInstance = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: DEFAULT_TIMEOUT_MS,
+  withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
@@ -274,12 +307,16 @@ api.interceptors.response.use(
 
       try {
         const { access_token, refresh_token } = await refreshAuthTokens();
-        setTokens(access_token, refresh_token);
+        if (!isCookieSessionMode()) {
+          setTokens(access_token, refresh_token);
+        }
 
         processQueue(null, access_token);
 
-        if (originalRequest.headers) {
+        if (!isCookieSessionMode() && originalRequest.headers) {
           originalRequest.headers.Authorization = `Bearer ${access_token}`;
+        } else if (originalRequest.headers) {
+          delete originalRequest.headers.Authorization;
         }
         return api(originalRequest);
       } catch (refreshError) {

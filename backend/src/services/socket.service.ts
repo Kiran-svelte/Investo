@@ -4,6 +4,7 @@ import logger from '../config/logger';
 import jwt from 'jsonwebtoken';
 import config from '../config';
 import { isAllowedCorsOrigin } from '../config';
+import { readAccessTokenFromCookies } from '../utils/authSessionCookies.util';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -36,17 +37,24 @@ class SocketService {
     // Authentication middleware
     this.io.use(async (socket: AuthenticatedSocket, next) => {
       try {
-        const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
-        
+        const token =
+          socket.handshake.auth.token
+          || socket.handshake.headers.authorization?.split(' ')[1]
+          || readAccessTokenFromCookies(socket.handshake.headers.cookie);
+
         if (!token) {
           return next(new Error('Authentication required'));
         }
 
-        const decoded = jwt.verify(token, config.jwt.secret) as { id: string; company_id: string; role: string };
-        socket.userId = decoded.id;
-        socket.companyId = decoded.company_id;
+        const decoded = jwt.verify(token, config.jwt.secret) as {
+          userId: string;
+          companyId: string;
+          role: string;
+        };
+        socket.userId = decoded.userId;
+        socket.companyId = decoded.companyId;
         socket.userRole = decoded.role;
-        
+
         next();
       } catch (err) {
         next(new Error('Invalid token'));

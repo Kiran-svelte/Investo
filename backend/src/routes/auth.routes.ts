@@ -13,6 +13,12 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { normalizeAuthEmail } from '../services/auth.service';
 import { emailService } from '../services/email.service';
+import {
+  authSessionResponseMeta,
+  clearAuthSessionCookies,
+  readRefreshTokenFromCookies,
+  setAuthSessionCookies,
+} from '../utils/authSessionCookies.util';
 
 
 const router = Router();
@@ -55,6 +61,7 @@ router.post('/signup', validate(selfServiceSignupSchema), async (req: Request, r
       select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
     });
 
+    setAuthSessionCookies(res, tokens);
     res.status(201).json({
       success: true,
       message: 'Account created successfully',
@@ -72,6 +79,7 @@ router.post('/signup', validate(selfServiceSignupSchema), async (req: Request, r
           access_token: tokens.accessToken,
           refresh_token: tokens.refreshToken,
         },
+        session: authSessionResponseMeta(),
       },
     });
   } catch (err: any) {
@@ -134,6 +142,7 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
       res.status(401).json({ message: 'Invalid credentials' });
       return;
     }
+    setAuthSessionCookies(res, tokens);
     res.json({
       success: true,
       message: 'Login successful',
@@ -152,6 +161,7 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
           access_token: tokens.accessToken,
           refresh_token: tokens.refreshToken,
         },
+        session: authSessionResponseMeta(),
       },
     });
   } catch (err: any) {
@@ -172,18 +182,23 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
  */
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
-    const refreshToken = req.body.refresh_token || req.body.refreshToken;
+    const refreshToken =
+      req.body.refresh_token
+      || req.body.refreshToken
+      || readRefreshTokenFromCookies(req.headers.cookie);
     if (!refreshToken) {
       res.status(400).json({ message: 'Refresh token required' });
       return;
     }
     const tokens = await authService.refreshToken(refreshToken);
+    setAuthSessionCookies(res, tokens);
     res.json({
       success: true,
       message: 'Token refreshed',
       data: {
         access_token: tokens.accessToken,
         refresh_token: tokens.refreshToken,
+        session: authSessionResponseMeta(),
       },
     });
   } catch (err: any) {
@@ -197,12 +212,16 @@ router.post('/refresh', async (req: Request, res: Response) => {
  */
 router.post('/logout', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const refreshToken = req.body.refresh_token || req.body.refreshToken;
+    const refreshToken =
+      req.body.refresh_token
+      || req.body.refreshToken
+      || readRefreshTokenFromCookies(req.headers.cookie);
     if (typeof refreshToken === 'string' && refreshToken.trim()) {
       await authService.logoutSession(refreshToken.trim());
     } else {
       await authService.logout(req.user!.id);
     }
+    clearAuthSessionCookies(res);
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (err: any) {
     logger.error('Logout failed', { error: err.message });

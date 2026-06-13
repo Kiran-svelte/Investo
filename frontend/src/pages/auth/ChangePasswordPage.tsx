@@ -3,10 +3,10 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Building2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { getRoleHomePath } from '../../config/navigation.config';
 import LanguageSelector from '../../components/common/LanguageSelector';
 import InvestoButton from '../../components/ui/InvestoButton';
 import api from '../../services/api';
+import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
 
 export default function ChangePasswordPage() {
   const { t } = useTranslation();
@@ -36,7 +36,12 @@ export default function ChangePasswordPage() {
       setLoading(true);
       await api.post('/auth/change-password', { new_password: newPassword });
       clearPasswordChangeRequirement();
-      navigate(getRoleHomePath(user?.role));
+      const nextPath = await resolvePostAuthPath({
+        role: user?.role,
+        company_id: user?.company_id,
+        must_change_password: false,
+      });
+      navigate(nextPath, { replace: true });
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string } } };
       setError(ax.response?.data?.message || t('auth.change_password_error', { defaultValue: 'Failed to change password' }));

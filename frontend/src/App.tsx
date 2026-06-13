@@ -141,8 +141,9 @@ export const ProfileGuard: React.FC = () => {
 
   const profilePath = dashboardPath('/profile');
   const onProfile = location.pathname === profilePath || location.pathname.endsWith('/profile');
+  const onOnboarding = location.pathname === '/onboarding';
 
-  if (!profileComplete && !onProfile) {
+  if (!profileComplete && !onProfile && !onOnboarding) {
     return <Navigate to={profilePath} replace state={{ profileRequired: true }} />;
   }
 

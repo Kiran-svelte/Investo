@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
-import { getRoleHomePath } from '../../config/navigation.config';
+import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
 import { AxiosError } from 'axios';
 import { isTransientAuthError } from '../../services/api';
 import { ArrowLeft, Building2, Loader2 } from 'lucide-react';
@@ -32,7 +32,8 @@ const LoginPage: React.FC = () => {
       setLoginStatus('Signing in…');
       const loggedInUser = await login(email, password);
       setLoginStatus('Opening your workspace…');
-      navigate(getRoleHomePath(loggedInUser.role), { replace: true });
+      const nextPath = await resolvePostAuthPath(loggedInUser);
+      navigate(nextPath, { replace: true });
     } catch (err) {
       if (isTransientAuthError(err)) {
         setError('Unable to connect to the server. Please check your connection and try again.');

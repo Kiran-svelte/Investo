@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import config from './config';
 import logger from './config/logger';
 import { requestLogger } from './middleware/requestLogger';
@@ -87,6 +88,7 @@ app.use('/api/metrics', metricsRoutes);
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
 
 // Body parsing (for all non-webhook routes)
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitizeInput);

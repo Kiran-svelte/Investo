@@ -68,11 +68,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     const token = getAccessToken();
-    if (!token) return;
-
     const socketUrl = getSocketUrl();
     const newSocket = io(socketUrl, {
-      auth: { token },
+      ...(token ? { auth: { token } } : {}),
+      withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
