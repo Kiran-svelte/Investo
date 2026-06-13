@@ -23,6 +23,7 @@ import {
 import { isAdvancedLeadStatus, resolveStageFromLeadStatus } from '../utils/buyerLeadProgress.util';
 import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
 import { shouldElevateReturningBuyerStage } from '../utils/fixMdFeatures.util';
+import { getPropertyPromptLimits } from '../utils/propertyPromptLimits.util';
 import {
   buildBuyerVisitStatusReply,
   isBuyerVisitStatusQuery,
@@ -331,12 +332,22 @@ export class AIService {
       ? `${request.customerMessage} ${request.properties.find((p) => p.id === request.focusedPropertyId)?.name ?? ''}`.trim()
       : request.customerMessage;
 
+    const promptLimits = getPropertyPromptLimits();
+
     const [vectorChunks, focusedChunks] = await Promise.all([
       shouldSearchKnowledge && request.companyId
-        ? searchPropertyKnowledge(request.companyId, knowledgeQuery, request.focusedPropertyId ? 10 : 8)
+        ? searchPropertyKnowledge(
+          request.companyId,
+          knowledgeQuery,
+          request.focusedPropertyId ? promptLimits.vectorSearchFocusedLimit : promptLimits.vectorSearchLimit,
+        )
         : Promise.resolve([]),
       request.companyId && request.focusedPropertyId
-        ? getPropertyKnowledgeForProperty(request.companyId, request.focusedPropertyId, 5)
+        ? getPropertyKnowledgeForProperty(
+          request.companyId,
+          request.focusedPropertyId,
+          promptLimits.focusedPropertyChunks,
+        )
         : Promise.resolve([]),
     ]);
 
@@ -346,7 +357,9 @@ export class AIService {
         mergedChunks.push(chunk);
       }
     }
-    const knowledgeContext = formatKnowledgeContextForPrompt(mergedChunks.slice(0, 10));
+    const knowledgeContext = formatKnowledgeContextForPrompt(
+      mergedChunks.slice(0, promptLimits.knowledgeChunksMax),
+    );
 
     let clientMemoryContext = '';
     let leadMemoryBlock = '';
@@ -494,11 +507,12 @@ export class AIService {
     const { aiSettings, companyName, properties, lead } = request;
     const stageConfig = getStageConfig(state.stage);
     const tone = aiSettings.responseTone || 'friendly';
+    const promptLimits = getPropertyPromptLimits();
     
-    // Build property context — filter to available only, limit to 10 to avoid huge prompts
+    // Build property context — filter to available only
     const propertyList = properties
       .filter((p) => p.status === 'available' || p.status === 'upcoming')
-      .slice(0, 10)
+      .slice(0, promptLimits.availablePropertiesMax)
       .map((p) => {
         let amenityList: string[] = [];
         if (Array.isArray(p.amenities)) {
@@ -506,7 +520,7 @@ export class AIService {
         } else if (typeof p.amenities === 'string' && p.amenities) {
           try { amenityList = JSON.parse(p.amenities) as string[]; } catch { amenityList = []; }
         }
-        const amenityStr = amenityList.slice(0, 5).join(', ');
+        const amenityStr = amenityList.slice(0, promptLimits.listAmenitiesMax).join(', ');
         const displayName = p.status === 'upcoming' ? `${p.name} (Upcoming)` : p.name;
         return `- ${displayName} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenityStr}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
       })

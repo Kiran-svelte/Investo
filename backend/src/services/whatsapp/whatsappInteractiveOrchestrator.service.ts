@@ -22,6 +22,7 @@ import { formatBuyerVisitPendingApprovalReply } from '../../utils/visitFormat.ut
 import { formatISTDateTime, formatISTDateTimeLong, formatISTShortDate, getISTDatePlusDays } from '../../utils/dateTime.util';
 import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
 import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
+import { getPropertyPromptLimits } from '../../utils/propertyPromptLimits.util';
 import { confirmVisitById } from '../visitState.service';
 import { maskPhone } from '../agent/tools/format-helpers';
 import { logAgentAction } from '../agent-action-log.service';
@@ -440,11 +441,16 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
 
   let details = buildWhatsAppPropertyDetailText(property);
 
-  const knowledgeChunks = await getPropertyKnowledgeForProperty(company.id, property.id, 3);
+  const promptLimits = getPropertyPromptLimits();
+  const knowledgeChunks = await getPropertyKnowledgeForProperty(
+    company.id,
+    property.id,
+    promptLimits.moreInfoKnowledgeFetch,
+  );
   const extraFacts = knowledgeChunks
     .map((chunk) => chunk.content.trim())
     .filter((content) => content && !details.includes(content.slice(0, 80)))
-    .slice(0, 2);
+    .slice(0, promptLimits.moreInfoKnowledgeAppend);
   if (extraFacts.length > 0) {
     details = `${details}\n\n📌 *More from our records:*\n${extraFacts.join('\n\n')}`;
   }
