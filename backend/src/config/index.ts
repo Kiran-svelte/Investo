@@ -540,6 +540,11 @@ const config = {
      * OFF by default — set FEATURE_EXPANDED_PROPERTY_PROMPTS=true to enable.
      */
     expandedPropertyPrompts: process.env.FEATURE_EXPANDED_PROPERTY_PROMPTS === 'true',
+    /**
+     * Persist non-catalog CSV fields on Property.extended_attributes at publish.
+     * OFF by default — set FEATURE_EXTENDED_PROPERTY_ATTRS=true to enable.
+     */
+    extendedPropertyAttrs: process.env.FEATURE_EXTENDED_PROPERTY_ATTRS === 'true',
   },
 };
 

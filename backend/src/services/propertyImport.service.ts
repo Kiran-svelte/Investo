@@ -33,6 +33,7 @@ import {
   type PropertyImportUnitInput,
 } from './propertyImportUnit.service';
 import { isPropertyImportReviewPending } from './propertyImport.metadata';
+import { extractExtendedPropertyAttributes } from '../utils/extractExtendedPropertyAttributes.util';
 
 interface CreateDraftInput {
   draftData?: Record<string, unknown>;
@@ -152,7 +153,7 @@ function mapDraftToPropertyData(
   );
   const status = pickAllowed(asNullableString(readDraftValue(draftData, mappingProfile, ['status'])), ['available', 'sold', 'upcoming'], 'available');
 
-  return {
+  const base: Record<string, unknown> = {
     name: asNullableString(readDraftValue(draftData, mappingProfile, ['name'])) || 'Untitled property',
     builder: asNullableString(readDraftValue(draftData, mappingProfile, ['builder'])),
     locationCity: asNullableString(readDraftValue(draftData, mappingProfile, ['location_city', 'locationCity'])),
@@ -171,6 +172,15 @@ function mapDraftToPropertyData(
     images: mediaUrls.images,
     brochureUrl: mediaUrls.brochureUrl,
   };
+
+  if (config.features.extendedPropertyAttrs) {
+    const extendedAttributes = extractExtendedPropertyAttributes(draftData);
+    if (Object.keys(extendedAttributes).length > 0) {
+      base.extendedAttributes = extendedAttributes;
+    }
+  }
+
+  return base;
 }
 
 async function enrichPropertyDataWithGeocoding(

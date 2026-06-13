@@ -30,6 +30,7 @@ import config from '../config';
 import prisma from '../config/prisma';
 import { csvImportService, serializePropertyRowData, type ColumnMapping, type PropertyRowCandidate } from '../services/csv-import.service';
 import { indexPropertyKnowledge } from '../services/propertyKnowledge.service';
+import { extractExtendedPropertyAttributes } from '../utils/extractExtendedPropertyAttributes.util';
 import {
   BULK_IMPORT_ACCEPTED_MIME_TYPES,
   CSV_IMPORT_MAX_FILE_SIZE_BYTES,
@@ -346,6 +347,9 @@ router.post(
               : null;
             const lat = data.latitude != null ? Number(data.latitude) : null;
             const lng = data.longitude != null ? Number(data.longitude) : null;
+            const extendedAttributes = config.features.extendedPropertyAttrs
+              ? extractExtendedPropertyAttributes(data as Record<string, unknown>)
+              : {};
 
             return tx.property.create({
               data: {
@@ -372,6 +376,9 @@ router.post(
                 longitude: lng !== null && Number.isFinite(lng) ? String(lng) as unknown as any : null,
                 images: heroImage ? [heroImage] : [],
                 brochureUrl,
+                ...(Object.keys(extendedAttributes).length > 0
+                  ? { extendedAttributes }
+                  : {}),
               },
             });
           }),

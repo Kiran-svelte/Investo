@@ -1,5 +1,9 @@
 import type { Property } from '@prisma/client';
+import config from '../config';
 import { getPropertyPromptLimits } from '../utils/propertyPromptLimits.util';
+import {
+  formatExtendedAttributesForPrompt,
+} from '../utils/extractExtendedPropertyAttributes.util';
 
 /** Full property row shape passed into buyer LLM prompts. */
 export interface PropertyAiPromptInput {
@@ -19,6 +23,7 @@ export interface PropertyAiPromptInput {
   reraNumber?: string | null;
   brochureUrl?: string | null;
   hasImages: boolean;
+  extendedAttributes?: Record<string, unknown>;
 }
 
 function toNumber(value: unknown): number | null {
@@ -72,8 +77,18 @@ function truncateText(text: string, max: number): string {
   return `${trimmed.slice(0, max - 1).trimEnd()}…`;
 }
 
+function parseExtendedAttributes(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '');
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 export function propertyToAiPromptInput(property: Property): PropertyAiPromptInput {
   const images = Array.isArray(property.images) ? (property.images as string[]) : [];
+  const extendedAttributes = config.features.extendedPropertyAttrs
+    ? parseExtendedAttributes((property as Property & { extendedAttributes?: unknown }).extendedAttributes)
+    : undefined;
   return {
     id: property.id,
     name: property.name,
@@ -91,6 +106,7 @@ export function propertyToAiPromptInput(property: Property): PropertyAiPromptInp
     reraNumber: property.reraNumber,
     brochureUrl: property.brochureUrl,
     hasImages: images.some((url) => typeof url === 'string' && url.startsWith('https://')),
+    extendedAttributes,
   };
 }
 
@@ -146,6 +162,11 @@ export function buildFocusedPropertyPromptBlock(property: PropertyAiPromptInput)
 
   if (property.description?.trim()) {
     lines.push(`Description:\n${truncateText(property.description, limits.focusedDescriptionMax)}`);
+  }
+
+  const extendedBlock = formatExtendedAttributesForPrompt(property.extendedAttributes);
+  if (extendedBlock) {
+    lines.push(`Extended property attributes:\n${extendedBlock}`);
   }
 
   lines.push(
@@ -283,6 +304,11 @@ export function buildWhatsAppPropertyDetailText(property: Property): string {
       ? `✨ Amenities: ${input.amenities.slice(0, limits.whatsappAmenitiesMax).join(', ')}`
       : null,
   ].filter((line) => line !== null && line !== '') as string[];
+
+  const extendedBlock = formatExtendedAttributesForPrompt(input.extendedAttributes);
+  if (extendedBlock) {
+    lines.push('', `📋 *Details:*`, extendedBlock);
+  }
 
   return lines.join('\n');
 }
