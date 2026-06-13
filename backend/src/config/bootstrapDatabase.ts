@@ -254,6 +254,9 @@ async function applyCompatibilityPatches(): Promise<void> {
     ALTER TABLE properties ADD COLUMN IF NOT EXISTS project_id UUID NULL REFERENCES property_projects(id) ON DELETE SET NULL
   `);
   await prisma.$executeRawUnsafe(`
+    ALTER TABLE properties ADD COLUMN IF NOT EXISTS extended_attributes JSONB NOT NULL DEFAULT '{}'::jsonb
+  `);
+  await prisma.$executeRawUnsafe(`
     ALTER TABLE property_import_drafts ADD COLUMN IF NOT EXISTS project_id UUID NULL REFERENCES property_projects(id) ON DELETE SET NULL
   `);
 

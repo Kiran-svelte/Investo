@@ -61,6 +61,8 @@ describe('bootstrapDatabase compatibility patches', () => {
     await bootstrapDatabase({ autoMigrate: false, autoSeed: false });
 
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalled();
+    const sqlCalls = mockPrisma.$executeRawUnsafe.mock.calls.map((call) => String(call[0]));
+    expect(sqlCalls.some((sql) => sql.includes('extended_attributes'))).toBe(true);
     expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
     expect(mockPrisma.user.count).not.toHaveBeenCalled();
   });
