@@ -65,6 +65,10 @@ import {
   isBuyerStartCommand,
   resetBuyerBookingAndConversationState,
 } from '../buyer/buyerStartFresh.service';
+import {
+  buildDiscoveryButtonSet,
+  getCompanyBrowseSnapshot,
+} from '../companyInventoryBrowse.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -78,6 +82,8 @@ type BuyerTurnRuntimeContext = {
   companyName: string;
   whatsappConfig: CompanyWhatsAppConfig;
   history: Array<{ senderType: string; content: string; createdAt: Date }>;
+  /** Company-specific browse filter buttons loaded once per turn. */
+  browseFilters?: Array<{ id: string; title: string }>;
 };
 
 /** Minimal property shape used by media helpers. */
@@ -1749,6 +1755,7 @@ function buyerButtonContextFromTurn(
         ? [...extra.recommendedPropertyIds]
         : [...(ctx.input.conversationRecommendedPropertyIds ?? [])],
     properties: extra?.properties,
+    browseFilters: ctx.browseFilters,
   };
 }
 
@@ -2046,6 +2053,8 @@ export async function orchestrateWhatsAppBuyerTurn(
   conversationState: ConversationState,
 ): Promise<TurnResult> {
   let activeState = conversationState;
+  const browseSnapshot = await getCompanyBrowseSnapshot(ctx.companyId);
+  ctx.browseFilters = buildDiscoveryButtonSet(browseSnapshot);
   // /start resets all booking/conversation state and re-enables AI — must run before H1.
   const hStart = await handleStartFreshTurn(ctx, activeState);
   if (hStart) return hStart;
@@ -2172,11 +2181,13 @@ function withDefaultReplyPacing(result: TurnResult): TurnResult {
 
 /** Build rapport TurnResult without DB writes (unit tests). */
 export async function buildBuyerRapportTurnResult(input: {
+  companyId?: string;
   companyName: string;
   messageText: string;
   hasPriorOutbound: boolean;
   stage: string;
   locationPreference?: string | null;
+  browseFilters?: Array<{ id: string; title: string }>;
 }): Promise<TurnResult | null> {
   const { isBuyerRapportMessage, isReturningBuyerGreeting, buildBuyerRapportReply } =
     await import('../buyerQualification.service');
@@ -2192,12 +2203,19 @@ export async function buildBuyerRapportTurnResult(input: {
     }),
   );
 
+  let browseFilters = input.browseFilters;
+  if (!browseFilters && input.companyId) {
+    const snapshot = await getCompanyBrowseSnapshot(input.companyId);
+    browseFilters = buildDiscoveryButtonSet(snapshot);
+  }
+
   const components = isReturning
     ? []
     : resolveBuyerComponents({
         stage: input.stage,
         outboundText: text,
         isReturningGreeting: false,
+        browseFilters,
       });
 
   return { audience: 'buyer', handled: true, terminal: true, text, components };

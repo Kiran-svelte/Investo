@@ -530,6 +530,18 @@ export class AIService {
       })
       .join('\n');
 
+    const listedTypes = [
+      ...new Set(
+        properties
+          .filter((p) => p.status === 'available' || p.status === 'upcoming')
+          .map((p) => p.propertyType)
+          .filter((t): t is string => Boolean(t)),
+      ),
+    ];
+    const companyInventoryBlock = listedTypes.length
+      ? `## COMPANY INVENTORY (STRICT — ${companyName} ONLY lists these types; never mention others)\n${listedTypes.join(', ')}`
+      : `## COMPANY INVENTORY (STRICT)\n${companyName} has no active listings in the system. Do NOT mention apartments, villas, plots, or commercial property unless the customer explicitly asked. Say listings are being updated and offer to connect with an agent.`;
+
     // Build commitment status
     const commitmentStatus = [
       state.commitments.budgetConfirmed ? '✅ Budget' : '❌ Budget',
@@ -581,14 +593,14 @@ ${buildRealEstateAssistantPolicyPrompt()}
 6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
 6b. When a listing shows Brochure PDF on file, offer to share it; the system sends the PDF attachment after your message. Never paste URLs or markdown links for brochures.
 6c. If no brochure exists, tell the customer our team will share it — NEVER ask them to upload files or use property settings / dashboard (those are staff-only).
-6d. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
+6d. Match customer location words (area, city) and property type to the closest listing in AVAILABLE PROPERTIES before describing a project. NEVER mention a property type not in COMPANY INVENTORY.
 7. ONE clear call-to-action per message.
 7b. NEVER send more than one message per user turn. If buttons are needed, the system attaches them to the same interactive message — do NOT write a separate follow-up.
 8. Keep responses under ${responseWordCap} words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
 8c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".
 8d. If RECENT CONVERSATION exists below, continue naturally — NEVER welcome the customer again or re-introduce yourself.
-9. ${state.stage === 'rapport' ? 'Ask ONE warm open question about what they are looking for (area, budget, property type). Do NOT list your services or say "Here is how I can help". Open with a personal question like "What area are you exploring?" or "Looking for something to move in soon, or a long-term investment?"' : state.stage === 'qualify' ? 'Ask ONE question per response' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
+9. ${state.stage === 'rapport' ? 'Ask ONE warm open question about what they are looking for (area, budget, or a project we list). Do NOT list your services or say "Here is how I can help". Do NOT mention property types outside COMPANY INVENTORY.' : state.stage === 'qualify' ? 'Ask ONE question per response. Only discuss property types listed in COMPANY INVENTORY.' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
 10. NEVER list your capabilities. NEVER say "Here's how I can help:", "I can do:", or any numbered service menu. Respond to what they actually said.
 ${this.disclaimerPromptLine(request)}
 
@@ -598,6 +610,8 @@ ${this.disclaimerPromptLine(request)}
 - Empathize before addressing objections
 
 ${request.focusedPropertyBlock ? `\n${request.focusedPropertyBlock}\n` : ''}
+
+${companyInventoryBlock}
 
 ## AVAILABLE PROPERTIES
 ${propertyList || 'No properties listed. Tell customer listings are being updated and ask for their requirements.'}

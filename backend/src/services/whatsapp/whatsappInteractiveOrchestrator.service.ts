@@ -26,6 +26,7 @@ import { getPropertyPromptLimits } from '../../utils/propertyPromptLimits.util';
 import { confirmVisitById } from '../visitState.service';
 import { maskPhone } from '../agent/tools/format-helpers';
 import { logAgentAction } from '../agent-action-log.service';
+import { getCompanyBrowseSnapshot, isFilterInCompanyInventory, buildDiscoveryButtonSet } from '../companyInventoryBrowse.service';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -581,6 +582,21 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
 
   const filter = filterMap[filterValue.toLowerCase()];
   if (!filter) return null;
+
+  const browseSnapshot = await getCompanyBrowseSnapshot(company.id);
+  if (!isFilterInCompanyInventory(browseSnapshot, filterValue)) {
+    const hint = browseSnapshot.totalListings
+      ? `We currently have ${browseSnapshot.typeSummary}.`
+      : `We're still setting up our listings.`;
+    return {
+      handled: true,
+      action: 'filter-not-in-inventory',
+      turnResult: buyerTurn(
+        `We don't have *${filter.displayName}* in our catalog right now. ${hint} Tell me your budget or area and I'll find the closest match.`,
+        [{ kind: 'buttons', buttons: buildDiscoveryButtonSet(browseSnapshot) }],
+      ),
+    };
+  }
 
   const recentFilterAction = await prisma.message.findFirst({
     where: {

@@ -4,8 +4,14 @@ import {
   resolveSituationBuyerButtons,
 } from '../../utils/buyerSituationButtons.util';
 
+const APARTMENT_ONLY_FILTERS = [
+  { id: 'filter-apartment', title: 'Apartments' },
+  { id: 'filter-2bhk', title: '2 BHK' },
+  { id: 'call-me', title: 'Call Me' },
+];
+
 describe('buyerSituationButtons.util', () => {
-  test('catalog empty reply gets filter buttons', () => {
+  test('catalog empty reply gets company-specific filter buttons', () => {
     const situation = detectBuyerButtonSituation({
       stage: 'qualify',
       outboundText: "I couldn't find a *4 BHK* in our current catalog.\n\nTap a filter below.",
@@ -14,8 +20,24 @@ describe('buyerSituationButtons.util', () => {
     const buttons = resolveButtonsForBuyerSituation(situation, {
       stage: 'qualify',
       outboundText: "I couldn't find a *4 BHK*",
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'filter-2bhk', title: '2 BHK' },
+        { id: 'filter-3bhk', title: '3 BHK' },
+      ],
     });
-    expect(buttons?.map((b) => b.id)).toEqual(['filter-apartment', 'filter-villa', 'filter-4bhk']);
+    expect(buttons?.map((b) => b.id)).toEqual(['filter-apartment', 'filter-2bhk', 'filter-3bhk']);
+    expect(buttons?.map((b) => b.id)).not.toContain('filter-villa');
+  });
+
+  test('discovery welcome never shows villa when company has apartments only', () => {
+    const buttons = resolveSituationBuyerButtons({
+      stage: 'rapport',
+      outboundText: 'Hello! Welcome to *Palm Realty*.',
+      browseFilters: APARTMENT_ONLY_FILTERS,
+    });
+    expect(buttons?.map((b) => b.id)).toEqual(['filter-apartment', 'filter-2bhk', 'call-me']);
+    expect(buttons?.map((b) => b.id)).not.toContain('filter-villa');
   });
 
   test('single property focus gets book/details/call', () => {

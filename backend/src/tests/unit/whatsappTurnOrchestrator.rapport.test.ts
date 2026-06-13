@@ -20,6 +20,11 @@ const mockRunWorkflow = jest.fn();
 const mockClassifyAndRunBuyerWorkflow = jest.fn();
 const mockResolvePropertyBrowseTurn = jest.fn();
 
+jest.mock('../../config/redis', () => ({
+  cacheGet: jest.fn().mockResolvedValue(null),
+  cacheSet: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../../utils/propertyBrowseTurn.util', () => ({
   resolvePropertyBrowseTurn: (...args: unknown[]) => mockResolvePropertyBrowseTurn(...args),
 }));
@@ -39,6 +44,12 @@ jest.mock('../../config/prisma', () => ({
     aiSetting: { findUnique: jest.fn() },
     lead: { update: jest.fn() },
     visit: { findMany: jest.fn().mockResolvedValue([]) },
+    property: {
+      findMany: jest.fn().mockResolvedValue([
+        { propertyType: 'apartment', bedrooms: 2 },
+        { propertyType: 'villa', bedrooms: 3 },
+      ]),
+    },
     $queryRawUnsafe: jest.fn().mockResolvedValue([]),
   },
 }));
@@ -121,12 +132,17 @@ describe('whatsappTurnOrchestrator rapport handlers (chunk 04 H2)', () => {
     jest.clearAllMocks();
   });
 
-  test('first-time Hi includes rapport filter buttons per full.md PART XVI', async () => {
+  test('first-time Hi includes company-specific rapport filter buttons', async () => {
     const result = await buildBuyerRapportTurnResult({
       companyName: 'Palm Realty',
       messageText: 'Hi',
       hasPriorOutbound: false,
       stage: 'rapport',
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'filter-villa', title: 'Villas' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
     });
     expect(result?.handled).toBe(true);
     expect(result?.text).toContain('Welcome to *Palm Realty*');

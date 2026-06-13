@@ -51,17 +51,21 @@ export function resolveCustomerQuickActions(input: {
   hasActiveVisit?: boolean;
   hasActiveCall?: boolean;
   hasCompletedVisit?: boolean;
+  browseFilters?: Array<{ id: string; title: string }>;
 }): CustomerQuickActions | null {
   if (input.hasActiveVisit || input.hasActiveCall) return null;
 
   if (input.hasCompletedVisit) {
     const primaryId = pickPrimaryPropertyId(input);
+    const browseMore = (input.browseFilters ?? []).find((f) => f.id !== 'call-me');
     const buttons = [
       { id: 'share-visit-feedback', title: 'Share Feedback' },
       { id: 'call-me', title: 'Talk to Agent' },
       primaryId
         ? { id: `more-info-${primaryId}`, title: 'See More Options' }
-        : { id: 'filter-apartment', title: 'See More Options' },
+        : browseMore
+          ? { id: browseMore.id, title: browseMore.title }
+          : { id: 'call-me', title: 'See More Options' },
     ];
     return { body: 'What would you like to do next?', buttons };
   }

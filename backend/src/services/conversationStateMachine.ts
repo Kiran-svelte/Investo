@@ -137,7 +137,7 @@ const STAGE_CONFIG: Record<ConversationStage, StageConfig> = {
     requiredCommitments: ['budgetConfirmed', 'locationConfirmed', 'propertyTypeConfirmed'],
     exitConditions: ['3 of 4 key requirements confirmed'],
     maxMessages: 8,
-    promptFocus: 'Ask natural questions to understand: budget range, preferred areas, property type (apartment/villa/plot), timeline. One topic per message.',
+    promptFocus: 'Ask natural questions to understand: budget range, preferred areas, property type (only types this company actually lists), timeline. One topic per message. Never suggest property types outside company inventory.',
     successIndicators: ['shares budget', 'mentions area', 'specifies type', 'gives timeline'],
     failureIndicators: ['refuses to share', 'vague after 5+ messages'],
   },

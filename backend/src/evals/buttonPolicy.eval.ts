@@ -17,11 +17,16 @@ export const buttonPolicyEvalCases: Array<EvalCase<ButtonPolicyInput, ButtonPoli
   {
     id: 'buttons-new-buyer-rapport',
     category: 'button-policy',
-    description: 'New buyer greeting can get property filter buttons.',
+    description: 'New buyer greeting can get company-specific property filter buttons.',
     severity: 'medium',
     input: {
       stage: 'rapport',
       outboundText: 'Hello! Welcome to Palm Realty.',
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'filter-villa', title: 'Villas' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
     },
     expected: {
       buttonIds: ['filter-apartment', 'filter-villa', 'call-me'],
@@ -95,6 +100,10 @@ export const buttonPolicyEvalCases: Array<EvalCase<ButtonPolicyInput, ButtonPoli
       stage: 'rapport',
       outboundText: 'How did you find the property after your visit?',
       hasCompletedVisit: true,
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
     },
     expected: {
       buttonIds: ['share-visit-feedback', 'call-me', 'filter-apartment'],

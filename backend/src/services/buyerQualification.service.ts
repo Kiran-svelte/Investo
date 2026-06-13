@@ -98,8 +98,8 @@ export function buildBuyerRapportReply(
   }
   return (
     `Hello! Welcome to *${companyName}*.\n\n` +
-    `I can help you explore homes in Bangalore — share your budget, preferred area, and BHK, ` +
-    `or ask about a specific project.`
+    `I'm your assistant for *${companyName}* — share your budget, preferred area, and what you're looking for, ` +
+    `or ask about one of our listed projects.`
   );
 }
 

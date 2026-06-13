@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.13",
-    "deployNote": "v0.1.13-session-cookies-onboarding-redirect",
+    "version": "0.1.14",
+    "deployNote": "v0.1.14-company-specific-ai-inventory-buttons",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {

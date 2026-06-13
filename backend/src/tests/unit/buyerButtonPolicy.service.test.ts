@@ -15,6 +15,10 @@ describe('buyerButtonPolicy.service', () => {
     const components = resolveBuyerComponents({
       stage: 'rapport',
       outboundText: 'Hello! Welcome to Palm Realty.',
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
     });
     expect(components).toHaveLength(1);
     expect(components[0].kind).toBe('buttons');

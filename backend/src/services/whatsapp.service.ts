@@ -2359,6 +2359,7 @@ export class WhatsAppService {
     to: string,
     stage: string,
     context: {
+      companyId?: string;
       propertyId?: string | null;
       recommendedPropertyIds?: string[];
       properties?: Array<{ id: string; name: string }>;
@@ -2375,9 +2376,16 @@ export class WhatsAppService {
       visitTime?: string;
       /** Set when an action just completed — suppresses follow-up buttons for this turn. */
       recentAction?: QuickReplyRecentAction;
+      browseFilters?: Array<{ id: string; title: string }>;
     },
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
+    let browseFilters = context.browseFilters;
+    if (!browseFilters && context.companyId) {
+      const { getCompanyBrowseSnapshot, buildDiscoveryButtonSet } = await import('./companyInventoryBrowse.service');
+      const snapshot = await getCompanyBrowseSnapshot(context.companyId);
+      browseFilters = buildDiscoveryButtonSet(snapshot);
+    }
     const components = resolveBuyerComponents({
       stage,
       outboundText: context.outboundText ?? '',
@@ -2390,6 +2398,7 @@ export class WhatsAppService {
       visitStatus: context.visitStatus,
       visitProperty: context.visitProperty,
       visitTime: context.visitTime,
+      browseFilters,
     });
     await this.sendTurnComponents(to, components, whatsappConfig, context.outboundText);
   }

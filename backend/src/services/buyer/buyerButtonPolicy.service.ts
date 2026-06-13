@@ -1,7 +1,7 @@
 import type { NextBestAction } from '../conversationStateMachine';
 import type { WhatsAppComponent } from '../../types/whatsapp-turn.types';
 import { shouldAttachContextualQuickReplies, type QuickReplyRecentAction } from '../../utils/contextQuickReplies.util';
-import { resolveSituationBuyerButtons } from '../../utils/buyerSituationButtons.util';
+import { resolveSituationBuyerButtons, type BrowseFilterButton } from '../../utils/buyerSituationButtons.util';
 import { isPostVisitBuyer } from '../../utils/buyerLeadProgress.util';
 import type { LiveLeadContext } from '../liveLeadContext.service';
 
@@ -25,6 +25,8 @@ export type BuyerButtonContext = {
   hasCompletedVisit?: boolean;
   leadId?: string | null;
   liveLeadSnapshot?: Pick<LiveLeadContext, 'activeVisit' | 'recentCompletedVisit' | 'leadStatus'>;
+  /** Company-specific inventory filters — loaded from DB, never hardcoded types. */
+  browseFilters?: BrowseFilterButton[];
 };
 
 const BARE_GREETING_OUTBOUND =
@@ -80,6 +82,7 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
     hasActiveCall: ctx.hasActiveCall,
     hasCompletedVisit,
     visitStatus: ctx.visitStatus,
+    browseFilters: ctx.browseFilters,
   });
 
   if (!buttons?.length) {
@@ -90,16 +93,19 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
 }
 
 /** @deprecated Use resolveBuyerComponents — kept for interactive orchestrator imports. */
-export function resolvePostVisitButtons(propertyId?: string | null): WhatsAppComponent {
+export function resolvePostVisitButtons(
+  propertyId?: string | null,
+  browseFilters?: BrowseFilterButton[],
+): WhatsAppComponent {
   const buttons = resolveSituationBuyerButtons({
     stage: 'confirmation',
     outboundText: 'How was your visit?',
     hasCompletedVisit: true,
     propertyId,
+    browseFilters,
   }) ?? [
     { id: 'share-visit-feedback', title: 'Share Feedback' },
     { id: 'call-me', title: 'Talk to Agent' },
-    { id: 'filter-apartment', title: 'See More Options' },
   ];
   return { kind: 'buttons', buttons };
 }

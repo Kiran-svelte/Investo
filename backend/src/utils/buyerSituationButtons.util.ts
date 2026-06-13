@@ -20,6 +20,8 @@ export type BuyerButtonSituation =
   | 'general_followup'
   | 'none';
 
+export type BrowseFilterButton = { id: string; title: string };
+
 export type SituationButtonInput = {
   stage: string;
   outboundText: string;
@@ -31,6 +33,8 @@ export type SituationButtonInput = {
   hasActiveCall?: boolean;
   hasCompletedVisit?: boolean;
   visitStatus?: string;
+  /** Company inventory filters — never show apartment/villa buttons the company does not list. */
+  browseFilters?: BrowseFilterButton[];
 };
 
 const BARE_GREETING =
@@ -81,6 +85,27 @@ function withPropertyId(buttonId: string, propertyId: string): string {
   if (buttonId === 'more-info') return `more-info-${propertyId}`;
   if (buttonId === 'send-brochure') return `brochure-${propertyId}`;
   return buttonId;
+}
+
+function inventoryFilterButtons(
+  browseFilters: BrowseFilterButton[] | undefined,
+  options: { includeCallMe?: boolean; maxFilters?: number },
+): Array<{ id: string; title: string }> {
+  const maxFilters = options.maxFilters ?? (options.includeCallMe ? 2 : 3);
+  const filterOnly = (browseFilters ?? []).filter((f) => f.id !== 'call-me');
+  if (!filterOnly.length) {
+    return options.includeCallMe ? [{ id: 'call-me', title: 'Call Me' }] : [{ id: 'call-me', title: 'Call Agent' }];
+  }
+  const buttons = filterOnly.slice(0, maxFilters).map((f) => ({ id: f.id, title: f.title }));
+  if (options.includeCallMe && buttons.length < 3) {
+    buttons.push({ id: 'call-me', title: 'Call Me' });
+  }
+  return buttons.slice(0, 3);
+}
+
+function firstBrowseFilter(browseFilters: BrowseFilterButton[] | undefined): BrowseFilterButton | null {
+  const filterOnly = (browseFilters ?? []).filter((f) => f.id !== 'call-me');
+  return filterOnly[0] ?? null;
 }
 
 export function detectBuyerButtonSituation(input: SituationButtonInput): BuyerButtonSituation {
@@ -164,30 +189,35 @@ export function resolveButtonsForBuyerSituation(
         { id: 'call-me', title: 'Call Agent' },
       ];
 
-    case 'post_visit':
-      return [
+    case 'post_visit': {
+      const browseMore = firstBrowseFilter(input.browseFilters);
+      const buttons: Array<{ id: string; title: string }> = [
         { id: 'share-visit-feedback', title: 'Share Feedback' },
         { id: 'call-me', title: 'Talk to Agent' },
-        primaryId
-          ? { id: withPropertyId('more-info', primaryId), title: 'See More Options' }
-          : { id: 'filter-apartment', title: 'Browse Projects' },
       ];
+      if (primaryId) {
+        buttons.push({ id: withPropertyId('more-info', primaryId), title: 'See More Options' });
+      } else if (browseMore) {
+        buttons.push({ id: browseMore.id, title: browseMore.title });
+      }
+      return buttons.slice(0, 3);
+    }
 
     case 'catalog_empty':
-      return [
-        { id: 'filter-apartment', title: 'Apartments' },
-        { id: 'filter-villa', title: 'Villas' },
-        { id: 'filter-4bhk', title: '4 BHK' },
-      ];
+      return inventoryFilterButtons(input.browseFilters, { includeCallMe: false, maxFilters: 3 });
 
-    case 'multi_property_list':
-      return [
-        { id: 'filter-apartment', title: 'Narrow Search' },
-        { id: 'call-me', title: 'Call Me' },
+    case 'multi_property_list': {
+      const narrow = firstBrowseFilter(input.browseFilters);
+      const buttons: Array<{ id: string; title: string }> = [];
+      if (narrow) buttons.push({ id: narrow.id, title: 'Narrow Search' });
+      buttons.push({ id: 'call-me', title: 'Call Me' });
+      buttons.push(
         primaryId
           ? { id: withPropertyId('book-visit', primaryId), title: 'Book Visit' }
           : { id: 'book-visit', title: 'Book Visit' },
-      ];
+      );
+      return buttons.slice(0, 3);
+    }
 
     case 'single_property_focus':
     case 'general_followup': {
@@ -222,18 +252,10 @@ export function resolveButtonsForBuyerSituation(
       ];
 
     case 'inventory_summary':
-      return [
-        { id: 'filter-apartment', title: 'Show Apartments' },
-        { id: 'filter-villa', title: 'Show Villas' },
-        { id: 'call-me', title: 'Call Me' },
-      ];
+      return inventoryFilterButtons(input.browseFilters, { includeCallMe: true });
 
     case 'discovery_welcome':
-      return [
-        { id: 'filter-apartment', title: 'Apartments' },
-        { id: 'filter-villa', title: 'Villas' },
-        { id: 'call-me', title: 'Call Me' },
-      ];
+      return inventoryFilterButtons(input.browseFilters, { includeCallMe: true });
 
     case 'visit_time_prompt':
     case 'none':

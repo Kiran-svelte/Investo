@@ -4,6 +4,10 @@ import { matchCatalogPropertiesForQuery, getInventorySummary } from '../services
 import { isPropertyInquiryMessage } from '../services/customerMessageFastPath.service';
 import { resolveBrochureUrlForWhatsApp } from '../services/brochureDelivery.service';
 import {
+  buildCatalogFilterButtonSet,
+  getCompanyBrowseSnapshot,
+} from '../services/companyInventoryBrowse.service';
+import {
   formatBuyerCatalogEmpty,
   formatBuyerCatalogMatches,
   formatInventoryCountReply,
@@ -45,11 +49,12 @@ export async function resolvePropertyBrowseTurn(
       reply,
       propertyIds: properties.map((p) => p.id),
       properties,
-      components: buildPropertyBrowseComponents({
+      components: await buildPropertyBrowseComponents({
         matches: properties.map((p) => ({ id: p.id, name: p.name, propertyType: null })),
         stage: input.stage,
         outboundText: reply,
         properties,
+        companyId,
       }),
     };
   }
@@ -61,11 +66,12 @@ export async function resolvePropertyBrowseTurn(
   });
 
   if (!matches.length) {
+    const snapshot = await getCompanyBrowseSnapshot(companyId);
     return {
       reply: formatBuyerCatalogEmpty(messageText),
       propertyIds: [],
       properties: [],
-      components: buildFilterButtonsComponent(),
+      components: buildFilterButtonsComponent(snapshot),
     };
   }
 
@@ -74,11 +80,12 @@ export async function resolvePropertyBrowseTurn(
   const propertyIds = matches.map((p) => p.id);
 
   const mediaComponents = await resolveProactiveBrowseMedia(companyId, matches);
-  const interactive = buildPropertyBrowseComponents({
+  const interactive = await buildPropertyBrowseComponents({
     matches,
     stage: input.stage,
     outboundText: reply,
     properties,
+    companyId,
   });
 
   return {
@@ -89,23 +96,21 @@ export async function resolvePropertyBrowseTurn(
   };
 }
 
-function buildFilterButtonsComponent(): WhatsAppComponent[] {
-  return [{
-    kind: 'buttons',
-    buttons: [
-      { id: 'filter-apartment', title: '🏢 Apartments' },
-      { id: 'filter-villa', title: '🏡 Villas' },
-      { id: 'filter-4bhk', title: '4 BHK' },
-    ],
-  }];
+function buildFilterButtonsComponent(
+  snapshot: Awaited<ReturnType<typeof getCompanyBrowseSnapshot>>,
+): WhatsAppComponent[] {
+  const buttons = buildCatalogFilterButtonSet(snapshot);
+  if (!buttons.length) return [];
+  return [{ kind: 'buttons', buttons }];
 }
 
-function buildPropertyBrowseComponents(input: {
+async function buildPropertyBrowseComponents(input: {
   matches: Array<{ id: string; name: string; propertyType: string | null }>;
   stage: string;
   outboundText: string;
   properties: Array<{ id: string; name: string }>;
-}): WhatsAppComponent[] {
+  companyId: string;
+}): Promise<WhatsAppComponent[]> {
   if (input.matches.length >= 2) {
     return [{
       kind: 'list',
@@ -122,7 +127,10 @@ function buildPropertyBrowseComponents(input: {
   }
 
   const primary = input.matches[0];
-  if (!primary) return buildFilterButtonsComponent();
+  if (!primary) {
+    const snapshot = await getCompanyBrowseSnapshot(input.companyId);
+    return buildFilterButtonsComponent(snapshot);
+  }
 
   return [{
     kind: 'buttons',
