@@ -13,11 +13,11 @@ const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGa
 const validation_1 = require("../models/validation");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
-const config_1 = __importDefault(require("../config"));
 const whatsapp_service_1 = require("../services/whatsapp.service");
 const socket_service_1 = require("../services/socket.service");
 const pagination_1 = require("../utils/pagination");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
+const companyWhatsAppConfig_util_1 = require("../utils/companyWhatsAppConfig.util");
 const router = (0, express_1.Router)();
 function handleDeleteError(err, res) {
     if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
@@ -33,14 +33,11 @@ router.use(tenant_1.tenantIsolation);
 router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('conversation_center'));
 function normalizeWhatsAppConfig(company) {
-    const settings = company.settings || {};
-    const whatsapp = settings.whatsapp || {};
-    const meta = whatsapp.meta || whatsapp;
-    return {
+    return (0, companyWhatsAppConfig_util_1.resolveCompanyWhatsAppConfigFromSettings)(company.settings) ?? {
         provider: 'meta',
-        phoneNumberId: meta.phoneNumberId || config_1.default.whatsapp.phoneNumberId,
-        accessToken: meta.accessToken || config_1.default.whatsapp.accessToken,
-        verifyToken: meta.verifyToken || config_1.default.whatsapp.verifyToken,
+        phoneNumberId: '',
+        accessToken: '',
+        verifyToken: '',
     };
 }
 function toIsoString(value) {

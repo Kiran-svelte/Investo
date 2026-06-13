@@ -10,6 +10,7 @@ exports.formatAlternativesForPrompt = formatAlternativesForPrompt;
 exports.criteriaFromLead = criteriaFromLead;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const DEFAULT_BUDGET_STRETCH_PERCENT = 0.15;
+const BUYER_VISIBLE_STATUSES = ['available', 'upcoming'];
 function stretchRatio(criteria) {
     const pct = criteria.budgetStretchPercent;
     if (pct != null && Number.isFinite(pct)) {
@@ -37,7 +38,7 @@ async function searchExactProperties(criteria) {
     const limit = criteria.limit ?? 10;
     const where = {
         companyId: criteria.companyId,
-        status: 'available',
+        status: { in: BUYER_VISIBLE_STATUSES },
     };
     if (criteria.bedrooms != null)
         where.bedrooms = criteria.bedrooms;
@@ -61,7 +62,7 @@ async function searchExactProperties(criteria) {
 }
 async function searchAlternativeTiers(criteria) {
     const tiers = [];
-    const baseWhere = { companyId: criteria.companyId, status: 'available' };
+    const baseWhere = { companyId: criteria.companyId, status: { in: BUYER_VISIBLE_STATUSES } };
     // Upsell: +1 BHK same area/city
     if (criteria.upsellEnabled !== false && criteria.bedrooms != null && criteria.bedrooms >= 1) {
         const upsellWhere = {
@@ -161,7 +162,8 @@ function formatPropertyLine(p) {
         : min
             ? `from ₹${(min / 100000).toFixed(1)}L`
             : 'Price on request';
-    return `- ${p.name} | ${p.locationArea || ''}, ${p.locationCity || ''} | ${p.bedrooms || '?'} BHK ${p.propertyType} | ${price}`;
+    const status = p.status === 'upcoming' ? 'Upcoming' : 'Available';
+    return `- ${p.name} | ${status} | ${p.locationArea || ''}, ${p.locationCity || ''} | ${p.bedrooms || '?'} BHK ${p.propertyType} | ${price}`;
 }
 function formatAlternativesForPrompt(exact, tiers) {
     const lines = [];

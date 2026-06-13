@@ -20,6 +20,8 @@ const geocoding_service_1 = require("../services/geocoding.service");
 const propertyCompleteness_service_1 = require("../services/propertyCompleteness.service");
 const requirePropertyPublisher_1 = require("../middleware/requirePropertyPublisher");
 const propertyKnowledge_service_1 = require("../services/propertyKnowledge.service");
+const config_1 = __importDefault(require("../config"));
+const extractExtendedPropertyAttributes_util_1 = require("../utils/extractExtendedPropertyAttributes.util");
 const router = (0, express_1.Router)();
 function toIsoString(value) {
     return value ? value.toISOString() : null;
@@ -240,6 +242,10 @@ router.post('/', (0, rbac_1.authorize)('properties', 'create'), requirePropertyP
                 return;
             }
         }
+        const extendedSource = req.body;
+        const extendedAttributes = config_1.default.features.extendedPropertyAttrs
+            ? (0, extractExtendedPropertyAttributes_util_1.extractExtendedPropertyAttributes)(extendedSource)
+            : {};
         const property = await prisma_1.default.property.create({
             data: {
                 companyId,
@@ -263,11 +269,17 @@ router.post('/', (0, rbac_1.authorize)('properties', 'create'), requirePropertyP
                 priceListUrl: req.body.price_list_url || null,
                 latitude,
                 longitude,
+                ...(Object.keys(extendedAttributes).length > 0
+                    ? { extendedAttributes: extendedAttributes }
+                    : {}),
             },
         });
+        const indexPayload = await (0, propertyKnowledge_service_1.loadPropertyKnowledgeIndexPayload)(companyId, property.id);
         const knowledge = await (0, propertyKnowledge_service_1.indexPropertyKnowledge)({
             companyId,
             property,
+            draftData: indexPayload.draftData ?? extendedSource,
+            mediaExtractions: indexPayload.mediaExtractions,
         });
         res.status(201).json({
             data: mapPropertyToSnakeCaseDTO(property),

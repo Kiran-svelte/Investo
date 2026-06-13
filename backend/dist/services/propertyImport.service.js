@@ -48,9 +48,11 @@ const propertyKnowledge_service_1 = require("./propertyKnowledge.service");
 const geocoding_service_1 = require("./geocoding.service");
 const propertyImport_metadata_1 = require("./propertyImport.metadata");
 const propertyTypeKnowledge_service_1 = require("./propertyTypeKnowledge.service");
+const propertyImportAutoFlow_util_1 = require("../utils/propertyImportAutoFlow.util");
 const csv_import_service_1 = require("./csv-import.service");
 const propertyImportUnit_service_1 = require("./propertyImportUnit.service");
 const propertyImport_metadata_2 = require("./propertyImport.metadata");
+const extractExtendedPropertyAttributes_util_1 = require("../utils/extractExtendedPropertyAttributes.util");
 class PropertyImportError extends Error {
     constructor(message, statusCode) {
         super(message);
@@ -117,7 +119,7 @@ function mapDraftToPropertyData(draftData, mediaUrls) {
     const mappingProfile = (0, propertyImport_metadata_1.normalizePropertyImportMappingProfile)(draftData.import_mapping || draftData.importMapping);
     const propertyType = pickAllowed(asNullableString(readDraftValue(draftData, mappingProfile, ['property_type', 'propertyType'])), ['villa', 'apartment', 'plot', 'commercial', 'other'], 'apartment');
     const status = pickAllowed(asNullableString(readDraftValue(draftData, mappingProfile, ['status'])), ['available', 'sold', 'upcoming'], 'available');
-    return {
+    const base = {
         name: asNullableString(readDraftValue(draftData, mappingProfile, ['name'])) || 'Untitled property',
         builder: asNullableString(readDraftValue(draftData, mappingProfile, ['builder'])),
         locationCity: asNullableString(readDraftValue(draftData, mappingProfile, ['location_city', 'locationCity'])),
@@ -136,6 +138,13 @@ function mapDraftToPropertyData(draftData, mediaUrls) {
         images: mediaUrls.images,
         brochureUrl: mediaUrls.brochureUrl,
     };
+    if (config_1.default.features.extendedPropertyAttrs) {
+        const extendedAttributes = (0, extractExtendedPropertyAttributes_util_1.extractExtendedPropertyAttributes)(draftData);
+        if (Object.keys(extendedAttributes).length > 0) {
+            base.extendedAttributes = extendedAttributes;
+        }
+    }
+    return base;
 }
 async function enrichPropertyDataWithGeocoding(propertyData) {
     const address = (0, geocoding_service_1.buildAddressFromProperty)({
@@ -222,7 +231,10 @@ class PropertyImportService {
             const name = asTrimmedString(draftData.name) || 'Untitled import';
             const propertyType = asTrimmedString(draftData.property_type ?? draftData.propertyType) || null;
             const knowledgeDeferred = draftData.knowledge_gate_deferred === true || draftData.knowledgeGateDeferred === true;
-            const { gapCount } = (0, propertyTypeKnowledge_service_1.countMissingKnowledgeFields)(draftData);
+            const imageAuto = (0, propertyImportAutoFlow_util_1.isImageAutoImportFlow)(draftData);
+            const { gapCount } = imageAuto
+                ? { gapCount: 0 }
+                : (0, propertyTypeKnowledge_service_1.countMissingKnowledgeFields)(draftData);
             return {
                 id: row.id,
                 status: row.status,
@@ -256,7 +268,7 @@ class PropertyImportService {
             .filter((row) => row.isValid)
             .map((row, index) => ({
             label: row.data.name || `Row ${row.rowNumber}`,
-            unitData: row.data,
+            unitData: (0, csv_import_service_1.serializePropertyRowData)(row.data),
             sortOrder: index,
         }));
         if (mappedUnits.length === 0) {
@@ -300,7 +312,12 @@ class PropertyImportService {
                 approved_at: null,
             },
             batch_progress: (0, propertyImportUnit_service_1.buildBatchProgress)(mappedUnits.length, 'spreadsheet_imported'),
-            csv_rows: candidates,
+            csv_rows: candidates.map((row) => ({
+                rowNumber: row.rowNumber,
+                isValid: row.isValid,
+                errors: row.errors,
+                data: (0, csv_import_service_1.serializePropertyRowData)(row.data),
+            })),
             valid_count: validCount,
             invalid_count: invalidCount,
             ai_knowledge_context: csv_import_service_1.csvImportService.buildAiKnowledgeContext(candidates, input.projectName),
@@ -741,7 +758,7 @@ class PropertyImportService {
             const { gapCount } = (0, propertyTypeKnowledge_service_1.countMissingKnowledgeFields)(draftData);
             throw new PropertyImportError(`Complete AI knowledge Q&A before publishing (${gapCount} question(s) remaining).`, 409);
         }
-        if ((0, propertyImport_metadata_2.isPropertyImportReviewPending)(draftData)) {
+        if ((0, propertyImport_metadata_2.shouldBlockPublishForImportReview)(draftData)) {
             throw new PropertyImportError('Confirm extracted field mapping before publishing.', 409);
         }
         const importUnits = await (0, propertyImportUnit_service_1.listPropertyImportUnits)(companyId, draftId);
@@ -864,6 +881,10 @@ class PropertyImportService {
             const unitData = {
                 ...projectDraftData,
                 ...(unit.unitData || {}),
+                import_mapping: {
+                    ...((projectDraftData.import_mapping ?? projectDraftData.importMapping) || {}),
+                    source_record: (unit.unitData || {}),
+                },
             };
             if (unit.label && !unitData.name) {
                 unitData.name = unit.label;
@@ -1196,6 +1217,9 @@ class PropertyImportService {
         for (const candidate of drafts) {
             const draftData = (candidate.draftData || {});
             if (draftData.knowledge_gate_deferred === true || draftData.knowledgeGateDeferred === true) {
+                continue;
+            }
+            if ((0, propertyImportAutoFlow_util_1.isImageAutoImportFlow)(draftData)) {
                 continue;
             }
             const name = asTrimmedString(draftData.name);

@@ -184,6 +184,15 @@ function buildRelativeObjectKey(input) {
     const extension = getMimeTypeExtension(input.mimeType);
     const cleanFileName = sanitizeFileName(input.fileName);
     const assetType = input.assetType || (input.mimeType === 'application/pdf' ? 'brochure' : 'image');
+    if (input.uploadScope === 'ai-greeting') {
+        return [
+            'companies',
+            input.companyId,
+            'ai-greeting',
+            assetType,
+            `${Date.now()}-${(0, crypto_1.randomUUID)()}-${cleanFileName}${extension}`,
+        ].join('/');
+    }
     const propertySegment = input.propertyId || 'draft';
     return [
         'companies',
@@ -351,6 +360,9 @@ class StorageService {
         }
         throw new Error('No object storage configured (AWS S3 or R2 required)');
     }
+    async createAiGreetingMediaUploadUrl(input) {
+        return this.createPropertyUploadUrl({ ...input, uploadScope: 'ai-greeting' });
+    }
     getPublicUrl(key) {
         const awsKey = (0, storageTargets_1.parseAwsStorageKey)(key);
         if (awsKey) {
@@ -378,6 +390,17 @@ class StorageService {
         if (supabaseKey) {
             const { uploadToSupabaseBucket } = await Promise.resolve().then(() => __importStar(require('./supabaseStorage.service')));
             return uploadToSupabaseBucket(supabaseKey.bucket, supabaseKey.objectPath, bytes, contentType);
+        }
+        const r2Key = (0, storageTargets_1.parseR2StorageKey)(storageKey);
+        if (r2Key) {
+            ensureR2Config();
+            await this.getR2Client().send(new client_s3_1.PutObjectCommand({
+                Bucket: config_1.default.storage.r2Bucket,
+                Key: r2Key,
+                Body: bytes,
+                ContentType: contentType,
+            }));
+            return { publicUrl: this.getR2PublicUrl(r2Key) };
         }
         throw new Error('Direct putObjectBytes is not supported for this storage key');
     }

@@ -1086,7 +1086,7 @@ export class PropertyImportService {
 
     for (let index = 0; index < importUnits.length; index += 1) {
       const unit = importUnits[index];
-      const unitData = {
+      const unitData: Record<string, unknown> = {
         ...projectDraftData,
         ...((unit.unitData || {}) as Record<string, unknown>),
         import_mapping: {

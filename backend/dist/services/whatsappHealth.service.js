@@ -40,6 +40,7 @@ exports.getWhatsAppHealth = exports.checkWhatsAppConnection = exports.whatsappHe
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../config/logger"));
 const redis_1 = require("../config/redis");
+const companyWhatsAppWebhook_util_1 = require("../utils/companyWhatsAppWebhook.util");
 /**
  * WhatsApp Health Check Service
  *
@@ -150,7 +151,7 @@ class WhatsAppHealthService {
      * @returns Promise<boolean> - True if phone number is valid and active
      */
     async verifyPhoneNumber(phoneNumberId, accessToken) {
-        const token = accessToken || config_1.default.whatsapp.accessToken;
+        const token = accessToken || await (0, companyWhatsAppWebhook_util_1.resolveProductionWhatsAppAccessToken)();
         if (!token) {
             logger_1.default.warn('Cannot verify phone number: no access token');
             return false;
@@ -194,28 +195,13 @@ class WhatsAppHealthService {
     }
     // ===== Private helper methods =====
     async getCompanyAccessToken(companyId) {
-        try {
-            const prisma = (await Promise.resolve().then(() => __importStar(require('../config/prisma')))).default;
-            const company = await prisma.company.findUnique({
-                where: { id: companyId },
-                select: { settings: true },
-            });
-            const settings = company?.settings || {};
-            const whatsapp = settings.whatsapp || {};
-            const meta = whatsapp.meta || {};
-            return meta.accessToken || whatsapp.accessToken || config_1.default.whatsapp.accessToken;
-        }
-        catch {
-            return config_1.default.whatsapp.accessToken;
-        }
+        return (0, companyWhatsAppWebhook_util_1.resolveProductionWhatsAppAccessToken)(companyId);
     }
     async checkConfigCompleteness(companyId) {
         try {
-            const accessToken = companyId
-                ? await this.getCompanyAccessToken(companyId)
-                : config_1.default.whatsapp.accessToken;
+            const accessToken = await (0, companyWhatsAppWebhook_util_1.resolveProductionWhatsAppAccessToken)(companyId);
             if (!accessToken) {
-                return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken' };
+                return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken in company settings' };
             }
             return { complete: true, reason: '' };
         }
@@ -224,9 +210,7 @@ class WhatsAppHealthService {
         }
     }
     async checkMetaConnection(companyId) {
-        const accessToken = companyId
-            ? await this.getCompanyAccessToken(companyId)
-            : config_1.default.whatsapp.accessToken;
+        const accessToken = await (0, companyWhatsAppWebhook_util_1.resolveProductionWhatsAppAccessToken)(companyId);
         if (!accessToken) {
             throw new Error('No WhatsApp access token configured');
         }

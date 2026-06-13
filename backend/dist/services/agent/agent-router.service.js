@@ -47,27 +47,14 @@ const phoneMatch_1 = require("../../utils/phoneMatch");
 const copilotGreeting_util_1 = require("../../utils/copilotGreeting.util");
 const copilotShortcut_util_1 = require("../../utils/copilotShortcut.util");
 const copilotButtonPolicy_service_1 = require("../copilot/copilotButtonPolicy.service");
+const copilotWelcome_util_1 = require("../../utils/copilotWelcome.util");
 const attendanceWorkflow_service_1 = require("../attendanceWorkflow.service");
+const whatsappReplySpeed_util_1 = require("../../utils/whatsappReplySpeed.util");
 const inboundMessageGuard_service_1 = require("../inboundMessageGuard.service");
 const outboundTurnDebug_service_1 = require("../outboundTurnDebug.service");
-/**
- * Builds a deterministic welcome/help message for the agent copilot.
- * Shown whenever a staff user sends a greeting or "help" command.
- *
- * @param userName - Display name of the staff user.
- * @param companyName - Name of the company.
- * @returns Formatted WhatsApp-ready welcome string.
- */
-function buildCopilotWelcomeMessage(userName, companyName) {
-    const name = userName.trim() || 'there';
-    return (`*Hi ${name}!* Welcome to *Investo Copilot* for *${companyName}*.\n\n` +
-        `I can help you with:\n` +
-        `- *Visits* - "visits today", "visits tomorrow", "visits on 6th June"\n` +
-        `- *Leads* - "new leads today", "get lead Rahul", "update lead status"\n` +
-        `- *Properties* - "list properties", "property details"\n` +
-        `- *Analytics* - "dashboard stats", "my performance"\n` +
-        `- *Actions* - "confirm visit", "mark lead visited", "send brochure"\n\n` +
-        `Just type your command or tap a shortcut below.`);
+async function buildLocalizedCopilotWelcome(user) {
+    const lang = await (0, copilotWelcome_util_1.getCompanyDefaultLanguage)(user.companyId);
+    return (0, copilotWelcome_util_1.buildCopilotWelcomeMessage)(user.userName, user.companyName, lang);
 }
 async function getPrisma() {
     const module = await Promise.resolve().then(() => __importStar(require('../../config/prisma')));
@@ -96,13 +83,9 @@ async function sendWhatsAppResponse(phone, companyId, message) {
         where: { id: companyId },
         select: { settings: true },
     });
-    const settings = company?.settings || {};
-    const whatsapp = settings?.whatsapp || {};
-    const outboundConfig = {
-        phoneNumberId: String(whatsapp.phoneNumberId || config_1.default.whatsapp.phoneNumberId || ''),
-        accessToken: String(whatsapp.accessToken || config_1.default.whatsapp.accessToken || ''),
-        verifyToken: String(whatsapp.verifyToken || config_1.default.whatsapp.verifyToken || ''),
-    };
+    const outboundConfig = await whatsappService.resolveCompanyWhatsAppConfig(companyId);
+    if (!outboundConfig)
+        return;
     await whatsappService.sendMessage(phone, message, outboundConfig);
 }
 /** Fire-and-forget lead_memory patch + RAG sync after staff copilot exchanges. */
@@ -139,7 +122,7 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
     const isViewer = user.userRole === 'viewer';
     // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
     if ((0, copilotGreeting_util_1.isCopilotGreeting)(normalizedText)) {
-        const text = buildCopilotWelcomeMessage(user.userName, user.companyName);
+        const text = await buildLocalizedCopilotWelcome(user);
         const { getOrCreateAgentSession } = await Promise.resolve().then(() => __importStar(require('./agent-memory.service')));
         const { recordAgentCopilotExchange } = await Promise.resolve().then(() => __importStar(require('./agent-intent-orchestrator.service')));
         const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
@@ -184,6 +167,19 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
             orderBy: { createdAt: 'desc' },
         });
         if (pendingAttendance) {
+            const { isAttendanceStaffRescheduleEnabled, handleAttendanceCheckReschedule } = await Promise.resolve().then(() => __importStar(require('../attendanceReschedule.service')));
+            if (isAttendanceStaffRescheduleEnabled()) {
+                const params = (pendingAttendance.actionParams ?? {});
+                const text = await handleAttendanceCheckReschedule({
+                    companyId: user.companyId,
+                    sessionId: session.id,
+                    agentUserId: user.userId,
+                    agentPhone: user.phone,
+                    pendingActionId: pendingAttendance.id,
+                    params,
+                });
+                return { text, replyKind: 'confirmation' };
+            }
             const params = (pendingAttendance.actionParams ?? {});
             const customerName = typeof params.customerName === 'string' ? params.customerName : 'the customer';
             await prisma.pendingAction.update({
@@ -325,7 +321,7 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
         .trim();
     if ((0, copilotGreeting_util_1.isCopilotGreeting)(aggressivelyNormalized) || aggressivelyNormalized.length === 0) {
         return {
-            text: buildCopilotWelcomeMessage(user.userName, user.companyName),
+            text: await buildLocalizedCopilotWelcome(user),
             replyKind: 'welcome',
         };
     }
@@ -386,7 +382,7 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
             replyKind = 'crm';
         }
         else if ((0, copilotGreeting_util_1.isCopilotGreeting)(normalizedText)) {
-            agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+            agentReply = await buildLocalizedCopilotWelcome(user);
             replyKind = 'welcome';
         }
         else {
@@ -407,7 +403,7 @@ async function handleAgentMessage(user, messageText, interactiveId, inboundMessa
     // help menu so the user always gets a useful response.
     const isLlmRefusal = /could\s+not\s+complete|unable\s+to\s+(retrieve|process)|try\s+a\s+shorter/i.test(agentReply);
     if (isLlmRefusal && aggressivelyNormalized.length < 30) {
-        agentReply = buildCopilotWelcomeMessage(user.userName, user.companyName);
+        agentReply = await buildLocalizedCopilotWelcome(user);
         replyKind = 'welcome';
     }
     if (session?.id) {
@@ -455,7 +451,18 @@ async function routeIfInternalUserForCompany(senderPhone, messageText, user, int
         route: 'staff_copilot',
     });
     try {
-        const { text: response, replyKind } = await handleAgentMessage(user, messageText, interactiveId, inboundMessageId);
+        const staffTimeoutMs = (0, whatsappReplySpeed_util_1.getStaffCopilotTimeoutMs)();
+        const staffTurnStartedAt = Date.now();
+        const { text: response, replyKind } = await Promise.race([
+            handleAgentMessage(user, messageText, interactiveId, inboundMessageId),
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Staff copilot timed out after ${staffTimeoutMs}ms`)), staffTimeoutMs)),
+        ]);
+        logger_1.default.info('Staff copilot turn completed', {
+            companyId: user.companyId,
+            userId: user.userId,
+            durationMs: Date.now() - staffTurnStartedAt,
+            replyKind,
+        });
         const outboundClaimed = await (0, inboundMessageGuard_service_1.claimStaffCopilotOutboundReply)(user.companyId, inboundMessageId);
         (0, outboundTurnDebug_service_1.logOutboundBranch)('H4', 'agent-router.service.ts:outbound', 'staff_primary_reply', {
             replyKind,
@@ -466,7 +473,7 @@ async function routeIfInternalUserForCompany(senderPhone, messageText, user, int
             (0, outboundTurnDebug_service_1.logOutboundSend)('H4', 'agent-router.service.ts:send', 'staff_primary_text', response);
             await sendWhatsAppResponse(normalizedPhone, user.companyId, response);
         }
-        const components = (0, copilotButtonPolicy_service_1.resolveCopilotComponents)({ replyKind, outboundText: response });
+        const components = await (0, copilotButtonPolicy_service_1.resolveCopilotComponents)({ replyKind, outboundText: response });
         const quickActions = components[0]?.kind === 'buttons' ? components[0].buttons : null;
         if (quickActions?.length) {
             (0, outboundTurnDebug_service_1.logOutboundBranch)('H4', 'agent-router.service.ts:quickActions', 'staff_quick_actions', {

@@ -551,11 +551,11 @@ const config = {
      */
     extendedPropertyAttrs: process.env.FEATURE_EXTENDED_PROPERTY_ATTRS !== 'false',
     /** Bulk publish: enforce knowledge gate + rollback on index failure (I7/I8). */
-    bulkPublishStrict: process.env.FEATURE_BULK_PUBLISH_STRICT === 'true',
+    bulkPublishStrict: process.env.FEATURE_BULK_PUBLISH_STRICT !== 'false',
     /** Skip human mapping review for bulk/spreadsheet imports (I12). */
     bulkImportSkipReview: process.env.FEATURE_BULK_IMPORT_SKIP_REVIEW !== 'false',
     /** Staff copilot: vector searchPropertyKnowledge tool (T1). */
-    copilotPropertyRag: process.env.FEATURE_COPILOT_PROPERTY_RAG === 'true',
+    copilotPropertyRag: process.env.FEATURE_COPILOT_PROPERTY_RAG !== 'false',
     /** Always merge knowledge chunks into buyer property context (D8). */
     enrichedKnowledgeAlways: process.env.FEATURE_ENRICHED_KNOWLEDGE_ALWAYS !== 'false',
     /** Catalog search uses vector RAG fallback for detail queries (D9). */

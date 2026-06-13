@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
 import { tenantIsolation, getCompanyId } from '../middleware/tenant';
@@ -322,7 +323,9 @@ router.post(
           priceListUrl: req.body.price_list_url || null,
           latitude,
           longitude,
-          ...(Object.keys(extendedAttributes).length > 0 ? { extendedAttributes } : {}),
+          ...(Object.keys(extendedAttributes).length > 0
+            ? { extendedAttributes: extendedAttributes as Prisma.InputJsonValue }
+            : {}),
         },
       });
 

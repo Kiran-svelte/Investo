@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import prisma from '../../../config/prisma';
 import config from '../../../config';
 import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
@@ -140,7 +141,9 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
             amenities: input.amenities ?? [],
             description: input.description ?? null,
             status: 'available',
-            ...(Object.keys(extendedAttributes).length > 0 ? { extendedAttributes } : {}),
+            ...(Object.keys(extendedAttributes).length > 0
+              ? { extendedAttributes: extendedAttributes as Prisma.InputJsonValue }
+              : {}),
           },
         });
         return `Property created.\n\n${formatProperty(property)}`;

@@ -39,24 +39,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.notificationEngine = void 0;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
-const config_1 = __importDefault(require("../config"));
 const socket_service_1 = require("./socket.service");
 const notificationRetry_service_1 = require("./notificationRetry.service");
-/**
- * IST locale formatter used throughout notification messages.
- * @param date - Date to format
- * @returns Human-readable date-time string in IST
- */
-function formatISTDateTime(date) {
-    return date.toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-}
+const dateTime_util_1 = require("../utils/dateTime.util");
+const companyWhatsAppConfig_util_1 = require("../utils/companyWhatsAppConfig.util");
 /**
  * Send a WhatsApp message to a user using their company's configured WhatsApp.
  * Non-throwing — a notification failure must never block a business operation.
@@ -84,18 +70,19 @@ async function sendWhatsAppToUser(phone, companyId, message, label = 'notificati
     }
 }
 function getCompanyWhatsAppConfig(company) {
-    const settings = company?.settings || {};
-    const whatsapp = settings.whatsapp || {};
-    const meta = whatsapp.meta || whatsapp;
-    const phoneNumberId = meta.phoneNumberId || config_1.default.whatsapp.phoneNumberId;
-    const accessToken = meta.accessToken || config_1.default.whatsapp.accessToken;
-    const verifyToken = meta.verifyToken || config_1.default.whatsapp.verifyToken;
+    const resolved = (0, companyWhatsAppConfig_util_1.resolveCompanyWhatsAppConfigFromSettings)(company?.settings);
+    if (!resolved) {
+        return {
+            provider: 'meta',
+            phoneNumberId: '',
+            accessToken: '',
+            verifyToken: '',
+            isCompanyConfigured: false,
+        };
+    }
     return {
-        provider: 'meta',
-        phoneNumberId,
-        accessToken,
-        verifyToken,
-        isCompanyConfigured: Boolean(meta.phoneNumberId && meta.accessToken),
+        ...resolved,
+        isCompanyConfigured: (0, companyWhatsAppConfig_util_1.isCompanyWhatsAppConfigured)(company?.settings),
     };
 }
 class NotificationEngine {
@@ -157,6 +144,28 @@ class NotificationEngine {
             message: `You have been assigned a new lead: ${lead.customerName || lead.phone}`,
             data: { leadId: lead.id },
         });
+    }
+    /**
+     * Send a WhatsApp message directly to an agent's personal phone number.
+     * Used for time-critical alerts (visit bookings, customer messages, escalations)
+     * so agents are notified even when not logged into the dashboard.
+     * Non-throwing — notification failure must never block business logic.
+     *
+     * @param opts.agentPhone - Agent's personal phone number in E.164 format
+     * @param opts.companyId - Company tenant for WhatsApp config lookup
+     * @param opts.message - WhatsApp message body to send
+     */
+    async notifyAgentByWhatsApp(opts) {
+        try {
+            await sendWhatsAppToUser(opts.agentPhone, opts.companyId, opts.message, 'agent_whatsapp_alert');
+            logger_1.default.info('Agent WhatsApp alert sent', { companyId: opts.companyId, phone: opts.agentPhone.slice(-4) });
+        }
+        catch (err) {
+            logger_1.default.error('NotificationEngine: agent WhatsApp alert failed', {
+                companyId: opts.companyId,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
     }
     /**
      * Notify when lead is reassigned (old agent loses it, new agent gets it).
@@ -227,7 +236,7 @@ class NotificationEngine {
      * @param agent - The assigned agent user record
      */
     async onVisitScheduled(visit, lead, property, agent) {
-        const timeStr = formatISTDateTime(new Date(visit.scheduledAt));
+        const timeStr = (0, dateTime_util_1.formatISTDateTime)(new Date(visit.scheduledAt));
         const customerName = lead?.customerName || lead?.phone || 'Customer';
         const propertyName = property?.name || 'Property';
         const agentName = agent?.name || 'Agent';
@@ -325,13 +334,7 @@ class NotificationEngine {
      */
     async onVisitStatusChange(visit, oldStatus, newStatus, lead, company, suppressCustomerNotification = false) {
         const visitTime = new Date(visit.scheduledAt);
-        const timeStr = visitTime.toLocaleString('en-IN', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
+        const timeStr = (0, dateTime_util_1.formatISTDateTime)(visitTime);
         // Notify agent
         const notifType = (newStatus === 'confirmed'
             ? 'visit_confirmed'
@@ -379,7 +382,11 @@ class NotificationEngine {
             }
             const customerName = lead.customerName || 'there';
             let whatsappMsg = '';
-            if (newStatus === 'confirmed') {
+            if (newStatus === 'scheduled' && oldStatus === 'pending_approval') {
+                // Agent approved a pending_approval visit from the dashboard — notify the buyer.
+                whatsappMsg = `Hi ${customerName}! 🎉\n\nYour visit request has been *approved*!\n\n📅 Visit scheduled for: *${timeStr}*\n\nWe look forward to meeting you! If you need to reschedule, just let us know.`;
+            }
+            else if (newStatus === 'confirmed') {
                 whatsappMsg = `Hi ${customerName}! ✅\n\nYour property visit is *confirmed* for:\n📅 ${timeStr}\n\nWe look forward to seeing you!`;
             }
             else if (newStatus === 'cancelled') {
@@ -421,22 +428,8 @@ class NotificationEngine {
      * (whatsapp.service.ts visitCommit path) already sends the reply.
      */
     suppressCustomerNotification = false) {
-        const oldTimeStr = oldTime.toLocaleString('en-IN', {
-            timeZone: 'Asia/Kolkata',
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-        const newTimeStr = newTime.toLocaleString('en-IN', {
-            timeZone: 'Asia/Kolkata',
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
+        const oldTimeStr = (0, dateTime_util_1.formatISTDateTime)(oldTime);
+        const newTimeStr = (0, dateTime_util_1.formatISTDateTime)(newTime);
         const customerName = lead?.customerName || lead?.phone || 'Customer';
         const propertyName = visit.property?.name ?? 'Property';
         // 1. DB notification for the assigned agent

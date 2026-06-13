@@ -99,6 +99,13 @@ export async function backfillPropertyKnowledgeOnBoot(): Promise<void> {
     }
 
     logger.info('Property knowledge boot backfill complete', { ok, failed, total: candidates.length });
+
+    // Chain additional batches when the limit was hit (partial backfill).
+    if (candidates.length >= BOOT_BATCH_LIMIT) {
+      setTimeout(() => {
+        backfillPropertyKnowledgeOnBoot().catch(() => {});
+      }, 30_000);
+    }
   } catch (err: unknown) {
     logger.warn('Property knowledge boot backfill aborted', {
       error: err instanceof Error ? err.message : String(err),

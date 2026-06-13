@@ -37,6 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importStar(require("express"));
+const logger_1 = __importDefault(require("../config/logger"));
 const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const storage_service_1 = require("../services/storage.service");
@@ -122,7 +123,8 @@ async function persistUpload(uploadToken, contentType, bytes) {
         const isDbKey = media.storageKey.startsWith('db/property-import-media/');
         const isSupabaseKey = Boolean((0, storageTargets_1.parseSupabaseStorageKey)(media.storageKey));
         const isAwsKey = Boolean((0, storageTargets_1.parseAwsStorageKey)(media.storageKey));
-        if (!isDbKey && !isSupabaseKey && !isAwsKey) {
+        const isR2Key = Boolean((0, storageTargets_1.parseR2StorageKey)(media.storageKey));
+        if (!isDbKey && !isSupabaseKey && !isAwsKey && !isR2Key) {
             throw new PropertyImportUploadError('Direct upload is not available for this token', 409);
         }
         const expectedContentType = normalizeContentType(media.mimeType);
@@ -140,7 +142,7 @@ async function persistUpload(uploadToken, contentType, bytes) {
                 },
             });
         }
-        else if (isAwsKey) {
+        else if (isAwsKey || isR2Key) {
             const uploaded = await storage_service_1.storageService.putObjectBytes(media.storageKey, bytes, media.mimeType);
             await tx.propertyImportMedia.update({
                 where: { id: media.id },
@@ -214,7 +216,11 @@ router.put('/:uploadToken', express_1.default.raw({
             res.status(409).json({ error: 'Upload has already been completed' });
             return;
         }
-        res.status(500).json({ error: 'Failed to upload file' });
+        logger_1.default.error('Property import upload failed', {
+            uploadToken: String(req.params.uploadToken || ''),
+            error: err?.message || String(err),
+        });
+        res.status(500).json({ error: err?.message || 'Failed to upload file' });
     }
 });
 router.get('/:uploadToken', async (req, res) => {

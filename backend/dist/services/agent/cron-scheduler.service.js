@@ -46,6 +46,7 @@ const logger_1 = __importDefault(require("../../config/logger"));
 const prisma_1 = __importDefault(require("../../config/prisma"));
 const agent_ai_constants_1 = require("../../constants/agent-ai.constants");
 const agent_action_log_service_1 = require("../agent-action-log.service");
+const opsMetrics_service_1 = require("../opsMetrics.service");
 const confirmation_service_1 = require("./confirmation.service");
 const response_formatter_service_1 = require("./response-formatter.service");
 const tasks = [];
@@ -107,15 +108,36 @@ async function sendVisitReminders() {
     const affected = trackCompanyIds();
     const now = new Date();
     const soon = new Date(now.getTime() + 60 * 60 * 1000);
+    // Only remind for confirmed visits. Sending reminders for 'scheduled' (pending-approval) visits
+    // confuses agents because they haven't confirmed the visit yet.
     const visits = await prisma_1.default.visit.findMany({
-        where: { scheduledAt: { gte: now, lte: soon }, status: { in: ['scheduled', 'confirmed'] }, reminderSent: false },
+        where: { scheduledAt: { gte: now, lte: soon }, status: 'confirmed' },
         include: { agent: true, lead: true, property: true },
     });
     for (const visit of visits) {
         if (!visit.agent.phone)
             continue;
+        const alreadySent = await prisma_1.default.agentActionLog.findFirst({
+            where: {
+                companyId: visit.companyId,
+                action: 'cron_visit_agent_reminder',
+                resourceType: 'visit',
+                resourceId: visit.id,
+            },
+            select: { id: true },
+        });
+        if (alreadySent)
+            continue;
         await sendNotification(visit.agent.phone, visit.companyId, [`*Visit Reminder*`, `${visit.lead?.customerName ?? 'Unknown'} (${(0, response_formatter_service_1.maskPhone)(visit.lead?.phone)})`, `${visit.property?.name ?? 'TBD'} at ${(0, response_formatter_service_1.formatTimeIST)(visit.scheduledAt)}`].join('\n'));
-        await prisma_1.default.visit.update({ where: { id: visit.id }, data: { reminderSent: true } });
+        void (0, agent_action_log_service_1.logAgentAction)({
+            companyId: visit.companyId,
+            triggeredBy: 'cron',
+            action: 'cron_visit_agent_reminder',
+            resourceType: 'visit',
+            resourceId: visit.id,
+            status: 'success',
+            result: 'Agent visit reminder sent (1h window)',
+        });
         affected.add(visit.companyId);
     }
     return affected.result();
@@ -759,10 +781,17 @@ function wrap(name, handler) {
 }
 /**
  * Auto-expire pending visit/call approvals older than 4 hours.
- * Marks the notification as declined and sends the customer a cancellation message.
+ * New approvals live in booking_approval_requests; the notification scan below is a legacy fallback.
  */
 async function expireStalePendingApprovals() {
     const affected = trackCompanyIds();
+    const { expireStaleBookingApprovals } = await Promise.resolve().then(() => __importStar(require('../bookingApproval.service')));
+    const expiredNewApprovals = await expireStaleBookingApprovals(50);
+    if (expiredNewApprovals > 0) {
+        logger_1.default.info('expireStalePendingApprovals: expired booking approval requests', {
+            count: expiredNewApprovals,
+        });
+    }
     const threshold = new Date(Date.now() - 4 * 60 * 60 * 1000);
     const staleRows = await prisma_1.default.notification.findMany({
         where: {
@@ -839,7 +868,10 @@ function startCronScheduler() {
     // G13: Nightly conversation summary — 2:10 AM IST. Patches lead_memory.conversationSummary.
     node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.NIGHTLY_CONVERSATION_SUMMARY, wrap('refreshNightlyConversationSummaries', refreshNightlyConversationSummaries)), 
     // Auto-expire pending visit/call approvals older than 4 hours — every 30 minutes.
-    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.PENDING_APPROVAL_EXPIRE, wrap('expireStalePendingApprovals', expireStalePendingApprovals)));
+    node_cron_1.default.schedule(agent_ai_constants_1.CRON_SCHEDULES.PENDING_APPROVAL_EXPIRE, wrap('expireStalePendingApprovals', expireStalePendingApprovals)), node_cron_1.default.schedule(opsMetrics_service_1.DAILY_OPS_ROLLUP_CRON, wrap('recordDailyOpsRollup', async () => {
+        await (0, opsMetrics_service_1.recordDailyOpsRollup)();
+        return {};
+    })));
     logger_1.default.info('Agent AI cron scheduler started', { jobs: tasks.length });
 }
 function stopCronScheduler() {

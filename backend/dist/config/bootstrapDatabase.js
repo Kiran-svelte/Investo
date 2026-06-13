@@ -310,6 +310,9 @@ async function applyCompatibilityPatches() {
     await prisma_1.default.$executeRawUnsafe(`
     ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS agent_name VARCHAR(50) NOT NULL DEFAULT 'Riya'
   `);
+    await prisma_1.default.$executeRawUnsafe(`
+    ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS greeting_media JSONB NOT NULL DEFAULT '[]'::jsonb
+  `);
     // Workflow saga + centralized lead memory (A+ gate).
     await prisma_1.default.$executeRawUnsafe(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_memory JSONB`);
     await prisma_1.default.$executeRawUnsafe(`
@@ -369,6 +372,46 @@ async function applyCompatibilityPatches() {
   `);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS call_requests_company_lead_idx ON call_requests (company_id, lead_id, scheduled_at DESC)`);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS call_requests_agent_scheduled_idx ON call_requests (agent_id, scheduled_at)`);
+    // booking_approval_requests — source of truth for buyer-initiated visit/call approvals.
+    await prisma_1.default.$executeRawUnsafe(`
+    DO $$ BEGIN
+      CREATE TYPE "BookingApprovalKind" AS ENUM ('visit', 'call');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+  `);
+    await prisma_1.default.$executeRawUnsafe(`
+    DO $$ BEGIN
+      CREATE TYPE "BookingApprovalStatus" AS ENUM ('pending', 'approved', 'declined', 'cancelled', 'expired');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+  `);
+    await prisma_1.default.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS booking_approval_requests (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      kind "BookingApprovalKind" NOT NULL,
+      status "BookingApprovalStatus" NOT NULL DEFAULT 'pending',
+      lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      agent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      property_id UUID NULL REFERENCES properties(id) ON DELETE SET NULL,
+      call_request_id UUID NULL,
+      scheduled_at TIMESTAMPTZ NOT NULL,
+      customer_phone VARCHAR(20) NOT NULL,
+      customer_name VARCHAR(255) NULL,
+      conversation_id UUID NULL REFERENCES conversations(id) ON DELETE SET NULL,
+      idempotency_key VARCHAR(255) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      resolved_at TIMESTAMPTZ NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+    await prisma_1.default.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS booking_approval_requests_company_idempotency_uidx ON booking_approval_requests (company_id, idempotency_key)`);
+    await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS booking_approval_requests_company_kind_status_scheduled_idx ON booking_approval_requests (company_id, kind, status, scheduled_at)`);
+    await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS booking_approval_requests_company_agent_status_idx ON booking_approval_requests (company_id, agent_id, status)`);
+    await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS booking_approval_requests_company_lead_kind_status_idx ON booking_approval_requests (company_id, lead_id, kind, status)`);
+    await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS booking_approval_requests_expires_status_idx ON booking_approval_requests (expires_at, status)`);
     await prisma_1.default.$executeRawUnsafe(`
     DO $$
     BEGIN

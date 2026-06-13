@@ -43,6 +43,9 @@ const opsMetrics_service_1 = require("./opsMetrics.service");
 const legalDisclaimer_constants_1 = require("../constants/legalDisclaimer.constants");
 const conversationStateMachine_1 = require("./conversationStateMachine");
 const customerMessageFastPath_service_1 = require("./customerMessageFastPath.service");
+const buyerLeadProgress_util_1 = require("../utils/buyerLeadProgress.util");
+const fixMdFeatures_util_1 = require("../utils/fixMdFeatures.util");
+const propertyPromptLimits_util_1 = require("../utils/propertyPromptLimits.util");
 const buyerVisitQuery_service_1 = require("./buyerVisitQuery.service");
 const realEstateAssistantPrompt_constants_1 = require("../constants/realEstateAssistantPrompt.constants");
 const openaiStatus_service_1 = require("./openaiStatus.service");
@@ -53,6 +56,7 @@ const parseDateTimeFromMessage_util_1 = require("../utils/parseDateTimeFromMessa
 const aiGlobalRules_constants_1 = require("../constants/aiGlobalRules.constants");
 const llmSafeParams_constants_1 = require("../constants/llmSafeParams.constants");
 const safeBuyerFallback_util_1 = require("../utils/safeBuyerFallback.util");
+const whatsappReplySpeed_util_1 = require("../utils/whatsappReplySpeed.util");
 const retry_1 = require("../utils/retry");
 const circuit_breaker_1 = require("../utils/circuit-breaker");
 const kimiCircuitBreaker = (0, circuit_breaker_1.getCircuitBreaker)({
@@ -117,6 +121,23 @@ class AIService {
         }
         // Initialize or use existing state
         let state = request.conversationState || conversationStateMachine_1.conversationStateManager.createInitialState();
+        if (state.stage === 'rapport'
+            && request.lead?.status
+            && (0, buyerLeadProgress_util_1.isAdvancedLeadStatus)(request.lead.status)
+            && (0, fixMdFeatures_util_1.shouldElevateReturningBuyerStage)(request.lead.id)) {
+            state = {
+                ...state,
+                stage: (0, buyerLeadProgress_util_1.resolveStageFromLeadStatus)(request.lead.status),
+                previousStage: 'rapport',
+            };
+        }
+        // If this conversation was previously escalated but AI is still active (conversation.status = ai_active),
+        // the state machine stage may still be 'human_escalated' in the DB — reset it to rapport so the
+        // policy brain and LLM don't inherit the escalation prompt focus that says 'DO NOT handle further'.
+        // This happens when: (a) agent didn't take over, (b) AI re-engaged automatically, (c) test conversations.
+        if (state.stage === 'human_escalated') {
+            state = { ...state, stage: 'rapport', escalationReason: null };
+        }
         // POLICY BRAIN: Process message and decide next action
         const { newState, nextAction } = conversationStateMachine_1.conversationStateManager.processMessage(state, request.customerMessage, undefined // extractedInfo will be populated after LLM response
         );
@@ -146,14 +167,16 @@ class AIService {
                 nextAction: { action: 'continue', promptModifiers: ['Visit status listed from database.'] },
             };
         }
-        // Never keep customers stuck in human_escalated for normal messages.
-        if (newState.stage === 'human_escalated' && nextAction.action === 'escalate') {
-            newState.stage = 'rapport';
+        // Never keep customers stuck in human_escalated — notify agents only, AI stays active.
+        if (newState.stage === 'human_escalated') {
+            newState.stage = state.stage === 'human_escalated' ? 'rapport' : state.stage;
             newState.escalationReason = null;
-            nextAction.action = 'continue';
-            nextAction.targetStage = undefined;
+        }
+        if (nextAction.action === 'escalate') {
+            newState.escalationReason = nextAction.escalationReason ?? null;
             nextAction.promptModifiers = [
-                'Customer re-engaged after escalation. Continue naturally — do NOT say a specialist will assist.',
+                ...(nextAction.promptModifiers ?? []),
+                'Never say the chat was handed off or that you stopped helping.',
             ];
         }
         const fastPath = (0, customerMessageFastPath_service_1.buildFastPathCustomerReply)({
@@ -185,12 +208,15 @@ class AIService {
         const knowledgeQuery = request.focusedPropertyId
             ? `${request.customerMessage} ${request.properties.find((p) => p.id === request.focusedPropertyId)?.name ?? ''}`.trim()
             : request.customerMessage;
+        const promptLimits = (0, propertyPromptLimits_util_1.getPropertyPromptLimits)();
+        const useVectorSearch = shouldSearchKnowledge
+            && !(config_1.default.features.skipVectorOnDegradedEmbeddings && (0, propertyKnowledge_service_1.wasKnowledgeEmbeddingDegraded)());
         const [vectorChunks, focusedChunks] = await Promise.all([
-            shouldSearchKnowledge && request.companyId
-                ? (0, propertyKnowledge_service_1.searchPropertyKnowledge)(request.companyId, knowledgeQuery, request.focusedPropertyId ? 10 : 8)
+            useVectorSearch && request.companyId
+                ? (0, propertyKnowledge_service_1.searchPropertyKnowledge)(request.companyId, knowledgeQuery, request.focusedPropertyId ? promptLimits.vectorSearchFocusedLimit : promptLimits.vectorSearchLimit)
                 : Promise.resolve([]),
             request.companyId && request.focusedPropertyId
-                ? (0, propertyKnowledge_service_1.getPropertyKnowledgeForProperty)(request.companyId, request.focusedPropertyId, 5)
+                ? (0, propertyKnowledge_service_1.getPropertyKnowledgeForProperty)(request.companyId, request.focusedPropertyId, promptLimits.focusedPropertyChunks)
                 : Promise.resolve([]),
         ]);
         const mergedChunks = [...focusedChunks];
@@ -199,7 +225,7 @@ class AIService {
                 mergedChunks.push(chunk);
             }
         }
-        const knowledgeContext = (0, propertyKnowledge_service_1.formatKnowledgeContextForPrompt)(mergedChunks.slice(0, 10));
+        const knowledgeContext = (0, propertyKnowledge_service_1.formatKnowledgeContextForPrompt)(mergedChunks.slice(0, promptLimits.knowledgeChunksMax));
         let clientMemoryContext = '';
         let leadMemoryBlock = '';
         let conversationContextBlock = request.conversationContextBlock ?? '';
@@ -321,10 +347,11 @@ class AIService {
         const { aiSettings, companyName, properties, lead } = request;
         const stageConfig = (0, conversationStateMachine_1.getStageConfig)(state.stage);
         const tone = aiSettings.responseTone || 'friendly';
-        // Build property context — filter to available only, limit to 10 to avoid huge prompts
+        const promptLimits = (0, propertyPromptLimits_util_1.getPropertyPromptLimits)();
+        // Build property context — filter to available only
         const propertyList = properties
-            .filter((p) => p.status === 'available')
-            .slice(0, 10)
+            .filter((p) => p.status === 'available' || p.status === 'upcoming')
+            .slice(0, promptLimits.availablePropertiesMax)
             .map((p) => {
             let amenityList = [];
             if (Array.isArray(p.amenities)) {
@@ -338,8 +365,9 @@ class AIService {
                     amenityList = [];
                 }
             }
-            const amenityStr = amenityList.slice(0, 5).join(', ');
-            return `- ${p.name} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenityStr}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
+            const amenityStr = amenityList.slice(0, promptLimits.listAmenitiesMax).join(', ');
+            const displayName = p.status === 'upcoming' ? `${p.name} (Upcoming)` : p.name;
+            return `- ${displayName} | ${p.locationArea}, ${p.locationCity} | ₹${formatPrice(p.priceMin)}-${formatPrice(p.priceMax)} | ${p.bedrooms}BHK ${p.propertyType} | Amenities: ${amenityStr}${p.brochureUrl ? ' | Brochure PDF: on file' : ''}`;
         })
             .join('\n');
         // Build commitment status
@@ -350,12 +378,21 @@ class AIService {
             state.commitments.visitSlotDiscussed ? '✅ Visit Discussed' : '❌ Visit Discussed',
         ].join(' | ');
         const recentConversationBlock = this.formatRecentConversationBlock(conversationHistory);
+        const isDetailQuestion = (0, customerMessageFastPath_service_1.isPropertyInquiryMessage)(request.customerMessage);
+        const missionBlock = config_1.default.features.detailQuestionLlm && isDetailQuestion
+            ? `## YOUR MISSION
+You are a knowledgeable real estate advisor. Answer the customer's property questions thoroughly using GROUNDED PROJECT KNOWLEDGE and AVAILABLE PROPERTIES. After helping with their question, gently offer a site visit or brochure — do not rush past their question.`
+            : `## YOUR MISSION
+You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.`;
+        const responseWordCap = config_1.default.features.expandedBuyerResponseCap ? 350 : 200;
+        const personalityBlock = config_1.default.features.adaptiveBuyerPersona
+            ? (0, realEstateAssistantPrompt_constants_1.buildPersonalityBlock)(aiSettings.agentName || 'Riya')
+            : (0, realEstateAssistantPrompt_constants_1.buildPersonalityBlock)('Riya');
         return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
 ${aiGlobalRules_constants_1.AI_GLOBAL_RULES_BLOCK}
 
 ${liveLeadContextBlock ? `\n${liveLeadContextBlock}\n` : ''}
-## YOUR MISSION
-You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.
+${missionBlock}
 
 ## CURRENT STATE
 - Stage: ${state.stage.toUpperCase()} (${stageConfig.goal})
@@ -385,7 +422,7 @@ ${(0, realEstateAssistantPrompt_constants_1.buildRealEstateAssistantPolicyPrompt
 6d. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
 7. ONE clear call-to-action per message.
 7b. NEVER send more than one message per user turn. If buttons are needed, the system attaches them to the same interactive message — do NOT write a separate follow-up.
-8. Keep responses under 200 words.
+8. Keep responses under ${responseWordCap} words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
 8c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".
 8d. If RECENT CONVERSATION exists below, continue naturally — NEVER welcome the customer again or re-introduce yourself.
@@ -442,20 +479,20 @@ Return ONLY valid JSON (no markdown fences, no extra text):
 ✅ Use emojis sparingly (1-2 per message) to match WhatsApp's natural tone: 🏡 💬 ✅ 🗓️
 ✅ Put only confident fields in extract; use null for unknown values.
 
-${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
+${personalityBlock}`;
     }
     operatorContactPromptBlock(aiSettings) {
         const raw = aiSettings?.operatorContact;
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+            return '\n## TEAM NOTIFIED\nTell the customer our team has been alerted and will follow up. You are still helping them here.';
         }
         const contact = raw;
         const name = typeof contact.name === 'string' ? contact.name.trim() : '';
         const phone = typeof contact.phone === 'string' ? contact.phone.trim() : '';
         if (!name && !phone) {
-            return '\n## SPECIALIST HANDOFF\nTell the customer a property specialist will contact them shortly.';
+            return '\n## TEAM NOTIFIED\nTell the customer our team has been alerted and will follow up. You are still helping them here.';
         }
-        return `\n## SPECIALIST HANDOFF\nShare that *${name || 'our specialist'}*${phone ? ` (${phone})` : ''} will take over for pricing and booking details.`;
+        return `\n## TEAM NOTIFIED\nMention that *${name || 'our specialist'}*${phone ? ` (${phone})` : ''} will follow up on pricing/booking. You remain the active assistant — keep helping on property questions.`;
     }
     getProviderOrder() {
         const primaryProvider = (config_1.default.ai.provider || 'openai').toLowerCase();
@@ -547,7 +584,7 @@ ${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
             const data = await response.json();
             const text = data.content?.[0]?.text || '';
             return this.parseAIResponse(text);
-        }, { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25000, label: 'claude_ai' }));
+        }, { maxAttempts: 2, baseDelayMs: 500, timeoutMs: (0, whatsappReplySpeed_util_1.getBuyerLlmTimeoutMs)(), label: 'claude_ai' }));
     }
     /**
      * Call Kimi API — with circuit breaker and retry for transient failures.
@@ -578,7 +615,7 @@ ${realEstateAssistantPrompt_constants_1.PERSONALITY_BLOCK}`;
             const data = await response.json();
             const text = data.choices?.[0]?.message?.content || '';
             return this.parseAIResponse(text);
-        }, { maxAttempts: 2, baseDelayMs: 500, timeoutMs: 25000, label: 'kimi_ai' }));
+        }, { maxAttempts: 2, baseDelayMs: 500, timeoutMs: (0, whatsappReplySpeed_util_1.getBuyerLlmTimeoutMs)(), label: 'kimi_ai' }));
     }
     /**
      * Call OpenAI API as fallback.

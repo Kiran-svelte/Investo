@@ -394,7 +394,7 @@ router.post(
                 images: heroImage ? [heroImage] : [],
                 brochureUrl,
                 ...(Object.keys(extendedAttributes).length > 0
-                  ? { extendedAttributes }
+                  ? { extendedAttributes: extendedAttributes as Prisma.InputJsonValue }
                   : {}),
               },
             });
