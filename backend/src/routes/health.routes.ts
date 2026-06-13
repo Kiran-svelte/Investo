@@ -18,6 +18,8 @@ import { getOpenAiServiceHealth } from '../services/openaiStatus.service';
 
 import { getPropertyKnowledgeEmbeddingHealth } from '../services/propertyKnowledge.service';
 
+import { getProductionWhatsAppInboundHealth } from '../utils/companyWhatsAppWebhook.util';
+
 import { AI_STACK_CAPABILITIES } from '../constants/ai-capabilities.constants';
 
 import { PRODUCTION_POLISH_PILLARS } from '../constants/production-polish.constants';
@@ -147,7 +149,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
     await prisma.$queryRaw`SELECT 1`;
 
-    const [propertyKnowledgeEmbeddings, openai, mail] = await Promise.all([
+    const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound] = await Promise.all([
 
       getPropertyKnowledgeEmbeddingHealth(),
 
@@ -155,13 +157,11 @@ router.get('/', async (_req: Request, res: Response) => {
 
       getMailServiceHealth(),
 
+      getProductionWhatsAppInboundHealth(),
+
     ]);
 
     const openAiBlocks = openai.status === 'down';
-
-    const whatsappInbound = config.env === 'production' && !config.whatsapp.appSecret
-      ? { status: 'blocked', reason: 'WHATSAPP_APP_SECRET missing — Meta webhooks rejected' }
-      : { status: 'ok' };
 
     const overallOk = propertyKnowledgeEmbeddings.status !== 'error' && !openAiBlocks
       && whatsappInbound.status !== 'blocked';

@@ -76,8 +76,14 @@ function createWebhookApp(env: {
       $connect: jest.fn(),
       message: { findFirst: jest.fn(), create: jest.fn() },
       lead: { findFirst: jest.fn() },
-      company: { findUnique: jest.fn() },
+      company: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     },
+  }));
+
+  jest.doMock('../../utils/companyWhatsAppWebhook.util', () => ({
+    __esModule: true,
+    matchesWebhookVerifyToken: jest.fn(async (token: string) => token === env.verifyToken),
+    resolveWebhookAppSecrets: jest.fn(async () => (env.appSecret ? [env.appSecret] : [])),
   }));
 
   jest.doMock('../../config/logger', () => ({
@@ -279,7 +285,7 @@ describe('WhatsApp webhook security (production)', () => {
     expect(response.body?.reason).toBe('signature_missing');
   });
 
-  test('POST rejects when WHATSAPP_APP_SECRET is missing in production', async () => {
+  test('POST rejects when tenant Meta app secret is missing in production', async () => {
     const { app } = createWebhookApp({
       nodeEnv: 'production',
       verifyToken: 'verify-123',

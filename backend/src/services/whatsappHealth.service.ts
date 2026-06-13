@@ -1,6 +1,7 @@
 import config from '../config';
 import logger from '../config/logger';
 import { getRedis } from '../config/redis';
+import { resolveProductionWhatsAppAccessToken } from '../utils/companyWhatsAppWebhook.util';
 
 /**
  * Health status for a single WhatsApp connection
@@ -149,7 +150,7 @@ export class WhatsAppHealthService {
    * @returns Promise<boolean> - True if phone number is valid and active
    */
   async verifyPhoneNumber(phoneNumberId: string, accessToken?: string): Promise<boolean> {
-    const token = accessToken || config.whatsapp.accessToken;
+    const token = accessToken || await resolveProductionWhatsAppAccessToken();
     
     if (!token) {
       logger.warn('Cannot verify phone number: no access token');
@@ -202,29 +203,15 @@ export class WhatsAppHealthService {
   // ===== Private helper methods =====
 
   private async getCompanyAccessToken(companyId: string): Promise<string | null> {
-    try {
-      const prisma = (await import('../config/prisma')).default;
-      const company = await prisma.company.findUnique({
-        where: { id: companyId },
-        select: { settings: true },
-      });
-      const settings = (company?.settings as any) || {};
-      const whatsapp = (settings.whatsapp as any) || {};
-      const meta = (whatsapp.meta as any) || {};
-      return meta.accessToken || whatsapp.accessToken || config.whatsapp.accessToken;
-    } catch {
-      return config.whatsapp.accessToken;
-    }
+    return resolveProductionWhatsAppAccessToken(companyId);
   }
 
   private async checkConfigCompleteness(companyId?: string): Promise<{ complete: boolean; reason: string }> {
     try {
-      const accessToken = companyId
-        ? await this.getCompanyAccessToken(companyId)
-        : config.whatsapp.accessToken;
+      const accessToken = await resolveProductionWhatsAppAccessToken(companyId);
 
       if (!accessToken) {
-        return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken' };
+        return { complete: false, reason: 'Meta WhatsApp not configured: missing accessToken in company settings' };
       }
 
       return { complete: true, reason: '' };
@@ -234,9 +221,7 @@ export class WhatsAppHealthService {
   }
 
   private async checkMetaConnection(companyId?: string): Promise<Response> {
-    const accessToken = companyId
-      ? await this.getCompanyAccessToken(companyId)
-      : config.whatsapp.accessToken;
+    const accessToken = await resolveProductionWhatsAppAccessToken(companyId);
 
     if (!accessToken) {
       throw new Error('No WhatsApp access token configured');

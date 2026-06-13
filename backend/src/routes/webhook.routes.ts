@@ -9,6 +9,10 @@ import { whatsappIpWhitelist } from '../middleware/whatsappSecurity';
 import { whatsappHealthService } from '../services/whatsappHealth.service';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { extractCustomerMessage } from '../services/whatsapp/metaInboundParser.service';
+import {
+  matchesWebhookVerifyToken,
+  resolveWebhookAppSecrets,
+} from '../utils/companyWhatsAppWebhook.util';
 
 const router = Router();
 
@@ -25,12 +29,14 @@ router.use(whatsappIpWhitelist);
  * WhatsApp webhook verification endpoint - no auth required.
  * Meta sends a challenge that must be echoed back.
  */
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
+  const token = typeof req.query['hub.verify_token'] === 'string'
+    ? req.query['hub.verify_token']
+    : '';
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === config.whatsapp.verifyToken) {
+  if (mode === 'subscribe' && await matchesWebhookVerifyToken(token)) {
     logger.info('WhatsApp webhook verified');
     res.status(200).send(challenge);
     return;
@@ -71,12 +77,14 @@ router.post(
   const e2eProof = verifyE2EWebhookProofToken(e2eToken);
   const signatureCheck = e2eProof.allowed
     ? e2eProof
-    : verifyWebhookSignature(rawBody ?? req.body, signature);
+    : await verifyWebhookSignature(rawBody ?? req.body, signature);
   if (!signatureCheck.allowed) {
     logger.warn('Webhook signature verification failed', {
       reason: signatureCheck.reason,
       hasSignature: !!signature,
-      hasAppSecret: !!config.whatsapp.appSecret,
+      hasTenantAppSecret: 'hasTenantAppSecret' in signatureCheck
+        ? signatureCheck.hasTenantAppSecret
+        : undefined,
       env: config.env,
     });
     res.status(403).json({ status: 'rejected', reason: signatureCheck.reason });
@@ -115,10 +123,10 @@ function verifyE2EWebhookProofToken(token: string | undefined): { allowed: boole
 /**
  * Verify the webhook payload signature from Meta.
  */
-function verifyWebhookSignature(
+async function verifyWebhookSignature(
   body: any,
   signature: string | undefined,
-): { allowed: boolean; reason: string } {
+): Promise<{ allowed: boolean; reason: string; hasTenantAppSecret?: boolean }> {
   if (process.env.BYPASS_WHATSAPP_SIGNATURE === 'true') {
     if (config.env === 'production') {
       // Hard-block in production — this bypass must never be enabled in prod.
@@ -129,24 +137,36 @@ function verifyWebhookSignature(
     return { allowed: true, reason: 'debug_bypass' };
   }
 
-  if (!config.whatsapp.appSecret) {
+  const parsedBody = (() => {
+    try {
+      if (Buffer.isBuffer(body)) return JSON.parse(body.toString('utf8'));
+      if (typeof body === 'string') return JSON.parse(body);
+      return body;
+    } catch {
+      return body;
+    }
+  })();
+  const appSecrets = await resolveWebhookAppSecrets(parsedBody);
+  const hasTenantAppSecret = appSecrets.length > 0;
+
+  if (!hasTenantAppSecret) {
     if (config.env === 'production') {
-      logger.error('Webhook signature verification failed: WHATSAPP_APP_SECRET is missing in production');
-      return { allowed: false, reason: 'app_secret_missing' };
+      logger.error('Webhook signature verification failed: Meta app secret missing in company settings');
+      return { allowed: false, reason: 'app_secret_missing', hasTenantAppSecret: false };
     }
 
-    logger.warn('WHATSAPP_APP_SECRET not configured - allowing webhook only in non-production');
-    return { allowed: true, reason: 'non_prod_missing_app_secret' };
+    logger.warn('Meta app secret not configured in company settings - allowing webhook only in non-production');
+    return { allowed: true, reason: 'non_prod_missing_app_secret', hasTenantAppSecret: false };
   }
 
   if (!signature) {
     if (config.env !== 'production') {
       logger.warn('Webhook signature missing in non-production - allowing');
-      return { allowed: true, reason: 'non_prod_missing_signature' };
+      return { allowed: true, reason: 'non_prod_missing_signature', hasTenantAppSecret: true };
     }
 
     logger.error('Webhook signature missing in production');
-    return { allowed: false, reason: 'signature_missing' };
+    return { allowed: false, reason: 'signature_missing', hasTenantAppSecret: true };
   }
 
   const payload = Buffer.isBuffer(body)
@@ -155,35 +175,34 @@ function verifyWebhookSignature(
       ? body
       : JSON.stringify(body);
 
-  const expectedSignature = 'sha256=' + crypto
-    .createHmac('sha256', config.whatsapp.appSecret)
-    .update(payload)
-    .digest('hex');
+  for (const appSecret of appSecrets) {
+    const expectedSignature = 'sha256=' + crypto
+      .createHmac('sha256', appSecret)
+      .update(payload)
+      .digest('hex');
 
-  const actual = Buffer.from(signature);
-  const expected = Buffer.from(expectedSignature);
-  
-  if (actual.length !== expected.length) {
-    logger.error('Webhook signature length mismatch', {
-      actualLength: actual.length,
-      expectedLength: expected.length,
-    });
-    return { allowed: false, reason: 'signature_invalid_length' };
+    const actual = Buffer.from(signature);
+    const expected = Buffer.from(expectedSignature);
+
+    if (actual.length !== expected.length) {
+      continue;
+    }
+
+    if (crypto.timingSafeEqual(actual, expected)) {
+      return { allowed: true, reason: 'signature_valid', hasTenantAppSecret: true };
+    }
   }
 
-  const isValid = crypto.timingSafeEqual(actual, expected);
-  
-  if (!isValid) {
-    logger.error('Webhook signature mismatch', {
-      received: signature.substring(0, 15) + '...',
-      expected: expectedSignature.substring(0, 15) + '...',
-      payloadLength: payload.length,
-    });
-  }
+  logger.error('Webhook signature mismatch for all tenant app secrets', {
+    received: signature.substring(0, 15) + '...',
+    payloadLength: payload.length,
+    secretCount: appSecrets.length,
+  });
 
   return {
-    allowed: isValid,
-    reason: isValid ? 'signature_valid' : 'signature_mismatch',
+    allowed: false,
+    reason: 'signature_mismatch',
+    hasTenantAppSecret: true,
   };
 }
 
