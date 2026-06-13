@@ -110,9 +110,14 @@ export function isIdentityQuestionMessage(message: string): boolean {
  */
 /** Property-specific questions must always hit the knowledge index. */
 export function isPropertyInquiryMessage(message: string): boolean {
-  return /\b(property|project|amenit|brochure|price|cost|bhk|bedroom|rera|builder|location|villa|apartment|plot|commercial|details?|tell me about|more info|describe|specs?|configuration|possession|floor plan|highlights?|features?|sq\.?\s*ft|square feet|units?)\b/i.test(
+  return /\b(property|project|amenit|brochure|price|cost|bhk|bedroom|rera|builder|location|villa|apartment|plot|commercial|details?|tell me about|more info|describe|specs?|configuration|possession|floor plan|highlights?|features?|sq\.?\s*ft|square feet|units?|carpet|built[- ]?up|maintenance|facing|vastu|payment plan|emi|khata|plot area|super built)\b/i.test(
     message,
   );
+}
+
+export function isPropertyDetailQuestion(message: string): boolean {
+  return isPropertyInquiryMessage(message)
+    && /\b(how much|what is|what's|when|where|which|tell me|explain|describe|details?|more about|carpet|possession|facing|maintenance|amenit|sq\.?\s*ft|price|cost|bhk|bedroom)\b/i.test(message);
 }
 
 export function shouldSkipKnowledgeSearchForMessage(

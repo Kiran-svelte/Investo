@@ -52,6 +52,7 @@ const lead_routes_1 = __importDefault(require("./routes/lead.routes"));
 const property_routes_1 = __importDefault(require("./routes/property.routes"));
 const property_project_routes_1 = __importDefault(require("./routes/property-project.routes"));
 const visit_routes_1 = __importDefault(require("./routes/visit.routes"));
+const calendar_routes_1 = __importDefault(require("./routes/calendar.routes"));
 const conversation_routes_1 = __importDefault(require("./routes/conversation.routes"));
 const ai_settings_routes_1 = __importDefault(require("./routes/ai-settings.routes"));
 const conversion_settings_routes_1 = __importDefault(require("./routes/conversion-settings.routes"));
@@ -125,6 +126,7 @@ app.use('/api/property-imports/uploads', property_import_upload_routes_1.default
 app.use('/api/property-imports/bulk', auth_1.authenticate, rateLimiter_1.companyRateLimiter, property_import_bulk_routes_1.default);
 app.use('/api/property-imports', auth_1.authenticate, rateLimiter_1.companyRateLimiter, rateLimiter_1.userAiRateLimiter, rateLimiter_1.companyAiRateLimiter, property_import_routes_1.default);
 app.use('/api/visits', auth_1.authenticate, rateLimiter_1.companyRateLimiter, visit_routes_1.default);
+app.use('/api/calendar', auth_1.authenticate, rateLimiter_1.companyRateLimiter, calendar_routes_1.default);
 app.use('/api/conversations', auth_1.authenticate, rateLimiter_1.companyRateLimiter, conversation_routes_1.default);
 app.use('/api/ai-settings', auth_1.authenticate, rateLimiter_1.companyRateLimiter, ai_settings_routes_1.default);
 app.use('/api/conversion-settings', auth_1.authenticate, rateLimiter_1.companyRateLimiter, conversion_settings_routes_1.default);

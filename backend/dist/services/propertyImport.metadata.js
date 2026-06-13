@@ -1,11 +1,16 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.normalizePropertyImportMappingProfile = normalizePropertyImportMappingProfile;
 exports.normalizePropertyImportReviewMetadata = normalizePropertyImportReviewMetadata;
 exports.normalizePropertyImportDraftData = normalizePropertyImportDraftData;
 exports.isPropertyImportReviewPending = isPropertyImportReviewPending;
+exports.shouldBlockPublishForImportReview = shouldBlockPublishForImportReview;
 exports.isPropertyImportReviewApproved = isPropertyImportReviewApproved;
 exports.hasPropertyImportMappingMetadata = hasPropertyImportMappingMetadata;
+const config_1 = __importDefault(require("../config"));
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -200,6 +205,17 @@ function isPropertyImportReviewPending(draftData) {
     const mapping = normalizePropertyImportMappingProfile(draftData?.import_mapping ?? draftData?.importMapping);
     const review = normalizePropertyImportReviewMetadata(draftData?.import_review ?? draftData?.importReview, mapping);
     return review?.status === 'needs_review';
+}
+/** Spreadsheet/bulk imports with full column mapping may skip human review when flagged. */
+function shouldBlockPublishForImportReview(draftData) {
+    if (!draftData)
+        return false;
+    const mode = draftData.import_mode ?? draftData.importMode;
+    if ((mode === 'bulk_csv' || mode === 'spreadsheet_imported')
+        && config_1.default.features.bulkImportSkipReview) {
+        return false;
+    }
+    return isPropertyImportReviewPending(draftData);
 }
 function isPropertyImportReviewApproved(draftData) {
     const mapping = normalizePropertyImportMappingProfile(draftData?.import_mapping ?? draftData?.importMapping);

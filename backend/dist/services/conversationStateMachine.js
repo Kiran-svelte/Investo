@@ -322,13 +322,12 @@ class PolicyBrain {
             const priceEscalation = objectionType === 'price_too_high' || state.lastObjectionType === 'price_too_high';
             return {
                 action: 'escalate',
-                targetStage: 'human_escalated',
                 escalationReason: this.getEscalationReason(state, messageIntent, objectionType),
                 suggestedLeadStatus: priceEscalation ? 'negotiation' : undefined,
                 promptModifiers: [
-                    'ESCALATION: Inform customer that a specialist will take over.',
-                    'DO NOT quote new prices or discounts — a human will handle negotiation.',
-                    'DO NOT try to handle further. Be warm and reassuring.',
+                    'TEAM NOTIFIED: Our team has been alerted. You remain the active assistant — do NOT say the chat was handed off.',
+                    'DO NOT quote new prices or discounts — a specialist will follow up separately.',
+                    'Continue helping warmly with property info, visits, and brochures where you can.',
                 ],
             };
         }
@@ -339,15 +338,14 @@ class PolicyBrain {
             if (escalateTopics.has(authorityTopic)) {
                 return {
                     action: 'escalate',
-                    targetStage: 'human_escalated',
                     escalationReason: authorityTopic === 'finalize_price'
-                        ? 'Customer requested booking/final price — specialist handoff'
-                        : 'Price negotiation — specialist handoff',
+                        ? 'Customer requested booking/final price — specialist notified'
+                        : 'Price negotiation — specialist notified',
                     suggestedLeadStatus: 'negotiation',
                     promptModifiers: [
                         (0, realEstateAssistantPrompt_constants_1.getAuthorityLimitPromptModifier)(authorityTopic),
-                        'Acknowledge interest warmly. A senior agent will contact within 10 minutes.',
-                        'Do NOT confirm booking, final price, or discounts yourself.',
+                        'TEAM NOTIFIED: Acknowledge interest warmly. A senior agent will contact separately.',
+                        'Do NOT confirm booking, final price, or discounts yourself. Keep helping on other topics.',
                     ],
                 };
             }
@@ -366,13 +364,12 @@ class PolicyBrain {
                 || /negotiat|discount|best price|final price|counter offer|rate reduce|lower the price/i.test(msg);
             return {
                 action: 'escalate',
-                targetStage: 'human_escalated',
-                escalationReason: priceTalk ? 'Price negotiation — specialist handoff' : 'Customer requested human agent',
+                escalationReason: priceTalk ? 'Price negotiation — specialist notified' : 'Customer requested human agent',
                 suggestedLeadStatus: priceTalk ? 'negotiation' : undefined,
                 promptModifiers: [
-                    'Customer wants to speak with a human.',
-                    'Acknowledge warmly, assure them a specialist will call within 10 minutes.',
-                    'Do not negotiate price — hand off to the specialist.',
+                    'TEAM NOTIFIED: Customer wants human help — agents alerted.',
+                    'Acknowledge warmly that the team will reach out. Keep answering property questions if asked.',
+                    'Do NOT say the conversation was transferred or that AI stopped.',
                 ],
             };
         }
@@ -387,6 +384,7 @@ class PolicyBrain {
                     `EMPATHY FIRST: ${playbook.empathyFirst}`,
                     `REFRAME: ${playbook.reframe}`,
                     `BRIDGE: ${playbook.bridgeToValue}`,
+                    `FALLBACK: ${playbook.fallbackOffer}`,
                     'After addressing, try to gently move back toward the visit.',
                 ],
             };
@@ -616,9 +614,7 @@ class ConversationStateManager {
                 newState.messageCount = 0;
             }
         }
-        if (nextAction.action === 'escalate' && nextAction.targetStage) {
-            newState.previousStage = newState.stage;
-            newState.stage = nextAction.targetStage;
+        if (nextAction.action === 'escalate') {
             newState.escalationReason = nextAction.escalationReason || null;
         }
         return { newState, nextAction };

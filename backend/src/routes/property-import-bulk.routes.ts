@@ -29,7 +29,9 @@ import logger from '../config/logger';
 import config from '../config';
 import prisma from '../config/prisma';
 import { csvImportService, serializePropertyRowData, type ColumnMapping, type PropertyRowCandidate } from '../services/csv-import.service';
-import { indexPropertyKnowledge } from '../services/propertyKnowledge.service';
+import { indexPropertyKnowledge, assertPropertyKnowledgeReady } from '../services/propertyKnowledge.service';
+import { isPropertyKnowledgeComplete, countMissingKnowledgeFields } from '../services/propertyTypeKnowledge.service';
+import { extractExtendedPropertyAttributes } from '../utils/extractExtendedPropertyAttributes.util';
 import {
   BULK_IMPORT_ACCEPTED_MIME_TYPES,
   CSV_IMPORT_MAX_FILE_SIZE_BYTES,
@@ -319,6 +321,22 @@ router.post(
         throw new BulkImportError('No valid rows to publish. Fix validation errors and re-confirm.', 400);
       }
 
+      if (config.features.bulkPublishStrict) {
+        for (const row of validRows) {
+          const rowDraft = {
+            ...draftData,
+            ...(row.data as Record<string, unknown>),
+          };
+          if (!isPropertyKnowledgeComplete(rowDraft)) {
+            const { gapCount } = countMissingKnowledgeFields(rowDraft);
+            throw new BulkImportError(
+              `Complete property knowledge for all rows before bulk publish (${gapCount} gap(s) on a row).`,
+              409,
+            );
+          }
+        }
+      }
+
       const projectName = String(draftData.project_name ?? 'Untitled project');
       const projectId =
         draft.projectId
@@ -346,6 +364,9 @@ router.post(
               : null;
             const lat = data.latitude != null ? Number(data.latitude) : null;
             const lng = data.longitude != null ? Number(data.longitude) : null;
+            const extendedAttributes = config.features.extendedPropertyAttrs
+              ? extractExtendedPropertyAttributes(data as Record<string, unknown>)
+              : {};
 
             return tx.property.create({
               data: {
@@ -372,6 +393,9 @@ router.post(
                 longitude: lng !== null && Number.isFinite(lng) ? String(lng) as unknown as any : null,
                 images: heroImage ? [heroImage] : [],
                 brochureUrl,
+                ...(Object.keys(extendedAttributes).length > 0
+                  ? { extendedAttributes: extendedAttributes as Prisma.InputJsonValue }
+                  : {}),
               },
             });
           }),
@@ -392,16 +416,16 @@ router.post(
         return createdProperties;
       });
 
-      // Index AI knowledge for each published property (outside transaction, non-fatal on failure).
+      // Index AI knowledge for each published property.
       let knowledgeIndexedCount = 0;
-      for (const property of published) {
-        try {
+      try {
+        for (const property of published) {
           const rowData = validRows.find((row) => {
             const name = typeof row.data.name === 'string' ? row.data.name.trim() : '';
             return name === property.name;
           })?.data;
 
-          const rowDraftData = config.features.fullImportKnowledgeIndexing && rowData
+          const rowDraftData = rowData
             ? {
                 ...draftData,
                 ...rowData,
@@ -412,7 +436,7 @@ router.post(
               }
             : draftData;
 
-          await indexPropertyKnowledge({
+          const knowledge = await indexPropertyKnowledge({
             companyId,
             property: {
               id: property.id,
@@ -434,14 +458,34 @@ router.post(
             draftData: rowDraftData,
             mediaExtractions: [],
           });
+
+          if (config.features.bulkPublishStrict) {
+            await assertPropertyKnowledgeReady(knowledge);
+          }
+
           knowledgeIndexedCount++;
-        } catch (knowledgeErr) {
-          logger.warn('Bulk import: AI knowledge indexing failed for property', {
-            companyId,
-            propertyId: property.id,
-            error: knowledgeErr instanceof Error ? knowledgeErr.message : String(knowledgeErr),
-          });
         }
+      } catch (knowledgeErr) {
+        const message = knowledgeErr instanceof Error ? knowledgeErr.message : String(knowledgeErr);
+        if (config.features.bulkPublishStrict) {
+          await prisma.$transaction(async (tx) => {
+            for (const property of published) {
+              await tx.property.delete({ where: { id: property.id } }).catch(() => undefined);
+            }
+            await tx.propertyImportDraft.update({
+              where: { id: draftId },
+              data: {
+                status: 'publish_ready',
+                failureReason: `AI knowledge indexing failed: ${message}`,
+              },
+            });
+          });
+          throw new BulkImportError(`Bulk publish rolled back: ${message}`, 503);
+        }
+        logger.warn('Bulk import: AI knowledge indexing failed for property', {
+          companyId,
+          error: message,
+        });
       }
 
       logger.info('Bulk property import published', {

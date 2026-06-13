@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.changePasswordSchema = exports.updateStaffProfileSchema = exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createUserSchema = exports.rescheduleVisitSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.propertyImportReplaceUnitsSchema = exports.propertyImportSpreadsheetImportSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadSchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
+exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.changePasswordSchema = exports.updateStaffProfileSchema = exports.sendConversationMessageSchema = exports.aiSettingsSchema = exports.createAiGreetingMediaUploadSchema = exports.greetingMediaItemSchema = exports.createUserSchema = exports.rescheduleVisitSchema = exports.updateVisitStatusSchema = exports.createVisitSchema = exports.propertyImportReplaceUnitsSchema = exports.propertyImportSpreadsheetImportSchema = exports.cancelPropertyImportDraftSchema = exports.retryPropertyImportDraftSchema = exports.publishPropertyImportDraftSchema = exports.updatePropertyImportDraftSchema = exports.confirmPropertyImportUploadSchema = exports.registerPropertyImportUploadSchema = exports.calculateEmiSchema = exports.createPropertyImportDraftSchema = exports.createPropertyAssetUploadSchema = exports.createPropertySchema = exports.updateLeadSchema = exports.updateLeadStatusSchema = exports.createLeadSchema = exports.createCompanySchema = exports.selfServiceSignupSchema = exports.loginSchema = exports.registerSchema = exports.PROPERTY_IMPORT_DRAFT_TRANSITIONS = exports.PROPERTY_IMPORT_DRAFT_STATUSES = exports.PROPERTY_ASSET_MIME_TYPES = exports.PROPERTY_TYPES = exports.CONVERSATION_TRANSITIONS = exports.CONVERSATION_STATUSES = exports.VISIT_TRANSITIONS = exports.VISIT_STATUSES = exports.LEAD_TRANSITIONS = exports.LEAD_STATUSES = exports.ROLES = void 0;
 exports.normalizeIndianPhoneNumber = normalizeIndianPhoneNumber;
 exports.isIndianE164Phone = isIndianE164Phone;
 exports.whatsappPhoneLookupVariants = whatsappPhoneLookupVariants;
@@ -71,8 +71,11 @@ exports.LEAD_TRANSITIONS = {
     closed_lost: [], // terminal (only company_admin can reopen to 'contacted')
 };
 // Visit statuses
-exports.VISIT_STATUSES = ['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'];
+exports.VISIT_STATUSES = ['pending_approval', 'scheduled', 'confirmed', 'completed', 'cancelled', 'no_show'];
 exports.VISIT_TRANSITIONS = {
+    // pending_approval → scheduled means an agent approved it from the dashboard calendar.
+    // pending_approval → cancelled means an agent declined it.
+    pending_approval: ['scheduled', 'cancelled'],
     // Allow direct scheduled → completed for walk-in / same-day visits where the
     // agent completes the visit without going through the confirmed state.
     // Also allow scheduled → no_show for the same reason.
@@ -274,6 +277,20 @@ exports.createUserSchema = zod_1.z.object({
     target_company_id: zod_1.z.string().uuid().optional(), // For super_admin to create users in any company
     must_change_password: zod_1.z.boolean().optional(),
 });
+exports.greetingMediaItemSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1).max(64),
+    kind: zod_1.z.enum(['image', 'document']),
+    url: zod_1.z.string().url().max(2000),
+    mimeType: zod_1.z.string().min(3).max(100),
+    fileName: zod_1.z.string().max(255).optional(),
+    caption: zod_1.z.string().max(500).optional(),
+});
+exports.createAiGreetingMediaUploadSchema = zod_1.z.object({
+    file_name: zod_1.z.string().min(1).max(255),
+    mime_type: zod_1.z.enum(exports.PROPERTY_ASSET_MIME_TYPES),
+    file_size: zod_1.z.number().int().positive().max(20 * 1024 * 1024),
+    asset_type: zod_1.z.enum(['image', 'brochure']),
+});
 exports.aiSettingsSchema = zod_1.z.object({
     business_name: zod_1.z.string().max(255).optional().nullable(),
     business_description: zod_1.z.string().optional().nullable(),
@@ -283,6 +300,7 @@ exports.aiSettingsSchema = zod_1.z.object({
     working_hours: zod_1.z.record(zod_1.z.any()).optional(),
     faq_knowledge: zod_1.z.array(zod_1.z.record(zod_1.z.any())).optional(),
     greeting_template: zod_1.z.string().optional().nullable(),
+    greeting_media: zod_1.z.array(exports.greetingMediaItemSchema).max(2).optional(),
     persuasion_level: zod_1.z.number().int().min(1).max(10).optional(),
     auto_detect_language: zod_1.z.boolean().optional(),
     default_language: zod_1.z.string().max(5).optional(),

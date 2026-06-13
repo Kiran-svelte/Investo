@@ -47,6 +47,8 @@ const validation_1 = require("../models/validation");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const aiKnowledgeStorage_service_1 = require("../services/aiKnowledgeStorage.service");
+const storage_service_1 = require("../services/storage.service");
+const greetingMedia_util_1 = require("../utils/greetingMedia.util");
 const router = (0, express_1.Router)();
 async function markWhatsAppVerified(companyId) {
     const company = await prisma_1.default.company.findUnique({
@@ -127,6 +129,8 @@ router.put('/', (0, rbac_1.authorize)('ai_settings', 'update'), (0, validate_1.v
             updateFields.faqKnowledge = data.faq_knowledge;
         if (data.greeting_template !== undefined)
             updateFields.greetingTemplate = data.greeting_template;
+        if (data.greeting_media !== undefined)
+            updateFields.greetingMedia = data.greeting_media;
         if (data.persuasion_level !== undefined)
             updateFields.persuasionLevel = data.persuasion_level;
         if (data.auto_detect_language !== undefined)
@@ -151,6 +155,91 @@ router.put('/', (0, rbac_1.authorize)('ai_settings', 'update'), (0, validate_1.v
     catch (err) {
         logger_1.default.error('Failed to update AI settings', { error: err.message });
         res.status(500).json({ error: 'Failed to update AI settings' });
+    }
+});
+/**
+ * POST /api/ai-settings/greeting-media/upload-url
+ * Presigned upload for greeting hero image or brochure PDF.
+ */
+router.post('/greeting-media/upload-url', (0, rbac_1.authorize)('ai_settings', 'update'), (0, validate_1.validate)(validation_1.createAiGreetingMediaUploadSchema), (0, audit_1.auditLog)('create', 'ai_settings_greeting_media_upload'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const { file_name, mime_type, file_size, asset_type } = req.body;
+        const upload = await storage_service_1.storageService.createAiGreetingMediaUploadUrl({
+            companyId,
+            fileName: file_name,
+            mimeType: mime_type,
+            fileSize: file_size,
+            assetType: asset_type,
+        });
+        res.status(201).json({ data: upload });
+    }
+    catch (err) {
+        const message = err?.message || 'Failed to create greeting media upload URL';
+        logger_1.default.error('Failed to create greeting media upload URL', { error: message });
+        if (message.startsWith('R2 storage is not configured')
+            || message.startsWith('AWS S3 storage is not configured')
+            || message.startsWith('No object storage configured')) {
+            res.status(503).json({ error: message });
+            return;
+        }
+        res.status(400).json({ error: message });
+    }
+});
+/**
+ * POST /api/ai-settings/greeting-media/test
+ * Verify saved greeting media URLs are reachable (HEAD).
+ */
+router.post('/greeting-media/test', (0, rbac_1.authorize)('ai_settings', 'read'), async (req, res) => {
+    try {
+        const companyId = (0, tenant_1.getCompanyId)(req);
+        const bodyItems = Array.isArray(req.body?.items) ? req.body.items : null;
+        let items = bodyItems;
+        if (!items) {
+            const settings = await prisma_1.default.aiSetting.findUnique({
+                where: { companyId },
+                select: { greetingMedia: true },
+            });
+            items = (0, greetingMedia_util_1.parseGreetingMediaItems)(settings?.greetingMedia);
+        }
+        else {
+            items = (0, greetingMedia_util_1.parseGreetingMediaItems)(items);
+        }
+        if (!items.length) {
+            res.status(400).json({ success: false, error: 'No greeting media configured' });
+            return;
+        }
+        const results = await Promise.all(items.map(async (item) => {
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 8000);
+                const response = await fetch(item.url, { method: 'HEAD', signal: controller.signal });
+                clearTimeout(timer);
+                return {
+                    id: item.id,
+                    url: item.url,
+                    ok: response.ok,
+                    status: response.status,
+                    kind: item.kind,
+                };
+            }
+            catch (err) {
+                return {
+                    id: item.id,
+                    url: item.url,
+                    ok: false,
+                    status: 0,
+                    kind: item.kind,
+                    error: err?.message || 'Request failed',
+                };
+            }
+        }));
+        const success = results.every((r) => r.ok);
+        res.json({ success, items: results });
+    }
+    catch (err) {
+        logger_1.default.error('Greeting media test failed', { error: err.message });
+        res.status(500).json({ success: false, error: 'Failed to test greeting media' });
     }
 });
 /**

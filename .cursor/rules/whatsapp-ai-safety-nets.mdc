@@ -1,0 +1,25 @@
+---
+description: Safety-net patterns for WhatsApp AI feature work
+globs: backend/src/**/*.ts
+alwaysApply: false
+---
+
+# WhatsApp AI Safety Nets
+
+When changing buyer AI or property knowledge paths:
+
+```typescript
+if (config.features.newFeature === true) {
+  // new path
+} else {
+  // old path — never delete until proven
+}
+```
+
+- Add flag in `backend/src/config/index.ts` (`FEATURE_*`, default OFF for new behavior)
+- Shadow: `FEATURE_SHADOW_MODE=true` + `featureShadow.util.ts` or inline compare + `logger.warn`
+- Lead rollout: `featureRollout.util.ts` + `FEATURE_ROLLOUT_PERCENTAGE`
+- Tests: unit test for new behavior + entry in `critical-paths.smoke.test.ts`
+- Run `npm run smoke` before deploy
+
+Rollback: set flag `false` on Railway — no redeploy needed if env-only.

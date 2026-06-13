@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.propertyImportWorkerService = exports.PropertyImportWorkerService = void 0;
 const logger_1 = __importDefault(require("../config/logger"));
 const prisma_1 = __importDefault(require("../config/prisma"));
+const propertyImportAutoFlow_util_1 = require("../utils/propertyImportAutoFlow.util");
 const storage_service_1 = require("./storage.service");
 const propertyImportExtractor_service_1 = require("./propertyImportExtractor.service");
 const propertyImportQueue_service_1 = require("./propertyImportQueue.service");
@@ -446,6 +447,8 @@ class PropertyImportWorkerService {
             where: { draftId },
             select: {
                 status: true,
+                assetType: true,
+                mimeType: true,
             },
         });
         if (media.length === 0) {
@@ -476,7 +479,18 @@ class PropertyImportWorkerService {
             });
             return;
         }
-        const reviewData = draft.draftData ?? {};
+        let reviewData = draft.draftData ?? {};
+        const autoFlowData = (0, propertyImportAutoFlow_util_1.applyImageImportAutoFlow)(reviewData, media.map((item) => ({
+            assetType: item.assetType,
+            mimeType: item.mimeType,
+        })));
+        if (autoFlowData !== reviewData) {
+            reviewData = autoFlowData;
+            await this.deps.db.propertyImportDraft.update({
+                where: { id: draftId },
+                data: { draftData: reviewData },
+            });
+        }
         const mappingProfile = (0, propertyImport_metadata_1.normalizePropertyImportMappingProfile)(reviewData.import_mapping ?? reviewData.importMapping);
         const reviewApproved = (0, propertyImport_metadata_1.isPropertyImportReviewApproved)(reviewData);
         const reviewPending = (0, propertyImport_metadata_1.isPropertyImportReviewPending)(reviewData);

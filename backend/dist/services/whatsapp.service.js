@@ -46,8 +46,10 @@ const metaMessageBuilder_service_1 = require("./whatsapp/metaMessageBuilder.serv
 const opsMetrics_service_1 = require("./opsMetrics.service");
 const whatsappPresence_service_1 = require("./whatsappPresence.service");
 const phoneMatch_1 = require("../utils/phoneMatch");
+const companyWhatsAppConfig_util_1 = require("../utils/companyWhatsAppConfig.util");
 const inboundWhatsAppRouting_service_1 = require("./inboundWhatsAppRouting.service");
 const inboundMessageGuard_service_1 = require("./inboundMessageGuard.service");
+const customerInboundQueue_service_1 = require("./customerInboundQueue.service");
 const buyerButtonPolicy_service_1 = require("./buyer/buyerButtonPolicy.service");
 const outboundTurnDebug_service_1 = require("./outboundTurnDebug.service");
 const safeBuyerFallback_util_1 = require("../utils/safeBuyerFallback.util");
@@ -144,20 +146,17 @@ class WhatsAppService {
         // EXACT MATCH FOUND
         if (matches.length === 1) {
             const company = matches[0];
-            const settings = company.settings || {};
-            const whatsapp = settings.whatsapp || {};
-            const meta = whatsapp.meta || whatsapp;
-            const configuredId = normalizeStringLike(meta.phoneNumberId);
-            const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
-            return {
-                company,
-                config: {
-                    provider: 'meta',
-                    phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
-                    accessToken: normalizeStringLike(meta.accessToken) || config_1.default.whatsapp.accessToken,
-                    verifyToken: normalizeStringLike(meta.verifyToken) || config_1.default.whatsapp.verifyToken,
-                },
-            };
+            const tenantConfig = (0, companyWhatsAppConfig_util_1.resolveCompanyWhatsAppConfigFromSettings)(company.settings, {
+                phoneNumberIdHint: normalizedPhoneNumberId,
+            });
+            if (!tenantConfig) {
+                logger_1.default.error('Meta company resolution failed: tenant WhatsApp credentials incomplete', {
+                    companyId: company.id,
+                    phoneNumberId: normalizedPhoneNumberId,
+                });
+                return null;
+            }
+            return { company, config: tenantConfig };
         }
         if (matches.length > 1) {
             const resolvedDuplicate = await this.resolveDuplicateMetaPhoneNumberMatches(matches, normalizedPhoneNumberId, normalizeStringLike, customerPhoneHint, businessDisplayPhoneHint);
@@ -165,9 +164,15 @@ class WhatsAppService {
                 return resolvedDuplicate;
             }
         }
-        // NO EXPLICIT MAPPING FOUND
-        // Fallback logic: If WHATSAPP_PHONE_NUMBER_ID is set in env and matches the incoming ID,
-        // use the first active company (useful for single-tenant or initial setup).
+        // NO EXPLICIT MAPPING FOUND — enterprise mode: never guess tenant from Railway env in production.
+        if (!(0, companyWhatsAppConfig_util_1.allowPlatformWhatsAppCredentialFallback)()) {
+            logger_1.default.error('Meta company resolution failed: phoneNumberId is unmapped', {
+                phoneNumberId: normalizedPhoneNumberId,
+                totalCompanies: companies.length,
+                env: config_1.default.env,
+            });
+            return null;
+        }
         const globalPhoneId = normalizeStringLike(config_1.default.whatsapp.phoneNumberId);
         const globalAccessToken = normalizeStringLike(config_1.default.whatsapp.accessToken);
         if (globalPhoneId && globalPhoneId === normalizedPhoneNumberId && companies.length > 0) {
@@ -225,21 +230,13 @@ class WhatsAppService {
         });
         return null;
     }
-    buildMetaCompanyConfig(company, normalizedPhoneNumberId, normalizeStringLike) {
-        const settings = company.settings || {};
-        const whatsapp = settings.whatsapp || {};
-        const meta = whatsapp.meta || whatsapp;
-        const configuredId = normalizeStringLike(meta.phoneNumberId);
-        const legacyConfiguredId = normalizeStringLike(meta.phone_number_id);
-        return {
-            company,
-            config: {
-                provider: 'meta',
-                phoneNumberId: configuredId || legacyConfiguredId || normalizedPhoneNumberId,
-                accessToken: normalizeStringLike(meta.accessToken) || config_1.default.whatsapp.accessToken,
-                verifyToken: normalizeStringLike(meta.verifyToken) || config_1.default.whatsapp.verifyToken,
-            },
-        };
+    buildMetaCompanyConfig(company, normalizedPhoneNumberId, _normalizeStringLike) {
+        const tenantConfig = (0, companyWhatsAppConfig_util_1.resolveCompanyWhatsAppConfigFromSettings)(company.settings, {
+            phoneNumberIdHint: normalizedPhoneNumberId,
+        });
+        if (!tenantConfig)
+            return null;
+        return { company, config: tenantConfig };
     }
     async resolveDuplicateMetaPhoneNumberMatches(matches, normalizedPhoneNumberId, normalizeStringLike, customerPhoneHint, businessDisplayPhoneHint) {
         if (normalizeStringLike(businessDisplayPhoneHint)) {
@@ -283,19 +280,24 @@ class WhatsAppService {
                 }
             }
         }
-        const globalAccessToken = normalizeStringLike(config_1.default.whatsapp.accessToken);
-        if (globalAccessToken) {
-            const tokenMatches = matches.filter((company) => {
-                const meta = (company.settings || {}).whatsapp || {};
-                const nested = meta.meta || meta;
-                return normalizeStringLike(nested.accessToken) === globalAccessToken;
-            });
-            if (tokenMatches.length === 1) {
-                logger_1.default.info('Meta company resolution: duplicate phoneNumberId resolved via global access token', {
-                    phoneNumberId: normalizedPhoneNumberId,
-                    companyId: tokenMatches[0].id,
+        if (!(0, companyWhatsAppConfig_util_1.allowPlatformWhatsAppCredentialFallback)()) {
+            // Enterprise: disambiguate duplicates only via display phone or existing lead — never Railway token.
+        }
+        else {
+            const globalAccessToken = normalizeStringLike(config_1.default.whatsapp.accessToken);
+            if (globalAccessToken) {
+                const tokenMatches = matches.filter((company) => {
+                    const meta = (company.settings || {}).whatsapp || {};
+                    const nested = meta.meta || meta;
+                    return normalizeStringLike(nested.accessToken) === globalAccessToken;
                 });
-                return this.buildMetaCompanyConfig(tokenMatches[0], normalizedPhoneNumberId, normalizeStringLike);
+                if (tokenMatches.length === 1) {
+                    logger_1.default.info('Meta company resolution: duplicate phoneNumberId resolved via global access token', {
+                        phoneNumberId: normalizedPhoneNumberId,
+                        companyId: tokenMatches[0].id,
+                    });
+                    return this.buildMetaCompanyConfig(tokenMatches[0], normalizedPhoneNumberId, normalizeStringLike);
+                }
             }
         }
         const fallbackCompany = matches
@@ -352,7 +354,7 @@ class WhatsAppService {
         const { company, config: whatsappConfig } = result;
         const companyId = company.id;
         const customerPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(msg.customerPhone);
-        if (msg.messageId) {
+        if (msg.messageId && !msg.queuedReplay) {
             const inboundClaimed = await (0, inboundMessageGuard_service_1.claimInboundMessageFull)(companyId, msg.messageId, customerPhone);
             if (!inboundClaimed) {
                 logger_1.default.info('Skipping duplicate inbound WhatsApp message', {
@@ -374,58 +376,78 @@ class WhatsAppService {
                 msg.interactiveId.startsWith('call-decline-'))) {
             const { findCompanyUserByPhone } = await Promise.resolve().then(() => __importStar(require('./inboundWhatsAppRouting.service')));
             const companyUser = await findCompanyUserByPhone(customerPhone, companyId);
-            if (companyUser) {
-                if (msg.interactiveId.startsWith('visit-approve-') ||
-                    msg.interactiveId.startsWith('visit-decline-')) {
-                    const { tryHandleVisitApprovalInteractive } = await Promise.resolve().then(() => __importStar(require('./visitPendingApproval.service')));
-                    const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
-                        userId: companyUser.userId,
-                        companyId: companyUser.companyId,
-                        phone: companyUser.phone,
-                    });
-                    if (handled) {
-                        void (0, agent_action_log_service_1.logAgentAction)({
-                            companyId,
-                            triggeredBy: 'inbound_message',
-                            action: 'visitApprovalInteractive',
-                            actorId: companyUser.userId,
-                            resourceType: 'visit',
-                            status: 'success',
-                            inputs: { interactiveId: msg.interactiveId },
-                        });
-                        return {
-                            status: 'processed',
-                            reason: 'visit_approval_handled',
-                            companyId,
-                            propagation: notAttempted,
-                        };
-                    }
+            if (!companyUser) {
+                // Agent's phone is not registered — send them a clear error instead of silence.
+                logger_1.default.warn('Approval interactive: agent phone not found in user table', {
+                    companyId,
+                    customerPhone: (0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(customerPhone),
+                    interactiveId: msg.interactiveId,
+                });
+                if (whatsappConfig) {
+                    await this.sendCompanyTextMessage(customerPhone, '⚠️ This action could not be processed because your phone number is not registered in the system. Please contact your admin.', companyId);
                 }
-                else {
-                    const { tryHandleCallApprovalInteractive } = await Promise.resolve().then(() => __importStar(require('./callRequest.service')));
-                    const handled = await tryHandleCallApprovalInteractive(msg.interactiveId, {
-                        userId: companyUser.userId,
-                        companyId: companyUser.companyId,
-                        phone: companyUser.phone,
+                return { status: 'processed', reason: 'approval_phone_not_found', companyId, propagation: notAttempted };
+            }
+            if (msg.interactiveId.startsWith('visit-approve-') ||
+                msg.interactiveId.startsWith('visit-decline-')) {
+                const { tryHandleVisitApprovalInteractive } = await Promise.resolve().then(() => __importStar(require('./visitPendingApproval.service')));
+                const handled = await tryHandleVisitApprovalInteractive(msg.interactiveId, {
+                    userId: companyUser.userId,
+                    companyId: companyUser.companyId,
+                    phone: companyUser.phone,
+                });
+                if (handled) {
+                    void (0, agent_action_log_service_1.logAgentAction)({
+                        companyId,
+                        triggeredBy: 'inbound_message',
+                        action: 'visitApprovalInteractive',
+                        actorId: companyUser.userId,
+                        resourceType: 'visit',
+                        status: 'success',
+                        inputs: { interactiveId: msg.interactiveId },
                     });
-                    if (handled) {
-                        void (0, agent_action_log_service_1.logAgentAction)({
-                            companyId,
-                            triggeredBy: 'inbound_message',
-                            action: 'callApprovalInteractive',
-                            actorId: companyUser.userId,
-                            resourceType: 'call_request',
-                            status: 'success',
-                            inputs: { interactiveId: msg.interactiveId },
-                        });
-                        return {
-                            status: 'processed',
-                            reason: 'call_approval_handled',
-                            companyId,
-                            propagation: notAttempted,
-                        };
-                    }
+                    return {
+                        status: 'processed',
+                        reason: 'visit_approval_handled',
+                        companyId,
+                        propagation: notAttempted,
+                    };
                 }
+                // Approval not found — likely already expired or processed. Tell the agent.
+                if (whatsappConfig) {
+                    await this.sendCompanyTextMessage(customerPhone, '⚠️ This visit request could not be found. It may have already been approved, declined, or expired. Check the dashboard for the current visit status.', companyId);
+                }
+                return { status: 'processed', reason: 'visit_approval_not_found', companyId, propagation: notAttempted };
+            }
+            else {
+                const { tryHandleCallApprovalInteractive } = await Promise.resolve().then(() => __importStar(require('./callRequest.service')));
+                const handled = await tryHandleCallApprovalInteractive(msg.interactiveId, {
+                    userId: companyUser.userId,
+                    companyId: companyUser.companyId,
+                    phone: companyUser.phone,
+                });
+                if (handled) {
+                    void (0, agent_action_log_service_1.logAgentAction)({
+                        companyId,
+                        triggeredBy: 'inbound_message',
+                        action: 'callApprovalInteractive',
+                        actorId: companyUser.userId,
+                        resourceType: 'call_request',
+                        status: 'success',
+                        inputs: { interactiveId: msg.interactiveId },
+                    });
+                    return {
+                        status: 'processed',
+                        reason: 'call_approval_handled',
+                        companyId,
+                        propagation: notAttempted,
+                    };
+                }
+                // Call request not found — likely already handled or expired. Tell the agent.
+                if (whatsappConfig) {
+                    await this.sendCompanyTextMessage(customerPhone, '⚠️ This call request could not be found. It may have already been confirmed, declined, or expired.', companyId);
+                }
+                return { status: 'processed', reason: 'call_approval_not_found', companyId, propagation: notAttempted };
             }
         }
         // Company staff (dashboard users) → agent copilot or staff notice — never the prospect AI flow.
@@ -454,49 +476,72 @@ class WhatsAppService {
                 propagation: notAttempted,
             };
         }
-        const fingerprintClaimed = await (0, inboundMessageGuard_service_1.claimCustomerInboundFingerprint)(companyId, customerPhone, msg.messageText);
-        if (!fingerprintClaimed) {
-            return {
-                status: 'skipped',
-                reason: 'duplicate_customer_fingerprint',
-                companyId,
-                propagation: notAttempted,
-            };
+        // Button/list titles repeat ("Call Me", "2 BHK") — only dedupe plain text turns.
+        if (!msg.queuedReplay && !msg.interactiveId?.trim()) {
+            const fingerprintClaimed = await (0, inboundMessageGuard_service_1.claimCustomerInboundFingerprint)(companyId, customerPhone, msg.messageText);
+            if (!fingerprintClaimed) {
+                return {
+                    status: 'skipped',
+                    reason: 'duplicate_customer_fingerprint',
+                    companyId,
+                    propagation: notAttempted,
+                };
+            }
         }
-        const customerTurnClaimed = await (0, inboundMessageGuard_service_1.claimCustomerProcessingTurn)(companyId, customerPhone);
+        const isInteractiveTap = Boolean(msg.interactiveId?.trim());
+        let claimedCustomerProcessingTurn = false;
+        const customerTurnClaimed = isInteractiveTap
+            ? true
+            : await (0, inboundMessageGuard_service_1.claimCustomerProcessingTurn)(companyId, customerPhone);
+        if (!isInteractiveTap && customerTurnClaimed) {
+            claimedCustomerProcessingTurn = true;
+        }
         if (!customerTurnClaimed) {
             (0, outboundTurnDebug_service_1.logOutboundBranch)('H2', 'whatsapp.service.ts:concurrent', 'concurrent_customer_blocked', {
                 companyId,
             });
-            // Queue the message for retry after the current turn lock expires (65s).
-            // This ensures the customer gets a reply even when two messages arrive within 60s
-            // instead of silently dropping the second message.
             if (msg.messageId) {
                 try {
-                    const { automationQueueService } = await Promise.resolve().then(() => __importStar(require('./automationQueue.service')));
-                    await automationQueueService.schedule('retry_concurrent_inbound', `concurrent:${companyId}:${msg.messageId}`, new Date(Date.now() + 65000), {
-                        companyId,
+                    await (0, customerInboundQueue_service_1.enqueueCustomerInbound)(companyId, customerPhone, {
                         phoneNumberId: msg.phoneNumberId,
                         customerPhone: msg.customerPhone,
                         customerName: msg.customerName,
                         messageText: msg.messageText,
                         messageId: msg.messageId,
+                        companyIdHint: msg.companyIdHint,
                         interactiveId: msg.interactiveId,
                         interactiveType: msg.interactiveType,
                         businessDisplayPhone: msg.businessDisplayPhone,
                     });
-                    logger_1.default.info('Concurrent inbound message queued for retry', {
-                        companyId,
-                        messageId: msg.messageId,
-                        retryAt: new Date(Date.now() + 65000).toISOString(),
-                    });
                 }
                 catch (queueErr) {
-                    logger_1.default.warn('Failed to queue concurrent inbound for retry — message will be dropped', {
+                    logger_1.default.warn('Failed to enqueue concurrent inbound — scheduling short retry', {
                         companyId,
                         messageId: msg.messageId,
                         error: queueErr instanceof Error ? queueErr.message : String(queueErr),
                     });
+                    try {
+                        const { automationQueueService } = await Promise.resolve().then(() => __importStar(require('./automationQueue.service')));
+                        await automationQueueService.schedule('retry_concurrent_inbound', `concurrent:${companyId}:${msg.messageId}`, new Date(Date.now() + 4000), {
+                            companyId,
+                            phoneNumberId: msg.phoneNumberId,
+                            customerPhone: msg.customerPhone,
+                            customerName: msg.customerName,
+                            messageText: msg.messageText,
+                            messageId: msg.messageId,
+                            interactiveId: msg.interactiveId,
+                            interactiveType: msg.interactiveType,
+                            businessDisplayPhone: msg.businessDisplayPhone,
+                            queuedReplay: true,
+                        });
+                    }
+                    catch (retryErr) {
+                        logger_1.default.warn('Failed to schedule short concurrent inbound retry', {
+                            companyId,
+                            messageId: msg.messageId,
+                            error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+                        });
+                    }
                 }
             }
             return {
@@ -516,6 +561,7 @@ class WhatsAppService {
         // Track whether processing succeeded so we know if it's safe to release
         // the inbound claim on failure (to allow Meta's retry to succeed).
         let processingSucceeded = false;
+        let pendingBuyerOutbound;
         try {
             // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
             let lead = (await prisma_1.default.lead.findFirst({
@@ -735,7 +781,7 @@ class WhatsAppService {
                 throw createErr;
             }
             const normalizedCustomerText = msg.messageText.trim();
-            if (normalizedCustomerText) {
+            if (normalizedCustomerText && !msg.interactiveId?.trim()) {
                 const firstSameContent = await prisma_1.default.message.findFirst({
                     where: {
                         conversationId: conversation.id,
@@ -821,7 +867,14 @@ class WhatsAppService {
             });
             // Reactivate AI before interactive routing — button taps must not fall through to the LLM
             // because conversation was still agent_active when loaded from DB.
-            const aiReady = await this.ensureProspectConversationAiActive(conversation);
+            const aiReady = await this.ensureProspectConversationAiActive(conversation, {
+                companyId,
+                leadId: lead.id,
+                assignedAgentId: lead.assignedAgentId,
+                customerPhone,
+                customerName: lead.customerName,
+                messageText: msg.messageText,
+            });
             conversation = { ...conversation, status: aiReady.status, aiEnabled: aiReady.aiEnabled };
             if (conversation.status === 'ai_active'
                 && conversation.aiEnabled
@@ -859,29 +912,40 @@ class WhatsAppService {
                         action: actionResult.action,
                         conversationId: conversation.id,
                     });
-                    // Update conversation state if action provided new state
-                    const { applyInteractiveActionSideEffects } = await Promise.resolve().then(() => __importStar(require('./whatsapp/whatsappInteractivePersist.service')));
-                    await applyInteractiveActionSideEffects(actionResult, lead.id, conversation.id, conversation);
-                    // Unified TurnResult dispatch (interactive orchestrator + sendTurnResult)
+                    // Unified TurnResult dispatch (transcript persisted in tryOrchestratedInteractiveAction)
                     if (actionResult.turnResult) {
                         const outboundText = actionResult.turnResult.text?.trim();
                         let pendingMsgId = null;
                         if (outboundText) {
-                            // Create as 'pending' — update to 'sent'/'failed' based on actual delivery result.
-                            const pendingMsg = await prisma_1.default.message.create({
-                                data: {
+                            const existing = await prisma_1.default.message.findFirst({
+                                where: {
                                     conversationId: conversation.id,
                                     senderType: 'ai',
                                     content: outboundText,
-                                    status: 'pending',
+                                    createdAt: { gte: new Date(Date.now() - 20000) },
                                 },
+                                orderBy: { createdAt: 'desc' },
                                 select: { id: true },
                             });
-                            pendingMsgId = pendingMsg.id;
+                            if (existing) {
+                                pendingMsgId = existing.id;
+                            }
+                            else {
+                                const pendingMsg = await prisma_1.default.message.create({
+                                    data: {
+                                        conversationId: conversation.id,
+                                        senderType: 'ai',
+                                        content: outboundText,
+                                        status: 'pending',
+                                    },
+                                    select: { id: true },
+                                });
+                                pendingMsgId = pendingMsg.id;
+                            }
                         }
                         const outboundClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
+                        let deliveryOk = false;
                         if (outboundClaimed) {
-                            let deliveryOk = false;
                             try {
                                 await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig);
                                 deliveryOk = true;
@@ -893,19 +957,40 @@ class WhatsAppService {
                                     conversationId: conversation.id,
                                 });
                             }
-                            if (pendingMsgId) {
-                                await prisma_1.default.message.update({
-                                    where: { id: pendingMsgId },
-                                    data: { status: deliveryOk ? 'sent' : 'failed' },
-                                }).catch(() => undefined);
-                            }
                         }
-                        else if (pendingMsgId) {
+                        else {
+                            logger_1.default.warn('Interactive outbound dedup blocked — still persisting AI reply in transcript', {
+                                companyId,
+                                messageId: msg.messageId,
+                                interactiveId: msg.interactiveId,
+                            });
+                            deliveryOk = Boolean(outboundText);
+                        }
+                        if (pendingMsgId) {
                             await prisma_1.default.message.update({
                                 where: { id: pendingMsgId },
-                                data: { status: 'failed' },
+                                data: { status: deliveryOk ? 'sent' : 'failed' },
                             }).catch(() => undefined);
                         }
+                    }
+                    else if (actionResult.handled) {
+                        logger_1.default.warn('Interactive action handled without turnResult text', {
+                            interactiveId: msg.interactiveId,
+                            action: actionResult.action,
+                            conversationId: conversation.id,
+                        });
+                    }
+                    const { applyInteractiveActionSideEffects } = await Promise.resolve().then(() => __importStar(require('./whatsapp/whatsappInteractivePersist.service')));
+                    try {
+                        await applyInteractiveActionSideEffects(actionResult, lead.id, conversation.id, conversation);
+                    }
+                    catch (sideEffectErr) {
+                        logger_1.default.error('Interactive action side-effects failed — transcript already persisted', {
+                            interactiveId: msg.interactiveId,
+                            action: actionResult.action,
+                            conversationId: conversation.id,
+                            error: sideEffectErr instanceof Error ? sideEffectErr.message : String(sideEffectErr),
+                        });
                     }
                     propagation = await this.propagateConversationUpdate({
                         companyId,
@@ -913,7 +998,7 @@ class WhatsAppService {
                         leadId: lead.id,
                         trigger: 'interactive_action',
                     });
-                    void (0, agent_action_log_service_1.logAgentAction)({
+                    await (0, agent_action_log_service_1.logAgentAction)({
                         companyId,
                         triggeredBy: 'inbound_message',
                         action: 'interactiveActionHandled',
@@ -926,6 +1011,7 @@ class WhatsAppService {
                             leadStatus: actionResult.leadStatus,
                         },
                     });
+                    processingSucceeded = true;
                     return {
                         status: 'processed',
                         companyId,
@@ -952,6 +1038,7 @@ class WhatsAppService {
                 // non-fatal
             }
             const { orchestrateWhatsAppBuyerTurn } = await Promise.resolve().then(() => __importStar(require('./whatsapp/whatsappTurnOrchestrator.service')));
+            const buyerTurnStartedAt = Date.now();
             const turnResult = await orchestrateWhatsAppBuyerTurn({
                 input: {
                     companyId,
@@ -971,7 +1058,7 @@ class WhatsAppService {
                     conversationProposedVisitTime: conversation.proposedVisitTime,
                     conversationRecommendedPropertyIds: (conversation.recommendedPropertyIds ?? []),
                     conversationStage: conversationState.stage,
-                    humanTakeover: conversation.status !== 'ai_active' || !conversation.aiEnabled,
+                    humanTakeover: conversation.status === 'agent_active' && conversation.aiEnabled === false,
                     history,
                     hasPriorOutbound,
                 },
@@ -1015,46 +1102,32 @@ class WhatsAppService {
                 // Mark as succeeded so the catastrophic-failure release above does NOT trigger
                 // (the customer will get this fallback reply).
                 processingSucceeded = true;
-                return { audience: 'buyer', handled: true, terminal: true, text: fallbackText };
+                return {
+                    audience: 'buyer',
+                    handled: true,
+                    terminal: true,
+                    text: fallbackText,
+                    replyPacing: 'minimal',
+                };
+            });
+            const buyerTurnMs = Date.now() - buyerTurnStartedAt;
+            logger_1.default.info('Buyer turn orchestration completed', {
+                companyId,
+                conversationId: conversation.id,
+                leadId: lead.id,
+                durationMs: buyerTurnMs,
+                replyPacing: turnResult.replyPacing ?? 'minimal',
+                handled: turnResult.handled,
             });
             if (turnResult.text?.trim()) {
-                const orchestratorClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
-                if (orchestratorClaimed) {
-                    await (0, whatsappPresence_service_1.simulateHumanReplyPacing)({
-                        to: customerPhone,
-                        whatsappConfig: whatsappConfig,
-                        outboundTextLength: turnResult.text.length,
-                        inboundMessageId: msg.messageId,
-                    });
-                    try {
-                        await this.sendTurnResult(customerPhone, turnResult, whatsappConfig);
-                        (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
-                        // Flush any pending AI messages in this conversation to 'sent'
-                        await prisma_1.default.message.updateMany({
-                            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
-                            data: { status: 'sent' },
-                        }).catch(() => undefined);
-                    }
-                    catch (sendErr) {
-                        logger_1.default.error('sendTurnResult failed — marking pending messages as failed', {
-                            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
-                            conversationId: conversation.id,
-                        });
-                        await prisma_1.default.message.updateMany({
-                            where: { conversationId: conversation.id, status: 'pending', senderType: { in: ['ai', 'agent'] } },
-                            data: { status: 'failed' },
-                        }).catch(() => undefined);
-                    }
-                }
+                pendingBuyerOutbound = {
+                    turnResult,
+                    conversationId: conversation.id,
+                    leadId: lead.id,
+                    propagation,
+                };
             }
             processingSucceeded = true;
-            return {
-                status: 'processed',
-                companyId,
-                leadId: lead.id,
-                conversationId: conversation.id,
-                propagation,
-            };
         }
         catch (processingErr) {
             // On catastrophic failure (no fallback reply was sent), release the inbound
@@ -1074,17 +1147,96 @@ class WhatsAppService {
             throw processingErr;
         }
         finally {
-            (0, outboundTurnDebug_service_1.endOutboundTurn)('buyer_finally');
-            await (0, inboundMessageGuard_service_1.releaseCustomerProcessingTurn)(companyId, customerPhone);
+            (0, outboundTurnDebug_service_1.endOutboundTurn)('buyer_orchestration_done');
+            if (claimedCustomerProcessingTurn) {
+                await (0, inboundMessageGuard_service_1.releaseCustomerProcessingTurn)(companyId, customerPhone);
+            }
+            await (0, customerInboundQueue_service_1.drainCustomerInboundQueue)(companyId, customerPhone).catch((drainErr) => {
+                logger_1.default.warn('Customer inbound queue drain failed', {
+                    companyId,
+                    error: drainErr instanceof Error ? drainErr.message : String(drainErr),
+                });
+            });
+        }
+        if (pendingBuyerOutbound?.turnResult.text?.trim()) {
+            const { turnResult, conversationId } = pendingBuyerOutbound;
+            const orchestratorClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
+            if (orchestratorClaimed) {
+                const pacingStartedAt = Date.now();
+                await (0, whatsappPresence_service_1.simulateHumanReplyPacing)({
+                    to: customerPhone,
+                    whatsappConfig: whatsappConfig,
+                    outboundTextLength: turnResult.text.length,
+                    inboundMessageId: msg.messageId,
+                    pacing: turnResult.replyPacing,
+                });
+                logger_1.default.info('Buyer outbound pacing completed', {
+                    companyId,
+                    conversationId,
+                    pacingMs: Date.now() - pacingStartedAt,
+                    mode: turnResult.replyPacing ?? 'minimal',
+                });
+                try {
+                    await this.sendTurnResult(customerPhone, turnResult, whatsappConfig);
+                    (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
+                    await prisma_1.default.message.updateMany({
+                        where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+                        data: { status: 'sent' },
+                    }).catch(() => undefined);
+                }
+                catch (sendErr) {
+                    logger_1.default.error('sendTurnResult failed — marking pending messages as failed', {
+                        error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+                        conversationId,
+                    });
+                    await prisma_1.default.message.updateMany({
+                        where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+                        data: { status: 'failed' },
+                    }).catch(() => undefined);
+                }
+            }
+        }
+        if (pendingBuyerOutbound) {
+            return {
+                status: 'processed',
+                companyId,
+                leadId: pendingBuyerOutbound.leadId,
+                conversationId: pendingBuyerOutbound.conversationId,
+                propagation: pendingBuyerOutbound.propagation,
+            };
         }
     }
     /**
      * Prospects (any phone not registered as company staff) must get AI replies when AI is on.
      * Human takeover (agent_active / aiEnabled false) persists until an agent releases the conversation.
      */
-    async ensureProspectConversationAiActive(conversation) {
-        if (conversation.status === 'agent_active' || !conversation.aiEnabled) {
+    async ensureProspectConversationAiActive(conversation, context) {
+        // Manual dashboard takeover: keep agent_active until release or agent replies.
+        if (conversation.status === 'agent_active' && conversation.aiEnabled === false) {
             return { status: conversation.status, aiEnabled: conversation.aiEnabled };
+        }
+        // Legacy auto-escalation (human_escalated / escalatedAt): clear and resume AI.
+        if (!conversation.aiEnabled || conversation.stage === 'human_escalated' || conversation.escalatedAt) {
+            logger_1.default.info('Clearing stale auto-escalation — resuming AI for buyer', {
+                conversationId: conversation.id,
+                previousAiEnabled: conversation.aiEnabled,
+                previousStage: conversation.stage,
+            });
+            const reactivated = await prisma_1.default.conversation.update({
+                where: { id: conversation.id },
+                data: {
+                    status: 'ai_active',
+                    aiEnabled: true,
+                    ...(conversation.stage === 'human_escalated' && {
+                        stage: 'rapport',
+                        stageEnteredAt: new Date(),
+                        stageMessageCount: 0,
+                        escalationReason: null,
+                    }),
+                },
+                select: { status: true, aiEnabled: true },
+            });
+            return { status: reactivated.status, aiEnabled: reactivated.aiEnabled };
         }
         const isAlreadyActive = conversation.status === 'ai_active' && conversation.aiEnabled;
         const isStuckEscalated = conversation.stage === 'human_escalated';
@@ -1146,28 +1298,7 @@ class WhatsAppService {
         });
         if (!company)
             return null;
-        const normalizeStringLike = (value) => {
-            if (typeof value === 'string')
-                return value.trim();
-            if (typeof value === 'number' && Number.isFinite(value))
-                return String(value);
-            return '';
-        };
-        const settings = company.settings || {};
-        const whatsapp = settings.whatsapp || {};
-        const meta = whatsapp.meta || {};
-        return {
-            provider: 'meta',
-            phoneNumberId: normalizeStringLike(meta.phoneNumberId) ||
-                normalizeStringLike(whatsapp.phoneNumberId) ||
-                config_1.default.whatsapp.phoneNumberId,
-            accessToken: normalizeStringLike(meta.accessToken) ||
-                normalizeStringLike(whatsapp.accessToken) ||
-                config_1.default.whatsapp.accessToken,
-            verifyToken: normalizeStringLike(meta.verifyToken) ||
-                normalizeStringLike(whatsapp.verifyToken) ||
-                config_1.default.whatsapp.verifyToken,
-        };
+        return (0, companyWhatsAppConfig_util_1.resolveCompanyWhatsAppConfigFromSettings)(company.settings);
     }
     async sendCompanyTextMessage(to, text, companyId) {
         const whatsappConfig = await this.resolveCompanyWhatsAppConfig(companyId);
@@ -1175,33 +1306,22 @@ class WhatsAppService {
             return false;
         return this.sendMessage(to, text, whatsappConfig);
     }
+    /**
+     * Staff bulk-forward outbound — one text per distinct recipient per copilot turn.
+     * Never filters by staff/client/stranger; sends to the exact phone provided.
+     */
+    async sendStaffBulkTextMessage(to, text, companyId) {
+        const whatsappConfig = await this.resolveCompanyWhatsAppConfig(companyId);
+        if (!whatsappConfig)
+            return false;
+        return this.sendMessage(to, text, whatsappConfig, { staffBulkRecipient: true });
+    }
     async sendCompanyInteractiveButtons(to, companyId, bodyText, buttons, headerText, footerText) {
-        const company = await prisma_1.default.company.findUnique({
-            where: { id: companyId },
-            select: { settings: true },
-        });
-        const normalizeStringLike = (value) => {
-            if (typeof value === 'string')
-                return value.trim();
-            if (typeof value === 'number' && Number.isFinite(value))
-                return String(value);
-            return '';
-        };
-        const settings = company?.settings || {};
-        const whatsapp = settings.whatsapp || {};
-        const meta = whatsapp.meta || {};
-        const whatsappConfig = {
-            provider: 'meta',
-            phoneNumberId: normalizeStringLike(meta.phoneNumberId) ||
-                normalizeStringLike(whatsapp.phoneNumberId) ||
-                config_1.default.whatsapp.phoneNumberId,
-            accessToken: normalizeStringLike(meta.accessToken) ||
-                normalizeStringLike(whatsapp.accessToken) ||
-                config_1.default.whatsapp.accessToken,
-            verifyToken: normalizeStringLike(meta.verifyToken) ||
-                normalizeStringLike(whatsapp.verifyToken) ||
-                config_1.default.whatsapp.verifyToken,
-        };
+        const whatsappConfig = await this.resolveCompanyWhatsAppConfig(companyId);
+        if (!whatsappConfig) {
+            logger_1.default.warn('sendCompanyInteractiveButtons skipped: tenant WhatsApp not configured', { companyId });
+            return false;
+        }
         const result = await this.sendInteractiveButtons(to, bodyText, buttons, headerText ?? null, footerText ?? null, whatsappConfig);
         return result.success;
     }
@@ -1209,16 +1329,16 @@ class WhatsAppService {
      * Send a message via WhatsApp Cloud API.
      * Uses company-specific config for multi-tenant support.
      */
-    async sendMessage(to, text, whatsappConfig) {
+    async sendMessage(to, text, whatsappConfig, options) {
         if (!text.trim()) {
             logger_1.default.error('Refusing to send empty WhatsApp message');
             return false;
         }
-        if (!(0, outboundTurnDebug_service_1.claimPrimaryOutboundSend)('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', to)) {
+        if (!(0, outboundTurnDebug_service_1.claimPrimaryOutboundSend)('OUT-TEXT', 'whatsapp.service.ts:sendMessage', options?.staffBulkRecipient ? 'staff_bulk_recipient' : 'sendMessage', to, options?.staffBulkRecipient === true)) {
             logger_1.default.warn('Blocked duplicate primary WhatsApp text send for this inbound turn');
             return false;
         }
-        (0, outboundTurnDebug_service_1.logOutboundSend)('H1', 'whatsapp.service.ts:sendMessage', 'sendMessage', text, {
+        (0, outboundTurnDebug_service_1.logOutboundSend)('OUT-TEXT', 'whatsapp.service.ts:sendMessage', 'sendMessage', text, {
             provider: this.resolveOutboundProviderName(whatsappConfig),
             hasButtons: /Reply with the number/i.test(text),
         });
@@ -1765,8 +1885,16 @@ class WhatsAppService {
         }
         if (hasText) {
             let body = result.text.trim();
-            if (media?.kind === 'media' && media.url) {
-                body = this.appendFoldedMediaToBody(body, media);
+            const mediaItems = (result.components ?? []).filter((c) => c.kind === 'media');
+            for (const media of mediaItems) {
+                if (!media.url)
+                    continue;
+                if (media.mime.startsWith('image/')) {
+                    await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig).catch(() => undefined);
+                }
+                else {
+                    await this.sendDocument(to, media.url, 'brochure.pdf', media.caption ?? null, whatsappConfig).catch(() => undefined);
+                }
             }
             await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);
         }
@@ -1789,6 +1917,7 @@ class WhatsAppService {
             recommendedPropertyIds: context.recommendedPropertyIds,
             properties: context.properties,
             hasActiveVisit: context.hasActiveVisit,
+            hasCompletedVisit: context.hasCompletedVisit,
             visitStatus: context.visitStatus,
             visitProperty: context.visitProperty,
             visitTime: context.visitTime,
@@ -1941,7 +2070,9 @@ class WhatsAppService {
         // ---- Show Location (TurnResult — single dispatch via sendTurnResult) ----
         if (interactiveId.startsWith('location-')) {
             const propertyId = interactiveId.replace('location-', '');
-            const property = await prisma_1.default.property.findFirst({ where: { id: propertyId, companyId: company.id } });
+            const property = await prisma_1.default.property.findFirst({
+                where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
+            });
             if (!property) {
                 return { handled: false };
             }
@@ -1981,7 +2112,9 @@ class WhatsAppService {
         if (interactiveId === 'emi-calculator' || interactiveId === 'calculate-emi') {
             const propertyId = conversation.selectedPropertyId;
             const property = propertyId
-                ? await prisma_1.default.property.findFirst({ where: { id: propertyId, companyId: company.id } })
+                ? await prisma_1.default.property.findFirst({
+                    where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
+                })
                 : null;
             const propertyPrice = property?.priceMin ? Number(property.priceMin) : null;
             if (property && propertyPrice) {

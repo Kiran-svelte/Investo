@@ -35,6 +35,11 @@ export interface PropertyKnowledgeChunk {
 }
 
 let schemaReady: boolean | null = null;
+let lastEmbeddingProvider: 'openai' | 'local_hash' = 'openai';
+
+export function wasKnowledgeEmbeddingDegraded(): boolean {
+  return lastEmbeddingProvider === 'local_hash';
+}
 
 function embeddingModel(): string {
   return process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
@@ -484,6 +489,7 @@ function fallbackEmbeddings(texts: string[], reason: string): number[][] {
     impact: 'vector similarity search results are near-random until OpenAI billing is restored',
   });
 
+  lastEmbeddingProvider = 'local_hash';
   return createLocalEmbeddings(texts);
 }
 
@@ -532,6 +538,7 @@ async function createEmbeddings(texts: string[]): Promise<number[][]> {
     throw new Error('Embedding API returned unexpected row count');
   }
 
+  lastEmbeddingProvider = 'openai';
   return rows
     .sort((a, b) => a.index - b.index)
     .map((row) => {
@@ -772,12 +779,37 @@ export async function loadPropertyKnowledgeIndexPayload(
     where: { companyId, publishedPropertyId: propertyId },
     select: { id: true, draftData: true },
   });
-  if (!draft) return {};
+
+  const importUnit = draft
+    ? null
+    : await prisma.propertyImportUnit.findFirst({
+      where: { companyId, publishedPropertyId: propertyId },
+      select: { id: true, unitData: true, draftId: true },
+    });
+
+  const draftId = draft?.id ?? importUnit?.draftId;
+  if (!draftId) {
+    const property = await prisma.property.findFirst({
+      where: { id: propertyId, companyId },
+    });
+    const extended = (property as { extendedAttributes?: unknown } | null)?.extendedAttributes;
+    if (extended && typeof extended === 'object' && !Array.isArray(extended)) {
+      return { draftData: extended as Record<string, unknown> };
+    }
+    return {};
+  }
+
+  const draftData = draft
+    ? (draft.draftData ?? {}) as Record<string, unknown>
+    : {
+      ...((importUnit?.unitData || {}) as Record<string, unknown>),
+      import_mapping: { source_record: importUnit?.unitData },
+    };
 
   const mediaRows = await prisma.propertyImportMedia.findMany({
     where: {
       companyId,
-      draftId: draft.id,
+      draftId,
       status: { in: ['extracted', 'verified'] },
     },
     select: {
@@ -788,7 +820,7 @@ export async function loadPropertyKnowledgeIndexPayload(
   });
 
   return {
-    draftData: (draft.draftData ?? {}) as Record<string, unknown>,
+    draftData,
     mediaExtractions: mediaRows.map((row) => ({
       assetType: row.assetType,
       fileName: row.fileName,
@@ -990,7 +1022,7 @@ export async function matchCatalogPropertiesForQuery(input: {
   });
 
   const seen = new Set<string>();
-  return filtered
+  const keywordMatches = filtered
     .sort((a, b) => b.score - a.score)
     .filter((p) => {
       const nameKey = p.name.toLowerCase().trim();
@@ -1000,6 +1032,76 @@ export async function matchCatalogPropertiesForQuery(input: {
       return true;
     })
     .slice(0, limit);
+
+  if (
+    keywordMatches.length >= limit
+    || !config.features.extendedCatalogSearch
+    || wasKnowledgeEmbeddingDegraded()
+  ) {
+    return keywordMatches;
+  }
+
+  const vectorHits = await searchPropertyKnowledge(input.companyId, input.query, limit);
+  if (!vectorHits.length) {
+    return keywordMatches;
+  }
+
+  const vectorPropertyIds = [...new Set(vectorHits.map((h) => h.propertyId))];
+  const vectorProperties = await prisma.property.findMany({
+    where: {
+      companyId: input.companyId,
+      id: { in: vectorPropertyIds },
+      status: { in: ['available', 'upcoming'] },
+    },
+    select: {
+      id: true,
+      name: true,
+      propertyType: true,
+      locationCity: true,
+      locationArea: true,
+      brochureUrl: true,
+      status: true,
+      bedrooms: true,
+      priceMin: true,
+      priceMax: true,
+      description: true,
+    },
+  });
+
+  const merged: Array<{
+    id: string;
+    name: string;
+    propertyType: string | null;
+    locationCity: string | null;
+    locationArea: string | null;
+    brochureUrl: string | null;
+    status: string | null;
+    bedrooms: number | null;
+    priceMin: unknown;
+    priceMax: unknown;
+    score: number;
+  }> = [...keywordMatches];
+  for (const hit of vectorHits) {
+    if (merged.length >= limit) break;
+    if (merged.some((m) => m.id === hit.propertyId)) continue;
+    const property = vectorProperties.find((p) => p.id === hit.propertyId);
+    if (!property) continue;
+    merged.push({
+      id: property.id,
+      name: property.name,
+      propertyType: property.propertyType,
+      locationCity: property.locationCity,
+      locationArea: property.locationArea,
+      brochureUrl: property.brochureUrl,
+      status: property.status,
+      bedrooms: property.bedrooms,
+      priceMin: property.priceMin,
+      priceMax: property.priceMax,
+      score: hit.score,
+    });
+  }
+
+  return merged.slice(0, limit);
 }
 
 export function formatKnowledgeContextForPrompt(chunks: PropertyKnowledgeChunk[]): string {

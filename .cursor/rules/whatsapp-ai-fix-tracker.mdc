@@ -1,0 +1,65 @@
+---
+description: WhatsApp AI property-data fix chunks — status tracker
+alwaysApply: true
+---
+
+# WhatsApp AI Fix Chunks
+
+Workstream: CSV/Sheets import has 70+ fields but buyer AI felt hardcoded because RAG + prompts only saw ~15 DB columns.
+
+## Chunk status
+
+| Chunk | Scope | Flag | Status |
+|-------|-------|------|--------|
+| C1 | Full import field knowledge indexing + bulk per-row draftData | `FEATURE_FULL_IMPORT_KNOWLEDGE` | DONE |
+| C2 | Expanded property prompt limits (amenities, description, RAG chunks) | `FEATURE_EXPANDED_PROPERTY_PROMPTS` | DONE |
+| C3 | Extended attributes JSON on Property model + publish mapping | `FEATURE_EXTENDED_PROPERTY_ATTRS` | DONE |
+| C4 | Staff copilot `searchPropertyKnowledge` tool | `FEATURE_COPILOT_PROPERTY_RAG` | DONE |
+| C5 | Reduce fast-path bypass for property detail questions | `FEATURE_DETAIL_QUESTION_LLM` | DONE |
+| C6 | Re-index all published properties script (dry-run) | `DRY_RUN=true` | DONE |
+| C7 | Bulk publish knowledge gate + rollback parity | `FEATURE_BULK_PUBLISH_STRICT` | DONE |
+
+## Safety nets (every chunk)
+
+1. Feature flag OFF by default — instant kill switch
+2. `npm run smoke` before deploy
+3. `FEATURE_SHADOW_MODE=true` to log old vs new mismatches
+4. Gradual rollout via `FEATURE_ROLLOUT_PERCENTAGE` where lead-scoped
+
+## Key files
+
+- Import→RAG: `backend/src/services/propertyKnowledge.service.ts`
+- Bulk publish: `backend/src/routes/property-import-bulk.routes.ts`
+- Buyer prompts: `backend/src/services/propertyAiContext.service.ts`, `ai.service.ts`
+- WhatsApp More Info: `whatsappInteractiveOrchestrator.service.ts`
+
+## Activate C1 in production
+
+```
+FEATURE_SHADOW_MODE=true          # watch logs first
+FEATURE_FULL_IMPORT_KNOWLEDGE=true
+```
+Re-publish or re-index existing properties after enabling C1.
+
+## Activate C2 in production
+
+```
+FEATURE_EXPANDED_PROPERTY_PROMPTS=true
+```
+Pairs with C1 — wider prompts only help once import fields are indexed.
+
+## Production activation (after merge + migrate)
+
+**Buyer-facing fixes are ON by default since 2026-06-13.** No Railway env vars required for core behavior.
+
+On deploy, `backfillPropertyKnowledgeOnBoot` automatically re-indexes up to 200 properties with missing/sparse knowledge chunks.
+
+Kill switches (set `=false` to disable):
+- `FEATURE_FULL_IMPORT_KNOWLEDGE=false`
+- `FEATURE_EXPANDED_PROPERTY_PROMPTS=false`
+- `FEATURE_EXTENDED_PROPERTY_ATTRS=false`
+- `PROPERTY_KNOWLEDGE_BOOT_BACKFILL=false`
+
+Staff-only (still opt-in):
+- `FEATURE_COPILOT_PROPERTY_RAG=true`
+- `FEATURE_BULK_PUBLISH_STRICT=true`

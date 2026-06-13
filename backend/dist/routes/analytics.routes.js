@@ -263,7 +263,7 @@ router.get('/upcoming-visits', (0, rbac_1.authorize)('analytics', 'read'), async
         const companyId = (0, tenant_1.getCompanyId)(req);
         const where = {
             companyId,
-            status: { in: ['scheduled', 'confirmed'] },
+            status: { in: ['pending_approval', 'scheduled', 'confirmed'] },
             scheduledAt: { gte: new Date() },
         };
         if (req.user.role === 'sales_agent') {

@@ -391,6 +391,7 @@ model Property {
   longitude       Decimal?       @db.Decimal(11, 8)   // For WhatsApp location sharing
   reraNumber      String?        @map("rera_number") @db.VarChar(50)
   status          PropertyStatus @default(available)
+  extendedAttributes Json        @default("{}") @map("extended_attributes")
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 

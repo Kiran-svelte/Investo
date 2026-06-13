@@ -19,6 +19,7 @@ import {
   isConversationAcknowledgmentMessage,
   resolveAdminLanguageCode,
   shouldSkipKnowledgeSearchForMessage,
+  isPropertyInquiryMessage,
 } from './customerMessageFastPath.service';
 import { isAdvancedLeadStatus, resolveStageFromLeadStatus } from '../utils/buyerLeadProgress.util';
 import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
@@ -30,13 +31,14 @@ import {
 } from './buyerVisitQuery.service';
 import {
   buildRealEstateAssistantPolicyPrompt,
-  PERSONALITY_BLOCK,
+  buildPersonalityBlock,
 } from '../constants/realEstateAssistantPrompt.constants';
 import { fetchOpenAi, OPENAI_CHAT_URL } from './openaiStatus.service';
 import {
   formatKnowledgeContextForPrompt,
   getPropertyKnowledgeForProperty,
   searchPropertyKnowledge,
+  wasKnowledgeEmbeddingDegraded,
 } from './propertyKnowledge.service';
 import {
   formatClientMemoryForPrompt,
@@ -333,9 +335,11 @@ export class AIService {
       : request.customerMessage;
 
     const promptLimits = getPropertyPromptLimits();
+    const useVectorSearch = shouldSearchKnowledge
+      && !(config.features.skipVectorOnDegradedEmbeddings && wasKnowledgeEmbeddingDegraded());
 
     const [vectorChunks, focusedChunks] = await Promise.all([
-      shouldSearchKnowledge && request.companyId
+      useVectorSearch && request.companyId
         ? searchPropertyKnowledge(
           request.companyId,
           knowledgeQuery,
@@ -535,13 +539,22 @@ export class AIService {
     ].join(' | ');
 
     const recentConversationBlock = this.formatRecentConversationBlock(conversationHistory);
+    const isDetailQuestion = isPropertyInquiryMessage(request.customerMessage);
+    const missionBlock = config.features.detailQuestionLlm && isDetailQuestion
+      ? `## YOUR MISSION
+You are a knowledgeable real estate advisor. Answer the customer's property questions thoroughly using GROUNDED PROJECT KNOWLEDGE and AVAILABLE PROPERTIES. After helping with their question, gently offer a site visit or brochure — do not rush past their question.`
+      : `## YOUR MISSION
+You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.`;
+    const responseWordCap = config.features.expandedBuyerResponseCap ? 350 : 200;
+    const personalityBlock = config.features.adaptiveBuyerPersona
+      ? buildPersonalityBlock(aiSettings.agentName || 'Riya')
+      : buildPersonalityBlock('Riya');
 
     return `# GOAL-DIRECTED REAL ESTATE AI FOR ${companyName}
 ${AI_GLOBAL_RULES_BLOCK}
 
 ${liveLeadContextBlock ? `\n${liveLeadContextBlock}\n` : ''}
-## YOUR MISSION
-You are NOT a generic chatbot. You are a SALES FUNNEL AI with ONE goal: Get the customer to book a property site visit.
+${missionBlock}
 
 ## CURRENT STATE
 - Stage: ${state.stage.toUpperCase()} (${stageConfig.goal})
@@ -571,7 +584,7 @@ ${buildRealEstateAssistantPolicyPrompt()}
 6d. Match customer location words (area, city) and property type (villa, apartment, plot, commercial) to the closest listing in AVAILABLE PROPERTIES before describing a project.
 7. ONE clear call-to-action per message.
 7b. NEVER send more than one message per user turn. If buttons are needed, the system attaches them to the same interactive message — do NOT write a separate follow-up.
-8. Keep responses under 200 words.
+8. Keep responses under ${responseWordCap} words.
 8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
 8c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".
 8d. If RECENT CONVERSATION exists below, continue naturally — NEVER welcome the customer again or re-introduce yourself.
@@ -628,7 +641,7 @@ Return ONLY valid JSON (no markdown fences, no extra text):
 ✅ Use emojis sparingly (1-2 per message) to match WhatsApp's natural tone: 🏡 💬 ✅ 🗓️
 ✅ Put only confident fields in extract; use null for unknown values.
 
-${PERSONALITY_BLOCK}`;
+${personalityBlock}`;
   }
 
   private operatorContactPromptBlock(aiSettings: { operatorContact?: unknown }): string {

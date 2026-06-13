@@ -1,5 +1,9 @@
 import type { Property } from '@prisma/client';
+import config from '../config';
 import { getPropertyPromptLimits } from '../utils/propertyPromptLimits.util';
+import {
+  formatExtendedAttributesForPrompt,
+} from '../utils/extractExtendedPropertyAttributes.util';
 
 /** Full property row shape passed into buyer LLM prompts. */
 export interface PropertyAiPromptInput {
@@ -19,6 +23,9 @@ export interface PropertyAiPromptInput {
   reraNumber?: string | null;
   brochureUrl?: string | null;
   hasImages: boolean;
+  extendedAttributes?: Record<string, unknown>;
+  floorPlanUrls?: string[];
+  priceListUrl?: string | null;
 }
 
 function toNumber(value: unknown): number | null {
@@ -72,8 +79,19 @@ function truncateText(text: string, max: number): string {
   return `${trimmed.slice(0, max - 1).trimEnd()}…`;
 }
 
+function parseExtendedAttributes(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '');
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 export function propertyToAiPromptInput(property: Property): PropertyAiPromptInput {
   const images = Array.isArray(property.images) ? (property.images as string[]) : [];
+  const floorPlans = Array.isArray(property.floorPlanUrls) ? (property.floorPlanUrls as string[]) : [];
+  const extendedAttributes = parseExtendedAttributes(
+    (property as Property & { extendedAttributes?: unknown }).extendedAttributes,
+  );
   return {
     id: property.id,
     name: property.name,
@@ -91,6 +109,9 @@ export function propertyToAiPromptInput(property: Property): PropertyAiPromptInp
     reraNumber: property.reraNumber,
     brochureUrl: property.brochureUrl,
     hasImages: images.some((url) => typeof url === 'string' && url.startsWith('https://')),
+    extendedAttributes,
+    floorPlanUrls: floorPlans.filter((url) => typeof url === 'string' && url.trim()),
+    priceListUrl: property.priceListUrl,
   };
 }
 
@@ -110,6 +131,8 @@ export function formatPropertyCatalogLine(property: PropertyAiPromptInput): stri
   const rera = property.reraNumber ? ` | RERA: ${property.reraNumber}` : '';
   const brochure = property.brochureUrl ? ' | Brochure PDF: on file' : '';
   const photos = property.hasImages ? ' | Photos: on file' : '';
+  const floorPlans = property.floorPlanUrls?.length ? ' | Floor plans: on file' : '';
+  const priceList = property.priceListUrl ? ' | Price list PDF: on file' : '';
 
   return [
     `- ${property.name}`,
@@ -121,6 +144,8 @@ export function formatPropertyCatalogLine(property: PropertyAiPromptInput): stri
     rera,
     brochure,
     photos,
+    floorPlans,
+    priceList,
     desc,
   ].filter(Boolean).join(' ');
 }
@@ -142,10 +167,17 @@ export function buildFocusedPropertyPromptBlock(property: PropertyAiPromptInput)
     property.amenities.length ? `Amenities: ${property.amenities.join(', ')}` : null,
     property.brochureUrl ? 'Brochure PDF: on file (system can attach after your reply)' : null,
     property.hasImages ? 'Photos: on file' : null,
+    property.floorPlanUrls?.length ? 'Floor plans: on file' : null,
+    property.priceListUrl ? 'Price list PDF: on file' : null,
   ].filter(Boolean) as string[];
 
   if (property.description?.trim()) {
     lines.push(`Description:\n${truncateText(property.description, limits.focusedDescriptionMax)}`);
+  }
+
+  const extendedBlock = formatExtendedAttributesForPrompt(property.extendedAttributes);
+  if (extendedBlock) {
+    lines.push(`Extended property attributes:\n${extendedBlock}`);
   }
 
   lines.push(
@@ -218,6 +250,21 @@ export function supplementPropertyFromKnowledgeContent(
     description = knowledgeContent.slice(descIdx + 'Description:\n'.length).split('\n\n')[0]?.trim() ?? null;
   }
 
+  const importIdx = knowledgeContent.indexOf('Imported property attributes:');
+  let extendedFromKnowledge: Record<string, unknown> | undefined;
+  if (importIdx >= 0) {
+    const block = knowledgeContent.slice(importIdx).split('\n\n')[0] ?? '';
+    const attrLines = block.split('\n').slice(1).filter((l) => l.includes(':'));
+    if (attrLines.length) {
+      extendedFromKnowledge = Object.fromEntries(
+        attrLines.map((line) => {
+          const colon = line.indexOf(':');
+          return [line.slice(0, colon).trim(), line.slice(colon + 1).trim()];
+        }),
+      );
+    }
+  }
+
   return {
     ...property,
     priceMin,
@@ -230,6 +277,7 @@ export function supplementPropertyFromKnowledgeContent(
     builder: property.builder ?? (builderLine || null),
     reraNumber: property.reraNumber ?? (reraLine && !reraLine.includes('not in records') ? reraLine : null),
     description,
+    extendedAttributes: property.extendedAttributes ?? extendedFromKnowledge,
   };
 }
 
@@ -246,10 +294,13 @@ export async function enrichAiPropertiesFromKnowledge(
   return Promise.all(
     properties.map(async (property) => {
       const needsEnrichment =
-        !property.description?.trim()
+        config.features.enrichedKnowledgeAlways
+        || !property.description?.trim()
         || property.amenities.length === 0
         || (property.priceMin == null && property.priceMax == null)
-        || (!property.locationArea && !property.locationCity);
+        || (!property.locationArea && !property.locationCity)
+        || !property.extendedAttributes
+        || Object.keys(property.extendedAttributes ?? {}).length === 0;
       if (!needsEnrichment) return property;
 
       const chunks = await getChunks(companyId, property.id, enrichLimit);
@@ -279,10 +330,18 @@ export function buildWhatsAppPropertyDetailText(property: Property): string {
     location ? `📍 Location: ${location}` : null,
     property.builder ? `🏗️ Builder: ${property.builder}` : null,
     property.reraNumber ? `📋 RERA: ${property.reraNumber}` : null,
+    property.brochureUrl ? `📄 Brochure: on file` : null,
+    input.floorPlanUrls?.length ? `📐 Floor plans: on file` : null,
+    property.priceListUrl ? `💵 Price list: on file` : null,
     input.amenities.length
       ? `✨ Amenities: ${input.amenities.slice(0, limits.whatsappAmenitiesMax).join(', ')}`
       : null,
   ].filter((line) => line !== null && line !== '') as string[];
+
+  const extendedBlock = formatExtendedAttributesForPrompt(input.extendedAttributes);
+  if (extendedBlock) {
+    lines.push('', `📋 *Details:*`, extendedBlock);
+  }
 
   return lines.join('\n');
 }

@@ -13,6 +13,7 @@ const supabaseStorage_service_1 = require("../services/supabaseStorage.service")
 const mailHealth_service_1 = require("../services/mailHealth.service");
 const openaiStatus_service_1 = require("../services/openaiStatus.service");
 const propertyKnowledge_service_1 = require("../services/propertyKnowledge.service");
+const companyWhatsAppWebhook_util_1 = require("../utils/companyWhatsAppWebhook.util");
 const ai_capabilities_constants_1 = require("../constants/ai-capabilities.constants");
 const production_polish_constants_1 = require("../constants/production-polish.constants");
 const llmSafeParams_constants_1 = require("../constants/llmSafeParams.constants");
@@ -73,15 +74,13 @@ router.get('/', async (_req, res) => {
     const startedAt = Date.now();
     try {
         await prisma_1.default.$queryRaw `SELECT 1`;
-        const [propertyKnowledgeEmbeddings, openai, mail] = await Promise.all([
+        const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound] = await Promise.all([
             (0, propertyKnowledge_service_1.getPropertyKnowledgeEmbeddingHealth)(),
             (0, openaiStatus_service_1.getOpenAiServiceHealth)(),
             (0, mailHealth_service_1.getMailServiceHealth)(),
+            (0, companyWhatsAppWebhook_util_1.getProductionWhatsAppInboundHealth)(),
         ]);
         const openAiBlocks = openai.status === 'down';
-        const whatsappInbound = config_1.default.env === 'production' && !config_1.default.whatsapp.appSecret
-            ? { status: 'blocked', reason: 'WHATSAPP_APP_SECRET missing — Meta webhooks rejected' }
-            : { status: 'ok' };
         const overallOk = propertyKnowledgeEmbeddings.status !== 'error' && !openAiBlocks
             && whatsappInbound.status !== 'blocked';
         res.status(200).json({
@@ -96,7 +95,11 @@ router.get('/', async (_req, res) => {
                 db: { status: 'ok', latency_ms: Date.now() - startedAt },
                 openai: { status: openai.status },
                 mail: { status: mail.status },
-                property_knowledge_embeddings: { status: propertyKnowledgeEmbeddings.status },
+                property_knowledge_embeddings: {
+                    status: propertyKnowledgeEmbeddings.status,
+                    provider: propertyKnowledgeEmbeddings.provider,
+                    detail: propertyKnowledgeEmbeddings.detail,
+                },
                 whatsapp_inbound: whatsappInbound,
             },
         });

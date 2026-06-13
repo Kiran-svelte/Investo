@@ -48,6 +48,7 @@ const whatsappSecurity_1 = require("../middleware/whatsappSecurity");
 const whatsappHealth_service_1 = require("../services/whatsappHealth.service");
 const maskPhoneNumberForLogs_1 = require("../utils/maskPhoneNumberForLogs");
 const metaInboundParser_service_1 = require("../services/whatsapp/metaInboundParser.service");
+const companyWhatsAppWebhook_util_1 = require("../utils/companyWhatsAppWebhook.util");
 const router = (0, express_1.Router)();
 async function getPrisma() {
     const module = await Promise.resolve().then(() => __importStar(require('../config/prisma')));
@@ -60,11 +61,13 @@ router.use(whatsappSecurity_1.whatsappIpWhitelist);
  * WhatsApp webhook verification endpoint - no auth required.
  * Meta sends a challenge that must be echoed back.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
+    const token = typeof req.query['hub.verify_token'] === 'string'
+        ? req.query['hub.verify_token']
+        : '';
     const challenge = req.query['hub.challenge'];
-    if (mode === 'subscribe' && token === config_1.default.whatsapp.verifyToken) {
+    if (mode === 'subscribe' && await (0, companyWhatsAppWebhook_util_1.matchesWebhookVerifyToken)(token)) {
         logger_1.default.info('WhatsApp webhook verified');
         res.status(200).send(challenge);
         return;
@@ -94,12 +97,19 @@ router.post('/', express_1.default.json({
     const signatureHeader = req.headers['x-hub-signature-256'];
     const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
     const rawBody = req.rawBody;
-    const signatureCheck = verifyWebhookSignature(rawBody ?? req.body, signature);
+    const e2eTokenHeader = req.headers['x-investo-e2e-token'];
+    const e2eToken = Array.isArray(e2eTokenHeader) ? e2eTokenHeader[0] : e2eTokenHeader;
+    const e2eProof = verifyE2EWebhookProofToken(e2eToken);
+    const signatureCheck = e2eProof.allowed
+        ? e2eProof
+        : await verifyWebhookSignature(rawBody ?? req.body, signature);
     if (!signatureCheck.allowed) {
         logger_1.default.warn('Webhook signature verification failed', {
             reason: signatureCheck.reason,
             hasSignature: !!signature,
-            hasAppSecret: !!config_1.default.whatsapp.appSecret,
+            hasTenantAppSecret: 'hasTenantAppSecret' in signatureCheck
+                ? signatureCheck.hasTenantAppSecret
+                : undefined,
             env: config_1.default.env,
         });
         res.status(403).json({ status: 'rejected', reason: signatureCheck.reason });
@@ -118,7 +128,22 @@ router.post('/', express_1.default.json({
 /**
  * Verify the webhook payload signature from Meta.
  */
-function verifyWebhookSignature(body, signature) {
+function verifyE2EWebhookProofToken(token) {
+    const expected = config_1.default.whatsapp.e2eWebhookProofToken?.trim();
+    if (!expected || !token) {
+        return { allowed: false, reason: 'e2e_token_missing' };
+    }
+    const a = Buffer.from(token);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto_1.default.timingSafeEqual(a, b)) {
+        return { allowed: false, reason: 'e2e_token_invalid' };
+    }
+    return { allowed: true, reason: 'e2e_proof_token' };
+}
+/**
+ * Verify the webhook payload signature from Meta.
+ */
+async function verifyWebhookSignature(body, signature) {
     if (process.env.BYPASS_WHATSAPP_SIGNATURE === 'true') {
         if (config_1.default.env === 'production') {
             // Hard-block in production — this bypass must never be enabled in prod.
@@ -128,51 +153,64 @@ function verifyWebhookSignature(body, signature) {
         logger_1.default.warn('Webhook signature verification BYPASSED via BYPASS_WHATSAPP_SIGNATURE=true (non-production only)');
         return { allowed: true, reason: 'debug_bypass' };
     }
-    if (!config_1.default.whatsapp.appSecret) {
-        if (config_1.default.env === 'production') {
-            logger_1.default.error('Webhook signature verification failed: WHATSAPP_APP_SECRET is missing in production');
-            return { allowed: false, reason: 'app_secret_missing' };
+    const parsedBody = (() => {
+        try {
+            if (Buffer.isBuffer(body))
+                return JSON.parse(body.toString('utf8'));
+            if (typeof body === 'string')
+                return JSON.parse(body);
+            return body;
         }
-        logger_1.default.warn('WHATSAPP_APP_SECRET not configured - allowing webhook only in non-production');
-        return { allowed: true, reason: 'non_prod_missing_app_secret' };
+        catch {
+            return body;
+        }
+    })();
+    const appSecrets = await (0, companyWhatsAppWebhook_util_1.resolveWebhookAppSecrets)(parsedBody);
+    const hasTenantAppSecret = appSecrets.length > 0;
+    if (!hasTenantAppSecret) {
+        if (config_1.default.env === 'production') {
+            logger_1.default.error('Webhook signature verification failed: Meta app secret missing in company settings');
+            return { allowed: false, reason: 'app_secret_missing', hasTenantAppSecret: false };
+        }
+        logger_1.default.warn('Meta app secret not configured in company settings - allowing webhook only in non-production');
+        return { allowed: true, reason: 'non_prod_missing_app_secret', hasTenantAppSecret: false };
     }
     if (!signature) {
         if (config_1.default.env !== 'production') {
             logger_1.default.warn('Webhook signature missing in non-production - allowing');
-            return { allowed: true, reason: 'non_prod_missing_signature' };
+            return { allowed: true, reason: 'non_prod_missing_signature', hasTenantAppSecret: true };
         }
         logger_1.default.error('Webhook signature missing in production');
-        return { allowed: false, reason: 'signature_missing' };
+        return { allowed: false, reason: 'signature_missing', hasTenantAppSecret: true };
     }
     const payload = Buffer.isBuffer(body)
         ? body
         : typeof body === 'string'
             ? body
             : JSON.stringify(body);
-    const expectedSignature = 'sha256=' + crypto_1.default
-        .createHmac('sha256', config_1.default.whatsapp.appSecret)
-        .update(payload)
-        .digest('hex');
-    const actual = Buffer.from(signature);
-    const expected = Buffer.from(expectedSignature);
-    if (actual.length !== expected.length) {
-        logger_1.default.error('Webhook signature length mismatch', {
-            actualLength: actual.length,
-            expectedLength: expected.length,
-        });
-        return { allowed: false, reason: 'signature_invalid_length' };
+    for (const appSecret of appSecrets) {
+        const expectedSignature = 'sha256=' + crypto_1.default
+            .createHmac('sha256', appSecret)
+            .update(payload)
+            .digest('hex');
+        const actual = Buffer.from(signature);
+        const expected = Buffer.from(expectedSignature);
+        if (actual.length !== expected.length) {
+            continue;
+        }
+        if (crypto_1.default.timingSafeEqual(actual, expected)) {
+            return { allowed: true, reason: 'signature_valid', hasTenantAppSecret: true };
+        }
     }
-    const isValid = crypto_1.default.timingSafeEqual(actual, expected);
-    if (!isValid) {
-        logger_1.default.error('Webhook signature mismatch', {
-            received: signature.substring(0, 15) + '...',
-            expected: expectedSignature.substring(0, 15) + '...',
-            payloadLength: payload.length,
-        });
-    }
+    logger_1.default.error('Webhook signature mismatch for all tenant app secrets', {
+        received: signature.substring(0, 15) + '...',
+        payloadLength: payload.length,
+        secretCount: appSecrets.length,
+    });
     return {
-        allowed: isValid,
-        reason: isValid ? 'signature_valid' : 'signature_mismatch',
+        allowed: false,
+        reason: 'signature_mismatch',
+        hasTenantAppSecret: true,
     };
 }
 function redactWebhookSummaryForLogs(summary) {
