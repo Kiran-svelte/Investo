@@ -48,19 +48,18 @@ FEATURE_EXPANDED_PROPERTY_PROMPTS=true
 ```
 Pairs with C1 — wider prompts only help once import fields are indexed.
 
-## Full production flag set (recommended order)
+## Production activation (after merge + migrate)
 
-```
-FEATURE_SHADOW_MODE=true
-FEATURE_FULL_IMPORT_KNOWLEDGE=true
-FEATURE_EXTENDED_PROPERTY_ATTRS=true
-FEATURE_EXPANDED_PROPERTY_PROMPTS=true
-FEATURE_ENRICHED_KNOWLEDGE_ALWAYS=true
-FEATURE_EXTENDED_CATALOG_SEARCH=true
-FEATURE_BULK_PUBLISH_STRICT=true
-FEATURE_BULK_IMPORT_SKIP_REVIEW=true
-FEATURE_COPILOT_PROPERTY_RAG=true
-FEATURE_ADAPTIVE_BUYER_PERSONA=true
-FEATURE_DETAIL_QUESTION_LLM=true
-FEATURE_EXPANDED_BUYER_RESPONSE_CAP=true
-```
+**Buyer-facing fixes are ON by default since 2026-06-13.** No Railway env vars required for core behavior.
+
+On deploy, `backfillPropertyKnowledgeOnBoot` automatically re-indexes up to 200 properties with missing/sparse knowledge chunks.
+
+Kill switches (set `=false` to disable):
+- `FEATURE_FULL_IMPORT_KNOWLEDGE=false`
+- `FEATURE_EXPANDED_PROPERTY_PROMPTS=false`
+- `FEATURE_EXTENDED_PROPERTY_ATTRS=false`
+- `PROPERTY_KNOWLEDGE_BOOT_BACKFILL=false`
+
+Staff-only (still opt-in):
+- `FEATURE_COPILOT_PROPERTY_RAG=true`
+- `FEATURE_BULK_PUBLISH_STRICT=true`

@@ -425,7 +425,7 @@ router.post(
             return name === property.name;
           })?.data;
 
-          const rowDraftData = config.features.fullImportKnowledgeIndexing && rowData
+          const rowDraftData = rowData
             ? {
                 ...draftData,
                 ...rowData,

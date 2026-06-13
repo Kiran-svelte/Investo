@@ -214,6 +214,9 @@ async function start(): Promise<void> {
             logger.warn('Startup reconciler: re-enqueued orphaned visit reminders', { count });
           }
         });
+
+        const { backfillPropertyKnowledgeOnBoot } = await import('./services/propertyKnowledgeBackfill.service');
+        void backfillPropertyKnowledgeOnBoot();
       } catch (err: unknown) {
         logger.warn('Database warmup failed at startup; API remains available for health checks', {
           error: err instanceof Error ? err.message : String(err),

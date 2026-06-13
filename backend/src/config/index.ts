@@ -537,35 +537,35 @@ const config = {
     fastWhatsAppReplies: process.env.FEATURE_FAST_WHATSAPP_REPLIES !== 'false',
     /**
      * Index all CSV/spreadsheet import fields into property knowledge (RAG) for WhatsApp AI.
-     * OFF by default — set FEATURE_FULL_IMPORT_KNOWLEDGE=true to enable.
+     * ON by default — set FEATURE_FULL_IMPORT_KNOWLEDGE=false to disable.
      */
-    fullImportKnowledgeIndexing: process.env.FEATURE_FULL_IMPORT_KNOWLEDGE === 'true',
+    fullImportKnowledgeIndexing: process.env.FEATURE_FULL_IMPORT_KNOWLEDGE !== 'false',
     /**
      * Wider buyer AI property context (amenities, descriptions, RAG chunk counts).
-     * OFF by default — set FEATURE_EXPANDED_PROPERTY_PROMPTS=true to enable.
+     * ON by default — set FEATURE_EXPANDED_PROPERTY_PROMPTS=false to disable.
      */
-    expandedPropertyPrompts: process.env.FEATURE_EXPANDED_PROPERTY_PROMPTS === 'true',
+    expandedPropertyPrompts: process.env.FEATURE_EXPANDED_PROPERTY_PROMPTS !== 'false',
     /**
      * Persist non-catalog CSV fields on Property.extended_attributes at publish.
-     * OFF by default — set FEATURE_EXTENDED_PROPERTY_ATTRS=true to enable.
+     * ON by default — set FEATURE_EXTENDED_PROPERTY_ATTRS=false to disable.
      */
-    extendedPropertyAttrs: process.env.FEATURE_EXTENDED_PROPERTY_ATTRS === 'true',
+    extendedPropertyAttrs: process.env.FEATURE_EXTENDED_PROPERTY_ATTRS !== 'false',
     /** Bulk publish: enforce knowledge gate + rollback on index failure (I7/I8). */
     bulkPublishStrict: process.env.FEATURE_BULK_PUBLISH_STRICT === 'true',
     /** Skip human mapping review for bulk/spreadsheet imports (I12). */
-    bulkImportSkipReview: process.env.FEATURE_BULK_IMPORT_SKIP_REVIEW === 'true',
+    bulkImportSkipReview: process.env.FEATURE_BULK_IMPORT_SKIP_REVIEW !== 'false',
     /** Staff copilot: vector searchPropertyKnowledge tool (T1). */
     copilotPropertyRag: process.env.FEATURE_COPILOT_PROPERTY_RAG === 'true',
     /** Always merge knowledge chunks into buyer property context (D8). */
-    enrichedKnowledgeAlways: process.env.FEATURE_ENRICHED_KNOWLEDGE_ALWAYS === 'true',
+    enrichedKnowledgeAlways: process.env.FEATURE_ENRICHED_KNOWLEDGE_ALWAYS !== 'false',
     /** Catalog search uses vector RAG fallback for detail queries (D9). */
-    extendedCatalogSearch: process.env.FEATURE_EXTENDED_CATALOG_SEARCH === 'true',
+    extendedCatalogSearch: process.env.FEATURE_EXTENDED_CATALOG_SEARCH !== 'false',
     /** Use aiSettings.agentName instead of hardcoded persona (P1). */
-    adaptiveBuyerPersona: process.env.FEATURE_ADAPTIVE_BUYER_PERSONA === 'true',
+    adaptiveBuyerPersona: process.env.FEATURE_ADAPTIVE_BUYER_PERSONA !== 'false',
     /** Property detail questions bypass deterministic fast paths (C5). */
-    detailQuestionLlm: process.env.FEATURE_DETAIL_QUESTION_LLM === 'true',
+    detailQuestionLlm: process.env.FEATURE_DETAIL_QUESTION_LLM !== 'false',
     /** Raise buyer LLM response word cap from 200 to 350 (C3). */
-    expandedBuyerResponseCap: process.env.FEATURE_EXPANDED_BUYER_RESPONSE_CAP === 'true',
+    expandedBuyerResponseCap: process.env.FEATURE_EXPANDED_BUYER_RESPONSE_CAP !== 'false',
     /** Skip unreliable vector search when local hash embeddings are active (D12). */
     skipVectorOnDegradedEmbeddings: process.env.FEATURE_SKIP_VECTOR_ON_DEGRADED_EMBEDDINGS !== 'false',
   },

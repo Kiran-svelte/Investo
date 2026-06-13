@@ -817,6 +817,10 @@ async function handlePropertyBrowsingTurn(
   conversationStage: string,
 ): Promise<TurnResult | null> {
   if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
+
+  const { isPropertyInquiryMessage } = await import('../customerMessageFastPath.service');
+  if (isPropertyInquiryMessage(ctx.input.messageText)) return null;
+
   if (!isPropertyBrowsingIntent(ctx.input.messageText)) return null;
 
   logOutboundBranch('H2_5', 'whatsappTurnOrchestrator:propertyBrowsing', 'buyer_property_browse_fast_path', {

@@ -1,8 +1,7 @@
 import prisma from '../config/prisma';
-import config from '../config';
 import type { WhatsAppComponent } from '../types/whatsapp-turn.types';
 import { matchCatalogPropertiesForQuery, getInventorySummary } from '../services/propertyKnowledge.service';
-import { isPropertyDetailQuestion } from '../services/customerMessageFastPath.service';
+import { isPropertyInquiryMessage } from '../services/customerMessageFastPath.service';
 import { resolveBrochureUrlForWhatsApp } from '../services/brochureDelivery.service';
 import {
   formatBuyerCatalogEmpty,
@@ -29,7 +28,7 @@ export async function resolvePropertyBrowseTurn(
 ): Promise<PropertyBrowseTurnPayload | null> {
   const { companyId, messageText } = input;
 
-  if (config.features.detailQuestionLlm && isPropertyDetailQuestion(messageText)) {
+  if (isPropertyInquiryMessage(messageText)) {
     return null;
   }
 

@@ -89,9 +89,9 @@ function parseExtendedAttributes(raw: unknown): Record<string, unknown> | undefi
 export function propertyToAiPromptInput(property: Property): PropertyAiPromptInput {
   const images = Array.isArray(property.images) ? (property.images as string[]) : [];
   const floorPlans = Array.isArray(property.floorPlanUrls) ? (property.floorPlanUrls as string[]) : [];
-  const extendedAttributes = config.features.extendedPropertyAttrs
-    ? parseExtendedAttributes((property as Property & { extendedAttributes?: unknown }).extendedAttributes)
-    : undefined;
+  const extendedAttributes = parseExtendedAttributes(
+    (property as Property & { extendedAttributes?: unknown }).extendedAttributes,
+  );
   return {
     id: property.id,
     name: property.name,
@@ -250,6 +250,21 @@ export function supplementPropertyFromKnowledgeContent(
     description = knowledgeContent.slice(descIdx + 'Description:\n'.length).split('\n\n')[0]?.trim() ?? null;
   }
 
+  const importIdx = knowledgeContent.indexOf('Imported property attributes:');
+  let extendedFromKnowledge: Record<string, unknown> | undefined;
+  if (importIdx >= 0) {
+    const block = knowledgeContent.slice(importIdx).split('\n\n')[0] ?? '';
+    const attrLines = block.split('\n').slice(1).filter((l) => l.includes(':'));
+    if (attrLines.length) {
+      extendedFromKnowledge = Object.fromEntries(
+        attrLines.map((line) => {
+          const colon = line.indexOf(':');
+          return [line.slice(0, colon).trim(), line.slice(colon + 1).trim()];
+        }),
+      );
+    }
+  }
+
   return {
     ...property,
     priceMin,
@@ -262,6 +277,7 @@ export function supplementPropertyFromKnowledgeContent(
     builder: property.builder ?? (builderLine || null),
     reraNumber: property.reraNumber ?? (reraLine && !reraLine.includes('not in records') ? reraLine : null),
     description,
+    extendedAttributes: property.extendedAttributes ?? extendedFromKnowledge,
   };
 }
 
@@ -284,7 +300,7 @@ export async function enrichAiPropertiesFromKnowledge(
         || (property.priceMin == null && property.priceMax == null)
         || (!property.locationArea && !property.locationCity)
         || !property.extendedAttributes
-        || Object.keys(property.extendedAttributes).length === 0;
+        || Object.keys(property.extendedAttributes ?? {}).length === 0;
       if (!needsEnrichment) return property;
 
       const chunks = await getChunks(companyId, property.id, enrichLimit);

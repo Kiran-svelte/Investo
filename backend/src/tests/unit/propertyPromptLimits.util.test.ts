@@ -14,7 +14,14 @@ describe('propertyPromptLimits.util', () => {
     resetPropertyPromptLimitsShadowLogForTests();
   });
 
-  test('returns default limits when flag is off', () => {
+  test('returns expanded limits by default (buyer-facing ON)', () => {
+    config.features.expandedPropertyPrompts = true;
+    const limits = getPropertyPromptLimits();
+    expect(limits.knowledgeChunksMax).toBe(20);
+    expect(limits.availablePropertiesMax).toBe(20);
+  });
+
+  test('returns legacy limits when explicitly disabled', () => {
     config.features.expandedPropertyPrompts = false;
     const limits = getPropertyPromptLimits();
     expect(limits.knowledgeChunksMax).toBe(10);
