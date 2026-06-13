@@ -550,8 +550,8 @@ const config = {
      * ON by default — set FEATURE_EXTENDED_PROPERTY_ATTRS=false to disable.
      */
     extendedPropertyAttrs: process.env.FEATURE_EXTENDED_PROPERTY_ATTRS !== 'false',
-    /** Bulk publish: enforce knowledge gate + rollback on index failure (I7/I8). */
-    bulkPublishStrict: process.env.FEATURE_BULK_PUBLISH_STRICT !== 'false',
+    /** Bulk publish: enforce knowledge gate + rollback on index failure (opt-in). */
+    bulkPublishStrict: process.env.FEATURE_BULK_PUBLISH_STRICT === 'true',
     /** Skip human mapping review for bulk/spreadsheet imports (I12). */
     bulkImportSkipReview: process.env.FEATURE_BULK_IMPORT_SKIP_REVIEW !== 'false',
     /** Staff copilot: vector searchPropertyKnowledge tool (T1). */
