@@ -535,6 +535,11 @@ const config = {
     attendanceStaffRescheduleFlow: process.env.FEATURE_ATTENDANCE_STAFF_RESCHEDULE !== 'false',
     /** Skip artificial WhatsApp delays; parallel prefetch; shorter LLM caps (default ON). */
     fastWhatsAppReplies: process.env.FEATURE_FAST_WHATSAPP_REPLIES !== 'false',
+    /**
+     * Index all CSV/spreadsheet import fields into property knowledge (RAG) for WhatsApp AI.
+     * OFF by default — set FEATURE_FULL_IMPORT_KNOWLEDGE=true to enable.
+     */
+    fullImportKnowledgeIndexing: process.env.FEATURE_FULL_IMPORT_KNOWLEDGE === 'true',
   },
 };
 

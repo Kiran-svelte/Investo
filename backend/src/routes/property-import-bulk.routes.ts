@@ -26,6 +26,7 @@ import { requireFeature } from '../middleware/featureGate';
 import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher';
 import { auditLog } from '../middleware/audit';
 import logger from '../config/logger';
+import config from '../config';
 import prisma from '../config/prisma';
 import { csvImportService, serializePropertyRowData, type ColumnMapping, type PropertyRowCandidate } from '../services/csv-import.service';
 import { indexPropertyKnowledge } from '../services/propertyKnowledge.service';
@@ -395,6 +396,22 @@ router.post(
       let knowledgeIndexedCount = 0;
       for (const property of published) {
         try {
+          const rowData = validRows.find((row) => {
+            const name = typeof row.data.name === 'string' ? row.data.name.trim() : '';
+            return name === property.name;
+          })?.data;
+
+          const rowDraftData = config.features.fullImportKnowledgeIndexing && rowData
+            ? {
+                ...draftData,
+                ...rowData,
+                import_mapping: {
+                  ...((draftData.import_mapping ?? draftData.importMapping) as Record<string, unknown> || {}),
+                  source_record: rowData,
+                },
+              }
+            : draftData;
+
           await indexPropertyKnowledge({
             companyId,
             property: {
@@ -411,10 +428,10 @@ router.post(
               amenities: property.amenities as string[],
               description: property.description,
               reraNumber: property.reraNumber,
-              brochureUrl: null,
+              brochureUrl: property.brochureUrl,
               status: property.status,
             },
-            draftData: draftData,
+            draftData: rowDraftData,
             mediaExtractions: [],
           });
           knowledgeIndexedCount++;

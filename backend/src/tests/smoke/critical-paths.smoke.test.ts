@@ -8,6 +8,7 @@ import { isVisitSchedulingMessage, parseCustomVisitSlotFromMessage } from '../..
 import { buildFastPathCustomerReply } from '../../services/customerMessageFastPath.service';
 import { resolveStageFromLeadStatus } from '../../utils/buyerLeadProgress.util';
 import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
+import { buildPropertyKnowledgeSections } from '../../services/propertyKnowledge.service';
 
 describe('critical-path smoke scenarios', () => {
   test('visit status query is recognized', () => {
@@ -40,5 +41,22 @@ describe('critical-path smoke scenarios', () => {
   test('visited lead stage resolves to shortlist not rapport', () => {
     expect(resolveStageFromLeadStatus('visited')).toBe('shortlist');
     expect(shouldElevateReturningBuyerStage('lead-123')).toBe(true);
+  });
+
+  test('imported carpet area is present in full-import knowledge sections', () => {
+    const sections = buildPropertyKnowledgeSections({
+      property: {
+        id: 'smoke-prop-1',
+        name: 'Lake Vista',
+        propertyType: 'apartment',
+      },
+      draftData: {
+        carpet_area_sqft: 1450,
+        possession_date: 'Dec 2027',
+      },
+    }, { includeFullImportFields: true });
+    const joined = sections.join('\n');
+    expect(joined).toContain('Carpet area (sq ft): 1450');
+    expect(joined).toContain('Possession date / timeline: Dec 2027');
   });
 });

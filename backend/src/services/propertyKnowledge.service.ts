@@ -11,6 +11,10 @@ import {
   OPENAI_EMBEDDINGS_URL,
 } from './openaiStatus.service';
 import { isAwsStorageConfigured } from './storage.service';
+import {
+  PROPERTY_IMPORT_FIELDS,
+  type PropertyImportFieldType,
+} from '../constants/property-import-fields.constants';
 
 const EMBEDDING_DIMENSIONS = 1536;
 const CHUNK_MAX_CHARS = 900;
@@ -186,6 +190,82 @@ function formatUnitConfigurations(draftData: Record<string, unknown>): string | 
   return `Unit inventory (${propertyType}, ${total} units): ${lines.join('; ')}`;
 }
 
+const CATALOG_COVERED_IMPORT_KEYS = new Set([
+  'name',
+  'builder',
+  'location_city',
+  'locationCity',
+  'location_area',
+  'locationArea',
+  'location_pincode',
+  'locationPincode',
+  'price_min',
+  'priceMin',
+  'price_max',
+  'priceMax',
+  'bedrooms',
+  'property_type',
+  'propertyType',
+  'amenities',
+  'description',
+  'rera_number',
+  'reraNumber',
+  'status',
+  'brochure_url',
+  'brochureUrl',
+  'hero_image_url',
+]);
+
+function isFilledImportValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return true;
+}
+
+function formatImportFieldValue(value: unknown, type: PropertyImportFieldType): string {
+  if (type === 'boolean') {
+    return value === true || value === 'true' || value === 'yes' ? 'Yes' : 'No';
+  }
+  if (type === 'amenities' && Array.isArray(value)) {
+    return value.map(String).filter(Boolean).join(', ');
+  }
+  return String(value).trim();
+}
+
+/**
+ * Serializes non-catalog CSV/spreadsheet fields so RAG can answer detail questions
+ * (carpet area, possession, facing, maintenance, etc.).
+ */
+export function buildImportFieldKnowledgeSection(draftData: Record<string, unknown>): string | null {
+  const lines: string[] = [];
+
+  for (const field of PROPERTY_IMPORT_FIELDS) {
+    if (CATALOG_COVERED_IMPORT_KEYS.has(field.key)) continue;
+    const raw = draftData[field.key];
+    if (!isFilledImportValue(raw)) continue;
+    lines.push(`${field.label}: ${formatImportFieldValue(raw, field.type)}`);
+  }
+
+  const aiContext = draftData.ai_knowledge_context ?? draftData.aiKnowledgeContext;
+  const contextText = typeof aiContext === 'string' ? aiContext.trim() : '';
+
+  if (lines.length === 0 && !contextText) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  if (lines.length > 0) {
+    parts.push(`Imported property attributes:\n${lines.join('\n')}`);
+  }
+  if (contextText) {
+    parts.push(`Spreadsheet inventory summary:\n${contextText}`);
+  }
+  return parts.join('\n\n');
+}
+
 function serializeAmenities(amenities: unknown): string {
   if (Array.isArray(amenities)) {
     return amenities.map(String).filter(Boolean).join(', ');
@@ -200,6 +280,10 @@ function serializeAmenities(amenities: unknown): string {
   }
   return '';
 }
+
+export type BuildPropertyKnowledgeSectionsOptions = {
+  includeFullImportFields?: boolean;
+};
 
 export function buildPropertyKnowledgeSections(input: {
   property: {
@@ -221,7 +305,8 @@ export function buildPropertyKnowledgeSections(input: {
   };
   draftData?: Record<string, unknown>;
   mediaExtractions?: Array<{ assetType: string; fileName: string; extractedMetadata: Record<string, unknown> }>;
-}): string[] {
+}, options?: BuildPropertyKnowledgeSectionsOptions): string[] {
+  const includeFullImportFields = options?.includeFullImportFields === true;
   const sections: string[] = [];
   const p = input.property;
 
@@ -291,6 +376,13 @@ export function buildPropertyKnowledgeSections(input: {
         }
       }
     }
+
+    if (includeFullImportFields) {
+      const importSection = buildImportFieldKnowledgeSection(input.draftData);
+      if (importSection) {
+        sections.push(importSection);
+      }
+    }
   }
 
   for (const media of input.mediaExtractions || []) {
@@ -315,6 +407,30 @@ export function buildPropertyKnowledgeSections(input: {
   }
 
   return sections;
+}
+
+function resolvePropertyKnowledgeSections(input: Parameters<typeof buildPropertyKnowledgeSections>[0]): string[] {
+  const oldSections = buildPropertyKnowledgeSections(input, { includeFullImportFields: false });
+
+  if (!config.features.fullImportKnowledgeIndexing) {
+    if (config.features.shadowMode) {
+      const newSections = buildPropertyKnowledgeSections(input, { includeFullImportFields: true });
+      const oldSerialized = JSON.stringify(oldSections);
+      const newSerialized = JSON.stringify(newSections);
+      if (oldSerialized !== newSerialized) {
+        logger.warn('fullImportKnowledge shadow mismatch', {
+          featureName: 'fullImportKnowledgeIndexing',
+          propertyId: input.property.id,
+          propertyName: input.property.name,
+          oldSectionCount: oldSections.length,
+          newSectionCount: newSections.length,
+        });
+      }
+    }
+    return oldSections;
+  }
+
+  return buildPropertyKnowledgeSections(input, { includeFullImportFields: true });
 }
 
 function hashString(value: string): number {
@@ -514,7 +630,7 @@ export async function indexPropertyKnowledge(input: {
   try {
     await ensurePropertyKnowledgeSchema();
 
-    const sections = buildPropertyKnowledgeSections({
+    const sections = resolvePropertyKnowledgeSections({
       property: input.property,
       draftData: input.draftData,
       mediaExtractions: input.mediaExtractions,
