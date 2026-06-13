@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import Pagination from '../../components/common/Pagination';
 import {
   Building2, Plus, Search, Users, Check, X,
@@ -154,10 +155,9 @@ const CompaniesPage: React.FC = () => {
     } catch (err: any) {
       const status = err.response?.status;
       if (!editingCompany && status === 409) {
-        setError(err.response?.data?.error || 'This slug or WhatsApp number is already in use.');
+        setError(getApiErrorMessage(err, 'This slug or WhatsApp number is already in use.'));
       } else {
-        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save company';
-        setError(errorMessage);
+        setError(getApiErrorMessage(err, 'Failed to save company'));
       }
     } finally {
       setSubmitting(false);
@@ -195,7 +195,7 @@ const CompaniesPage: React.FC = () => {
       );
       setInviteForm({ name: '', email: '', password: '', must_change_password: true });
     } catch (err: any) {
-      setInviteError(err.response?.data?.error || 'Failed to create company admin');
+      setInviteError(getApiErrorMessage(err, 'Failed to create company admin'));
     } finally {
       setInviteSubmitting(false);
     }
@@ -217,7 +217,7 @@ const CompaniesPage: React.FC = () => {
       await loadData();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      setDeleteError(ax.response?.data?.error || 'Failed to delete company');
+      setDeleteError(getApiErrorMessage(ax, 'Failed to delete company'));
     } finally {
       setDeleteSubmitting(false);
     }

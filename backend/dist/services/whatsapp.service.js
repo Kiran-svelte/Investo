@@ -47,9 +47,11 @@ const opsMetrics_service_1 = require("./opsMetrics.service");
 const whatsappPresence_service_1 = require("./whatsappPresence.service");
 const phoneMatch_1 = require("../utils/phoneMatch");
 const companyWhatsAppConfig_util_1 = require("../utils/companyWhatsAppConfig.util");
+const platformCompany_constants_1 = require("../constants/platformCompany.constants");
 const inboundWhatsAppRouting_service_1 = require("./inboundWhatsAppRouting.service");
 const inboundMessageGuard_service_1 = require("./inboundMessageGuard.service");
 const customerInboundQueue_service_1 = require("./customerInboundQueue.service");
+const buyerLeadProgress_util_1 = require("../utils/buyerLeadProgress.util");
 const buyerButtonPolicy_service_1 = require("./buyer/buyerButtonPolicy.service");
 const outboundTurnDebug_service_1 = require("./outboundTurnDebug.service");
 const safeBuyerFallback_util_1 = require("../utils/safeBuyerFallback.util");
@@ -111,11 +113,11 @@ class WhatsAppService {
      * Deterministically resolves company routing from company.settings.whatsapp.phoneNumberId.
      */
     async getCompanyByPhoneNumberId(phoneNumberId, providerHint, companyIdHint, webhookTokenHint, customerPhoneHint, businessDisplayPhoneHint) {
-        // Find all active companies
-        const companies = await prisma_1.default.company.findMany({
+        // Find all active tenant companies (platform shell is never a WhatsApp tenant).
+        const companies = (await prisma_1.default.company.findMany({
             where: { status: 'active' },
-            select: { id: true, name: true, settings: true, whatsappPhone: true, updatedAt: true },
-        });
+            select: { id: true, name: true, slug: true, settings: true, whatsappPhone: true, updatedAt: true },
+        })).filter((company) => !(0, platformCompany_constants_1.isPlatformCompany)(company));
         void providerHint;
         const normalizeStringLike = (value) => {
             if (typeof value === 'string') {
@@ -354,6 +356,19 @@ class WhatsAppService {
         const { company, config: whatsappConfig } = result;
         const companyId = company.id;
         const customerPhone = (0, phoneMatch_1.normalizeInboundWhatsAppPhone)(msg.customerPhone);
+        if ((0, platformCompany_constants_1.isPlatformCompany)(company)) {
+            logger_1.default.error('Buyer WhatsApp inbound rejected: platform company is not a tenant', {
+                companyId,
+                phoneNumberId: msg.phoneNumberId,
+                customerPhone: (0, maskPhoneNumberForLogs_1.maskPhoneNumberForLogs)(customerPhone),
+            });
+            return {
+                status: 'skipped',
+                reason: 'platform_company_not_tenant',
+                companyId,
+                propagation: notAttempted,
+            };
+        }
         if (msg.messageId && !msg.queuedReplay) {
             const inboundClaimed = await (0, inboundMessageGuard_service_1.claimInboundMessageFull)(companyId, msg.messageId, customerPhone);
             if (!inboundClaimed) {
@@ -870,6 +885,7 @@ class WhatsAppService {
             const aiReady = await this.ensureProspectConversationAiActive(conversation, {
                 companyId,
                 leadId: lead.id,
+                leadStatus: lead.status,
                 assignedAgentId: lead.assignedAgentId,
                 customerPhone,
                 customerName: lead.customerName,
@@ -880,8 +896,9 @@ class WhatsAppService {
                 && conversation.aiEnabled
                 && conversationState.stage === 'human_escalated') {
                 const resetState = conversationStateMachine_1.conversationStateManager.createInitialState();
+                const resumedStage = (0, buyerLeadProgress_util_1.resolveStageAfterHumanEscalationReset)(lead.status);
                 Object.assign(conversationState, {
-                    stage: 'rapport',
+                    stage: resumedStage,
                     previousStage: 'human_escalated',
                     stageEnteredAt: new Date(),
                     messageCount: 0,
@@ -1228,7 +1245,7 @@ class WhatsAppService {
                     status: 'ai_active',
                     aiEnabled: true,
                     ...(conversation.stage === 'human_escalated' && {
-                        stage: 'rapport',
+                        stage: (0, buyerLeadProgress_util_1.resolveStageAfterHumanEscalationReset)(context.leadStatus ?? null),
                         stageEnteredAt: new Date(),
                         stageMessageCount: 0,
                         escalationReason: null,
@@ -1257,7 +1274,7 @@ class WhatsAppService {
         // Reset stage when stuck in human_escalated so conversation resumes naturally.
         // The customer is re-engaging — do not force them through another escalation message.
         if (isStuckEscalated) {
-            updateData.stage = 'rapport';
+            updateData.stage = (0, buyerLeadProgress_util_1.resolveStageAfterHumanEscalationReset)(context.leadStatus ?? null);
             updateData.stageEnteredAt = new Date();
             updateData.stageMessageCount = 0;
             updateData.escalationReason = null;
@@ -1909,6 +1926,12 @@ class WhatsAppService {
      * @param whatsappConfig - Company WhatsApp credentials
      */
     async sendContextualQuickReplies(to, stage, context, whatsappConfig) {
+        let browseFilters = context.browseFilters;
+        if (!browseFilters && context.companyId) {
+            const { getCompanyBrowseSnapshot, buildDiscoveryButtonSet } = await Promise.resolve().then(() => __importStar(require('./companyInventoryBrowse.service')));
+            const snapshot = await getCompanyBrowseSnapshot(context.companyId);
+            browseFilters = buildDiscoveryButtonSet(snapshot);
+        }
         const components = (0, buyerButtonPolicy_service_1.resolveBuyerComponents)({
             stage,
             outboundText: context.outboundText ?? '',
@@ -1921,6 +1944,7 @@ class WhatsAppService {
             visitStatus: context.visitStatus,
             visitProperty: context.visitProperty,
             visitTime: context.visitTime,
+            browseFilters,
         });
         await this.sendTurnComponents(to, components, whatsappConfig, context.outboundText);
     }

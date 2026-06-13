@@ -55,7 +55,7 @@ const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const staffPhoneUniqueness_1 = require("../utils/staffPhoneUniqueness");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use(tenant_1.strictTenantIsolation);
 router.use((req, res, next) => {
     if (req.user?.role === 'super_admin') {
         next();
@@ -74,10 +74,7 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
         const companyId = (0, tenant_1.getCompanyId)(req);
         const where = {};
         if (req.user.role === 'super_admin') {
-            // Super admin can see all or filter by company
-            if (companyId && companyId !== req.user.company_id) {
-                where.companyId = companyId;
-            }
+            where.companyId = companyId;
         }
         else if (req.user.role === 'sales_agent') {
             // Sales agent sees only self
@@ -109,21 +106,27 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
         // Enrich with lead counts for agents
         if (users.length > 0) {
             const userIds = users.map((u) => u.id);
+            const leadCountScope = {
+                assignedAgentId: { in: userIds },
+                status: { notIn: ['closed_won', 'closed_lost'] },
+            };
+            if (where.companyId)
+                leadCountScope.companyId = where.companyId;
             const leadCounts = await prisma_1.default.lead.groupBy({
                 by: ['assignedAgentId'],
-                where: {
-                    assignedAgentId: { in: userIds },
-                    status: { notIn: ['closed_won', 'closed_lost'] },
-                },
+                where: leadCountScope,
                 _count: { id: true },
             });
             const leadMap = new Map(leadCounts.map((l) => [l.assignedAgentId, l._count.id]));
+            const salesCountScope = {
+                assignedAgentId: { in: userIds },
+                status: 'closed_won',
+            };
+            if (where.companyId)
+                salesCountScope.companyId = where.companyId;
             const salesCounts = await prisma_1.default.lead.groupBy({
                 by: ['assignedAgentId'],
-                where: {
-                    assignedAgentId: { in: userIds },
-                    status: 'closed_won',
-                },
+                where: salesCountScope,
                 _count: { id: true },
             });
             const salesMap = new Map(salesCounts.map((s) => [s.assignedAgentId, s._count.id]));

@@ -283,11 +283,13 @@ export const cancelPropertyImportDraftSchema = z.object({
   purge: z.boolean().optional(),
 });
 
+import { bulkImportRawRowsSchema } from '../utils/bulkImportValidation.util';
+
 export const propertyImportSpreadsheetImportSchema = z.object({
   project_name: z.string().min(1).max(255),
   property_type: z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']),
   column_mapping: z.record(z.string()),
-  raw_rows: z.array(z.record(z.string())).min(1).max(500),
+  raw_rows: bulkImportRawRowsSchema(500),
 });
 
 export const propertyImportReplaceUnitsSchema = z.object({
@@ -327,6 +329,15 @@ export const createUserSchema = z.object({
   role: z.enum(ROLES),
   target_company_id: z.string().uuid().optional(), // For super_admin to create users in any company
   must_change_password: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  const whatsappStaffRoles = ['sales_agent', 'operations', 'company_admin'] as const;
+  if (whatsappStaffRoles.includes(data.role as typeof whatsappStaffRoles[number]) && !data.phone) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Phone number is required for staff who use WhatsApp copilot',
+      path: ['phone'],
+    });
+  }
 });
 
 export const greetingMediaItemSchema = z.object({

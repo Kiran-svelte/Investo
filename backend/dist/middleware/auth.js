@@ -10,6 +10,7 @@ const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const redis_1 = require("../config/redis");
+const authSessionCookies_util_1 = require("../utils/authSessionCookies.util");
 const AUTH_CACHE_TTL_SECONDS = 300; // 5 minutes
 const neonJwksUri = config_1.default.neonAuth.url ? `${config_1.default.neonAuth.url}/.well-known/jwks.json` : '';
 const neonJwksClient = neonJwksUri
@@ -60,11 +61,13 @@ async function verifyNeonToken(token) {
 }
 async function authenticate(req, res, next) {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const cookieToken = (0, authSessionCookies_util_1.readAccessTokenFromCookies)(req.headers.cookie);
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    const token = bearerToken || cookieToken;
+    if (!token) {
         res.status(401).json({ error: 'Authentication required' });
         return;
     }
-    const token = authHeader.split(' ')[1];
     // Use a short hash of the token as the cache key (tokens are large and sensitive)
     const tokenCacheKey = `auth:user:${Buffer.from(token).toString('base64').slice(-40)}`;
     try {

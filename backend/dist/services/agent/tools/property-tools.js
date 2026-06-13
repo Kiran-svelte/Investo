@@ -14,6 +14,7 @@ const propertyCompleteness_service_1 = require("../../propertyCompleteness.servi
 const propertyKnowledge_service_1 = require("../../propertyKnowledge.service");
 const extractExtendedPropertyAttributes_util_1 = require("../../../utils/extractExtendedPropertyAttributes.util");
 const extractExtendedPropertyAttributes_util_2 = require("../../../utils/extractExtendedPropertyAttributes.util");
+const propertyPromptLimits_util_1 = require("../../../utils/propertyPromptLimits.util");
 const propertyType = zod_1.z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']);
 const propertyStatus = zod_1.z.enum(['available', 'sold', 'upcoming']);
 function price(min, max) {
@@ -84,8 +85,9 @@ function createPropertyTools(context) {
                     extended ? `Extended attributes:\n${extended}` : '',
                     `Visits: ${property._count.visits}`,
                 ].filter(Boolean);
-                if (config_1.default.features.copilotPropertyRag) {
-                    const chunks = await (0, propertyKnowledge_service_1.getPropertyKnowledgeForProperty)(context.companyId, propertyId, 5);
+                if (config_1.default.features.copilotPropertyRag || config_1.default.features.fullImportKnowledgeIndexing) {
+                    const limit = (0, propertyPromptLimits_util_1.getPropertyPromptLimits)().focusedPropertyChunks;
+                    const chunks = await (0, propertyKnowledge_service_1.getPropertyKnowledgeForProperty)(context.companyId, propertyId, limit);
                     if (chunks.length) {
                         lines.push('Knowledge index excerpts:', ...chunks.map((c) => c.content));
                     }

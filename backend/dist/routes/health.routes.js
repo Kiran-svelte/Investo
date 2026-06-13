@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const config_1 = __importDefault(require("../config"));
+const package_json_1 = __importDefault(require("../../package.json"));
 const logger_1 = __importDefault(require("../config/logger"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const redis_1 = require("../config/redis");
@@ -19,6 +20,7 @@ const production_polish_constants_1 = require("../constants/production-polish.co
 const llmSafeParams_constants_1 = require("../constants/llmSafeParams.constants");
 const workflow_constants_1 = require("../constants/workflow.constants");
 const opsMetrics_service_1 = require("../services/opsMetrics.service");
+const propertyKnowledgeBackfill_service_1 = require("../services/propertyKnowledgeBackfill.service");
 const router = (0, express_1.Router)();
 /** Liveness: process is up (no dependency checks). */
 router.get('/live', (_req, res) => {
@@ -26,6 +28,11 @@ router.get('/live', (_req, res) => {
         status: 'ok',
         timestamp: new Date().toISOString(),
         uptime_seconds: Math.floor(process.uptime()),
+        build: {
+            version: package_json_1.default.version,
+            deploy_note: package_json_1.default.deployNote,
+            git_commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || null,
+        },
     });
 });
 /** Readiness: DB + cache must be reachable before accepting traffic. */
@@ -74,11 +81,12 @@ router.get('/', async (_req, res) => {
     const startedAt = Date.now();
     try {
         await prisma_1.default.$queryRaw `SELECT 1`;
-        const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound] = await Promise.all([
+        const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound, knowledgeBackfillQueue] = await Promise.all([
             (0, propertyKnowledge_service_1.getPropertyKnowledgeEmbeddingHealth)(),
             (0, openaiStatus_service_1.getOpenAiServiceHealth)(),
             (0, mailHealth_service_1.getMailServiceHealth)(),
             (0, companyWhatsAppWebhook_util_1.getProductionWhatsAppInboundHealth)(),
+            (0, propertyKnowledgeBackfill_service_1.countPropertyKnowledgeBackfillCandidates)().catch(() => -1),
         ]);
         const openAiBlocks = openai.status === 'down';
         const overallOk = propertyKnowledgeEmbeddings.status !== 'error' && !openAiBlocks
@@ -101,6 +109,14 @@ router.get('/', async (_req, res) => {
                     detail: propertyKnowledgeEmbeddings.detail,
                 },
                 whatsapp_inbound: whatsappInbound,
+                property_knowledge_backfill_queue: {
+                    pending: knowledgeBackfillQueue,
+                    status: knowledgeBackfillQueue === 0
+                        ? 'ok'
+                        : knowledgeBackfillQueue > 0
+                            ? 'draining'
+                            : 'unknown',
+                },
             },
         });
     }

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import { useAuth } from '../../context/AuthContext';
 import { dashboardPath, getRoleCapabilities } from '../../config/navigation.config';
 import {
@@ -101,15 +102,7 @@ function sanitizeUserFacingError(message: string): string {
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error)) {
-    const payload = error.response?.data as { error?: string; message?: string } | undefined;
-    const raw = payload?.error || payload?.message || error.message || fallback;
-    return sanitizeUserFacingError(raw);
-  }
-  if (error instanceof Error) {
-    return sanitizeUserFacingError(error.message || fallback);
-  }
-  return fallback;
+  return sanitizeUserFacingError(getApiErrorMessage(error, fallback));
 }
 
 export default function PropertyImportSimplePage() {

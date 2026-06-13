@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTenantContext } from '../../context/TenantContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import {
   Search, Plus, Phone, MapPin, User, ChevronLeft, ChevronRight,
   X, Loader2, Download, Sparkles,
@@ -96,8 +97,7 @@ const LeadsPage: React.FC = () => {
       setTotalPages(res.data?.pagination?.pages || 1);
       setTotal(res.data?.pagination?.total || 0);
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setPageError(message || 'Could not load leads.');
+      setPageError(getApiErrorMessage(err, 'Could not load leads.'));
       setLeads([]);
     } finally {
       setLoading(false);
@@ -548,7 +548,7 @@ const CreateLeadModal: React.FC<CreateLeadModalProps> = ({ agents, onClose, onCr
       });
       onCreated();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create lead');
+      setError(getApiErrorMessage(err, 'Failed to create lead'));
     } finally {
       setSaving(false);
     }

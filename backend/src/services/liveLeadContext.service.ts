@@ -15,6 +15,7 @@
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { findPendingVisitApprovalForLead } from './visitPendingApproval.service';
+import { findActiveCallRequest } from './callRequest.service';
 import { isPostVisitLeadStatus } from '../utils/buyerLeadProgress.util';
 
 /** Represents an upcoming or recent visit for CTA and prompt injection. */
@@ -29,6 +30,15 @@ export interface ActiveVisitContext {
   notes: string | null;
 }
 
+/** Scheduled callback awaiting or confirmed with the sales team. */
+export interface ActiveCallContext {
+  callId: string;
+  scheduledAt: Date;
+  status: string;
+  agentName: string | null;
+  agentPhone: string | null;
+}
+
 /** Full real-time state snapshot for a lead. */
 export interface LiveLeadContext {
   leadStatus: string;
@@ -37,6 +47,10 @@ export interface LiveLeadContext {
   activeVisit: ActiveVisitContext | null;
   /** Any past completed visits within the last 30 days. */
   recentCompletedVisit: ActiveVisitContext | null;
+  /** Most recent cancelled visit within 30 days when no active visit exists. */
+  recentCancelledVisit: ActiveVisitContext | null;
+  /** Upcoming agent callback when no visit takes precedence. */
+  activeCall: ActiveCallContext | null;
   assignedAgentName: string | null;
   assignedAgentPhone: string | null;
   /** Formatted multi-line block ready to embed in system prompts. */
@@ -128,6 +142,9 @@ export async function getLiveLeadContext(
     const recentCompleted = (lead.visits ?? []).find(
       (v) => v.status === 'completed' && new Date(v.scheduledAt) >= thirtyDaysAgo,
     );
+    const recentCancelled = (lead.visits ?? []).find(
+      (v) => v.status === 'cancelled' && new Date(v.scheduledAt) >= thirtyDaysAgo,
+    );
 
     const toVisitContext = (v: (typeof lead.visits)[number]): ActiveVisitContext => ({
       visitId: v.id,
@@ -142,6 +159,8 @@ export async function getLiveLeadContext(
 
     const activeVisit = upcoming ? toVisitContext(upcoming) : null;
     const recentCompletedVisit = recentCompleted ? toVisitContext(recentCompleted) : null;
+    const recentCancelledVisit =
+      !activeVisit && recentCancelled ? toVisitContext(recentCancelled) : null;
 
     let resolvedActiveVisit = activeVisit;
     if (!resolvedActiveVisit) {
@@ -160,11 +179,31 @@ export async function getLiveLeadContext(
       }
     }
 
+    let activeCall: ActiveCallContext | null = null;
+    if (!resolvedActiveVisit) {
+      const callRow = await findActiveCallRequest({ companyId, leadId });
+      if (callRow) {
+        const callAgent = await prisma.user.findUnique({
+          where: { id: callRow.agent_id },
+          select: { name: true, phone: true },
+        });
+        activeCall = {
+          callId: callRow.id,
+          scheduledAt: callRow.scheduled_at,
+          status: callRow.status,
+          agentName: callAgent?.name ?? globalAgent?.name ?? null,
+          agentPhone: callAgent?.phone ?? globalAgent?.phone ?? null,
+        };
+      }
+    }
+
     const promptBlock = buildPromptBlock({
       leadStatus: lead.status,
       leadName: lead.customerName,
       activeVisit: resolvedActiveVisit,
       recentCompletedVisit,
+      recentCancelledVisit,
+      activeCall,
       assignedAgentName: globalAgent?.name ?? null,
       assignedAgentPhone: globalAgent?.phone ?? null,
     });
@@ -174,6 +213,8 @@ export async function getLiveLeadContext(
       leadName: lead.customerName,
       activeVisit: resolvedActiveVisit,
       recentCompletedVisit,
+      recentCancelledVisit,
+      activeCall,
       assignedAgentName: globalAgent?.name ?? null,
       assignedAgentPhone: globalAgent?.phone ?? null,
       promptBlock,
@@ -194,6 +235,8 @@ function buildEmptyContext(): LiveLeadContext {
     leadName: null,
     activeVisit: null,
     recentCompletedVisit: null,
+    recentCancelledVisit: null,
+    activeCall: null,
     assignedAgentName: null,
     assignedAgentPhone: null,
     promptBlock: '',
@@ -208,7 +251,13 @@ function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
   const postVisitByCrmStatus =
     !ctx.activeVisit && isPostVisitLeadStatus(ctx.leadStatus);
 
-  if (!ctx.activeVisit && !ctx.recentCompletedVisit && !postVisitByCrmStatus) {
+  if (
+    !ctx.activeVisit
+    && !ctx.recentCompletedVisit
+    && !ctx.recentCancelledVisit
+    && !ctx.activeCall
+    && !postVisitByCrmStatus
+  ) {
     // Still inject lead status so the AI doesn't treat a hot lead as new
     const lines = [
       '## 🔴 LIVE CLIENT STATE (real-time from CRM — highest priority)',
@@ -235,6 +284,23 @@ function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
     lines.push(`- When: ${toISTString(v.scheduledAt)}`);
     if (v.agentName) lines.push(`- Agent: ${v.agentName}${v.agentPhone ? ` (${v.agentPhone})` : ''}`);
     if (v.notes) lines.push(`- Notes: ${v.notes.slice(0, 200)}`);
+  }
+
+  if (ctx.recentCancelledVisit && !ctx.activeVisit) {
+    const v = ctx.recentCancelledVisit;
+    lines.push('');
+    lines.push('### ❌ RECENTLY CANCELLED VISIT');
+    lines.push(`- Property: ${v.propertyName ?? 'Unknown Property'}`);
+    lines.push(`- Was scheduled: ${toISTString(v.scheduledAt)}`);
+  }
+
+  if (ctx.activeCall && !ctx.activeVisit) {
+    const c = ctx.activeCall;
+    lines.push('');
+    lines.push('### 📞 SCHEDULED CALLBACK');
+    lines.push(`- Status: ${c.status}`);
+    lines.push(`- When: ${toISTString(c.scheduledAt)}`);
+    if (c.agentName) lines.push(`- Agent: ${c.agentName}${c.agentPhone ? ` (${c.agentPhone})` : ''}`);
   }
 
   if (ctx.recentCompletedVisit && !ctx.activeVisit) {
@@ -329,5 +395,33 @@ export function buildVisitAwareGreeting(
     `📅 Reschedule`,
     `❌ Cancel`,
     `📞 Call agent`,
+  ].join('\n');
+}
+
+/**
+ * WhatsApp greeting when a returning buyer has a scheduled callback (no active visit).
+ */
+export function buildCallAwareGreeting(
+  customerName: string | null,
+  call: ActiveCallContext,
+  companyName: string,
+): string {
+  const name = customerName ? ` ${customerName}` : '';
+  const when = toISTString(call.scheduledAt);
+  const agentLine = call.agentName ? `\n👤 Agent: *${call.agentName}*` : '';
+  const statusPreamble =
+    call.status === 'confirmed'
+      ? 'Your callback is *confirmed* ✅'
+      : call.status === 'pending_approval'
+        ? 'Your callback request is *awaiting approval* ⏳'
+        : 'You have an upcoming callback 📞';
+
+  return [
+    `Hello${name}! Welcome back to *${companyName}* 👋`,
+    '',
+    `${statusPreamble}:`,
+    `📅 ${when}${agentLine}`,
+    '',
+    'Would you like to change the time, cancel, or explore more projects while you wait?',
   ].join('\n');
 }

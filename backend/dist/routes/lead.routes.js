@@ -23,6 +23,7 @@ const leadAssignment_service_1 = require("../services/leadAssignment.service");
 const leadRouting_service_1 = require("../services/leadRouting.service");
 const leadMetadata_service_1 = require("../services/leadMetadata.service");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
+const tenantAgentValidation_util_1 = require("../utils/tenantAgentValidation.util");
 const leadGdpr_service_1 = require("../services/leadGdpr.service");
 const router = (0, express_1.Router)();
 function handleDeleteError(err, res) {
@@ -135,7 +136,7 @@ function mapLeadTimelineToSnakeCaseDTO(entry) {
     };
 }
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use(tenant_1.strictTenantIsolation);
 router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('lead_automation'));
 /**
@@ -358,6 +359,14 @@ router.post('/', (0, rbac_1.authorize)('leads', 'create'), subscriptionEnforceme
         const companyId = (0, tenant_1.getCompanyId)(req);
         // After Zod validation, req.body uses snake_case field names
         let agentId = req.body.assigned_agent_id;
+        if (agentId) {
+            const agentCheck = await (0, tenantAgentValidation_util_1.assertActiveLeadAgentInCompany)(companyId, agentId);
+            if (!agentCheck.ok) {
+                res.status(400).json({ error: 'Assigned agent must be an active sales agent in this company' });
+                return;
+            }
+            agentId = agentCheck.agentId;
+        }
         if (!agentId) {
             agentId = await (0, leadRouting_service_1.assignLeadWithRouting)(companyId, {
                 locationPreference: req.body.location_preference || null,
@@ -430,6 +439,13 @@ router.put('/:id', (0, rbac_1.authorize)('leads', 'update'), (0, validate_1.vali
         }
         const { customer_name, email, budget_min, budget_max, location_preference, property_type, assigned_agent_id, notes, language, tags, lead_score, source_detail, lost_reason, } = req.body;
         const oldAgentId = lead.assignedAgentId;
+        if (assigned_agent_id !== undefined && assigned_agent_id !== null) {
+            const agentCheck = await (0, tenantAgentValidation_util_1.assertActiveLeadAgentInCompany)(companyId, assigned_agent_id);
+            if (!agentCheck.ok) {
+                res.status(400).json({ error: 'Assigned agent must be an active sales agent in this company' });
+                return;
+            }
+        }
         const metaPatch = {};
         if (tags !== undefined)
             metaPatch.tags = Array.isArray(tags) ? tags : [];

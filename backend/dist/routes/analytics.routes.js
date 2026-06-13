@@ -11,10 +11,16 @@ const featureGate_1 = require("../middleware/featureGate");
 const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const redis_1 = require("../config/redis");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use((req, res, next) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
+    next();
+});
+router.use(tenant_1.strictTenantIsolation);
 router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('analytics'));
 /**

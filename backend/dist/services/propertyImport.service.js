@@ -41,6 +41,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const config_1 = __importDefault(require("../config"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
+const propertyImportUploadToken_util_1 = require("../utils/propertyImportUploadToken.util");
 const storage_service_1 = require("./storage.service");
 const supabaseStorage_service_1 = require("./supabaseStorage.service");
 const propertyImportQueue_service_1 = require("./propertyImportQueue.service");
@@ -521,12 +522,17 @@ class PropertyImportService {
                 uploadToken,
             },
         });
+        const expiresAtMs = (0, propertyImportUploadToken_util_1.buildPropertyImportUploadExpiry)(media.createdAt);
+        const signedUploadUrl = (0, propertyImportUploadToken_util_1.appendSignedUploadQuery)(upload.uploadUrl, companyId, expiresAtMs);
+        const signedFallbackUploadUrl = fallbackUploadUrl
+            ? (0, propertyImportUploadToken_util_1.appendSignedUploadQuery)(fallbackUploadUrl, companyId, expiresAtMs)
+            : null;
         return {
             media,
             upload: {
                 key: upload.key,
-                upload_url: upload.uploadUrl,
-                fallback_upload_url: fallbackUploadUrl,
+                upload_url: signedUploadUrl,
+                fallback_upload_url: signedFallbackUploadUrl,
                 public_url: upload.publicUrl,
                 expires_in_seconds: upload.expiresInSeconds,
                 content_type: upload.contentType,

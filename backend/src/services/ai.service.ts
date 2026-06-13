@@ -21,7 +21,7 @@ import {
   shouldSkipKnowledgeSearchForMessage,
   isPropertyInquiryMessage,
 } from './customerMessageFastPath.service';
-import { isAdvancedLeadStatus, resolveStageFromLeadStatus } from '../utils/buyerLeadProgress.util';
+import { isAdvancedLeadStatus, resolveStageFromLeadStatus, resolveStageAfterHumanEscalationReset } from '../utils/buyerLeadProgress.util';
 import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
 import { shouldElevateReturningBuyerStage } from '../utils/fixMdFeatures.util';
 import { getPropertyPromptLimits } from '../utils/propertyPromptLimits.util';
@@ -241,7 +241,10 @@ export class AIService {
     // policy brain and LLM don't inherit the escalation prompt focus that says 'DO NOT handle further'.
     // This happens when: (a) agent didn't take over, (b) AI re-engaged automatically, (c) test conversations.
     if (state.stage === 'human_escalated') {
-      state = { ...state, stage: 'rapport', escalationReason: null };
+      const resumedStage = shouldElevateReturningBuyerStage(request.lead?.id)
+        ? resolveStageAfterHumanEscalationReset(request.lead?.status ?? null)
+        : 'rapport';
+      state = { ...state, stage: resumedStage, previousStage: 'human_escalated', escalationReason: null };
     }
 
     // POLICY BRAIN: Process message and decide next action
@@ -283,7 +286,12 @@ export class AIService {
 
     // Never keep customers stuck in human_escalated — notify agents only, AI stays active.
     if (newState.stage === 'human_escalated') {
-      newState.stage = state.stage === 'human_escalated' ? 'rapport' : state.stage;
+      const resumedStage = state.stage === 'human_escalated'
+        ? (shouldElevateReturningBuyerStage(request.lead?.id)
+          ? resolveStageAfterHumanEscalationReset(request.lead?.status ?? null)
+          : 'rapport')
+        : state.stage;
+      newState.stage = resumedStage;
       newState.escalationReason = null;
     }
 

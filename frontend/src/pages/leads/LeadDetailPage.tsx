@@ -4,6 +4,7 @@ import { dashboardPath, getRoleCapabilities } from '../../config/navigation.conf
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import {
   ArrowLeft, Phone, Mail, MapPin, Building2, IndianRupee,
   User, Calendar, Clock, Edit3, Save, X, Loader2,
@@ -127,9 +128,8 @@ const LeadDetailPage: React.FC = () => {
       setLoading(true);
       const res = await api.get(`/leads/${id}`);
       setLead(normalizeLeadDetail(res.data.data));
-    } catch (err: any) {
-      const rawError = err?.response?.data?.error;
-      setError(typeof rawError === 'string' ? rawError : 'Failed to load lead details.');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Failed to load lead details.'));
     } finally {
       setLoading(false);
     }
@@ -185,7 +185,7 @@ const LeadDetailPage: React.FC = () => {
       setEditing(false);
       await loadLead();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update');
+      setError(getApiErrorMessage(err, 'Failed to update'));
     } finally {
       setSaving(false);
     }
@@ -206,7 +206,7 @@ const LeadDetailPage: React.FC = () => {
       });
       await loadLead();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update status');
+      setError(getApiErrorMessage(err, 'Failed to update status'));
     } finally {
       setStatusChanging(false);
     }
@@ -268,7 +268,7 @@ const LeadDetailPage: React.FC = () => {
       navigate(dashboardPath('/leads'));
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      setError(ax.response?.data?.error || 'Failed to delete lead');
+      setError(getApiErrorMessage(ax, 'Failed to delete lead'));
     } finally {
       setDeleting(false);
     }

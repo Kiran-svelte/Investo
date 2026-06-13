@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import { SOCKET_EVENTS, useSocketEvent } from '../../context/SocketContext';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import Pagination from '../../components/common/Pagination';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
@@ -201,7 +202,7 @@ const ConversationsPage: React.FC = () => {
       applyConversationControlState(convId, { status: 'agent_active', ai_enabled: false });
       loadConversations();
     } catch (err: any) {
-      setLoadError(err.response?.data?.error || 'Failed to take over conversation.');
+      setLoadError(getApiErrorMessage(err, 'Failed to take over conversation.'));
     }
   };
 
@@ -222,7 +223,7 @@ const ConversationsPage: React.FC = () => {
       }
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      setLoadError(ax.response?.data?.error || 'Failed to delete conversation');
+      setLoadError(getApiErrorMessage(ax, 'Failed to delete conversation'));
     } finally {
       setDeleteLoading(false);
     }
@@ -234,7 +235,7 @@ const ConversationsPage: React.FC = () => {
       applyConversationControlState(convId, { status: 'ai_active', ai_enabled: true });
       loadConversations();
     } catch (err: any) {
-      setLoadError(err.response?.data?.error || 'Failed to release conversation.');
+      setLoadError(getApiErrorMessage(err, 'Failed to release conversation.'));
     }
   };
 
@@ -360,7 +361,7 @@ const ConversationsPage: React.FC = () => {
         setQuickReplyButtons([{ id: '', title: '' }]);
       }
     } catch (err: any) {
-      setSendError(err.response?.data?.error || 'Failed to send message');
+      setSendError(getApiErrorMessage(err, 'Failed to send message'));
     } finally {
       setSendLoading(false);
     }

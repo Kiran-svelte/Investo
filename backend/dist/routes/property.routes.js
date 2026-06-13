@@ -69,7 +69,7 @@ function mapPropertyToSnakeCaseDTO(property) {
     };
 }
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use(tenant_1.strictTenantIsolation);
 router.use((0, featureGate_1.requireFeature)('property_management'));
 /**
  * GET /api/properties/catalog-status

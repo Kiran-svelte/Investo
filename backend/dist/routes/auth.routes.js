@@ -51,6 +51,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const auth_service_2 = require("../services/auth.service");
 const email_service_1 = require("../services/email.service");
+const authSessionCookies_util_1 = require("../utils/authSessionCookies.util");
 const router = (0, express_1.Router)();
 /**
  * GET /api/auth/signup-enabled
@@ -86,6 +87,7 @@ router.post('/signup', (0, validate_1.validate)(validation_1.selfServiceSignupSc
             where: { email: (0, auth_service_2.normalizeAuthEmail)(email), status: 'active' },
             select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
         });
+        (0, authSessionCookies_util_1.setAuthSessionCookies)(res, tokens);
         res.status(201).json({
             success: true,
             message: 'Account created successfully',
@@ -103,6 +105,7 @@ router.post('/signup', (0, validate_1.validate)(validation_1.selfServiceSignupSc
                     access_token: tokens.accessToken,
                     refresh_token: tokens.refreshToken,
                 },
+                session: (0, authSessionCookies_util_1.authSessionResponseMeta)(),
             },
         });
     }
@@ -160,6 +163,7 @@ router.post('/login', (0, validate_1.validate)(validation_1.loginSchema), async 
             res.status(401).json({ message: 'Invalid credentials' });
             return;
         }
+        (0, authSessionCookies_util_1.setAuthSessionCookies)(res, tokens);
         res.json({
             success: true,
             message: 'Login successful',
@@ -178,6 +182,7 @@ router.post('/login', (0, validate_1.validate)(validation_1.loginSchema), async 
                     access_token: tokens.accessToken,
                     refresh_token: tokens.refreshToken,
                 },
+                session: (0, authSessionCookies_util_1.authSessionResponseMeta)(),
             },
         });
     }
@@ -197,18 +202,22 @@ router.post('/login', (0, validate_1.validate)(validation_1.loginSchema), async 
  */
 router.post('/refresh', async (req, res) => {
     try {
-        const refreshToken = req.body.refresh_token || req.body.refreshToken;
+        const refreshToken = req.body.refresh_token
+            || req.body.refreshToken
+            || (0, authSessionCookies_util_1.readRefreshTokenFromCookies)(req.headers.cookie);
         if (!refreshToken) {
             res.status(400).json({ message: 'Refresh token required' });
             return;
         }
         const tokens = await auth_service_1.authService.refreshToken(refreshToken);
+        (0, authSessionCookies_util_1.setAuthSessionCookies)(res, tokens);
         res.json({
             success: true,
             message: 'Token refreshed',
             data: {
                 access_token: tokens.accessToken,
                 refresh_token: tokens.refreshToken,
+                session: (0, authSessionCookies_util_1.authSessionResponseMeta)(),
             },
         });
     }
@@ -222,13 +231,16 @@ router.post('/refresh', async (req, res) => {
  */
 router.post('/logout', auth_1.authenticate, async (req, res) => {
     try {
-        const refreshToken = req.body.refresh_token || req.body.refreshToken;
+        const refreshToken = req.body.refresh_token
+            || req.body.refreshToken
+            || (0, authSessionCookies_util_1.readRefreshTokenFromCookies)(req.headers.cookie);
         if (typeof refreshToken === 'string' && refreshToken.trim()) {
             await auth_service_1.authService.logoutSession(refreshToken.trim());
         }
         else {
             await auth_service_1.authService.logout(req.user.id);
         }
+        (0, authSessionCookies_util_1.clearAuthSessionCookies)(res);
         res.json({ success: true, message: 'Logged out successfully' });
     }
     catch (err) {

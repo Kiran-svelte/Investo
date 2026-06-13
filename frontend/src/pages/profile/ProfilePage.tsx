@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { stripIndianCountryCode } from '../../utils/indianPhone';
 import { saveStaffProfile } from '../../services/profile';
 import PageHeader from '../../components/ui/PageHeader';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 
 const ProfilePage: React.FC = () => {
   const { t } = useTranslation();
@@ -44,12 +45,7 @@ const ProfilePage: React.FC = () => {
           setPhoneLocal(stripIndianCountryCode(updated.phone));
         }
       } catch (err: unknown) {
-        const ax = err as { response?: { data?: { message?: string; error?: string } } };
-        setError(
-          ax.response?.data?.message
-            || ax.response?.data?.error
-            || (err instanceof Error ? err.message : 'Failed to save profile.'),
-        );
+        setError(getApiErrorMessage(err, 'Failed to save profile.'));
       } finally {
         setSaving(false);
       }

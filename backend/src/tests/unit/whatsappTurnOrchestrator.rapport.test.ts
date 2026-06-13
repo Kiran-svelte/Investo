@@ -155,23 +155,20 @@ describe('whatsappTurnOrchestrator rapport handlers (chunk 04 H2)', () => {
     }
   });
 
-  test('returning Hi has zero components (isReturningGreeting policy)', async () => {
+  test('returning buyer Hi gets enriched welcome with browse buttons', async () => {
     const result = await buildBuyerRapportTurnResult({
       companyName: 'Palm Realty',
-      messageText: 'Hello',
+      messageText: 'Hi',
       hasPriorOutbound: true,
       stage: 'rapport',
-      locationPreference: 'Whitefield',
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
     });
-    expect(result?.text).toContain('Welcome back');
-    expect(result?.components).toEqual([]);
-    expect(
-      resolveBuyerComponents({
-        stage: 'rapport',
-        outboundText: result!.text,
-        isReturningGreeting: true,
-      }),
-    ).toEqual([]);
+    expect(result?.text).toContain('Welcome to *Palm Realty*');
+    expect(result?.text).toContain('assistant for *Palm Realty*');
+    expect(result?.components?.length).toBeGreaterThan(0);
   });
 
   test('handleRapportTurn skips mid-booking stages (source proof)', () => {

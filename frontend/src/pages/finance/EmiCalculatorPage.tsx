@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import { Calculator, Copy, Download, Loader2, RotateCcw } from 'lucide-react';
 
 type EmiResult = {
@@ -61,7 +62,7 @@ const EmiCalculatorPage: React.FC = () => {
 
       setResult(response.data.data);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to calculate EMI');
+      setError(getApiErrorMessage(err, 'Failed to calculate EMI'));
     } finally {
       setLoading(false);
     }

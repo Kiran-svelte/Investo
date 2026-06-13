@@ -28,6 +28,7 @@ import {
   isAdvancedLeadStatus,
   isPostVisitBuyer,
   resolveStageFromLeadStatus,
+  resolveStageAfterHumanEscalationReset,
 } from '../../utils/buyerLeadProgress.util';
 import { isFeatureEnabledForLead } from '../../utils/featureRollout.util';
 import { shadowCompare } from '../../utils/featureShadow.util';
@@ -485,6 +486,95 @@ function finalizeRapportComponents(
   return enforceTurnComponentBudget(merged);
 }
 
+async function resolveRapportOutbound(
+  ctx: BuyerTurnRuntimeContext,
+  input: {
+    isReturning: boolean;
+    conversationStage: string;
+    liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>;
+    postVisit: boolean;
+  },
+): Promise<{ safeReply: string; greetingMedia?: unknown }> {
+  const aiSettings = await loadBuyerAiSettings(ctx.companyId);
+  const greetingMedia = aiSettings?.greetingMedia;
+
+  let locationPreference: string | null = null;
+  if (input.isReturning) {
+    const { getLeadMemory } = await import('../lead-memory.service');
+    const memory = await getLeadMemory(ctx.input.leadId);
+    locationPreference = memory.locationPreference ?? null;
+  }
+
+  const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
+  const { buildReturningBuyerWelcomeReply } = await import('../buyerQualification.service');
+  const fastPath = buildFastPathCustomerReply({
+    customerMessage: ctx.input.messageText,
+    companyName: ctx.companyName,
+    customerName: ctx.input.leadCustomerName,
+    aiSettings,
+    conversationHistory: ctx.history,
+    conversationStage: input.conversationStage,
+    upcomingVisit: input.liveCtx.activeVisit,
+    upcomingCall: input.liveCtx.activeCall,
+  });
+
+  let safeReply: string;
+  if (fastPath?.text) {
+    safeReply = fastPath.text;
+  } else if (
+    input.postVisit
+    && BARE_GREETING_INBOUND.test(ctx.input.messageText.trim())
+  ) {
+    safeReply = buildPostVisitWelcomeReply({
+      customerName: ctx.input.leadCustomerName,
+      companyName: ctx.companyName,
+      propertyName: input.liveCtx.recentCompletedVisit?.propertyName ?? input.liveCtx.activeVisit?.propertyName,
+    });
+  } else if (input.isReturning) {
+    safeReply = buildReturningBuyerWelcomeReply({
+      companyName: ctx.companyName,
+      customerName: ctx.input.leadCustomerName,
+      locationPreference,
+      greetingTemplate: aiSettings?.greetingTemplate ?? null,
+      liveCtx: input.liveCtx,
+    });
+  } else {
+    const { buildBuyerRapportReply } = await import('../buyerQualification.service');
+    safeReply = buildBuyerRapportReply(ctx.companyName);
+  }
+
+  return {
+    safeReply: stripBuyerInternalMetadata(safeReply),
+    greetingMedia,
+  };
+}
+
+function resolveRapportComponents(
+  ctx: BuyerTurnRuntimeContext,
+  input: {
+    isReturning: boolean;
+    conversationStage: string;
+    liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>;
+    postVisit: boolean;
+    advancedLead: boolean;
+    leadStatus: string | null | undefined;
+    safeReply: string;
+  },
+): WhatsAppComponent[] {
+  const buttonFlags = buyerButtonContextFromTurn(ctx, input.liveCtx);
+  const stage = input.postVisit || input.advancedLead
+    ? resolveStageFromLeadStatus(input.leadStatus || 'visited')
+    : input.conversationStage;
+
+  return resolveBuyerComponents({
+    stage,
+    outboundText: input.safeReply,
+    isReturningGreeting: false,
+    propertyId: input.liveCtx.recentCompletedVisit?.propertyId ?? ctx.input.conversationSelectedPropertyId,
+    ...buttonFlags,
+  });
+}
+
 async function buildLegacyRapportPayload(
   ctx: BuyerTurnRuntimeContext,
   input: {
@@ -494,49 +584,22 @@ async function buildLegacyRapportPayload(
     hasPriorOutbound: boolean;
   },
 ): Promise<{ safeReply: string; components: WhatsAppComponent[] }> {
-  const { buildBuyerRapportReply } = await import('../buyerQualification.service');
-  let locationPreference: string | null = null;
-  if (input.isReturning) {
-    const { getLeadMemory } = await import('../lead-memory.service');
-    const memory = await getLeadMemory(ctx.input.leadId);
-    locationPreference = memory.locationPreference ?? null;
-  }
-
-  const rapportReply = buildBuyerRapportReply(ctx.companyName, {
+  const { safeReply, greetingMedia } = await resolveRapportOutbound(ctx, {
     isReturning: input.isReturning,
-    locationPreference,
+    conversationStage: input.conversationStage,
+    liveCtx: input.liveCtx,
+    postVisit: isPostVisitBuyer(input.liveCtx),
   });
 
-  let safeReply: string;
-  let greetingMedia: unknown;
-  if (input.isReturning) {
-    safeReply = stripBuyerInternalMetadata(rapportReply);
-  } else {
-    const aiSettings = await loadBuyerAiSettings(ctx.companyId);
-    greetingMedia = aiSettings?.greetingMedia;
-    const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
-    const fastPath = buildFastPathCustomerReply({
-      customerMessage: ctx.input.messageText,
-      companyName: ctx.companyName,
-      customerName: ctx.input.leadCustomerName,
-      aiSettings,
-      conversationHistory: ctx.history,
-      conversationStage: input.conversationStage,
-      upcomingVisit: input.liveCtx.activeVisit,
-    });
-    safeReply = stripBuyerInternalMetadata(fastPath?.text ?? rapportReply);
-  }
-
-  const buttonFlags = buyerButtonContextFromTurn(ctx, input.liveCtx);
-  const components = input.isReturning
-    ? []
-    : resolveBuyerComponents({
-        stage: input.conversationStage,
-        outboundText: safeReply,
-        isReturningGreeting: false,
-        propertyId: ctx.input.conversationSelectedPropertyId,
-        ...buttonFlags,
-      });
+  const components = resolveRapportComponents(ctx, {
+    isReturning: input.isReturning,
+    conversationStage: input.conversationStage,
+    liveCtx: input.liveCtx,
+    postVisit: isPostVisitBuyer(input.liveCtx),
+    advancedLead: false,
+    leadStatus: input.liveCtx.leadStatus,
+    safeReply,
+  });
 
   return {
     safeReply,
@@ -561,74 +624,27 @@ async function buildAdvancedRapportPayload(
     leadStatus: string | null | undefined;
   },
 ): Promise<{ safeReply: string; components: WhatsAppComponent[] }> {
-  const { buildBuyerRapportReply } = await import('../buyerQualification.service');
-  let locationPreference: string | null = null;
-  if (input.isReturning || input.advancedLead) {
-    const { getLeadMemory } = await import('../lead-memory.service');
-    const memory = await getLeadMemory(ctx.input.leadId);
-    locationPreference = memory.locationPreference ?? null;
-  }
+  const { safeReply, greetingMedia } = await resolveRapportOutbound(ctx, {
+    isReturning: input.isReturning,
+    conversationStage: input.conversationStage,
+    liveCtx: input.liveCtx,
+    postVisit: input.postVisit,
+  });
 
-  let safeReply: string;
-  let greetingMedia: unknown;
-  if (
-    input.useCustomGreeting
-    && input.postVisit
-    && BARE_GREETING_INBOUND.test(ctx.input.messageText.trim())
-  ) {
-    safeReply = stripBuyerInternalMetadata(
-      buildPostVisitWelcomeReply({
-        customerName: ctx.input.leadCustomerName,
-        companyName: ctx.companyName,
-        propertyName: input.liveCtx.recentCompletedVisit?.propertyName ?? input.liveCtx.activeVisit?.propertyName,
-      }),
-    );
-  } else if (input.isReturning) {
-    safeReply = stripBuyerInternalMetadata(
-      buildBuyerRapportReply(ctx.companyName, { isReturning: true, locationPreference }),
-    );
-  } else if (input.useCustomGreeting && input.advancedLead && input.hasPriorOutbound) {
-    safeReply = stripBuyerInternalMetadata(
-      buildAdvancedReturningReply({
-        customerName: ctx.input.leadCustomerName,
-        companyName: ctx.companyName,
-        leadStatus: input.leadStatus || 'visited',
-        locationPreference,
-      }),
-    );
-  } else {
-    const aiSettings = await loadBuyerAiSettings(ctx.companyId);
-    greetingMedia = aiSettings?.greetingMedia;
-    const { buildFastPathCustomerReply } = await import('../customerMessageFastPath.service');
-    const fastPath = buildFastPathCustomerReply({
-      customerMessage: ctx.input.messageText,
-      companyName: ctx.companyName,
-      customerName: ctx.input.leadCustomerName,
-      aiSettings,
-      conversationHistory: ctx.history,
-      conversationStage: input.conversationStage,
-      upcomingVisit: input.liveCtx.activeVisit,
-    });
-    safeReply = stripBuyerInternalMetadata(fastPath?.text ?? buildBuyerRapportReply(ctx.companyName));
-  }
-
-  const buttonFlags = buyerButtonContextFromTurn(ctx, input.liveCtx);
-  const components = (input.isReturning && !input.postVisit)
-    ? []
-    : resolveBuyerComponents({
-        stage: input.postVisit || input.advancedLead
-          ? resolveStageFromLeadStatus(input.leadStatus || 'visited')
-          : input.conversationStage,
-        outboundText: safeReply,
-        isReturningGreeting: input.isReturning && !input.postVisit,
-        propertyId: input.liveCtx.recentCompletedVisit?.propertyId ?? ctx.input.conversationSelectedPropertyId,
-        ...buttonFlags,
-      });
+  const components = resolveRapportComponents(ctx, {
+    isReturning: input.isReturning,
+    conversationStage: input.conversationStage,
+    liveCtx: input.liveCtx,
+    postVisit: input.postVisit,
+    advancedLead: input.advancedLead,
+    leadStatus: input.leadStatus,
+    safeReply,
+  });
 
   return {
     safeReply,
     components: finalizeRapportComponents(components, {
-      isReturning: input.isReturning && !input.postVisit,
+      isReturning: input.isReturning,
       liveCtx: input.liveCtx,
       greetingMedia,
     }),
@@ -1723,6 +1739,7 @@ function buyerButtonFlagsFromLive(
 ) {
   return {
     hasActiveVisit: Boolean(liveCtx.activeVisit),
+    hasActiveCall: Boolean(liveCtx.activeCall),
     visitStatus: liveCtx.activeVisit?.status,
     visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
     visitTime: resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
@@ -1765,7 +1782,9 @@ async function syncAdvancedLeadConversationStage(
   leadStatus: string | null | undefined,
 ): Promise<ConversationState> {
   if (!leadStatus || !isAdvancedLeadStatus(leadStatus)) return conversationState;
-  if (conversationState.stage !== 'rapport') return conversationState;
+  if (conversationState.stage !== 'rapport' && conversationState.stage !== 'human_escalated') {
+    return conversationState;
+  }
 
   const advancedStage = resolveStageFromLeadStatus(leadStatus);
   await prisma.conversation.update({
@@ -1920,7 +1939,9 @@ async function persistNewConversationState(
   }
 
   if (newState.stage === 'human_escalated') {
-    newState.stage = currentStage === 'human_escalated' ? 'rapport' : currentStage;
+    newState.stage = currentStage === 'human_escalated'
+      ? resolveStageAfterHumanEscalationReset(ctx.input.leadStatus ?? null)
+      : currentStage;
     newState.escalationReason = null;
   }
 
@@ -2188,19 +2209,38 @@ export async function buildBuyerRapportTurnResult(input: {
   stage: string;
   locationPreference?: string | null;
   browseFilters?: Array<{ id: string; title: string }>;
+  liveCtx?: Awaited<ReturnType<typeof getLiveLeadContext>>;
 }): Promise<TurnResult | null> {
-  const { isBuyerRapportMessage, isReturningBuyerGreeting, buildBuyerRapportReply } =
-    await import('../buyerQualification.service');
+  const {
+    isBuyerRapportMessage,
+    isReturningBuyerGreeting,
+    buildBuyerRapportReply,
+    buildReturningBuyerWelcomeReply,
+  } = await import('../buyerQualification.service');
 
   const rapportCtx = { hasPriorOutbound: input.hasPriorOutbound };
   if (!isBuyerRapportMessage(input.messageText, rapportCtx)) return null;
 
   const isReturning = isReturningBuyerGreeting(input.messageText, rapportCtx);
+  const liveCtx = input.liveCtx ?? {
+    leadStatus: 'new',
+    leadName: null,
+    activeVisit: null,
+    recentCompletedVisit: null,
+    recentCancelledVisit: null,
+    activeCall: null,
+    assignedAgentName: null,
+    assignedAgentPhone: null,
+    promptBlock: '',
+  };
   const text = stripBuyerInternalMetadata(
-    buildBuyerRapportReply(input.companyName, {
-      isReturning,
-      locationPreference: input.locationPreference,
-    }),
+    isReturning
+      ? buildReturningBuyerWelcomeReply({
+          companyName: input.companyName,
+          locationPreference: input.locationPreference,
+          liveCtx,
+        })
+      : buildBuyerRapportReply(input.companyName),
   );
 
   let browseFilters = input.browseFilters;
@@ -2209,14 +2249,21 @@ export async function buildBuyerRapportTurnResult(input: {
     browseFilters = buildDiscoveryButtonSet(snapshot);
   }
 
-  const components = isReturning
-    ? []
-    : resolveBuyerComponents({
-        stage: input.stage,
-        outboundText: text,
-        isReturningGreeting: false,
-        browseFilters,
-      });
+  const components = resolveBuyerComponents({
+    stage: input.stage,
+    outboundText: text,
+    isReturningGreeting: false,
+    browseFilters,
+    hasActiveVisit: Boolean(liveCtx.activeVisit),
+    hasActiveCall: Boolean(liveCtx.activeCall),
+    visitStatus: liveCtx.activeVisit?.status,
+    hasCompletedVisit: isPostVisitBuyer(liveCtx),
+    liveLeadSnapshot: {
+      activeVisit: liveCtx.activeVisit,
+      recentCompletedVisit: liveCtx.recentCompletedVisit,
+      leadStatus: liveCtx.leadStatus,
+    },
+  });
 
   return { audience: 'buyer', handled: true, terminal: true, text, components };
 }

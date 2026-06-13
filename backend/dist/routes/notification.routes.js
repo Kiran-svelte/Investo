@@ -15,7 +15,7 @@ const logger_1 = __importDefault(require("../config/logger"));
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use(tenant_1.strictTenantIsolation);
 router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('notifications'));
 /**
@@ -78,11 +78,20 @@ router.get('/', async (req, res) => {
 const markReadHandler = async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
+        const userId = req.user.id;
         const { id } = req.params;
-        await prisma_1.default.notification.updateMany({
-            where: { id, companyId },
+        const result = await prisma_1.default.notification.updateMany({
+            where: {
+                id,
+                companyId,
+                OR: [{ userId }, { userId: null }],
+            },
             data: { read: true },
         });
+        if (result.count === 0) {
+            res.status(404).json({ error: 'Notification not found' });
+            return;
+        }
         res.json({ message: 'Notification marked as read' });
     }
     catch (err) {
@@ -90,8 +99,8 @@ const markReadHandler = async (req, res) => {
         res.status(500).json({ error: 'Failed to update notification' });
     }
 };
-router.patch('/:id/read', markReadHandler);
-router.put('/:id/read', markReadHandler);
+router.patch('/:id/read', (0, rbac_1.authorize)('notifications', 'update'), markReadHandler);
+router.put('/:id/read', (0, rbac_1.authorize)('notifications', 'update'), markReadHandler);
 /**
  * PATCH/PUT /api/notifications/read-all
  * Mark all notifications as read for the current user.
@@ -114,8 +123,8 @@ const markAllReadHandler = async (req, res) => {
         res.status(500).json({ error: 'Failed to update notifications' });
     }
 };
-router.patch('/read-all', markAllReadHandler);
-router.put('/read-all', markAllReadHandler);
+router.patch('/read-all', (0, rbac_1.authorize)('notifications', 'update'), markAllReadHandler);
+router.put('/read-all', (0, rbac_1.authorize)('notifications', 'update'), markAllReadHandler);
 function handleDeleteError(err, res) {
     if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
         res.status(err.statusCode).json({ error: err.message });

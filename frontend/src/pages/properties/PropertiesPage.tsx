@@ -5,6 +5,7 @@ import { dashboardPath } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import {
   cancelPropertyImportDraft,
   listPropertyImportDrafts,
@@ -177,7 +178,7 @@ const PropertiesPage: React.FC = () => {
       await loadImportDrafts();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      setPageError(ax.response?.data?.error || 'Failed to cancel draft.');
+      setPageError(getApiErrorMessage(ax, 'Failed to cancel draft.'));
     } finally {
       setCancellingDraftId(null);
     }
@@ -195,7 +196,7 @@ const PropertiesPage: React.FC = () => {
       await api.delete(`/properties/${id}`);
       await loadProperties(); // Refresh the list after deletion
     } catch (err: any) {
-      setPageError(err.response?.data?.error || 'Failed to delete property.');
+      setPageError(getApiErrorMessage(err, 'Failed to delete property.'));
     } finally {
       setDeleting(null);
     }
@@ -552,7 +553,7 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
       else { await api.post('/properties', payload); }
       onSaved();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to save');
+      setError(getApiErrorMessage(err, 'Failed to save'));
     } finally { setSaving(false); }
   };
 

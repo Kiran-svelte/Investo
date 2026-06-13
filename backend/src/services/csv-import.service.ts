@@ -27,6 +27,7 @@ import {
   PROPERTY_IMPORT_FIELDS,
   type PropertyImportFieldDef,
 } from '../constants/property-import-fields.constants';
+import { sanitizeImportRows } from '../utils/sanitizeImportRow.util';
 
 function aiKnowledgeContextMaxRows(): number {
   const raw = process.env.AI_KNOWLEDGE_CONTEXT_MAX_ROWS;
@@ -426,8 +427,10 @@ function parseCsvBuffer(buffer: Buffer): { headers: string[]; rows: RawRow[] } {
     transformHeader: (header) => header.trim(),
   });
 
-  const headers = result.meta.fields ?? [];
-  return { headers, rows: result.data };
+  const headers = (result.meta.fields ?? []).filter(
+    (header) => header && !header.startsWith('__'),
+  );
+  return { headers, rows: sanitizeImportRows(result.data as Record<string, unknown>[]) };
 }
 
 /** Parses an XLSX buffer using the dynamically imported exceljs. */

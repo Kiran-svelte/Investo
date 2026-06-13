@@ -42,6 +42,7 @@ const logger_1 = __importDefault(require("../config/logger"));
 const socket_service_1 = require("./socket.service");
 const notificationRetry_service_1 = require("./notificationRetry.service");
 const dateTime_util_1 = require("../utils/dateTime.util");
+const tenantAgentValidation_util_1 = require("../utils/tenantAgentValidation.util");
 const companyWhatsAppConfig_util_1 = require("../utils/companyWhatsAppConfig.util");
 /**
  * Send a WhatsApp message to a user using their company's configured WhatsApp.
@@ -129,7 +130,19 @@ class NotificationEngine {
      * @param agentId - ID of the agent receiving the assignment
      */
     async onLeadAssigned(lead, agentId) {
-        const agent = await prisma_1.default.user.findUnique({ where: { id: agentId } });
+        const belongs = await (0, tenantAgentValidation_util_1.assertUserBelongsToCompany)(lead.companyId, agentId);
+        if (!belongs) {
+            logger_1.default.warn('NotificationEngine: skipped lead assignment notification for foreign agent', {
+                leadId: lead.id,
+                agentId,
+                companyId: lead.companyId,
+            });
+            return;
+        }
+        const agent = await prisma_1.default.user.findFirst({
+            where: { id: agentId, companyId: lead.companyId },
+            select: { id: true },
+        });
         if (!agent)
             return;
         // DB in-app notification only.
@@ -171,6 +184,15 @@ class NotificationEngine {
      * Notify when lead is reassigned (old agent loses it, new agent gets it).
      */
     async onLeadReassigned(lead, oldAgentId, newAgentId) {
+        const newAgentBelongs = await (0, tenantAgentValidation_util_1.assertUserBelongsToCompany)(lead.companyId, newAgentId);
+        if (!newAgentBelongs) {
+            logger_1.default.warn('NotificationEngine: skipped lead reassignment notification for foreign agent', {
+                leadId: lead.id,
+                newAgentId,
+                companyId: lead.companyId,
+            });
+            return;
+        }
         // Notify old agent (removed)
         if (oldAgentId && oldAgentId !== newAgentId) {
             await this.notify({

@@ -16,7 +16,7 @@ const propertyImport_service_1 = require("../services/propertyImport.service");
 const requirePropertyPublisher_1 = require("../middleware/requirePropertyPublisher");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use(tenant_1.strictTenantIsolation);
 router.use((0, featureGate_1.requireFeature)('property_management'));
 router.use(requirePropertyPublisher_1.requirePropertyPublisher);
 function isStatusCodedError(err) {

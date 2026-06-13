@@ -1,14 +1,17 @@
 import { resolveBuyerComponents } from '../../services/buyer/buyerButtonPolicy.service';
 
 describe('buyerButtonPolicy.service', () => {
-  test('returns no buttons for returning greeting ack', () => {
-    expect(
-      resolveBuyerComponents({
-        stage: 'rapport',
-        outboundText: 'Welcome back! Still exploring options?',
-        isReturningGreeting: true,
-      }),
-    ).toEqual([]);
+  test('returning buyer bare greeting gets same browse buttons as new lead', () => {
+    const components = resolveBuyerComponents({
+      stage: 'rapport',
+      outboundText: 'Hello! Welcome to *Palm Realty*.\n\nI\'m your assistant for *Palm Realty*',
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
+    });
+    expect(components).toHaveLength(1);
+    expect(components[0].kind).toBe('buttons');
   });
 
   test('returns stage buttons for stranger rapport', () => {

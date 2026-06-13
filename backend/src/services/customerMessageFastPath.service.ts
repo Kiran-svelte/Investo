@@ -10,8 +10,8 @@
 
 import config from '../config';
 import { isVisitSchedulingMessage } from './visitIntentFromMessage.service';
-import type { ActiveVisitContext } from './liveLeadContext.service';
-import { buildVisitAwareGreeting } from './liveLeadContext.service';
+import type { ActiveVisitContext, ActiveCallContext } from './liveLeadContext.service';
+import { buildVisitAwareGreeting, buildCallAwareGreeting } from './liveLeadContext.service';
 
 /**
  * Minimum number of prior conversation messages that qualifies a user as
@@ -189,6 +189,8 @@ export function buildFastPathCustomerReply(input: {
   conversationStage?: string | null;
   /** If provided and client sends a greeting, returns a visit-aware reply instead. */
   upcomingVisit?: ActiveVisitContext | null;
+  /** Scheduled callback — second priority after visit-aware greeting. */
+  upcomingCall?: ActiveCallContext | null;
 }): { text: string; detectedLanguage: string } | null {
   const trimmed = input.customerMessage.trim();
   if (!trimmed) {
@@ -218,7 +220,14 @@ export function buildFastPathCustomerReply(input: {
       };
     }
 
-    // Priority 2: Returning client — never replay first-contact greeting template.
+    if (input.upcomingCall) {
+      return {
+        text: buildCallAwareGreeting(input.customerName ?? null, input.upcomingCall, company),
+        detectedLanguage: lang,
+      };
+    }
+
+    // Returning client without live visit/call — rapport handler builds enriched welcome.
     if (hasPriorAiOutbound(input.conversationHistory ?? []) || historyLength >= RETURNING_CLIENT_HISTORY_THRESHOLD) {
       return null;
     }

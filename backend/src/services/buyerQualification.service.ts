@@ -1,8 +1,17 @@
 import type { LeadMemory } from './lead-memory.service';
 import { extractLeadMemoryDelta } from './buyer-memory-extract.service';
 import { patchLeadMemory } from './lead-memory.service';
-import { isAdvancedLeadStatus } from '../utils/buyerLeadProgress.util';
+import {
+  buildPostVisitWelcomeReply,
+  isPostVisitBuyer,
+  isAdvancedLeadStatus,
+} from '../utils/buyerLeadProgress.util';
 import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
+import type { LiveLeadContext } from './liveLeadContext.service';
+import {
+  buildCallAwareGreeting,
+  buildVisitAwareGreeting,
+} from './liveLeadContext.service';
 
 function isRapportPhrase(message: string): boolean {
   return (
@@ -96,11 +105,112 @@ export function buildBuyerRapportReply(
     const areaHint = area ? `Still looking at *${area}*, or something new?` : 'Still exploring options, or something new?';
     return `Welcome back! ${areaHint}`;
   }
+  return buildFirstTimeBuyerWelcome(companyName);
+}
+
+function buildFirstTimeBuyerWelcome(companyName: string, customerName?: string | null): string {
+  const name = (customerName ?? '').trim();
+  const who = name ? `, *${name}*` : '';
   return (
-    `Hello! Welcome to *${companyName}*.\n\n` +
+    `Hello${who}! Welcome to *${companyName}*.\n\n` +
     `I'm your assistant for *${companyName}* — share your budget, preferred area, and what you're looking for, ` +
     `or ask about one of our listed projects.`
   );
+}
+
+function resolveWelcomeShell(
+  companyName: string,
+  customerName?: string | null,
+  greetingTemplate?: string | null,
+): string {
+  const company = companyName.trim() || 'our team';
+  const template = typeof greetingTemplate === 'string' ? greetingTemplate.trim() : '';
+  if (template) {
+    return template.replace(/\{business_name\}/gi, company);
+  }
+  return buildFirstTimeBuyerWelcome(company, customerName);
+}
+
+function buildReturningActivityLines(input: {
+  locationPreference?: string | null;
+  liveCtx: Pick<LiveLeadContext, 'recentCancelledVisit' | 'recentCompletedVisit' | 'leadStatus'>;
+}): string[] {
+  const lines: string[] = [];
+  const area = input.locationPreference?.trim();
+  if (area) {
+    lines.push(`📍 Saved preference: *${area}*`);
+  }
+  if (input.liveCtx.recentCancelledVisit) {
+    const property = input.liveCtx.recentCancelledVisit.propertyName ?? 'your property';
+    lines.push(`❌ Your visit to *${property}* was cancelled — I can help reschedule or show other options.`);
+  }
+  if (
+    input.liveCtx.recentCompletedVisit
+    && !isPostVisitBuyer({
+      activeVisit: null,
+      recentCompletedVisit: input.liveCtx.recentCompletedVisit,
+      leadStatus: input.liveCtx.leadStatus,
+    })
+  ) {
+    const property = input.liveCtx.recentCompletedVisit.propertyName ?? 'the property';
+    lines.push(`✔️ You recently visited *${property}* — happy to help with next steps.`);
+  }
+  return lines;
+}
+
+/**
+ * Returning buyer bare-greeting welcome — same first-contact shell as new leads,
+ * enriched with live visit/call/cancelled/completed context from CRM.
+ */
+export function buildReturningBuyerWelcomeReply(input: {
+  companyName: string;
+  customerName?: string | null;
+  locationPreference?: string | null;
+  greetingTemplate?: string | null;
+  liveCtx: Pick<
+    LiveLeadContext,
+    'activeVisit' | 'activeCall' | 'recentCompletedVisit' | 'recentCancelledVisit' | 'leadStatus'
+  >;
+}): string {
+  const company = input.companyName.trim() || 'our team';
+
+  if (input.liveCtx.activeVisit) {
+    return buildVisitAwareGreeting(
+      input.customerName ?? null,
+      input.liveCtx.activeVisit,
+      company,
+    );
+  }
+
+  if (isPostVisitBuyer({
+    activeVisit: null,
+    recentCompletedVisit: input.liveCtx.recentCompletedVisit,
+    leadStatus: input.liveCtx.leadStatus,
+  })) {
+    return buildPostVisitWelcomeReply({
+      customerName: input.customerName,
+      companyName: company,
+      propertyName: input.liveCtx.recentCompletedVisit?.propertyName,
+    });
+  }
+
+  if (input.liveCtx.activeCall) {
+    return buildCallAwareGreeting(
+      input.customerName ?? null,
+      input.liveCtx.activeCall,
+      company,
+    );
+  }
+
+  let text = resolveWelcomeShell(company, input.customerName, input.greetingTemplate);
+  const activityLines = buildReturningActivityLines({
+    locationPreference: input.locationPreference,
+    liveCtx: input.liveCtx,
+  });
+  if (activityLines.length) {
+    text += `\n\n${activityLines.join('\n')}`;
+  }
+  return text;
 }
 
 export function buildBuyerQualificationAckReply(memory: Partial<LeadMemory>): string {

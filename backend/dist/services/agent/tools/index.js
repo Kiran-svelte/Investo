@@ -43,10 +43,19 @@ function getToolsForRole(context) {
         ...(0, emi_tools_1.createEmiTools)(context),
         ...(0, brochure_tools_1.createBrochureTools)(context),
     ];
-    if (context.userRole === 'sales_agent' || isAdminRole(context.userRole) || isOperationsRole(context.userRole)) {
-        tools.push(...(0, workflow_tools_1.createWorkflowTools)(context), ...(0, visit_tools_1.createVisitTools)(context), ...(0, lead_tools_1.createLeadTools)(context), ...(0, conversation_tools_1.createConversationTools)(context), ...(0, bulk_message_tools_1.createBulkMessageTools)(context), ...(0, calendar_tools_1.createCalendarTools)(context), ...(0, analytics_tools_1.createAnalyticsTools)(context));
+    if (isOperationsRole(context.userRole)) {
+        tools.push(...(0, lead_tools_1.createLeadReadTools)(context), ...(0, visit_tools_1.createVisitTools)(context), ...(0, calendar_tools_1.createCalendarTools)(context), ...(0, analytics_tools_1.createAnalyticsTools)(context));
+        return tools;
     }
-    if (isAdminRole(context.userRole)) {
+    const isAdmin = isAdminRole(context.userRole);
+    if (context.userRole === 'sales_agent' || isAdmin) {
+        tools.push(...(0, workflow_tools_1.createWorkflowTools)(context), ...(0, visit_tools_1.createVisitTools)(context), ...(0, lead_tools_1.createLeadReadTools)(context), ...(0, lead_tools_1.createLeadMutationTools)(context, {
+            allowCreate: isAdmin,
+            allowAssign: isAdmin,
+            allowPortfolioTransfer: isAdmin,
+        }), ...(0, conversation_tools_1.createConversationTools)(context), ...(0, bulk_message_tools_1.createBulkMessageTools)(context), ...(0, calendar_tools_1.createCalendarTools)(context), ...(0, analytics_tools_1.createAnalyticsTools)(context));
+    }
+    if (isAdmin) {
         tools.push(...(0, user_tools_1.createUserTools)(context), ...(0, admin_tools_1.createAdminTools)(context), ...(0, admin_log_tools_1.createAdminLogTools)(context));
     }
     return tools;

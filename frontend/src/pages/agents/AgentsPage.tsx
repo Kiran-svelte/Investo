@@ -6,6 +6,10 @@ import { Users, TrendingUp, Award, Phone, Mail, Loader2, Plus, X, Trash2 } from 
 import { deleteUser } from '../../services/resourceDelete';
 import Pagination from '../../components/common/Pagination';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
+import { ensureArray } from '../../utils/safeApiData';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+
+const WHATSAPP_STAFF_ROLES = new Set(['sales_agent', 'operations', 'company_admin']);
 
 interface AgentStats {
   agent_id: string;
@@ -79,10 +83,11 @@ const AgentsPage: React.FC = () => {
       }
 
       const usersRes = await api.get(`/users?${params.toString()}`);
-      const allUsers = usersRes.data.data || [];
-      setAgentUsers(allUsers.filter((u: AgentUser) => ['sales_agent', 'operations'].includes(u.role)));
-      setTotalPages(usersRes.data.pagination?.pages || 1);
-      setTotalUsers(usersRes.data.pagination?.total || 0);
+      const allUsers = ensureArray<AgentUser>(usersRes.data?.data);
+      const teamMembers = allUsers.filter((u) => ['sales_agent', 'operations'].includes(u.role));
+      setAgentUsers(teamMembers);
+      setTotalPages(usersRes.data?.pagination?.pages || 1);
+      setTotalUsers(teamMembers.length);
 
       if (user?.role === 'super_admin') {
         try {
@@ -107,6 +112,12 @@ const AgentsPage: React.FC = () => {
     setSubmitting(true);
     setError('');
 
+    if (WHATSAPP_STAFF_ROLES.has(formData.role) && !formData.phone.trim()) {
+      setError('Phone number is required for staff who use WhatsApp copilot.');
+      setSubmitting(false);
+      return;
+    }
+
     try {
       const payload: Record<string, unknown> = {
         name: formData.name,
@@ -124,8 +135,8 @@ const AgentsPage: React.FC = () => {
       setShowModal(false);
       setFormData({ name: '', email: '', password: '', phone: '', role: 'sales_agent', company_id: '', must_change_password: true });
       loadData();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create user');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Failed to create user'));
     } finally {
       setSubmitting(false);
     }
@@ -220,7 +231,7 @@ const AgentsPage: React.FC = () => {
                         setAgentUsers((prev) => prev.filter((u) => u.id !== agent.id));
                       } catch (err: unknown) {
                         const ax = err as { response?: { data?: { error?: string } } };
-                        setPageError(ax.response?.data?.error || 'Failed to delete user');
+                        setPageError(getApiErrorMessage(ax, 'Failed to delete user'));
                       }
                     }}
                     className="absolute top-3 right-3 p-1.5 text-ink-faint hover:text-red-600 hover:bg-red-50 rounded-lg"

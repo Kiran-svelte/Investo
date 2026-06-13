@@ -79,7 +79,8 @@ export function shouldAttachGreetingMedia(input: {
   hasActiveVisit: boolean;
   greetingMedia: unknown;
 }): boolean {
-  if (input.isReturning || input.hasActiveVisit) return false;
+  void input.isReturning;
+  if (input.hasActiveVisit) return false;
   return parseGreetingMediaItems(input.greetingMedia).length > 0;
 }
 

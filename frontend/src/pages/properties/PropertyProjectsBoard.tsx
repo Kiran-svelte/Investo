@@ -24,6 +24,7 @@ import type { PropertyImportDraftSummary } from '../../services/propertyImport';
 import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
 import { stashBulkImportFile } from '../../utils/bulk-import-pending-file';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 
 function isSpreadsheetFile(file: File): boolean {
   return (
@@ -123,7 +124,7 @@ export default function PropertyProjectsBoard({
       onRefresh();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      setBoardError(ax.response?.data?.error || 'Failed to create project');
+      setBoardError(getApiErrorMessage(ax, 'Failed to create project'));
     } finally {
       setCreating(false);
     }
@@ -139,7 +140,7 @@ export default function PropertyProjectsBoard({
       onRefresh();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      setBoardError(ax.response?.data?.error || 'Failed to move property');
+      setBoardError(getApiErrorMessage(ax, 'Failed to move property'));
     } finally {
       setAssigning(false);
       setDragPropertyId(null);
@@ -155,7 +156,7 @@ export default function PropertyProjectsBoard({
       const ax = err as { response?: { data?: { error?: string } } };
       setUploadNotice((prev) => ({
         ...prev,
-        [projectId]: ax.response?.data?.error || 'Could not load attached files.',
+        [projectId]: getApiErrorMessage(ax, 'Could not load attached files.'),
       }));
       setProjectFiles((prev) => ({ ...prev, [projectId]: [] }));
     }
@@ -214,7 +215,7 @@ export default function PropertyProjectsBoard({
       onRefresh();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
-      setBoardError(ax.response?.data?.error || 'Failed to upload file');
+      setBoardError(getApiErrorMessage(ax, 'Failed to upload file'));
     } finally {
       setUploadingFile(null);
       setUploadTargetProject(null);
@@ -410,7 +411,7 @@ export default function PropertyProjectsBoard({
                       onRefresh();
                     } catch (err: unknown) {
                       const ax = err as { response?: { data?: { error?: string } } };
-                      setBoardError(ax.response?.data?.error || 'Failed to delete project');
+                      setBoardError(getApiErrorMessage(ax, 'Failed to delete project'));
                     }
                   }}
                   className="rounded p-1.5 text-red-600 hover:bg-red-50"
@@ -501,7 +502,7 @@ export default function PropertyProjectsBoard({
                                 }));
                               } catch (err: unknown) {
                                 const ax = err as { response?: { data?: { error?: string } } };
-                                setBoardError(ax.response?.data?.error || 'Failed to delete file');
+                                setBoardError(getApiErrorMessage(ax, 'Failed to delete file'));
                               }
                             }}
                           >

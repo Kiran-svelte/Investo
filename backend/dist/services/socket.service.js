@@ -9,6 +9,7 @@ const logger_1 = __importDefault(require("../config/logger"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const config_1 = __importDefault(require("../config"));
 const config_2 = require("../config");
+const authSessionCookies_util_1 = require("../utils/authSessionCookies.util");
 class SocketService {
     constructor() {
         this.io = null;
@@ -33,13 +34,15 @@ class SocketService {
         // Authentication middleware
         this.io.use(async (socket, next) => {
             try {
-                const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
+                const token = socket.handshake.auth.token
+                    || socket.handshake.headers.authorization?.split(' ')[1]
+                    || (0, authSessionCookies_util_1.readAccessTokenFromCookies)(socket.handshake.headers.cookie);
                 if (!token) {
                     return next(new Error('Authentication required'));
                 }
                 const decoded = jsonwebtoken_1.default.verify(token, config_1.default.jwt.secret);
-                socket.userId = decoded.id;
-                socket.companyId = decoded.company_id;
+                socket.userId = decoded.userId;
+                socket.companyId = decoded.companyId;
                 socket.userRole = decoded.role;
                 next();
             }

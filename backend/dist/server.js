@@ -239,8 +239,9 @@ async function start() {
                         logger_1.default.warn('Startup reconciler: re-enqueued orphaned visit reminders', { count });
                     }
                 });
-                const { backfillPropertyKnowledgeOnBoot } = await Promise.resolve().then(() => __importStar(require('./services/propertyKnowledgeBackfill.service')));
+                const { backfillPropertyKnowledgeOnBoot, startPropertyKnowledgeMaintenanceCron } = await Promise.resolve().then(() => __importStar(require('./services/propertyKnowledgeBackfill.service')));
                 void backfillPropertyKnowledgeOnBoot();
+                startPropertyKnowledgeMaintenanceCron();
             }
             catch (err) {
                 logger_1.default.warn('Database warmup failed at startup; API remains available for health checks', {

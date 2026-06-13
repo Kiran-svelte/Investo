@@ -237,11 +237,12 @@ exports.cancelPropertyImportDraftSchema = zod_1.z.object({
     reason: zod_1.z.string().max(1000).optional().nullable(),
     purge: zod_1.z.boolean().optional(),
 });
+const bulkImportValidation_util_1 = require("../utils/bulkImportValidation.util");
 exports.propertyImportSpreadsheetImportSchema = zod_1.z.object({
     project_name: zod_1.z.string().min(1).max(255),
     property_type: zod_1.z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']),
     column_mapping: zod_1.z.record(zod_1.z.string()),
-    raw_rows: zod_1.z.array(zod_1.z.record(zod_1.z.string())).min(1).max(500),
+    raw_rows: (0, bulkImportValidation_util_1.bulkImportRawRowsSchema)(500),
 });
 exports.propertyImportReplaceUnitsSchema = zod_1.z.object({
     units: zod_1.z.array(zod_1.z.object({
@@ -276,6 +277,15 @@ exports.createUserSchema = zod_1.z.object({
     role: zod_1.z.enum(exports.ROLES),
     target_company_id: zod_1.z.string().uuid().optional(), // For super_admin to create users in any company
     must_change_password: zod_1.z.boolean().optional(),
+}).superRefine((data, ctx) => {
+    const whatsappStaffRoles = ['sales_agent', 'operations', 'company_admin'];
+    if (whatsappStaffRoles.includes(data.role) && !data.phone) {
+        ctx.addIssue({
+            code: zod_1.z.ZodIssueCode.custom,
+            message: 'Phone number is required for staff who use WhatsApp copilot',
+            path: ['phone'],
+        });
+    }
 });
 exports.greetingMediaItemSchema = zod_1.z.object({
     id: zod_1.z.string().min(1).max(64),

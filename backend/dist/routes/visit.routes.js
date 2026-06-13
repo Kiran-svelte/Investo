@@ -53,7 +53,7 @@ function mapVisitToSnakeCaseDTO(visit) {
     };
 }
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use(tenant_1.strictTenantIsolation);
 router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('visit_scheduling'));
 /**

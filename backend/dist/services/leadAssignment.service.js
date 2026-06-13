@@ -51,9 +51,12 @@ const logger_1 = __importDefault(require("../config/logger"));
 async function notifyAgentOfNewLead(agentId, leadId, companyId) {
     try {
         const [agent, lead] = await Promise.all([
-            prisma_1.default.user.findUnique({ where: { id: agentId }, select: { name: true, phone: true } }),
-            prisma_1.default.lead.findUnique({
-                where: { id: leadId },
+            prisma_1.default.user.findFirst({
+                where: { id: agentId, companyId },
+                select: { name: true, phone: true },
+            }),
+            prisma_1.default.lead.findFirst({
+                where: { id: leadId, companyId },
                 select: { customerName: true, phone: true, source: true, budgetMin: true, budgetMax: true, locationPreference: true, propertyType: true },
             }),
         ]);

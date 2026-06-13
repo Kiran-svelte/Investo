@@ -29,7 +29,7 @@ function handleDeleteError(err, res) {
     res.status(500).json({ error: message });
 }
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use(tenant_1.strictTenantIsolation);
 router.use(propertyCompletenessGate_1.propertyCompletenessGate);
 router.use((0, featureGate_1.requireFeature)('conversation_center'));
 function normalizeWhatsAppConfig(company) {
@@ -460,7 +460,7 @@ const sendConversationMessageHandler = async (req, res) => {
         res.status(500).json({ error: 'Failed to send message' });
     }
 };
-router.post('/:id/messages', (0, rbac_1.authorize)('conversations', 'read'), sendConversationMessageHandler);
+router.post('/:id/messages', (0, rbac_1.authorize)('conversations', 'update'), sendConversationMessageHandler);
 // Backward-compatible alias for older clients.
-router.post('/:id/message', (0, rbac_1.authorize)('conversations', 'read'), sendConversationMessageHandler);
+router.post('/:id/message', (0, rbac_1.authorize)('conversations', 'update'), sendConversationMessageHandler);
 exports.default = router;

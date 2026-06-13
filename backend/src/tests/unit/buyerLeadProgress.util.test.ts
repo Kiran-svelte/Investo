@@ -3,6 +3,7 @@ import {
   isPostVisitBuyer,
   isPostVisitLeadStatus,
   resolveStageFromLeadStatus,
+  resolveStageAfterHumanEscalationReset,
 } from '../../utils/buyerLeadProgress.util';
 
 describe('buyerLeadProgress.util', () => {
@@ -15,6 +16,13 @@ describe('buyerLeadProgress.util', () => {
   test('maps visited leads to shortlist stage', () => {
     expect(resolveStageFromLeadStatus('visited')).toBe('shortlist');
     expect(resolveStageFromLeadStatus('negotiation')).toBe('commitment');
+  });
+
+  test('preserves CRM stage when clearing human_escalated', () => {
+    expect(resolveStageAfterHumanEscalationReset('visited')).toBe('shortlist');
+    expect(resolveStageAfterHumanEscalationReset('negotiation')).toBe('commitment');
+    expect(resolveStageAfterHumanEscalationReset('new')).toBe('rapport');
+    expect(resolveStageAfterHumanEscalationReset(null)).toBe('rapport');
   });
 
   test('post-visit when CRM visited even without completed visit row', () => {

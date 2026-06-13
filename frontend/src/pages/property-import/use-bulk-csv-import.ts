@@ -10,7 +10,6 @@
  */
 
 import { useCallback, useState } from 'react';
-import axios from 'axios';
 import {
   confirmBulkImport,
   parseBulkImportFile,
@@ -20,6 +19,7 @@ import {
   type BulkImportParseResult,
   type BulkImportPublishResult,
 } from '../../services/bulk-csv-import.service';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import {
   BULK_IMPORT_MAX_FILE_SIZE_BYTES,
   BULK_IMPORT_MAX_FILE_SIZE_LABEL,
@@ -77,16 +77,7 @@ export interface UseBulkCsvImportReturn {
 
 /** Extracts a clean user-facing error message from an unknown thrown value. */
 function extractErrorMessage(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error)) {
-    const payload = error.response?.data as { error?: { message?: string }; message?: string } | undefined;
-    return payload?.error?.message || payload?.message || error.message || fallback;
-  }
-
-  if (error instanceof Error) {
-    return error.message || fallback;
-  }
-
-  return fallback;
+  return getApiErrorMessage(error, fallback);
 }
 
 /** Validates the selected file before uploading. */
@@ -159,22 +150,16 @@ export function useBulkCsvImport(
         setProjectName(baseName);
       }
 
-      // Store all raw rows (not just preview) for the confirm step.
-      // The backend returns preview only; we need to re-parse client-side for allRawRows
-      // OR keep previewRows and let backend hold the full dataset.
-      // Architectural note: the backend stores the rows in the draft, so we send
-      // previewRows for display but the full raw_rows must come from a second parse or
-      // be cached from the first call. Here we store previewRows as the send set
-      // (backend will process them). For production files the admin would upload once;
-      // the backend returns up to CSV_IMPORT_MAX_ROW_COUNT rows via the suggestedMapping
-      // response. We store previewRows + rowCount as signals, and allRawRows for confirm.
-      // To keep this simple and avoid double-parsing, we use the previewRows.
-      // TODO(agent): verify — for files >5 rows the full rows are not re-sent to confirm.
-      // A follow-up can add a sessionStorage-keyed row cache or move to streaming.
       const allRows =
         Array.isArray(result.rows) && result.rows.length > 0 ? result.rows : result.previewRows;
       if (allRows.length === 0) {
         setErrorMessage('No data rows found. Add at least one property row below the header.');
+        return;
+      }
+      if (result.rowCount > 0 && allRows.length < result.rowCount) {
+        setErrorMessage(
+          `Only ${allRows.length} of ${result.rowCount} rows were loaded. Re-upload the file or contact support.`,
+        );
         return;
       }
       setAllRawRows(allRows);

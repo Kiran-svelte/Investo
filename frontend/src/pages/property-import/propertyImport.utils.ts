@@ -527,6 +527,14 @@ export function isImageOnlyPropertyImportMedia(
   });
 }
 
+/** Spreadsheet/bulk imports skip manual mapping review (matches backend FEATURE_BULK_IMPORT_SKIP_REVIEW default). */
+export function shouldSkipPropertyImportReviewBlock(
+  draftData?: Record<string, unknown> | null,
+): boolean {
+  const mode = draftData?.import_mode ?? draftData?.importMode;
+  return mode === 'bulk_csv' || mode === 'spreadsheet_imported';
+}
+
 /** Image uploads skip manual mapping review and AI knowledge Q&A. */
 export function shouldSkipPropertyImportKnowledge(input: {
   draftData?: Record<string, unknown> | null;

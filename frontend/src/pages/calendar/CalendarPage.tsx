@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, MapPin,
@@ -159,7 +160,7 @@ const CalendarPage: React.FC = () => {
       await loadVisits();
       setSelectedVisit(null);
     } catch (err: any) {
-      setVisitActionError(err.response?.data?.error || 'Failed to update status');
+      setVisitActionError(getApiErrorMessage(err, 'Failed to update status'));
     } finally { setStatusUpdating(false); }
   };
 
@@ -379,7 +380,7 @@ const CalendarPage: React.FC = () => {
                       setSelectedVisit(null);
                     } catch (err: unknown) {
                       const ax = err as { response?: { data?: { error?: string } } };
-                      setVisitActionError(ax.response?.data?.error || 'Failed to delete visit');
+                      setVisitActionError(getApiErrorMessage(ax, 'Failed to delete visit'));
                     } finally {
                       setVisitDeleting(false);
                     }
@@ -461,7 +462,7 @@ const ScheduleVisitModal: React.FC<{ onClose: () => void; onCreated: () => void 
       });
       onCreated();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to schedule visit');
+      setError(getApiErrorMessage(err, 'Failed to schedule visit'));
     } finally { setSaving(false); }
   };
 

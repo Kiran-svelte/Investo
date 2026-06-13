@@ -22,6 +22,7 @@ exports.isAllowedStageTransition = isAllowedStageTransition;
 exports.getStageConfig = getStageConfig;
 exports.getObjectionPlaybook = getObjectionPlaybook;
 const logger_1 = __importDefault(require("../config/logger"));
+const customerMessageFastPath_service_1 = require("./customerMessageFastPath.service");
 const realEstateAssistantPrompt_constants_1 = require("../constants/realEstateAssistantPrompt.constants");
 const STAGE_CONFIG = {
     rapport: {
@@ -40,7 +41,7 @@ const STAGE_CONFIG = {
         requiredCommitments: ['budgetConfirmed', 'locationConfirmed', 'propertyTypeConfirmed'],
         exitConditions: ['3 of 4 key requirements confirmed'],
         maxMessages: 8,
-        promptFocus: 'Ask natural questions to understand: budget range, preferred areas, property type (apartment/villa/plot), timeline. One topic per message.',
+        promptFocus: 'Ask natural questions to understand: budget range, preferred areas, property type (only types this company actually lists), timeline. One topic per message. Never suggest property types outside company inventory.',
         successIndicators: ['shares budget', 'mentions area', 'specifies type', 'gives timeline'],
         failureIndicators: ['refuses to share', 'vague after 5+ messages'],
     },
@@ -403,6 +404,17 @@ class PolicyBrain {
         }
         // 5. Handle adjacent (related but not advancing)
         if (messageIntent === 'adjacent') {
+            if (customerMessage && (0, customerMessageFastPath_service_1.isPropertyDetailQuestion)(customerMessage)) {
+                return {
+                    action: 'continue',
+                    promptModifiers: [
+                        'Customer asking a specific property detail question.',
+                        'Answer thoroughly using grounded property facts first (concrete specs, numbers, dates).',
+                        'Visit booking CTA is secondary — at most one soft line at the end.',
+                        `Stage context: ${stageConfig.goal}`,
+                    ],
+                };
+            }
             return {
                 action: 'continue',
                 promptModifiers: [

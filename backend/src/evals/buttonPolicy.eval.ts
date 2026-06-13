@@ -33,17 +33,20 @@ export const buttonPolicyEvalCases: Array<EvalCase<ButtonPolicyInput, ButtonPoli
     },
   },
   {
-    id: 'buttons-returning-greeting-suppressed',
+    id: 'buttons-returning-greeting-enriched',
     category: 'button-policy',
-    description: 'Returning buyer greeting must not get noisy repeated buttons.',
+    description: 'Returning buyer greeting gets the same browse buttons as a new lead.',
     severity: 'high',
     input: {
       stage: 'rapport',
-      outboundText: 'Welcome back! Still looking at Whitefield, or something new?',
-      isReturningGreeting: true,
+      outboundText: 'Hello! Welcome to *Palm Realty*.\n\nI\'m your assistant for *Palm Realty*',
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
     },
     expected: {
-      noButtons: true,
+      buttonIds: ['filter-apartment', 'call-me'],
     },
   },
   {

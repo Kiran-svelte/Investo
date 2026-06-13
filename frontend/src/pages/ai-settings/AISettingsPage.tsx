@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import {
   Save, Loader2, Plus, Trash2, Clock, MessageSquare, Smartphone, AlertCircle, CheckCircle,
   ImagePlus, FileText, Upload,
@@ -186,10 +187,7 @@ const AISettingsPage: React.FC = () => {
         }
       }
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-        || 'Could not load AI settings. Check your plan includes AI bot or refresh the page.';
-      setMessage(msg);
+      setMessage(getApiErrorMessage(err, 'Could not load AI settings. Check your plan includes AI bot or refresh the page.'));
     } finally {
       setLoading(false);
     }
@@ -336,7 +334,7 @@ const AISettingsPage: React.FC = () => {
       }
     } catch (err: any) {
       setConnectionVerified(false);
-      setWhatsappMessage(err.response?.data?.error || 'Failed to test WhatsApp connection');
+      setWhatsappMessage(getApiErrorMessage(err, 'Failed to test WhatsApp connection'));
     } finally {
       setTestingWhatsApp(false);
     }
@@ -401,10 +399,7 @@ const AISettingsPage: React.FC = () => {
         );
       }
     } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
-        : undefined;
-      setGreetingMediaMessage(msg || 'Failed to test greeting media');
+      setGreetingMediaMessage(getApiErrorMessage(err, 'Failed to test greeting media'));
     } finally {
       setTestingGreetingMedia(false);
     }

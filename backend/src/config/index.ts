@@ -505,8 +505,8 @@ const config = {
      * ON by default — set FEATURE_*=false to disable without redeploying code.
      */
     advancedLeadUx: process.env.FEATURE_ADVANCED_LEAD_UX !== 'false',
-    /** Staff copilot only — stays opt-in. */
-    contextualCopilotButtons: process.env.FEATURE_CONTEXTUAL_COPILOT_BUTTONS === 'true',
+    /** Staff copilot deterministic button fallback when LLM returns none. */
+    contextualCopilotButtons: process.env.FEATURE_CONTEXTUAL_COPILOT_BUTTONS !== 'false',
     customGreetingTemplate: process.env.FEATURE_CUSTOM_GREETING_TEMPLATE !== 'false',
     /** 0–100 rollout bucket; default 100 so all leads get buyer UX unless tuned down. */
     rolloutPercentage: (() => {

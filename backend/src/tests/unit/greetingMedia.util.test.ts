@@ -43,12 +43,13 @@ describe('greetingMedia.util', () => {
     }
   });
 
-  test('shouldAttachGreetingMedia only on first contact without active visit', () => {
+  test('shouldAttachGreetingMedia when no active visit (including returning buyers)', () => {
     const media = [{ id: '1', kind: 'image', url: 'https://cdn.example.com/a.jpg', mimeType: 'image/jpeg' }];
 
     expect(shouldAttachGreetingMedia({ isReturning: false, hasActiveVisit: false, greetingMedia: media })).toBe(true);
-    expect(shouldAttachGreetingMedia({ isReturning: true, hasActiveVisit: false, greetingMedia: media })).toBe(false);
+    expect(shouldAttachGreetingMedia({ isReturning: true, hasActiveVisit: false, greetingMedia: media })).toBe(true);
     expect(shouldAttachGreetingMedia({ isReturning: false, hasActiveVisit: true, greetingMedia: media })).toBe(false);
+    expect(shouldAttachGreetingMedia({ isReturning: true, hasActiveVisit: true, greetingMedia: media })).toBe(false);
   });
 
   test('mergeGreetingMediaComponents prepends media to buttons', () => {

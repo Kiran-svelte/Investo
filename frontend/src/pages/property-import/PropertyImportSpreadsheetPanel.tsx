@@ -10,6 +10,7 @@ import {
   type PropertyImportDraft,
 } from '../../services/propertyImport';
 import { mergeSuggestedColumnMappings } from '../../utils/csv-column-auto-map';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 
 export interface SpreadsheetColumnMapping {
   source_column: string;
@@ -79,23 +80,14 @@ export default function PropertyImportSpreadsheetPanel({
 
       if (Array.isArray(payload.rows) && payload.rows.length > 0) {
         setAllRows(payload.rows);
-      } else if (selected.type.includes('csv') || selected.name.endsWith('.csv')) {
-        const text = await selected.text();
-        const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
-        const headers = lines[0]?.split(',').map((cell) => cell.trim()) ?? [];
-        const rows = lines.slice(1).map((line) => {
-          const values = line.split(',');
-          return headers.reduce<Record<string, string>>((acc, header, index) => {
-            acc[header] = (values[index] ?? '').trim();
-            return acc;
-          }, {});
-        });
-        setAllRows(rows);
-      } else {
+      } else if (payload.previewRows.length > 0) {
         setAllRows(payload.previewRows);
+      } else {
+        onError('No data rows found. Add at least one property row below the header.');
+        return;
       }
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Failed to read spreadsheet');
+      onError(getApiErrorMessage(error, 'Failed to read spreadsheet'));
     } finally {
       setLoading(false);
     }
@@ -123,7 +115,7 @@ export default function PropertyImportSpreadsheetPanel({
       );
       onImported(data.data.draft);
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Spreadsheet import failed');
+      onError(getApiErrorMessage(error, 'Spreadsheet import failed'));
     } finally {
       setLoading(false);
     }

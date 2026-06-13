@@ -6,11 +6,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middleware/auth");
 const rbac_1 = require("../middleware/rbac");
+const tenant_1 = require("../middleware/tenant");
 const featureGate_1 = require("../middleware/featureGate");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
+router.use(tenant_1.tenantIsolation);
 router.use((req, res, next) => {
     if (req.user?.role === 'super_admin') {
         next();
@@ -30,12 +32,18 @@ router.get('/', (0, rbac_1.authorize)('audit_logs', 'read'), async (req, res) =>
         const limit = Math.min(parseInt(req.query.limit) || 20, 100);
         const skip = (page - 1) * limit;
         const where = {};
-        // Filter by company for non-super_admin
-        if (req.user.role !== 'super_admin') {
-            where.companyId = req.user.company_id;
+        if (req.user.role === 'super_admin') {
+            const companyFilter = (typeof req.query.company_id === 'string' ? req.query.company_id.trim()
+                : typeof req.query.target_company_id === 'string' ? req.query.target_company_id.trim()
+                    : '');
+            if (!companyFilter) {
+                res.status(400).json({ error: 'company_id query parameter is required for platform audit access' });
+                return;
+            }
+            where.companyId = companyFilter;
         }
-        else if (req.query.company_id) {
-            where.companyId = req.query.company_id;
+        else {
+            where.companyId = (0, tenant_1.getCompanyId)(req);
         }
         // Filter by action
         if (req.query.action) {
@@ -102,8 +110,18 @@ router.get('/:id', (0, rbac_1.authorize)('audit_logs', 'read'), async (req, res)
     try {
         const { id } = req.params;
         const where = { id };
-        if (req.user.role !== 'super_admin') {
-            where.companyId = req.user.company_id;
+        if (req.user.role === 'super_admin') {
+            const companyFilter = (typeof req.query.company_id === 'string' ? req.query.company_id.trim()
+                : typeof req.query.target_company_id === 'string' ? req.query.target_company_id.trim()
+                    : '');
+            if (!companyFilter) {
+                res.status(400).json({ error: 'company_id query parameter is required for platform audit access' });
+                return;
+            }
+            where.companyId = companyFilter;
+        }
+        else {
+            where.companyId = (0, tenant_1.getCompanyId)(req);
         }
         const log = await prisma_1.default.auditLog.findFirst({
             where,

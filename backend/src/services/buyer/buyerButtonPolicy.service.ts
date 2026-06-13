@@ -46,10 +46,6 @@ function advancedHasCompletedVisit(ctx: BuyerButtonContext): boolean {
 export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
   const hasCompletedVisit = advancedHasCompletedVisit(ctx);
 
-  if (ctx.isReturningGreeting && !hasCompletedVisit) {
-    return [];
-  }
-
   const outbound = ctx.outboundText.trim();
   if (BARE_GREETING_OUTBOUND.test(outbound) && !hasCompletedVisit && !ctx.propertyId) {
     return [];

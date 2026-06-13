@@ -1,5 +1,6 @@
 import {
   buildBuyerRapportReply,
+  buildReturningBuyerWelcomeReply,
   buildReturningBuyerPivotReply,
   isBuyerRapportMessage,
   isReturningBuyerGreeting,
@@ -13,16 +14,22 @@ describe('buyerQualification returning buyer rapport', () => {
     expect(buildBuyerRapportReply('Palm Realty')).toContain('Welcome to *Palm Realty*');
   });
 
-  test('returning buyer Hi gets short ack without full welcome', () => {
+  test('returning buyer Hi gets enriched welcome', () => {
     expect(isBuyerRapportMessage('Hi', { hasPriorOutbound: true })).toBe(true);
     expect(isReturningBuyerGreeting('Hi', { hasPriorOutbound: true })).toBe(true);
-    const reply = buildBuyerRapportReply('Palm Realty', {
-      isReturning: true,
+    const reply = buildReturningBuyerWelcomeReply({
+      companyName: 'Palm Realty',
       locationPreference: 'Whitefield',
+      liveCtx: {
+        leadStatus: 'new',
+        activeVisit: null,
+        recentCompletedVisit: null,
+        recentCancelledVisit: null,
+        activeCall: null,
+      },
     });
-    expect(reply).toContain('Welcome back');
+    expect(reply).toContain('Welcome to *Palm Realty*');
     expect(reply).toContain('Whitefield');
-    expect(reply).not.toContain('Welcome to *Palm Realty*');
   });
 
   test('returning buyer "Something new" pivot is detected', () => {

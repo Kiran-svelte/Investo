@@ -48,6 +48,7 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const aiKnowledgeStorage_service_1 = require("../services/aiKnowledgeStorage.service");
 const storage_service_1 = require("../services/storage.service");
+const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const greetingMedia_util_1 = require("../utils/greetingMedia.util");
 const router = (0, express_1.Router)();
 async function markWhatsAppVerified(companyId) {
@@ -72,6 +73,11 @@ async function markWhatsAppVerified(companyId) {
     });
 }
 router.use(auth_1.authenticate);
+router.use((req, res, next) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
+    next();
+});
 router.use(tenant_1.tenantIsolation);
 router.use((0, featureGate_1.requireFeature)('ai_bot'));
 /**

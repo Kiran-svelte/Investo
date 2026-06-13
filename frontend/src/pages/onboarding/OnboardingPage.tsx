@@ -124,9 +124,10 @@ const TONES = [
 const DEFAULT_GREETING =
   'Hello! Welcome to {business_name}. How can I help you find your dream property today?';
 
+import { getApiErrorMessage as getSharedApiErrorMessage } from '../../utils/apiErrorMessage';
+
 export function getApiErrorMessage(err: unknown, fallback: string): string {
-  const maybeErr = err as ApiLikeError;
-  return maybeErr?.response?.data?.error || maybeErr?.response?.data?.message || fallback;
+  return getSharedApiErrorMessage(err, fallback);
 }
 
 export function buildOnboardingAiPayload(aiConfig: AIConfig, locationsInput: string) {

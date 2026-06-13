@@ -1,7 +1,7 @@
 import type { PropertyImportDraft } from '../../services/propertyImport';
 import type { PropertyImportFormValues } from './propertyImport.utils';
 import { getMissingMarketingQuestions, type MarketingKnowledgeQuestion } from './propertyImportKnowledgeQuestions';
-import { getPropertyImportReviewMetadata, shouldSkipPropertyImportKnowledge } from './propertyImport.utils';
+import { getPropertyImportReviewMetadata, shouldSkipPropertyImportKnowledge, shouldSkipPropertyImportReviewBlock } from './propertyImport.utils';
 
 export interface PublishReadinessResult {
   ready: boolean;
@@ -53,7 +53,7 @@ export function getPublishReadiness(input: {
     mediaAssets: draft?.mediaAssets,
   });
 
-  if (review.status === 'needs_review' && !skipKnowledge) {
+  if (review.status === 'needs_review' && !skipKnowledge && !shouldSkipPropertyImportReviewBlock(draftData)) {
     blockers.push('Confirm extracted field mapping before publishing.');
   }
 

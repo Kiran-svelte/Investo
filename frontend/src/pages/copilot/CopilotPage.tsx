@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bot, Send, Loader2 } from 'lucide-react';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import { useAuth } from '../../context/AuthContext';
 
 interface QuickAction {
@@ -81,10 +82,7 @@ const CopilotPage: React.FC = () => {
         { id: `a-${Date.now()}`, role: 'assistant', text: reply, replyKind, quickActions },
       ]);
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message ?? 'Could not reach copilot. Try again.';
-      setError(msg);
+      setError(getApiErrorMessage(err, 'Could not reach copilot. Try again.'));
     } finally {
       setSending(false);
     }
@@ -145,14 +143,17 @@ const CopilotPage: React.FC = () => {
                   </div>
                 </div>
                 {msg.role === 'assistant' && msg.quickActions?.length ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div
+                    className="flex flex-wrap gap-2 mt-1"
+                    style={{ animation: 'fadeSlideIn 0.25s ease both' }}
+                  >
                     {msg.quickActions.map((action) => (
                       <button
                         key={action.id}
                         type="button"
                         disabled={sending}
                         onClick={() => void submitMessage(action.title, action.id)}
-                        className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-100 disabled:opacity-50"
+                        className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-100 active:scale-95 transition-all disabled:opacity-50"
                       >
                         {action.title}
                       </button>

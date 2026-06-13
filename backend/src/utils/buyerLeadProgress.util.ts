@@ -33,6 +33,16 @@ export function resolveStageFromLeadStatus(status: string): 'shortlist' | 'commi
   return 'shortlist';
 }
 
+/** Stage to use when clearing human_escalated — preserves CRM progress for returning buyers. */
+export function resolveStageAfterHumanEscalationReset(
+  leadStatus: string | null | undefined,
+): 'rapport' | 'shortlist' | 'commitment' {
+  if (leadStatus && isAdvancedLeadStatus(leadStatus)) {
+    return resolveStageFromLeadStatus(leadStatus);
+  }
+  return 'rapport';
+}
+
 /**
  * True when buyer should get post-visit buttons and skip re-qualification.
  * Uses completed visit rows OR CRM visited/negotiation/closed_won without active booking.

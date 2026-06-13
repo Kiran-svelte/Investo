@@ -41,6 +41,7 @@ const Sentry = __importStar(require("@sentry/node"));
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
+const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const logger_1 = __importDefault(require("./config/logger"));
 const requestLogger_1 = require("./middleware/requestLogger");
 const sanitizeInput_1 = require("./middleware/sanitizeInput");
@@ -105,6 +106,7 @@ app.use('/api/metrics', metrics_routes_1.default);
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', rateLimiter_1.webhookRateLimiter, rateLimiter_1.whatsappAiRateLimiter, webhook_routes_1.default);
 // Body parsing (for all non-webhook routes)
+app.use((0, cookie_parser_1.default)());
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
 app.use(sanitizeInput_1.sanitizeInput);

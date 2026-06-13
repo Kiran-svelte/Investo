@@ -37,6 +37,7 @@ import {
   drainCustomerInboundQueue,
 } from './customerInboundQueue.service';
 import { type QuickReplyRecentAction } from '../utils/contextQuickReplies.util';
+import { resolveStageAfterHumanEscalationReset } from '../utils/buyerLeadProgress.util';
 import { resolveBuyerComponents } from './buyer/buyerButtonPolicy.service';
 import {
   beginOutboundTurn,
@@ -1081,6 +1082,7 @@ export class WhatsAppService {
     const aiReady = await this.ensureProspectConversationAiActive(conversation, {
       companyId,
       leadId: lead.id,
+      leadStatus: lead.status,
       assignedAgentId: lead.assignedAgentId,
       customerPhone,
       customerName: lead.customerName,
@@ -1094,8 +1096,9 @@ export class WhatsAppService {
       && conversationState.stage === 'human_escalated'
     ) {
       const resetState = conversationStateManager.createInitialState();
+      const resumedStage = resolveStageAfterHumanEscalationReset(lead.status);
       Object.assign(conversationState, {
-        stage: 'rapport' as ConversationStage,
+        stage: resumedStage as ConversationStage,
         previousStage: 'human_escalated' as ConversationStage,
         stageEnteredAt: new Date(),
         messageCount: 0,
@@ -1448,6 +1451,7 @@ export class WhatsAppService {
   }, context: {
     companyId: string;
     leadId: string;
+    leadStatus?: string | null;
     assignedAgentId: string | null;
     customerPhone: string;
     customerName: string | null;
@@ -1472,7 +1476,7 @@ export class WhatsAppService {
           status: 'ai_active',
           aiEnabled: true,
           ...(conversation.stage === 'human_escalated' && {
-            stage: 'rapport',
+            stage: resolveStageAfterHumanEscalationReset(context.leadStatus ?? null),
             stageEnteredAt: new Date(),
             stageMessageCount: 0,
             escalationReason: null,
@@ -1507,7 +1511,7 @@ export class WhatsAppService {
     // Reset stage when stuck in human_escalated so conversation resumes naturally.
     // The customer is re-engaging — do not force them through another escalation message.
     if (isStuckEscalated) {
-      updateData.stage = 'rapport';
+      updateData.stage = resolveStageAfterHumanEscalationReset(context.leadStatus ?? null);
       updateData.stageEnteredAt = new Date();
       updateData.stageMessageCount = 0;
       updateData.escalationReason = null;

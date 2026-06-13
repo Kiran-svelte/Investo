@@ -38,6 +38,10 @@ import {
   CSV_IMPORT_MAX_ROW_COUNT,
   XLSX_MAGIC_BYTES,
 } from '../constants/csv-import.constants';
+import {
+  bulkImportRawRowsSchema,
+  formatBulkImportZodError,
+} from '../utils/bulkImportValidation.util';
 
 /** Custom error class for bulk import route errors. */
 class BulkImportError extends Error {
@@ -91,7 +95,7 @@ const confirmBodySchema = z.object({
   /** Column mapping: header name → target field or 'skip' */
   column_mapping: z.record(z.string()),
   /** All raw rows from the original parse result */
-  raw_rows: z.array(z.record(z.string())).max(CSV_IMPORT_MAX_ROW_COUNT),
+  raw_rows: bulkImportRawRowsSchema(CSV_IMPORT_MAX_ROW_COUNT, 1),
   /** Which headers were auto-detected (vs. manually set by admin) */
   auto_detected_headers: z.array(z.string()).optional(),
 });
@@ -108,19 +112,19 @@ function handleBulkError(err: unknown, res: Response, fallback: string): void {
     return;
   }
 
-  if (err instanceof Error && err.message) {
-    res.status(400).json({ error: { code: 'BULK_IMPORT_ERROR', message: err.message } });
-    return;
-  }
-
   if (err instanceof z.ZodError) {
     res.status(400).json({
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Request body is invalid',
+        message: formatBulkImportZodError(err),
         details: err.errors,
       },
     });
+    return;
+  }
+
+  if (err instanceof Error && err.message) {
+    res.status(400).json({ error: { code: 'BULK_IMPORT_ERROR', message: err.message } });
     return;
   }
 
@@ -239,12 +243,14 @@ router.post(
             invalid_count: invalidCount,
             ai_knowledge_context: aiKnowledgeContext,
             import_review: {
-              status: 'needs_review',
+              status: config.features.bulkImportSkipReview ? 'approved' : 'needs_review',
               confidence_hints: [],
-              review_notes: `Bulk CSV import: ${validCount} valid rows, ${invalidCount} invalid rows`,
+              review_notes: config.features.bulkImportSkipReview
+                ? `Bulk CSV import: ${validCount} valid rows (mapping review skipped)`
+                : `Bulk CSV import: ${validCount} valid rows, ${invalidCount} invalid rows`,
               reviewed_by_user_id: null,
-              reviewed_at: null,
-              approved_at: null,
+              reviewed_at: config.features.bulkImportSkipReview ? new Date().toISOString() : null,
+              approved_at: config.features.bulkImportSkipReview ? new Date().toISOString() : null,
             },
           } as Prisma.InputJsonValue,
         },

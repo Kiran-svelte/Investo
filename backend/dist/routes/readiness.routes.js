@@ -7,11 +7,17 @@ const express_1 = require("express");
 const auth_1 = require("../middleware/auth");
 const tenant_1 = require("../middleware/tenant");
 const rbac_1 = require("../middleware/rbac");
+const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const readiness_service_1 = require("../services/readiness.service");
 const logger_1 = __importDefault(require("../config/logger"));
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
-router.use(tenant_1.tenantIsolation);
+router.use((req, res, next) => {
+    if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
+        return;
+    next();
+});
+router.use(tenant_1.strictTenantIsolation);
 /**
  * GET /api/readiness
  * Tenant self-service readiness checklist (company_admin / super_admin).

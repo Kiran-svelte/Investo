@@ -12,16 +12,20 @@ describe('whatsappTurnOrchestrator.service', () => {
     expect(isHumanTakeoverActive({ status: 'ai_active', aiEnabled: true })).toBe(false);
   });
 
-  test('buildBuyerRapportTurnResult for returning buyer has no components', async () => {
+  test('returning buyer Hi gets enriched welcome with buttons', async () => {
     const result = await buildBuyerRapportTurnResult({
       companyName: 'Palm Realty',
       messageText: 'Hi',
       hasPriorOutbound: true,
       stage: 'rapport',
+      browseFilters: [
+        { id: 'filter-apartment', title: 'Apartments' },
+        { id: 'call-me', title: 'Call Me' },
+      ],
     });
     expect(result?.handled).toBe(true);
-    expect(result?.text).toContain('Welcome back');
-    expect(result?.components).toEqual([]);
+    expect(result?.text).toContain('Welcome to *Palm Realty*');
+    expect(result?.components?.length).toBeGreaterThan(0);
   });
 
   test('buildBuyerRapportTurnResult for stranger includes buttons', async () => {

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import { formatIndianPhoneForApi, stripIndianCountryCode } from '../../utils/indianPhone';
 import { dispatchCompanyFeaturesReload } from '../../utils/featureReload';
 import {
@@ -314,10 +315,7 @@ const SettingsPage: React.FC = () => {
       await api.put('/conversion-settings', conversion);
       setConversionMsg('Settings saved successfully');
     } catch (err: unknown) {
-      const message = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
-        : undefined;
-      setConversionMsg(message || 'Failed to save conversion settings');
+      setConversionMsg(getApiErrorMessage(err, 'Failed to save conversion settings'));
     } finally {
       setConversionSaving(false);
     }

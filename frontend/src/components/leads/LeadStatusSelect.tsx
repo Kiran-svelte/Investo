@@ -18,14 +18,23 @@ interface LeadStatusSelectProps {
   className?: string;
 }
 
-function optionsForStatus(current: string, canForceAnyStatus: boolean): LeadStatusValue[] {
+function optionsForStatus(current: string, canForceAnyStatus: boolean): string[] {
+  const normalizedCurrent = String(current || '').trim() || 'new';
+
   if (canForceAnyStatus) {
-    return [...LEAD_STATUS_ORDER];
+    if (LEAD_STATUS_ORDER.includes(normalizedCurrent as LeadStatusValue)) {
+      return [...LEAD_STATUS_ORDER];
+    }
+    return [...LEAD_STATUS_ORDER, normalizedCurrent];
   }
-  const allowed = LEAD_TRANSITIONS[current as LeadStatusValue] ?? [];
-  const reopen: LeadStatusValue[] = current === 'closed_lost' ? ['contacted'] : [];
-  const merged = [...new Set([current as LeadStatusValue, ...allowed, ...reopen])];
-  return merged.filter((s) => LEAD_STATUS_ORDER.includes(s));
+
+  const allowed = LEAD_TRANSITIONS[normalizedCurrent as LeadStatusValue] ?? [];
+  const reopen: LeadStatusValue[] = normalizedCurrent === 'closed_lost' ? ['contacted'] : [];
+  const merged = new Set<string>([normalizedCurrent, ...allowed, ...reopen]);
+  const options = [...merged].filter(
+    (s) => LEAD_STATUS_ORDER.includes(s as LeadStatusValue) || s === normalizedCurrent,
+  );
+  return options.length > 0 ? options : [normalizedCurrent];
 }
 
 export default function LeadStatusSelect({
