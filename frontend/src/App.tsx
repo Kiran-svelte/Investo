@@ -7,6 +7,7 @@ import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/notifications/ToastContainer';
 import InvestoLoading from './components/loading/InvestoLoading';
 import { CompanyFeaturesProvider } from './context/CompanyFeaturesContext';
+import { TenantProvider } from './context/TenantContext';
 import LoginPage from './pages/auth/LoginPage';
 import ChangePasswordPage from './pages/auth/ChangePasswordPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
@@ -360,6 +361,7 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <TenantProvider>
         <CompanyFeaturesProvider>
         <NotificationProvider>
         <SocketProvider>
@@ -489,6 +491,7 @@ const App: React.FC = () => {
         </SocketProvider>
         </NotificationProvider>
         </CompanyFeaturesProvider>
+        </TenantProvider>
       </AuthProvider>
     </BrowserRouter>
   );

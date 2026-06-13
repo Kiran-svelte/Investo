@@ -126,13 +126,13 @@ export const NAV_ITEMS: NavItemSpec[] = [
   {
     key: 'ai_settings',
     path: dashboardPath('/ai-settings'),
-    roles: ['company_admin', 'super_admin'],
+    roles: ['company_admin'],
     featureKey: 'ai_bot',
   },
   {
     key: 'ai_action_logs',
     path: dashboardPath('/ai-action-logs'),
-    roles: ['company_admin', 'super_admin'],
+    roles: ['company_admin'],
     featureKey: 'ai_bot',
     labelFallback: 'AI Action Logs',
   },
@@ -341,6 +341,7 @@ export function getRoleCapabilities(role: UserRole | undefined) {
     canExportLeads: isCompanyAdmin,
     canAssignLeads: isCompanyAdmin,
     canTakeoverConversation: isCompanyAdmin || isSalesAgent,
+    canAccessConversations: isCompanyAdmin || isSalesAgent,
     canScheduleVisits: isCompanyAdmin || isSalesAgent || isOperations,
     isPlatformAdmin: isSuperAdmin,
     isTenantStaff: isCompanyAdmin || isSalesAgent || isOperations || isViewer,

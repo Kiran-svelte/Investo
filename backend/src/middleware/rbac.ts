@@ -65,7 +65,7 @@ const FALLBACK_PERMISSIONS: Partial<Record<Role, Partial<Record<Resource, Permis
     users: ['read', 'update'],
     leads: ['read'],
     properties: ['read'],
-    conversations: ['read', 'update', 'delete'],
+    conversations: ['read'],
     visits: ['read', 'update', 'delete'],
     analytics: ['read'],
     notifications: ['read', 'update', 'delete'],
@@ -76,7 +76,6 @@ const FALLBACK_PERMISSIONS: Partial<Record<Role, Partial<Record<Resource, Permis
     properties: ['read'],
     visits: ['read'],
     analytics: ['read'],
-    audit_logs: ['read'],
     notifications: ['read'],
   },
 };

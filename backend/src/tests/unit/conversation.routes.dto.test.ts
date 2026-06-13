@@ -69,7 +69,11 @@ function createConversationApp(): { app: Express; mockPrisma: MockPrisma } {
   jest.doMock('../../middleware/tenant', () => ({
     __esModule: true,
     tenantIsolation: noopMiddleware(),
-    getCompanyId: () => 'company-1',
+    strictTenantIsolation: (req: any, _res: any, next: any) => {
+      req.companyId = 'company-1';
+      next();
+    },
+    getCompanyId: (req: any) => req.companyId || 'company-1',
   }));
 
   jest.doMock('../../middleware/rbac', () => ({

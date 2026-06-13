@@ -4,6 +4,7 @@ import config from '../config';
 import prisma from '../config/prisma';
 import { storageService } from '../services/storage.service';
 import { parseAwsStorageKey, parseR2StorageKey, parseSupabaseStorageKey } from '../services/storageTargets';
+import { buildPropertyImportUploadExpiry, verifyPropertyImportUploadToken, parseSignedUploadQuery } from '../utils/propertyImportUploadToken.util';
 
 class PropertyImportUploadError extends Error {
   statusCode: number;
@@ -77,6 +78,20 @@ async function ensurePropertyImportMediaBlobTable(): Promise<void> {
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )
   `);
+}
+
+async function assertSignedUploadAccess(
+  uploadToken: string,
+  companyId: string,
+  createdAt: Date,
+  query: Record<string, unknown>,
+): Promise<void> {
+  const { expiresAtMs, signature } = parseSignedUploadQuery(query);
+  const fallbackExpiry = buildPropertyImportUploadExpiry(createdAt);
+  const effectiveExpiry = Number.isFinite(expiresAtMs) ? expiresAtMs : fallbackExpiry;
+  if (!verifyPropertyImportUploadToken(uploadToken, companyId, effectiveExpiry, signature)) {
+    throw new PropertyImportUploadError('Upload signature invalid or expired', 403);
+  }
 }
 
 async function persistUpload(uploadToken: string, contentType: string, bytes: Buffer): Promise<void> {
@@ -186,6 +201,15 @@ router.put(
         throw new PropertyImportUploadError('Upload body is empty', 400);
       }
 
+      const media = await prisma.propertyImportMedia.findUnique({
+        where: { uploadToken },
+        select: { companyId: true, createdAt: true, status: true },
+      });
+      if (!media) {
+        throw new PropertyImportUploadError('Upload token not found', 404);
+      }
+      await assertSignedUploadAccess(uploadToken, media.companyId, media.createdAt, req.query as Record<string, unknown>);
+
       try {
         await persistUpload(uploadToken, contentType, bytes);
       } catch (err: any) {
@@ -232,12 +256,16 @@ router.get('/:uploadToken', async (req: Request, res: Response) => {
         fileName: true,
         mimeType: true,
         storageKey: true,
+        companyId: true,
+        createdAt: true,
       },
     });
 
     if (!media) {
       throw new PropertyImportUploadError('Upload token not found', 404);
     }
+
+    await assertSignedUploadAccess(uploadToken, media.companyId, media.createdAt, req.query as Record<string, unknown>);
 
     if (!media.storageKey.startsWith('db/property-import-media/')) {
       throw new PropertyImportUploadError('File not found', 404);

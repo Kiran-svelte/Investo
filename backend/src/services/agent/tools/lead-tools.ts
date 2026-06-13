@@ -30,7 +30,7 @@ function leadScope(context: ToolContext): Record<string, unknown> {
   return buildAgentScopeFilter(context.companyId, context.userRole, context.userId);
 }
 
-export function createLeadTools(context: ToolContext): AgentTool[] {
+export function createLeadReadTools(context: ToolContext): AgentTool[] {
   return [
     new DynamicStructuredTool({
       name: 'listLeads',
@@ -125,39 +125,26 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
         ].filter(Boolean).join('\n');
       },
     }),
-    new DynamicStructuredTool({
-      name: 'createLead',
-      description: 'Create a new lead. Sales agents auto-assign the lead to themselves.',
-      schema: z.object({
-        customerName: z.string().min(1),
-        phone: z.string().min(8),
-        email: z.string().email().optional(),
-        source: z.enum(['whatsapp', 'website', 'manual', 'referral']).default('manual'),
-        notes: z.string().optional(),
-        budgetMin: z.number().optional(),
-        budgetMax: z.number().optional(),
-        locationPreference: z.string().optional(),
-        propertyType: z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']).optional(),
-      }),
-      func: async (input) => {
-        const lead = await prisma.lead.create({
-          data: {
-            companyId: context.companyId,
-            customerName: input.customerName,
-            phone: input.phone,
-            email: input.email ?? null,
-            source: input.source,
-            notes: input.notes ?? null,
-            budgetMin: input.budgetMin ?? null,
-            budgetMax: input.budgetMax ?? null,
-            locationPreference: input.locationPreference ?? null,
-            propertyType: input.propertyType ?? null,
-            assignedAgentId: context.userRole === 'sales_agent' ? context.userId : null,
-          },
-        });
-        return `Lead created: ${lead.customerName ?? 'Unknown'} (${maskPhone(lead.phone)}). ID: ${lead.id}`;
-      },
-    }),
+  ];
+}
+
+type LeadMutationToolOptions = {
+  allowCreate?: boolean;
+  allowAssign?: boolean;
+  allowPortfolioTransfer?: boolean;
+};
+
+export function createLeadMutationTools(
+  context: ToolContext,
+  options: LeadMutationToolOptions = {},
+): AgentTool[] {
+  const {
+    allowCreate = true,
+    allowAssign = true,
+    allowPortfolioTransfer = true,
+  } = options;
+
+  const tools: AgentTool[] = [
     new DynamicStructuredTool({
       name: 'updateLead',
       description: 'Update lead fields such as notes, email, budget, location, or property type.',
@@ -186,25 +173,6 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
       func: async ({ leadId, status }) => {
         const result = await updateLeadStatusById(context, leadId, status);
         return result.reply;
-      },
-    }),
-    new DynamicStructuredTool({
-      name: 'assignLead',
-      description: 'Assign or reassign a lead to an agent. Reassignment requires yes/no confirmation.',
-      schema: z.object({ leadId: z.string().uuid(), agentId: z.string().uuid() }),
-      func: async ({ leadId, agentId }) => {
-        const lead = await prisma.lead.findFirst({ where: { id: leadId, companyId: context.companyId }, include: { assignedAgent: { select: { name: true } } } });
-        const agent = await prisma.user.findFirst({ where: { id: agentId, companyId: context.companyId, status: 'active' }, select: { id: true, name: true } });
-        if (!lead) return 'Lead not found.';
-        if (!agent) return 'Agent not found or inactive.';
-        if (lead.assignedAgentId && lead.assignedAgentId !== agentId) {
-          if (!context.sessionId) return 'Confirmation session unavailable.';
-          const message = `Confirm reassignment of ${lead.customerName ?? 'lead'} from ${lead.assignedAgent?.name ?? 'current agent'} to ${agent.name}?\nReply "yes" to confirm or "no" to cancel.`;
-          await createPendingConfirmation(context.sessionId, 'reassignLead', { leadId, agentId }, message);
-          return message;
-        }
-        await prisma.lead.update({ where: { id: leadId }, data: { assignedAgentId: agentId } });
-        return `Assigned ${lead.customerName ?? 'lead'} to ${agent.name}.`;
       },
     }),
     new DynamicStructuredTool({
@@ -294,7 +262,10 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
         }
         const [fromAgent, toAgent] = await Promise.all([
           prisma.user.findFirst({ where: { id: fromAgentId, companyId: context.companyId }, select: { id: true, name: true } }),
-          prisma.user.findFirst({ where: { id: toAgentId, companyId: context.companyId, status: 'active' }, select: { id: true, name: true } }),
+          prisma.user.findFirst({
+            where: { id: toAgentId, companyId: context.companyId, role: 'sales_agent', status: 'active' },
+            select: { id: true, name: true },
+          }),
         ]);
         if (!fromAgent) return 'Source agent not found.';
         if (!toAgent) return 'Target agent not found or inactive.';
@@ -319,5 +290,79 @@ export function createLeadTools(context: ToolContext): AgentTool[] {
         return message;
       },
     }),
+  ];
+
+  if (allowAssign) {
+    tools.splice(2, 0, new DynamicStructuredTool({
+      name: 'assignLead',
+      description: 'Assign or reassign a lead to an agent. Reassignment requires yes/no confirmation.',
+      schema: z.object({ leadId: z.string().uuid(), agentId: z.string().uuid() }),
+      func: async ({ leadId, agentId }) => {
+        const lead = await prisma.lead.findFirst({ where: { id: leadId, companyId: context.companyId }, include: { assignedAgent: { select: { name: true } } } });
+        const agent = await prisma.user.findFirst({
+          where: { id: agentId, companyId: context.companyId, role: 'sales_agent', status: 'active' },
+          select: { id: true, name: true },
+        });
+        if (!lead) return 'Lead not found.';
+        if (!agent) return 'Agent not found or inactive in this company.';
+        if (lead.assignedAgentId && lead.assignedAgentId !== agentId) {
+          if (!context.sessionId) return 'Confirmation session unavailable.';
+          const message = `Confirm reassignment of ${lead.customerName ?? 'lead'} from ${lead.assignedAgent?.name ?? 'current agent'} to ${agent.name}?\nReply "yes" to confirm or "no" to cancel.`;
+          await createPendingConfirmation(context.sessionId, 'reassignLead', { leadId, agentId }, message);
+          return message;
+        }
+        await prisma.lead.update({ where: { id: leadId }, data: { assignedAgentId: agentId } });
+        return `Assigned ${lead.customerName ?? 'lead'} to ${agent.name}.`;
+      },
+    }));
+  }
+
+  if (allowCreate) {
+    tools.unshift(new DynamicStructuredTool({
+      name: 'createLead',
+      description: 'Create a new lead.',
+      schema: z.object({
+        customerName: z.string().min(1),
+        phone: z.string().min(8),
+        email: z.string().email().optional(),
+        source: z.enum(['whatsapp', 'website', 'manual', 'referral']).default('manual'),
+        notes: z.string().optional(),
+        budgetMin: z.number().optional(),
+        budgetMax: z.number().optional(),
+        locationPreference: z.string().optional(),
+        propertyType: z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']).optional(),
+      }),
+      func: async (input) => {
+        const lead = await prisma.lead.create({
+          data: {
+            companyId: context.companyId,
+            customerName: input.customerName,
+            phone: input.phone,
+            email: input.email ?? null,
+            source: input.source,
+            notes: input.notes ?? null,
+            budgetMin: input.budgetMin ?? null,
+            budgetMax: input.budgetMax ?? null,
+            locationPreference: input.locationPreference ?? null,
+            propertyType: input.propertyType ?? null,
+            assignedAgentId: null,
+          },
+        });
+        return `Lead created: ${lead.customerName ?? 'Unknown'} (${maskPhone(lead.phone)}). ID: ${lead.id}`;
+      },
+    }));
+  }
+
+  if (!allowPortfolioTransfer) {
+    return tools.filter((tool) => tool.name !== 'transferLeadPortfolio');
+  }
+
+  return tools;
+}
+
+export function createLeadTools(context: ToolContext): AgentTool[] {
+  return [
+    ...createLeadReadTools(context),
+    ...createLeadMutationTools(context),
   ];
 }

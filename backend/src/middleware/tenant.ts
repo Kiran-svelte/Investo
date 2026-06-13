@@ -28,6 +28,36 @@ export function tenantIsolation(req: AuthRequest, res: Response, next: NextFunct
 }
 
 /**
+ * CRM tenant routes: platform super_admin must pass ?target_company_id=
+ * so agency data never resolves to the platform shell company by accident.
+ */
+export function strictTenantIsolation(req: AuthRequest, res: Response, next: NextFunction): void {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  if (user.role === 'super_admin') {
+    const targetCompanyId = typeof req.query.target_company_id === 'string'
+      ? req.query.target_company_id.trim()
+      : '';
+    if (!targetCompanyId) {
+      res.status(400).json({
+        error: 'Select a tenant company before accessing agency data (target_company_id query parameter).',
+      });
+      return;
+    }
+    (req as any).companyId = targetCompanyId;
+    next();
+    return;
+  }
+
+  (req as any).companyId = user.company_id;
+  next();
+}
+
+/**
  * Get the tenant-scoped company_id from the request.
  * Use this in route handlers instead of accessing user.company_id directly.
  */

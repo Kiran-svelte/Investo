@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
@@ -72,7 +72,7 @@ export function mapVisitToSnakeCaseDTO(visit: VisitWithRelations) {
 }
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(propertyCompletenessGate);
 router.use(requireFeature('visit_scheduling'));
 

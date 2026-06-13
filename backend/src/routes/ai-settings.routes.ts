@@ -14,6 +14,7 @@ import {
   syncFaqKnowledgeToSupabase,
 } from '../services/aiKnowledgeStorage.service';
 import { storageService } from '../services/storage.service';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { parseGreetingMediaItems } from '../utils/greetingMedia.util';
 
 const router = Router();
@@ -44,6 +45,10 @@ async function markWhatsAppVerified(companyId: string): Promise<void> {
 }
 
 router.use(authenticate);
+router.use((req: AuthRequest, res: Response, next) => {
+  if (rejectPlatformAdminTenantApi(req, res)) return;
+  next();
+});
 router.use(tenantIsolation);
 router.use(requireFeature('ai_bot'));
 

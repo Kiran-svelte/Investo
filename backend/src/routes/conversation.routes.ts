@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { requireFeature } from '../middleware/featureGate';
 import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
@@ -31,7 +31,7 @@ function handleDeleteError(err: unknown, res: Response): void {
 }
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(propertyCompletenessGate);
 router.use(requireFeature('conversation_center'));
 
@@ -569,14 +569,14 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
 
 router.post(
   '/:id/messages',
-  authorize('conversations', 'read'),
+  authorize('conversations', 'update'),
   sendConversationMessageHandler
 );
 
 // Backward-compatible alias for older clients.
 router.post(
   '/:id/message',
-  authorize('conversations', 'read'),
+  authorize('conversations', 'update'),
   sendConversationMessageHandler
 );
 

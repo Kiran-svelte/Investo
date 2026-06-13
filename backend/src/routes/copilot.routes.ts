@@ -22,6 +22,7 @@ import { Router, Response } from 'express';
 import config from '../config';
 import logger from '../config/logger';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 
 /** Roles permitted to call the dashboard copilot. Viewer gets read-only pipeline. */
 const ALLOWED_COPILOT_ROLES = new Set([
@@ -44,6 +45,8 @@ function isCopilotEnabled(): boolean {
 }
 
 const router = Router();
+router.use(authenticate);
+router.use(strictTenantIsolation);
 
 /**
  * POST /api/copilot/chat
@@ -94,20 +97,20 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Prom
       : undefined;
 
   try {
-    // Resolve company + user metadata needed by the copilot pipeline.
+    const scopedCompanyId = getCompanyId(req);
     const prisma = (await import('../config/prisma')).default;
     const companyUser = await prisma.user.findFirst({
       where: { id: user.id, status: 'active' },
       select: { id: true, name: true, phone: true, companyId: true, role: true },
     });
 
-    if (!companyUser?.companyId) {
+    if (!companyUser) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'User is not associated with an active company', details: null, requestId: (req as any).requestId } });
       return;
     }
 
     const company = await prisma.company.findFirst({
-      where: { id: companyUser.companyId, status: 'active' },
+      where: { id: scopedCompanyId, status: 'active' },
       select: { name: true },
     });
 
@@ -116,16 +119,13 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Prom
       return;
     }
 
-    // Build a CompanyUserMatch-compatible object for handleAgentMessage.
-    // phone is null for dashboard users who have not registered a WhatsApp number.
-    // The copilot pipeline handles null phones gracefully (no WhatsApp send).
     const { handleAgentMessage } = await import('../services/agent/agent-router.service');
     const copilotUser = {
       userId: companyUser.id,
       userRole: companyUser.role,
       userName: companyUser.name ?? 'User',
       phone: companyUser.phone ?? '',
-      companyId: companyUser.companyId,
+      companyId: scopedCompanyId,
       companyName: company.name,
     };
 
@@ -181,6 +181,7 @@ router.get('/history', authenticate, async (req: AuthRequest, res: Response): Pr
   }
 
   try {
+    const scopedCompanyId = getCompanyId(req);
     const prisma = (await import('../config/prisma')).default;
     const companyUser = await prisma.user.findFirst({
       where: { id: user.id, status: 'active' },
@@ -192,10 +193,13 @@ router.get('/history', authenticate, async (req: AuthRequest, res: Response): Pr
       return;
     }
 
-    // Resolve the active copilot session for this user, sharing the same key
-    // (userId + phone) the WhatsApp pipeline uses via getOrCreateThreadId.
     const session = await prisma.agentSession.findFirst({
-      where: { userId: companyUser.id, phone: companyUser.phone ?? '', status: 'active' },
+      where: {
+        userId: companyUser.id,
+        companyId: scopedCompanyId,
+        phone: companyUser.phone ?? '',
+        status: 'active',
+      },
       orderBy: { lastActiveAt: 'desc' },
       select: { id: true },
     });

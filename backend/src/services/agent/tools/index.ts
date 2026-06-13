@@ -8,7 +8,7 @@ import { createBulkMessageTools } from './bulk-message-tools';
 import { createCalendarTools } from './calendar-tools';
 import { createConversationTools } from './conversation-tools';
 import { createEmiTools } from './emi-tools';
-import { createLeadTools } from './lead-tools';
+import { createLeadReadTools, createLeadMutationTools } from './lead-tools';
 import { createNotificationTools } from './notification-tools';
 import { createPropertyTools } from './property-tools';
 import { createUserTools } from './user-tools';
@@ -47,11 +47,28 @@ export function getToolsForRole(context: ToolContext): AgentTool[] {
     ...createBrochureTools(context),
   ];
 
-  if (context.userRole === 'sales_agent' || isAdminRole(context.userRole) || isOperationsRole(context.userRole)) {
+  if (isOperationsRole(context.userRole)) {
+    tools.push(
+      ...createLeadReadTools(context),
+      ...createVisitTools(context),
+      ...createCalendarTools(context),
+      ...createAnalyticsTools(context),
+    );
+    return tools;
+  }
+
+  const isAdmin = isAdminRole(context.userRole);
+
+  if (context.userRole === 'sales_agent' || isAdmin) {
     tools.push(
       ...createWorkflowTools(context),
       ...createVisitTools(context),
-      ...createLeadTools(context),
+      ...createLeadReadTools(context),
+      ...createLeadMutationTools(context, {
+        allowCreate: isAdmin,
+        allowAssign: isAdmin,
+        allowPortfolioTransfer: isAdmin,
+      }),
       ...createConversationTools(context),
       ...createBulkMessageTools(context),
       ...createCalendarTools(context),
@@ -59,7 +76,7 @@ export function getToolsForRole(context: ToolContext): AgentTool[] {
     );
   }
 
-  if (isAdminRole(context.userRole)) {
+  if (isAdmin) {
     tools.push(
       ...createUserTools(context),
       ...createAdminTools(context),

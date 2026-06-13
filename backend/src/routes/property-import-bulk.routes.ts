@@ -21,7 +21,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
 import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher';
 import { auditLog } from '../middleware/audit';
@@ -135,7 +135,7 @@ function handleBulkError(err: unknown, res: Response, fallback: string): void {
 const router = Router();
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(requireFeature('property_management'));
 router.use(requirePropertyPublisher);
 

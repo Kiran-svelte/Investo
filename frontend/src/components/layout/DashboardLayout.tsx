@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'motion/react';
 import { useAuth } from '../../context/AuthContext';
@@ -14,8 +14,10 @@ import {
 import { ShellProvider, useShell, SIDEBAR_WIDTH_EXPANDED } from '../../context/ShellContext';
 import LanguageSelector from '../common/LanguageSelector';
 import KnowledgeGateBanner from './KnowledgeGateBanner';
+import TenantCompanySwitcher from './TenantCompanySwitcher';
 import NotificationBell from './NotificationBell';
 import PageTransition from './PageTransition';
+import PageErrorBoundary from '../PageErrorBoundary';
 import InvestoLoading from '../loading/InvestoLoading';
 import {
   LayoutDashboard,
@@ -191,6 +193,7 @@ const Sidebar: React.FC = () => {
       style={{ width: sidebarWidth }}
     >
       {brand}
+      {!collapsed && <div className="px-2 pt-3"><TenantCompanySwitcher /></div>}
       <SidebarNav />
       {footer}
     </aside>
@@ -376,6 +379,7 @@ const Header: React.FC = () => {
 
 const DashboardShell: React.FC = () => {
   const { sidebarWidth } = useShell();
+  const location = useLocation();
 
   return (
     <div
@@ -387,7 +391,9 @@ const DashboardShell: React.FC = () => {
         <Header />
         <KnowledgeGateBanner />
         <main className="min-h-[calc(100dvh-3.5rem)] w-full max-w-[100vw] overflow-x-hidden">
-          <PageTransition />
+          <PageErrorBoundary resetKey={location.pathname}>
+            <PageTransition />
+          </PageErrorBoundary>
         </main>
       </div>
     </div>

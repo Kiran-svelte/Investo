@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
@@ -47,7 +47,7 @@ const upload = multer({
 });
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(requireFeature('property_management'));
 
 function mapProject(row: {

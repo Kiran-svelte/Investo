@@ -9,6 +9,7 @@ import logger from '../config/logger';
 const router = Router();
 
 router.use(authenticate);
+router.use(tenantIsolation);
 router.use((req: AuthRequest, res: Response, next) => {
   if (req.user?.role === 'super_admin') {
     next();
@@ -34,11 +35,19 @@ router.get(
 
       const where: any = {};
 
-      // Filter by company for non-super_admin
-      if (req.user!.role !== 'super_admin') {
-        where.companyId = req.user!.company_id;
-      } else if (req.query.company_id) {
-        where.companyId = req.query.company_id;
+      if (req.user!.role === 'super_admin') {
+        const companyFilter = (
+          typeof req.query.company_id === 'string' ? req.query.company_id.trim()
+            : typeof req.query.target_company_id === 'string' ? req.query.target_company_id.trim()
+              : ''
+        );
+        if (!companyFilter) {
+          res.status(400).json({ error: 'company_id query parameter is required for platform audit access' });
+          return;
+        }
+        where.companyId = companyFilter;
+      } else {
+        where.companyId = getCompanyId(req);
       }
 
       // Filter by action
@@ -116,8 +125,19 @@ router.get(
       const { id } = req.params;
       const where: any = { id };
 
-      if (req.user!.role !== 'super_admin') {
-        where.companyId = req.user!.company_id;
+      if (req.user!.role === 'super_admin') {
+        const companyFilter = (
+          typeof req.query.company_id === 'string' ? req.query.company_id.trim()
+            : typeof req.query.target_company_id === 'string' ? req.query.target_company_id.trim()
+              : ''
+        );
+        if (!companyFilter) {
+          res.status(400).json({ error: 'company_id query parameter is required for platform audit access' });
+          return;
+        }
+        where.companyId = companyFilter;
+      } else {
+        where.companyId = getCompanyId(req);
       }
 
       const log = await prisma.auditLog.findFirst({

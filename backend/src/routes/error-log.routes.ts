@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { authorize, hasRole } from '../middleware/rbac';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
@@ -16,7 +16,7 @@ const ERROR_ACTIONS = [
 ];
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(requireFeature('lead_automation'));
 
 /**
@@ -25,6 +25,7 @@ router.use(requireFeature('lead_automation'));
  */
 router.get(
   '/',
+  hasRole('company_admin', 'super_admin'),
   authorize('audit_logs', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {

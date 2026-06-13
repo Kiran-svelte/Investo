@@ -86,7 +86,36 @@ export const isTransientAuthError = (error: unknown): boolean => {
 // Axios instance
 // ──────────────────────────────────────────────
 
+import { getStoredTargetCompanyId } from '../utils/tenantContextStorage';
+
 const PRODUCTION_API_URL = 'https://investo-backend-production.up.railway.app/api';
+
+const TENANT_SCOPED_PREFIXES = [
+  '/leads',
+  '/properties',
+  '/conversations',
+  '/visits',
+  '/calendar',
+  '/notifications',
+  '/analytics',
+  '/users',
+  '/agents',
+  '/ai-settings',
+  '/assignment-settings',
+  '/property-imports',
+  '/property-projects',
+  '/copilot',
+  '/error-logs',
+  '/audit',
+  '/agent-action-logs',
+  '/onboarding',
+  '/readiness',
+];
+
+function shouldAttachTargetCompanyId(url?: string): boolean {
+  if (!url) return false;
+  return TENANT_SCOPED_PREFIXES.some((prefix) => url.startsWith(prefix) || url.includes(`${prefix}?`));
+}
 
 const getApiBaseUrl = (): string => {
   const envApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
@@ -151,6 +180,15 @@ api.interceptors.request.use(
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    const targetCompanyId = getStoredTargetCompanyId();
+    if (targetCompanyId && shouldAttachTargetCompanyId(config.url)) {
+      config.params = {
+        ...(config.params as Record<string, unknown> | undefined),
+        target_company_id: targetCompanyId,
+      };
+    }
+
     return config;
   },
   (error: AxiosError) => Promise.reject(error),

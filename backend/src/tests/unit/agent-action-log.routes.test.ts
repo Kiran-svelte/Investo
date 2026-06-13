@@ -46,6 +46,8 @@ function createApp(role: Role, companyId = 'company-1'): Express {
 
   jest.doMock('../../middleware/tenant', () => ({
     __esModule: true,
+    tenantIsolation: noopMiddleware(),
+    strictTenantIsolation: noopMiddleware(),
     getCompanyId: (req: any) => req.user?.companyId ?? req.user?.company_id,
   }));
 

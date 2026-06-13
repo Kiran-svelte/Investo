@@ -1,17 +1,22 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
 import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { cacheGet, cacheSet, getCacheType } from '../config/redis';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use((req: AuthRequest, res: Response, next) => {
+  if (rejectPlatformAdminTenantApi(req, res)) return;
+  next();
+});
+router.use(strictTenantIsolation);
 router.use(propertyCompletenessGate);
 router.use(requireFeature('analytics'));
 

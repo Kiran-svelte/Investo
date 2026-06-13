@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize, hasRole } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
@@ -26,6 +26,7 @@ import {
   deleteLeadPermanently,
   ResourceDeleteError,
 } from '../services/resourceDelete.service';
+import { assertActiveLeadAgentInCompany } from '../utils/tenantAgentValidation.util';
 import {
   eraseLeadPersonalData,
   exportLeadPersonalData,
@@ -172,7 +173,7 @@ function mapLeadTimelineToSnakeCaseDTO(entry: LeadTimelineRow) {
 }
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(propertyCompletenessGate);
 router.use(requireFeature('lead_automation'));
 
@@ -453,6 +454,14 @@ router.post(
 
       // After Zod validation, req.body uses snake_case field names
       let agentId = req.body.assigned_agent_id;
+      if (agentId) {
+        const agentCheck = await assertActiveLeadAgentInCompany(companyId, agentId);
+        if (!agentCheck.ok) {
+          res.status(400).json({ error: 'Assigned agent must be an active sales agent in this company' });
+          return;
+        }
+        agentId = agentCheck.agentId;
+      }
       if (!agentId) {
         agentId = await assignLeadWithRouting(companyId, {
           locationPreference: req.body.location_preference || null,
@@ -539,6 +548,15 @@ router.put(
       } = req.body;
 
       const oldAgentId = lead.assignedAgentId;
+
+      if (assigned_agent_id !== undefined && assigned_agent_id !== null) {
+        const agentCheck = await assertActiveLeadAgentInCompany(companyId, assigned_agent_id);
+        if (!agentCheck.ok) {
+          res.status(400).json({ error: 'Assigned agent must be an active sales agent in this company' });
+          return;
+        }
+      }
+
       const metaPatch: LeadMetadata = {};
       if (tags !== undefined) metaPatch.tags = Array.isArray(tags) ? tags : [];
       if (lead_score !== undefined) metaPatch.lead_score = lead_score;

@@ -74,6 +74,10 @@ function createLeadTenantApp(companyId: string, role = 'company_admin'): {
       req.companyId = companyId;
       next();
     },
+    strictTenantIsolation: (req: any, _res: any, next: any) => {
+      req.companyId = companyId;
+      next();
+    },
     getCompanyId: (req: any) => req.companyId || req.user?.company_id,
   }));
 

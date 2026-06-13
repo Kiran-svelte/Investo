@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize, hasRole } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requireFeature } from '../middleware/featureGate';
@@ -22,7 +22,7 @@ import { assertStaffPhoneAvailable, isStaffPhoneInUseError } from '../utils/staf
 const router = Router();
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use((req: AuthRequest, res: Response, next) => {
   if (req.user?.role === 'super_admin') {
     next();
@@ -46,10 +46,7 @@ router.get(
       const where: any = {};
 
       if (req.user!.role === 'super_admin') {
-        // Super admin can see all or filter by company
-        if (companyId && companyId !== req.user!.company_id) {
-          where.companyId = companyId;
-        }
+        where.companyId = companyId;
       } else if (req.user!.role === 'sales_agent') {
         // Sales agent sees only self
         where.id = req.user!.id;
@@ -83,23 +80,29 @@ router.get(
       // Enrich with lead counts for agents
       if (users.length > 0) {
         const userIds = users.map((u) => u.id);
-        const leadCounts = await prisma.lead.groupBy({
-          by: ['assignedAgentId'],
-          where: {
+        const leadCountScope: Record<string, unknown> = {
             assignedAgentId: { in: userIds },
             status: { notIn: ['closed_won', 'closed_lost'] },
-          },
+          };
+        if (where.companyId) leadCountScope.companyId = where.companyId;
+
+        const leadCounts = await prisma.lead.groupBy({
+          by: ['assignedAgentId'],
+          where: leadCountScope as any,
           _count: { id: true },
         });
 
         const leadMap = new Map(leadCounts.map((l) => [l.assignedAgentId, l._count.id]));
 
-        const salesCounts = await prisma.lead.groupBy({
-          by: ['assignedAgentId'],
-          where: {
+        const salesCountScope: Record<string, unknown> = {
             assignedAgentId: { in: userIds },
             status: 'closed_won',
-          },
+          };
+        if (where.companyId) salesCountScope.companyId = where.companyId;
+
+        const salesCounts = await prisma.lead.groupBy({
+          by: ['assignedAgentId'],
+          where: salesCountScope as any,
           _count: { id: true },
         });
 

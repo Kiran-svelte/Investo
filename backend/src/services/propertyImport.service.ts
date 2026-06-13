@@ -4,6 +4,10 @@ import config from '../config';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import {
+  appendSignedUploadQuery,
+  buildPropertyImportUploadExpiry,
+} from '../utils/propertyImportUploadToken.util';
+import {
   isAwsStorageConfigured,
   isR2StorageConfigured,
   storageService,
@@ -624,12 +628,18 @@ export class PropertyImportService {
       },
     });
 
+    const expiresAtMs = buildPropertyImportUploadExpiry(media.createdAt);
+    const signedUploadUrl = appendSignedUploadQuery(upload.uploadUrl, companyId, expiresAtMs);
+    const signedFallbackUploadUrl = fallbackUploadUrl
+      ? appendSignedUploadQuery(fallbackUploadUrl, companyId, expiresAtMs)
+      : null;
+
     return {
       media,
       upload: {
         key: upload.key,
-        upload_url: upload.uploadUrl,
-        fallback_upload_url: fallbackUploadUrl,
+        upload_url: signedUploadUrl,
+        fallback_upload_url: signedFallbackUploadUrl,
         public_url: upload.publicUrl,
         expires_in_seconds: upload.expiresInSeconds,
         content_type: upload.contentType,

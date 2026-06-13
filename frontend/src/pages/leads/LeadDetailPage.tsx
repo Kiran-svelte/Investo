@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { dashboardPath } from '../../config/navigation.config';
+import { dashboardPath, getRoleCapabilities } from '../../config/navigation.config';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
@@ -212,11 +212,12 @@ const LeadDetailPage: React.FC = () => {
     }
   };
 
-  const formatCurrency = (val: number | null) => {
-    if (!val) return '-';
-    if (val >= 10000000) return `₹${(val / 10000000).toFixed(1)} Cr`;
-    if (val >= 100000) return `₹${(val / 100000).toFixed(1)} L`;
-    return `₹${val.toLocaleString('en-IN')}`;
+  const formatCurrency = (val: number | string | null) => {
+    const num = val == null ? null : Number(val);
+    if (num == null || Number.isNaN(num)) return '-';
+    if (num >= 10000000) return `₹${(num / 10000000).toFixed(1)} Cr`;
+    if (num >= 100000) return `₹${(num / 100000).toFixed(1)} L`;
+    return `₹${num.toLocaleString('en-IN')}`;
   };
 
   const formatDate = (d?: string | null) => {
@@ -247,6 +248,7 @@ const LeadDetailPage: React.FC = () => {
     (user?.role === 'sales_agent' && lead.assigned_agent_id === user?.id);
 
   const canChangeStatus = canEdit;
+  const { canAccessConversations } = getRoleCapabilities(user?.role);
   const canDeleteLead =
     user?.role === 'company_admin' ||
     user?.role === 'super_admin' ||
@@ -286,7 +288,7 @@ const LeadDetailPage: React.FC = () => {
             <p className="text-sm text-ink-muted">Created {formatDate(lead.created_at)}</p>
           </div>
           <div className="flex items-center gap-3">
-            {lead.conversation_id && (
+            {lead.conversation_id && canAccessConversations && (
               <button 
                 onClick={() => navigate(dashboardPath(`/conversations?id=${lead.conversation_id}`))}
                 className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-brand-50 text-brand-800 hover:bg-brand-100 text-sm font-medium"

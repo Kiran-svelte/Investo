@@ -20,7 +20,7 @@
 
 import { Router, Response } from 'express';
 import { authenticate, type AuthRequest } from '../middleware/auth';
-import { getCompanyId } from '../middleware/tenant';
+import { tenantIsolation, getCompanyId } from '../middleware/tenant';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 
@@ -32,6 +32,7 @@ const DEFAULT_PAGE_SIZE = 50;
 const router = Router();
 
 router.use(authenticate);
+router.use(tenantIsolation);
 
 /**
  * GET /api/agent-action-logs
@@ -74,7 +75,17 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // Tenant scoping: super_admin may optionally filter by a specific companyId.
     let scopedCompanyId: string | undefined;
     if (role === 'super_admin') {
-      scopedCompanyId = typeof req.query.companyId === 'string' ? req.query.companyId : undefined;
+      scopedCompanyId = typeof req.query.companyId === 'string' ? req.query.companyId.trim() : '';
+      if (!scopedCompanyId) {
+        res.status(400).json({
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'companyId query parameter is required for platform AI action log access.',
+            requestId: (req as any).requestId,
+          },
+        });
+        return;
+      }
     } else {
       scopedCompanyId = getCompanyId(req);
       if (!scopedCompanyId) {
@@ -219,16 +230,22 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     const { id } = req.params;
     const where: Record<string, unknown> = { id };
-    if (role !== 'super_admin') {
-      const companyId = getCompanyId(req);
-      if (!companyId) {
-        res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: 'Company context is required.', requestId: (req as any).requestId },
-        });
-        return;
-      }
-      where.companyId = companyId;
+    const companyId = role === 'super_admin'
+      ? (typeof req.query.companyId === 'string' ? req.query.companyId.trim() : '')
+      : getCompanyId(req);
+    if (!companyId) {
+      res.status(400).json({
+        error: {
+          code: 'BAD_REQUEST',
+          message: role === 'super_admin'
+            ? 'companyId query parameter is required for platform AI action log access.'
+            : 'Company context is required.',
+          requestId: (req as any).requestId,
+        },
+      });
+      return;
     }
+    where.companyId = companyId;
 
     const log = await prisma.agentActionLog.findFirst({ where });
     if (!log) {

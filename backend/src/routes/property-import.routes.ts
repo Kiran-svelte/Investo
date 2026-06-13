@@ -1,7 +1,7 @@
 import { Router, Response, Request } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { requireFeature } from '../middleware/featureGate';
 import { validate } from '../middleware/validate';
 import { auditLog } from '../middleware/audit';
@@ -23,7 +23,7 @@ import { requirePropertyPublisher } from '../middleware/requirePropertyPublisher
 const router = Router();
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(requireFeature('property_management'));
 router.use(requirePropertyPublisher);
 

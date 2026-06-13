@@ -3,7 +3,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { ensureCallRequestsSchema, type CallRequestStatus } from '../services/callRequest.service';
 
 const router = Router();
@@ -49,7 +49,7 @@ function parseDateParam(value: unknown, field: string): Date {
   return parsed;
 }
 
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 
 router.get('/events', authorize('visits', 'read'), async (req: AuthRequest, res: Response) => {
   try {

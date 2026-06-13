@@ -5,6 +5,7 @@ import { NotificationType as PrismaNotificationType } from '@prisma/client';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { withRetry } from './notificationRetry.service';
 import { formatISTDateTime } from '../utils/dateTime.util';
+import { assertUserBelongsToCompany } from '../utils/tenantAgentValidation.util';
 import {
   isCompanyWhatsAppConfigured,
   resolveCompanyWhatsAppConfigFromSettings,
@@ -125,7 +126,20 @@ class NotificationEngine {
    * @param agentId - ID of the agent receiving the assignment
    */
   async onLeadAssigned(lead: any, agentId: string): Promise<void> {
-    const agent = await prisma.user.findUnique({ where: { id: agentId } });
+    const belongs = await assertUserBelongsToCompany(lead.companyId, agentId);
+    if (!belongs) {
+      logger.warn('NotificationEngine: skipped lead assignment notification for foreign agent', {
+        leadId: lead.id,
+        agentId,
+        companyId: lead.companyId,
+      });
+      return;
+    }
+
+    const agent = await prisma.user.findFirst({
+      where: { id: agentId, companyId: lead.companyId },
+      select: { id: true },
+    });
     if (!agent) return;
 
     // DB in-app notification only.
@@ -172,6 +186,16 @@ class NotificationEngine {
    * Notify when lead is reassigned (old agent loses it, new agent gets it).
    */
   async onLeadReassigned(lead: any, oldAgentId: string | null, newAgentId: string): Promise<void> {
+    const newAgentBelongs = await assertUserBelongsToCompany(lead.companyId, newAgentId);
+    if (!newAgentBelongs) {
+      logger.warn('NotificationEngine: skipped lead reassignment notification for foreign agent', {
+        leadId: lead.id,
+        newAgentId,
+        companyId: lead.companyId,
+      });
+      return;
+    }
+
     // Notify old agent (removed)
     if (oldAgentId && oldAgentId !== newAgentId) {
       await this.notify({

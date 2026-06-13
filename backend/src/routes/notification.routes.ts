@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import { requireFeature } from '../middleware/featureGate';
 import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
@@ -16,7 +16,7 @@ import {
 const router = Router();
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use(strictTenantIsolation);
 router.use(propertyCompletenessGate);
 router.use(requireFeature('notifications'));
 
@@ -85,12 +85,22 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 const markReadHandler = async (req: AuthRequest, res: Response) => {
   try {
     const companyId = getCompanyId(req);
+    const userId = req.user!.id;
     const { id } = req.params;
 
-    await prisma.notification.updateMany({
-      where: { id, companyId },
+    const result = await prisma.notification.updateMany({
+      where: {
+        id,
+        companyId,
+        OR: [{ userId }, { userId: null }],
+      },
       data: { read: true },
     });
+
+    if (result.count === 0) {
+      res.status(404).json({ error: 'Notification not found' });
+      return;
+    }
 
     res.json({ message: 'Notification marked as read' });
   } catch (err: any) {
@@ -99,8 +109,8 @@ const markReadHandler = async (req: AuthRequest, res: Response) => {
   }
 };
 
-router.patch('/:id/read', markReadHandler);
-router.put('/:id/read', markReadHandler);
+router.patch('/:id/read', authorize('notifications', 'update'), markReadHandler);
+router.put('/:id/read', authorize('notifications', 'update'), markReadHandler);
 
 /**
  * PATCH/PUT /api/notifications/read-all
@@ -126,8 +136,8 @@ const markAllReadHandler = async (req: AuthRequest, res: Response) => {
   }
 };
 
-router.patch('/read-all', markAllReadHandler);
-router.put('/read-all', markAllReadHandler);
+router.patch('/read-all', authorize('notifications', 'update'), markAllReadHandler);
+router.put('/read-all', authorize('notifications', 'update'), markAllReadHandler);
 
 function handleDeleteError(err: unknown, res: Response): void {
   if (err instanceof ResourceDeleteError) {

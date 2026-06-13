@@ -1,14 +1,19 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { hasRole } from '../middleware/rbac';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { getTenantReadiness } from '../services/readiness.service';
 import logger from '../config/logger';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use((req: AuthRequest, res: Response, next) => {
+  if (rejectPlatformAdminTenantApi(req, res)) return;
+  next();
+});
+router.use(strictTenantIsolation);
 
 /**
  * GET /api/readiness

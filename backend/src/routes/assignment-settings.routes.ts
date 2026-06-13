@@ -1,16 +1,21 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
-import { tenantIsolation, getCompanyId } from '../middleware/tenant';
+import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { auditLog } from '../middleware/audit';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { parseRoutingSettings, type LeadRoutingSettings } from '../services/leadRouting.service';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(tenantIsolation);
+router.use((req: AuthRequest, res: Response, next) => {
+  if (rejectPlatformAdminTenantApi(req, res)) return;
+  next();
+});
+router.use(strictTenantIsolation);
 
 router.get(
   '/',

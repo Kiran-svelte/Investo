@@ -59,6 +59,10 @@ function createUserApp(userRole: string = 'company_admin'): { app: Express; mock
       req.companyId = req.user.company_id;
       next();
     },
+    strictTenantIsolation: (req: any, _res: any, next: any) => {
+      req.companyId = req.user.company_id;
+      next();
+    },
     getCompanyId: (req: any) => req.companyId,
   }));
 
