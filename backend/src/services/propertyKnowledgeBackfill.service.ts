@@ -85,21 +85,71 @@ let sweepRunning = false;
 let maintenanceCronStarted = false;
 
 export async function countPropertyKnowledgeBackfillCandidates(): Promise<number> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-    `SELECT COUNT(*)::bigint AS count FROM properties p WHERE ${CANDIDATE_WHERE_SQL}`,
-  );
-  return Number(rows[0]?.count ?? 0);
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+      `SELECT COUNT(*)::bigint AS count FROM properties p WHERE ${CANDIDATE_WHERE_SQL}`,
+    );
+    return Number(rows[0]?.count ?? 0);
+  } catch (err: unknown) {
+    logger.warn('Property knowledge backfill count failed; using legacy candidate query', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+      `SELECT COUNT(*)::bigint AS count FROM properties p
+       WHERE p.status IN ('available', 'upcoming')
+       AND (
+         NOT EXISTS (SELECT 1 FROM property_knowledge_chunks c WHERE c.property_id = p.id)
+         OR NOT EXISTS (
+           SELECT 1 FROM property_knowledge_chunks c
+           WHERE c.property_id = p.id
+           AND (
+             c.content ILIKE '%Imported property attributes%'
+             OR c.content ILIKE '%Carpet area%'
+             OR c.content ILIKE '%Spreadsheet inventory summary%'
+           )
+         )
+       )`,
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
 }
 
 export async function runPropertyKnowledgeBackfillBatch(): Promise<PropertyKnowledgeBackfillBatchResult> {
-  const candidates = await prisma.$queryRawUnsafe<Array<{ id: string; company_id: string; name: string }>>(
-    `SELECT p.id::text AS id, p.company_id::text AS company_id, p.name
-     FROM properties p
-     WHERE ${CANDIDATE_WHERE_SQL}
-     ORDER BY p.updated_at DESC
-     LIMIT $1`,
-    BATCH_LIMIT,
-  );
+  let candidates: Array<{ id: string; company_id: string; name: string }>;
+  try {
+    candidates = await prisma.$queryRawUnsafe(
+      `SELECT p.id::text AS id, p.company_id::text AS company_id, p.name
+       FROM properties p
+       WHERE ${CANDIDATE_WHERE_SQL}
+       ORDER BY p.updated_at DESC
+       LIMIT $1`,
+      BATCH_LIMIT,
+    );
+  } catch (err: unknown) {
+    logger.warn('Property knowledge backfill batch query failed; using legacy candidate query', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    candidates = await prisma.$queryRawUnsafe(
+      `SELECT p.id::text AS id, p.company_id::text AS company_id, p.name
+       FROM properties p
+       WHERE p.status IN ('available', 'upcoming')
+       AND (
+         NOT EXISTS (SELECT 1 FROM property_knowledge_chunks c WHERE c.property_id = p.id)
+         OR NOT EXISTS (
+           SELECT 1 FROM property_knowledge_chunks c
+           WHERE c.property_id = p.id
+           AND (
+             c.content ILIKE '%Imported property attributes%'
+             OR c.content ILIKE '%Carpet area%'
+             OR c.content ILIKE '%Spreadsheet inventory summary%'
+           )
+         )
+       )
+       ORDER BY p.updated_at DESC
+       LIMIT $1`,
+      BATCH_LIMIT,
+    );
+  }
 
   if (!candidates.length) {
     return { processed: 0, ok: 0, failed: 0, hasMore: false };
