@@ -33,14 +33,21 @@ try {
 
   if (!company) {
     company = await prisma.company.findFirst({
-      where: { status: 'active' },
+      where: {
+        status: 'active',
+        slug: { not: 'investo-platform' },
+      },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, name: true, settings: true, status: true },
+      select: { id: true, name: true, settings: true, status: true, slug: true },
     });
   }
 
   if (!company) {
-    throw new Error('No company found to store Meta credentials');
+    throw new Error('No tenant company found to store Meta credentials (platform company is excluded)');
+  }
+
+  if (company.slug === 'investo-platform') {
+    throw new Error('Refusing to store Meta credentials on the platform company');
   }
 
   const currentSettings = (company.settings && typeof company.settings === 'object')

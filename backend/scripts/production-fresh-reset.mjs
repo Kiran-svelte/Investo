@@ -34,7 +34,7 @@ if (process.argv.includes('--prod')) {
 neonConfig.webSocketConstructor = ws;
 
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'big.investo.sol@gmail.com').trim().toLowerCase();
-const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Investo@321';
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Investo@123';
 const SUPER_ADMIN_NAME = process.env.SUPER_ADMIN_NAME || 'Investo Super Admin';
 
 const confirm = process.argv.includes('--confirm');

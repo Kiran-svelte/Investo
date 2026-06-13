@@ -6,6 +6,7 @@ import {
   isCompanyWhatsAppConfigured,
   resolvePlatformWebhookAppSecret,
 } from './companyWhatsAppConfig.util';
+import { isPlatformCompany } from '../constants/platformCompany.constants';
 
 function normalizeStringLike(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -41,14 +42,16 @@ export function extractWebhookPhoneNumberIds(body: unknown): string[] {
 
 type CompanyWhatsAppRow = {
   id: string;
+  slug?: string | null;
   settings: unknown;
 };
 
 async function loadActiveCompaniesWithWhatsApp(): Promise<CompanyWhatsAppRow[]> {
-  return prisma.company.findMany({
+  const companies = await prisma.company.findMany({
     where: { status: 'active' },
-    select: { id: true, settings: true },
+    select: { id: true, slug: true, settings: true },
   });
+  return companies.filter((company) => !isPlatformCompany(company));
 }
 
 function companyMatchesPhoneNumberId(settings: unknown, phoneNumberId: string): boolean {

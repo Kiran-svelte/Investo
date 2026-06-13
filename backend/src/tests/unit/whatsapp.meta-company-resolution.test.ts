@@ -138,6 +138,100 @@ describe('WhatsAppService Meta company resolution (deterministic + fail closed)'
     expect(result).toBeNull();
   });
 
+  it('routes each tenant only by its own phoneNumberId', async () => {
+    jest.doMock('../../config', () => ({
+      __esModule: true,
+      default: {
+        env: 'production',
+        whatsapp: {
+          provider: 'meta',
+          phoneNumberId: '',
+          accessToken: '',
+          verifyToken: '',
+          apiUrl: 'https://graph.facebook.com/v18.0',
+          dedupTtlSeconds: 300,
+        },
+      },
+    }));
+
+    const tenantA = {
+      id: 'tenant-a',
+      name: 'Agency A',
+      slug: 'agency-a',
+      whatsappPhone: null,
+      settings: {
+        whatsapp: {
+          meta: { phoneNumberId: 'phone-a', accessToken: 'token-a', verifyToken: 'verify-a' },
+        },
+      },
+    };
+    const tenantB = {
+      id: 'tenant-b',
+      name: 'Agency B',
+      slug: 'agency-b',
+      whatsappPhone: null,
+      settings: {
+        whatsapp: {
+          meta: { phoneNumberId: 'phone-b', accessToken: 'token-b', verifyToken: 'verify-b' },
+        },
+      },
+    };
+
+    mockPrisma.company.findMany.mockResolvedValue([tenantA, tenantB]);
+
+    const { WhatsAppService } = await import('../../services/whatsapp.service');
+    const service = new WhatsAppService();
+
+    const resultA = await service.getCompanyByPhoneNumberId('phone-a');
+    const resultB = await service.getCompanyByPhoneNumberId('phone-b');
+    const resultUnknown = await service.getCompanyByPhoneNumberId('phone-c');
+
+    expect(resultA?.company?.id).toBe('tenant-a');
+    expect(resultB?.company?.id).toBe('tenant-b');
+    expect(resultUnknown).toBeNull();
+  });
+
+  it('ignores platform company when resolving Meta phoneNumberId', async () => {
+    jest.doMock('../../config', () => ({
+      __esModule: true,
+      default: {
+        env: 'production',
+        whatsapp: {
+          provider: 'meta',
+          phoneNumberId: '',
+          accessToken: 'global-token',
+          verifyToken: 'verify-token',
+          apiUrl: 'https://graph.facebook.com/v18.0',
+          dedupTtlSeconds: 300,
+        },
+      },
+    }));
+
+    const platformCompany = {
+      id: 'platform-company',
+      name: 'Investo Platform',
+      slug: 'investo-platform',
+      whatsappPhone: null,
+      settings: {
+        whatsapp: {
+          meta: {
+            phoneNumberId: 'mapped-platform',
+            accessToken: 'platform-token',
+            verifyToken: 'verify',
+          },
+        },
+      },
+    };
+
+    mockPrisma.company.findMany.mockResolvedValue([platformCompany]);
+
+    const { WhatsAppService } = await import('../../services/whatsapp.service');
+    const service = new WhatsAppService();
+
+    const result = await service.getCompanyByPhoneNumberId('mapped-platform');
+    expect(result).toBeNull();
+  });
+
   it('resolves duplicate phoneNumberId to the most recently verified tenant', async () => {
     jest.doMock('../../config', () => ({
       __esModule: true,

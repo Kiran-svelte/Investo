@@ -20,6 +20,7 @@ import {
   allowPlatformWhatsAppCredentialFallback,
   resolveCompanyWhatsAppConfigFromSettings,
 } from '../utils/companyWhatsAppConfig.util';
+import { isPlatformCompany } from '../constants/platformCompany.constants';
 import {
   routeCompanyScopedInbound,
 } from './inboundWhatsAppRouting.service';
@@ -182,11 +183,11 @@ export class WhatsAppService {
     customerPhoneHint?: string,
     businessDisplayPhoneHint?: string,
   ): Promise<{ company: any; config: CompanyWhatsAppConfig | null } | null> {
-    // Find all active companies
-    const companies = await prisma.company.findMany({
+    // Find all active tenant companies (platform shell is never a WhatsApp tenant).
+    const companies = (await prisma.company.findMany({
       where: { status: 'active' },
-      select: { id: true, name: true, settings: true, whatsappPhone: true, updatedAt: true },
-    });
+      select: { id: true, name: true, slug: true, settings: true, whatsappPhone: true, updatedAt: true },
+    })).filter((company) => !isPlatformCompany(company));
 
     void providerHint;
 
@@ -489,6 +490,20 @@ export class WhatsAppService {
     const { company, config: whatsappConfig } = result;
     const companyId = company.id;
     const customerPhone = normalizeInboundWhatsAppPhone(msg.customerPhone);
+
+    if (isPlatformCompany(company)) {
+      logger.error('Buyer WhatsApp inbound rejected: platform company is not a tenant', {
+        companyId,
+        phoneNumberId: msg.phoneNumberId,
+        customerPhone: maskPhoneNumberForLogs(customerPhone),
+      });
+      return {
+        status: 'skipped',
+        reason: 'platform_company_not_tenant',
+        companyId,
+        propagation: notAttempted,
+      };
+    }
 
     if (msg.messageId && !msg.queuedReplay) {
       const inboundClaimed = await claimInboundMessageFull(
