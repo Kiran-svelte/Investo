@@ -3,14 +3,11 @@ import {
   extractExtendedPropertyAttributes,
   formatExtendedAttributesForPrompt,
 } from '../../utils/extractExtendedPropertyAttributes.util';
+import { shouldBlockPublishForImportReview } from '../../services/propertyImport.metadata';
+import { wasKnowledgeEmbeddingDegraded } from '../../services/propertyKnowledge.service';
+import { isPropertyDetailQuestion } from '../../services/customerMessageFastPath.service';
 
 describe('extractExtendedPropertyAttributes.util', () => {
-  const originalFlag = config.features.extendedPropertyAttrs;
-
-  afterEach(() => {
-    config.features.extendedPropertyAttrs = originalFlag;
-  });
-
   test('extracts non-catalog import fields', () => {
     const attrs = extractExtendedPropertyAttributes({
       name: 'Lake Vista',
@@ -34,5 +31,31 @@ describe('extractExtendedPropertyAttributes.util', () => {
     });
     expect(text).toContain('Carpet area (sq ft): 1200');
     expect(text).toContain('Facing direction: North');
+  });
+});
+
+describe('shouldBlockPublishForImportReview', () => {
+  const original = config.features.bulkImportSkipReview;
+
+  afterEach(() => {
+    config.features.bulkImportSkipReview = original;
+  });
+
+  test('skips review block for bulk_csv when flag on', () => {
+    config.features.bulkImportSkipReview = true;
+    expect(shouldBlockPublishForImportReview({
+      import_mode: 'bulk_csv',
+      import_review: { status: 'needs_review' },
+    })).toBe(false);
+  });
+});
+
+describe('buyer experience helpers', () => {
+  test('isPropertyDetailQuestion recognizes carpet area questions', () => {
+    expect(isPropertyDetailQuestion('What is the carpet area for Lake Vista?')).toBe(true);
+  });
+
+  test('wasKnowledgeEmbeddingDegraded defaults false before embeddings', () => {
+    expect(wasKnowledgeEmbeddingDegraded()).toBe(false);
   });
 });

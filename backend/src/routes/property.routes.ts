@@ -21,6 +21,8 @@ import {
   indexPropertyKnowledge,
   loadPropertyKnowledgeIndexPayload,
 } from '../services/propertyKnowledge.service';
+import config from '../config';
+import { extractExtendedPropertyAttributes } from '../utils/extractExtendedPropertyAttributes.util';
 
 const router = Router();
 
@@ -292,6 +294,11 @@ router.post(
         }
       }
 
+      const extendedSource = req.body as Record<string, unknown>;
+      const extendedAttributes = config.features.extendedPropertyAttrs
+        ? extractExtendedPropertyAttributes(extendedSource)
+        : {};
+
       const property = await prisma.property.create({
         data: {
           companyId,
@@ -315,12 +322,16 @@ router.post(
           priceListUrl: req.body.price_list_url || null,
           latitude,
           longitude,
+          ...(Object.keys(extendedAttributes).length > 0 ? { extendedAttributes } : {}),
         },
       });
 
+      const indexPayload = await loadPropertyKnowledgeIndexPayload(companyId, property.id);
       const knowledge = await indexPropertyKnowledge({
         companyId,
         property,
+        draftData: indexPayload.draftData ?? extendedSource,
+        mediaExtractions: indexPayload.mediaExtractions,
       });
 
       res.status(201).json({

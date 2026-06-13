@@ -14,10 +14,10 @@ Workstream: CSV/Sheets import has 70+ fields but buyer AI felt hardcoded because
 | C1 | Full import field knowledge indexing + bulk per-row draftData | `FEATURE_FULL_IMPORT_KNOWLEDGE` | DONE |
 | C2 | Expanded property prompt limits (amenities, description, RAG chunks) | `FEATURE_EXPANDED_PROPERTY_PROMPTS` | DONE |
 | C3 | Extended attributes JSON on Property model + publish mapping | `FEATURE_EXTENDED_PROPERTY_ATTRS` | DONE |
-| C4 | Staff copilot `searchPropertyKnowledge` tool | `FEATURE_COPILOT_PROPERTY_RAG` | PENDING |
-| C5 | Reduce fast-path bypass for property detail questions | `FEATURE_DETAIL_QUESTION_LLM` + rollout % | PENDING |
-| C6 | Re-index all published properties script (dry-run) | n/a | PENDING |
-| C7 | Bulk publish knowledge gate + rollback parity | `FEATURE_BULK_PUBLISH_STRICT` | PENDING |
+| C4 | Staff copilot `searchPropertyKnowledge` tool | `FEATURE_COPILOT_PROPERTY_RAG` | DONE |
+| C5 | Reduce fast-path bypass for property detail questions | `FEATURE_DETAIL_QUESTION_LLM` | DONE |
+| C6 | Re-index all published properties script (dry-run) | `DRY_RUN=true` | DONE |
+| C7 | Bulk publish knowledge gate + rollback parity | `FEATURE_BULK_PUBLISH_STRICT` | DONE |
 
 ## Safety nets (every chunk)
 
@@ -47,3 +47,20 @@ Re-publish or re-index existing properties after enabling C1.
 FEATURE_EXPANDED_PROPERTY_PROMPTS=true
 ```
 Pairs with C1 — wider prompts only help once import fields are indexed.
+
+## Full production flag set (recommended order)
+
+```
+FEATURE_SHADOW_MODE=true
+FEATURE_FULL_IMPORT_KNOWLEDGE=true
+FEATURE_EXTENDED_PROPERTY_ATTRS=true
+FEATURE_EXPANDED_PROPERTY_PROMPTS=true
+FEATURE_ENRICHED_KNOWLEDGE_ALWAYS=true
+FEATURE_EXTENDED_CATALOG_SEARCH=true
+FEATURE_BULK_PUBLISH_STRICT=true
+FEATURE_BULK_IMPORT_SKIP_REVIEW=true
+FEATURE_COPILOT_PROPERTY_RAG=true
+FEATURE_ADAPTIVE_BUYER_PERSONA=true
+FEATURE_DETAIL_QUESTION_LLM=true
+FEATURE_EXPANDED_BUYER_RESPONSE_CAP=true
+```

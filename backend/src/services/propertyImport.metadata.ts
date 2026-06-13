@@ -1,3 +1,5 @@
+import config from '../config';
+
 type PropertyImportRecord = Record<string, unknown>;
 
 export type PropertyImportReviewStatus = 'not_required' | 'needs_review' | 'approved';
@@ -284,6 +286,19 @@ export function isPropertyImportReviewPending(draftData: PropertyImportRecord | 
   const mapping = normalizePropertyImportMappingProfile(draftData?.import_mapping ?? draftData?.importMapping);
   const review = normalizePropertyImportReviewMetadata(draftData?.import_review ?? draftData?.importReview, mapping);
   return review?.status === 'needs_review';
+}
+
+/** Spreadsheet/bulk imports with full column mapping may skip human review when flagged. */
+export function shouldBlockPublishForImportReview(draftData: PropertyImportRecord | null | undefined): boolean {
+  if (!draftData) return false;
+  const mode = draftData.import_mode ?? draftData.importMode;
+  if (
+    (mode === 'bulk_csv' || mode === 'spreadsheet_imported')
+    && config.features.bulkImportSkipReview
+  ) {
+    return false;
+  }
+  return isPropertyImportReviewPending(draftData);
 }
 
 export function isPropertyImportReviewApproved(draftData: PropertyImportRecord | null | undefined): boolean {

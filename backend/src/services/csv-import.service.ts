@@ -28,6 +28,18 @@ import {
   type PropertyImportFieldDef,
 } from '../constants/property-import-fields.constants';
 
+function aiKnowledgeContextMaxRows(): number {
+  const raw = process.env.AI_KNOWLEDGE_CONTEXT_MAX_ROWS;
+  const parsed = raw ? parseInt(raw, 10) : 200;
+  return Number.isFinite(parsed) ? Math.min(500, Math.max(50, parsed)) : 200;
+}
+
+function aiKnowledgeContextMaxChars(): number {
+  const raw = process.env.AI_KNOWLEDGE_CONTEXT_MAX_CHARS;
+  const parsed = raw ? parseInt(raw, 10) : 12000;
+  return Number.isFinite(parsed) ? Math.min(24000, Math.max(3500, parsed)) : 12000;
+}
+
 /** A single raw row returned from a parsed file. */
 export type RawRow = Record<string, string>;
 
@@ -579,7 +591,7 @@ export class CsvImportService {
       'Unit breakdown:',
     ].filter((l) => l !== null);
 
-    const rowLines = validRows.slice(0, 50).map((c) => {
+    const rowLines = validRows.slice(0, aiKnowledgeContextMaxRows()).map((c) => {
       const parts: string[] = [];
       if (c.data.name) {
         parts.push(String(c.data.name));
@@ -610,7 +622,7 @@ export class CsvImportService {
       return `  - ${parts.join(', ')}`;
     });
 
-    return [...lines, ...rowLines].join('\n').slice(0, 3500);
+    return [...lines, ...rowLines].join('\n').slice(0, aiKnowledgeContextMaxChars());
   }
 
   /**

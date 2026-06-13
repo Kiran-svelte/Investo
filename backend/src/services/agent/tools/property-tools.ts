@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import prisma from '../../../config/prisma';
+import config from '../../../config';
 import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../../../constants/agent-tools.constants';
 import { ToolContext } from '../agent-state';
 import { formatCurrencyINR, getStatusEmoji, isAdminRole } from './format-helpers';
@@ -8,7 +9,13 @@ import {
   assessPropertyCompleteness,
   formatCompletenessForAgentTool,
 } from '../../propertyCompleteness.service';
-import { matchCatalogPropertiesForQuery } from '../../propertyKnowledge.service';
+import {
+  getPropertyKnowledgeForProperty,
+  matchCatalogPropertiesForQuery,
+  searchPropertyKnowledge,
+} from '../../propertyKnowledge.service';
+import { formatExtendedAttributesForPrompt } from '../../../utils/extractExtendedPropertyAttributes.util';
+import { extractExtendedPropertyAttributes } from '../../../utils/extractExtendedPropertyAttributes.util';
 
 const propertyType = z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']);
 const propertyStatus = z.enum(['available', 'sold', 'upcoming']);
@@ -21,14 +28,22 @@ function price(min: unknown, max: unknown): string {
 }
 
 function formatProperty(property: any): string {
+  const extended = property.extendedAttributes && typeof property.extendedAttributes === 'object'
+    ? formatExtendedAttributesForPrompt(property.extendedAttributes as Record<string, unknown>)
+    : '';
   return [
     `${getStatusEmoji(property.status)} *${property.name}*`,
     `Type: ${property.propertyType} | Status: ${property.status}`,
     `Price: ${price(property.priceMin, property.priceMax)}`,
     `Location: ${[property.locationArea, property.locationCity].filter(Boolean).join(', ') || 'not set'}`,
     property.bedrooms != null ? `Bedrooms: ${property.bedrooms}` : '',
+    extended ? `Extended attributes:\n${extended}` : '',
     `ID: ${property.id}`,
   ].filter(Boolean).join('\n');
+}
+
+function copilotListLimit(): number {
+  return config.features.copilotPropertyRag ? 10 : DEFAULT_LIST_LIMIT;
 }
 
 export function createPropertyTools(context: ToolContext): AgentTool[] {
@@ -41,7 +56,7 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
         const where: any = { companyId: context.companyId, ...(propertyType ? { propertyType } : {}), ...(status ? { status } : {}) };
         if (city) where.locationCity = { contains: city, mode: 'insensitive' };
         if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { builder: { contains: search, mode: 'insensitive' } }];
-        const properties = await prisma.property.findMany({ where, orderBy: { updatedAt: 'desc' }, take: limit ?? DEFAULT_LIST_LIMIT });
+        const properties = await prisma.property.findMany({ where, orderBy: { updatedAt: 'desc' }, take: limit ?? copilotListLimit() });
         if (!properties.length) return 'No properties found.';
         return ['*Properties*', ...properties.map(formatProperty)].join('\n\n');
       },
@@ -54,16 +69,80 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
         const property = await prisma.property.findFirst({ where: { id: propertyId, companyId: context.companyId }, include: { _count: { select: { visits: true } } } });
         if (!property) return 'Property not found.';
         const amenities = Array.isArray(property.amenities) ? property.amenities.join(', ') : '';
-        return [formatProperty(property), property.builder ? `Builder: ${property.builder}` : '', property.reraNumber ? `RERA: ${property.reraNumber}` : '', amenities ? `Amenities: ${amenities}` : '', property.description ? `Description: ${property.description}` : '', `Visits: ${property._count.visits}`].filter(Boolean).join('\n');
+        const extended = formatExtendedAttributesForPrompt(
+          (property as { extendedAttributes?: unknown }).extendedAttributes as Record<string, unknown>,
+        );
+        const lines = [
+          formatProperty(property),
+          property.builder ? `Builder: ${property.builder}` : '',
+          property.reraNumber ? `RERA: ${property.reraNumber}` : '',
+          amenities ? `Amenities: ${amenities}` : '',
+          property.description ? `Description: ${property.description}` : '',
+          property.brochureUrl ? 'Brochure PDF: on file' : '',
+          property.priceListUrl ? 'Price list PDF: on file' : '',
+          Array.isArray(property.floorPlanUrls) && property.floorPlanUrls.length
+            ? `Floor plans: ${(property.floorPlanUrls as string[]).length} on file`
+            : '',
+          extended ? `Extended attributes:\n${extended}` : '',
+          `Visits: ${property._count.visits}`,
+        ].filter(Boolean);
+
+        if (config.features.copilotPropertyRag) {
+          const chunks = await getPropertyKnowledgeForProperty(context.companyId, propertyId, 5);
+          if (chunks.length) {
+            lines.push('Knowledge index excerpts:', ...chunks.map((c) => c.content));
+          }
+        }
+
+        return lines.join('\n');
       },
     }),
     new DynamicStructuredTool({
       name: 'createProperty',
       description: 'Create a property. Admin only.',
-      schema: z.object({ name: z.string().min(1), builder: z.string().optional(), locationCity: z.string().optional(), locationArea: z.string().optional(), propertyType, priceMin: z.number().optional(), priceMax: z.number().optional(), bedrooms: z.number().int().optional(), amenities: z.array(z.string()).optional(), description: z.string().optional() }),
+      schema: z.object({
+        name: z.string().min(1),
+        builder: z.string().optional(),
+        locationCity: z.string().optional(),
+        locationArea: z.string().optional(),
+        propertyType,
+        priceMin: z.number().optional(),
+        priceMax: z.number().optional(),
+        bedrooms: z.number().int().optional(),
+        amenities: z.array(z.string()).optional(),
+        description: z.string().optional(),
+        carpetAreaSqft: z.number().optional(),
+        possessionDate: z.string().optional(),
+        facing: z.string().optional(),
+        maintenanceMonthly: z.number().optional(),
+      }),
       func: async (input) => {
         if (!isAdminRole(context.userRole)) return 'Only admins can create properties.';
-        const property = await prisma.property.create({ data: { companyId: context.companyId, name: input.name, builder: input.builder ?? null, locationCity: input.locationCity ?? null, locationArea: input.locationArea ?? null, propertyType: input.propertyType, priceMin: input.priceMin ?? null, priceMax: input.priceMax ?? null, bedrooms: input.bedrooms ?? null, amenities: input.amenities ?? [], description: input.description ?? null, status: 'available' } });
+        const extendedSource: Record<string, unknown> = {};
+        if (input.carpetAreaSqft != null) extendedSource.carpet_area_sqft = input.carpetAreaSqft;
+        if (input.possessionDate) extendedSource.possession_date = input.possessionDate;
+        if (input.facing) extendedSource.facing = input.facing;
+        if (input.maintenanceMonthly != null) extendedSource.maintenance_monthly = input.maintenanceMonthly;
+        const extendedAttributes = config.features.extendedPropertyAttrs
+          ? extractExtendedPropertyAttributes(extendedSource)
+          : {};
+        const property = await prisma.property.create({
+          data: {
+            companyId: context.companyId,
+            name: input.name,
+            builder: input.builder ?? null,
+            locationCity: input.locationCity ?? null,
+            locationArea: input.locationArea ?? null,
+            propertyType: input.propertyType,
+            priceMin: input.priceMin ?? null,
+            priceMax: input.priceMax ?? null,
+            bedrooms: input.bedrooms ?? null,
+            amenities: input.amenities ?? [],
+            description: input.description ?? null,
+            status: 'available',
+            ...(Object.keys(extendedAttributes).length > 0 ? { extendedAttributes } : {}),
+          },
+        });
         return `Property created.\n\n${formatProperty(property)}`;
       },
     }),
@@ -91,6 +170,30 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
         });
         if (!property) return 'Property not found.';
         return formatCompletenessForAgentTool(assessPropertyCompleteness(property));
+      },
+    }),
+    new DynamicStructuredTool({
+      name: 'searchPropertyKnowledge',
+      description:
+        'Semantic search over indexed property knowledge (brochures, import fields, descriptions). Use for detail questions about carpet area, possession, facing, amenities.',
+      schema: z.object({
+        query: z.string().min(1),
+        propertyId: z.string().uuid().optional(),
+        limit: z.number().int().min(1).max(15).optional(),
+      }),
+      func: async ({ query, propertyId, limit }) => {
+        if (!config.features.copilotPropertyRag) {
+          return 'Property knowledge search is not enabled for this tenant.';
+        }
+        const chunks = propertyId
+          ? await getPropertyKnowledgeForProperty(context.companyId, propertyId, limit ?? 8)
+          : await searchPropertyKnowledge(context.companyId, query, limit ?? 8);
+        if (!chunks.length) {
+          return 'No indexed knowledge found for that query.';
+        }
+        return chunks.map((chunk, index) => (
+          `[${index + 1}] property=${chunk.propertyId} score=${chunk.score.toFixed(3)}\n${chunk.content}`
+        )).join('\n\n');
       },
     }),
     new DynamicStructuredTool({
@@ -135,7 +238,7 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
         if (lead.locationPreference) where.OR = [{ locationArea: { contains: lead.locationPreference, mode: 'insensitive' } }, { locationCity: { contains: lead.locationPreference, mode: 'insensitive' } }];
         if (lead.budgetMax) where.priceMin = { lte: lead.budgetMax };
         if (lead.budgetMin) where.priceMax = { gte: lead.budgetMin };
-        const properties = await prisma.property.findMany({ where, take: limit ?? DEFAULT_LIST_LIMIT });
+        const properties = await prisma.property.findMany({ where, take: limit ?? copilotListLimit() });
         if (!properties.length) return 'No matching properties found.';
         return [`*Matches for ${lead.customerName ?? 'lead'}*`, ...properties.map(formatProperty)].join('\n\n');
       },

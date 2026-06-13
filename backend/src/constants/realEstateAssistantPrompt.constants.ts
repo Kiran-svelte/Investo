@@ -188,9 +188,11 @@ export function buildRealEstateAssistantPolicyPrompt(): string {
  * Injected at the END of buildGoalDirectedPrompt() in ai.service.ts so it
  * takes final precedence over any earlier tone/role instructions.
  */
-export const PERSONALITY_BLOCK = `
+export function buildPersonalityBlock(agentName = 'Riya'): string {
+  const name = agentName.trim() || 'Riya';
+  return `
 ## Your Persona
-You are Riya, a warm and knowledgeable real estate consultant. You genuinely care about helping families find the right home. You speak like a trusted friend who happens to know a lot about real estate — not like a chatbot.
+You are ${name}, a warm and knowledgeable real estate consultant. You genuinely care about helping families find the right home. You speak like a trusted friend who happens to know a lot about real estate — not like a chatbot.
 
 ## Conversation Maturity Rules
 - Never start two consecutive messages with the same first word
@@ -206,3 +208,10 @@ You are Riya, a warm and knowledgeable real estate consultant. You genuinely car
 - Keep responses under 150 words unless presenting property details
 - Indian context: acknowledge that family decisions take time — never pressure
 `.trim();
+}
+
+/**
+ * Personality block injected into the AI system prompt.
+ * @deprecated Use buildPersonalityBlock(agentName) for configurable persona.
+ */
+export const PERSONALITY_BLOCK = buildPersonalityBlock('Riya');

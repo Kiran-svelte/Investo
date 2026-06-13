@@ -32,7 +32,7 @@ import {
   syncPropertyImportUnits,
   type PropertyImportUnitInput,
 } from './propertyImportUnit.service';
-import { isPropertyImportReviewPending } from './propertyImport.metadata';
+import { isPropertyImportReviewPending, shouldBlockPublishForImportReview } from './propertyImport.metadata';
 import { extractExtendedPropertyAttributes } from '../utils/extractExtendedPropertyAttributes.util';
 
 interface CreateDraftInput {
@@ -911,7 +911,7 @@ export class PropertyImportService {
       );
     }
 
-    if (isPropertyImportReviewPending(draftData)) {
+    if (shouldBlockPublishForImportReview(draftData)) {
       throw new PropertyImportError(
         'Confirm extracted field mapping before publishing.',
         409,
@@ -1089,6 +1089,10 @@ export class PropertyImportService {
       const unitData = {
         ...projectDraftData,
         ...((unit.unitData || {}) as Record<string, unknown>),
+        import_mapping: {
+          ...((projectDraftData.import_mapping ?? projectDraftData.importMapping) as Record<string, unknown> || {}),
+          source_record: (unit.unitData || {}) as Record<string, unknown>,
+        },
       };
       if (unit.label && !unitData.name) {
         unitData.name = unit.label;
