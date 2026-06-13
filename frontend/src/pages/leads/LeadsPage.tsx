@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { dashboardPath } from '../../config/navigation.config';
 import { useAuth } from '../../context/AuthContext';
+import { useTenantContext } from '../../context/TenantContext';
 import { getRoleCapabilities } from '../../config/navigation.config';
 import api from '../../services/api';
 import {
@@ -20,6 +21,7 @@ import {
   formatLeadStatus,
   type LeadStatusValue,
 } from '../../config/leadStatus.config';
+import { ensureArray } from '../../utils/safeApiData';
 
 interface Lead {
   id: string;
@@ -55,6 +57,7 @@ const LEAD_SOURCES = ['whatsapp', 'manual', 'website', 'referral'];
 const LeadsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { targetCompanyId, isPlatformAdmin } = useTenantContext();
   const capabilities = getRoleCapabilities(user?.role);
   const navigate = useNavigate();
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -74,6 +77,12 @@ const LeadsPage: React.FC = () => {
   const canEditLeadStatus = (capabilities.canCreateLeads || capabilities.canAssignLeads) && !capabilities.isReadOnly;
 
   const loadLeads = useCallback(async () => {
+    if (isPlatformAdmin && !targetCompanyId) {
+      setLoading(false);
+      setLeads([]);
+      setPageError('Select an agency in the sidebar (Tenant context) before viewing leads.');
+      return;
+    }
     try {
       setLoading(true);
       setPageError(null);
@@ -83,16 +92,17 @@ const LeadsPage: React.FC = () => {
       params.append('page', String(page));
       params.append('limit', '25');
       const res = await api.get(`/leads?${params.toString()}`);
-      setLeads(res.data.data);
-      setTotalPages(res.data.pagination?.pages || 1);
-      setTotal(res.data.pagination?.total || 0);
-    } catch {
-      setPageError('Could not load leads.');
+      setLeads(ensureArray<Lead>(res.data?.data));
+      setTotalPages(res.data?.pagination?.pages || 1);
+      setTotal(res.data?.pagination?.total || 0);
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setPageError(message || 'Could not load leads.');
       setLeads([]);
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, page]);
+  }, [isPlatformAdmin, search, statusFilter, page, targetCompanyId]);
 
   useEffect(() => {
     loadLeads();
@@ -133,7 +143,7 @@ const LeadsPage: React.FC = () => {
   useEffect(() => {
     if (capabilities.canAssignLeads) {
       api.get('/users?role=sales_agent').then(res => {
-        setAgents(res.data.data || []);
+        setAgents(ensureArray<Agent>(res.data?.data));
       }).catch(() => setPageError('Could not load agents for assignment.'));
     }
   }, [capabilities.canAssignLeads]);
@@ -178,15 +188,20 @@ const LeadsPage: React.FC = () => {
   };
 
   const formatBudget = (min: number | null, max: number | null) => {
-    if (!min && !max) return '-';
+    const minNum = min == null ? null : Number(min);
+    const maxNum = max == null ? null : Number(max);
+    if ((minNum == null || Number.isNaN(minNum)) && (maxNum == null || Number.isNaN(maxNum))) return '-';
     const formatNum = (n: number) => {
       if (n >= 10000000) return `${(n / 10000000).toFixed(1)}Cr`;
       if (n >= 100000) return `${(n / 100000).toFixed(1)}L`;
       return `${(n / 1000).toFixed(0)}K`;
     };
-    if (min && max) return `₹${formatNum(min)} - ₹${formatNum(max)}`;
-    if (min) return `₹${formatNum(min)}+`;
-    return `Up to ₹${formatNum(max!)}`;
+    if (minNum != null && !Number.isNaN(minNum) && maxNum != null && !Number.isNaN(maxNum)) {
+      return `₹${formatNum(minNum)} - ₹${formatNum(maxNum)}`;
+    }
+    if (minNum != null && !Number.isNaN(minNum)) return `₹${formatNum(minNum)}+`;
+    if (maxNum != null && !Number.isNaN(maxNum)) return `Up to ₹${formatNum(maxNum)}`;
+    return '-';
   };
 
   const formatDate = (d: string) => {

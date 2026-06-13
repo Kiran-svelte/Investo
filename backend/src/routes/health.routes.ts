@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 
 import config from '../config';
+import backendPackage from '../../package.json';
 
 import logger from '../config/logger';
 
@@ -53,6 +54,12 @@ router.get('/live', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
 
     uptime_seconds: Math.floor(process.uptime()),
+
+    build: {
+      version: backendPackage.version,
+      deploy_note: backendPackage.deployNote,
+      git_commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || null,
+    },
 
   });
 
