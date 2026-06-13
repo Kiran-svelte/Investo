@@ -215,8 +215,9 @@ async function start(): Promise<void> {
           }
         });
 
-        const { backfillPropertyKnowledgeOnBoot } = await import('./services/propertyKnowledgeBackfill.service');
+        const { backfillPropertyKnowledgeOnBoot, startPropertyKnowledgeMaintenanceCron } = await import('./services/propertyKnowledgeBackfill.service');
         void backfillPropertyKnowledgeOnBoot();
+        startPropertyKnowledgeMaintenanceCron();
       } catch (err: unknown) {
         logger.warn('Database warmup failed at startup; API remains available for health checks', {
           error: err instanceof Error ? err.message : String(err),

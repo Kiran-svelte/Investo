@@ -34,6 +34,7 @@ import {
 } from '../constants/workflow.constants';
 
 import { getOpsMetricsSnapshot } from '../services/opsMetrics.service';
+import { countPropertyKnowledgeBackfillCandidates } from '../services/propertyKnowledgeBackfill.service';
 
 
 
@@ -149,7 +150,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
     await prisma.$queryRaw`SELECT 1`;
 
-    const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound] = await Promise.all([
+    const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound, knowledgeBackfillQueue] = await Promise.all([
 
       getPropertyKnowledgeEmbeddingHealth(),
 
@@ -158,6 +159,8 @@ router.get('/', async (_req: Request, res: Response) => {
       getMailServiceHealth(),
 
       getProductionWhatsAppInboundHealth(),
+
+      countPropertyKnowledgeBackfillCandidates().catch(() => -1),
 
     ]);
 
@@ -193,6 +196,15 @@ router.get('/', async (_req: Request, res: Response) => {
         },
 
         whatsapp_inbound: whatsappInbound,
+
+        property_knowledge_backfill_queue: {
+          pending: knowledgeBackfillQueue,
+          status: knowledgeBackfillQueue === 0
+            ? 'ok'
+            : knowledgeBackfillQueue > 0
+              ? 'draining'
+              : 'unknown',
+        },
 
       },
 
