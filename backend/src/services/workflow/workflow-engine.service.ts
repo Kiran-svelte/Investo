@@ -993,6 +993,26 @@ function mapBuyerWorkflowFailureReason(workflowId: WorkflowId, failedStep: strin
   return 'workflow_failure';
 }
 
+/** Missing date/time or property — workflow asked a follow-up, not a real failure. */
+export function isClarificationOnlyWorkflowFailure(
+  workflowId: WorkflowId,
+  failedStep: string | undefined,
+  detail: string | undefined,
+): boolean {
+  const d = (detail ?? '').trim().toLowerCase();
+  if (!d) return false;
+  const visitStep =
+    failedStep === 'bookVisit'
+    || workflowId === 'schedule_visit'
+    || workflowId === 'reschedule_visit';
+  if (!visitStep) return false;
+  if (d.includes('when should the visit be scheduled')) return true;
+  if (d.includes('when should the visit be rescheduled')) return true;
+  if (d.includes('share date and time')) return true;
+  if (d.includes('which property should')) return true;
+  return false;
+}
+
 async function notifyBuyerWorkflowFailure(
   run: WorkflowRunContext,
   state: WorkflowState,
@@ -1000,6 +1020,14 @@ async function notifyBuyerWorkflowFailure(
   failedStep: string,
   detail: string,
 ): Promise<void> {
+  if (isClarificationOnlyWorkflowFailure(workflowId, failedStep, detail)) {
+    logger.info('Skipping staff alert for clarification-only buyer workflow step', {
+      workflowId,
+      failedStep,
+      leadId: state.leadId ?? run.sessionLeadId,
+    });
+    return;
+  }
   const leadId = state.leadId ?? run.sessionLeadId;
   if (!leadId || (run.channel ?? 'staff') !== 'buyer') return;
   const { notifyBuyerAgentAssistNeeded } = await import('../buyerAgentAssist.service');
@@ -1036,6 +1064,9 @@ export function buildBuyerWorkflowFailureReply(
     }
     if (d.includes('which property')) {
       return 'Which property would you like to visit? Share the project name and your preferred time.';
+    }
+    if (isClarificationOnlyWorkflowFailure(workflowId, failedStep, detail)) {
+      return 'Let me check your visit details — one moment.';
     }
     return 'What date and time works for your site visit? (e.g. "next Saturday 4 pm")';
   }
@@ -1268,6 +1299,20 @@ export async function tryRunBuyerWorkflow(input: {
   else if (/\b(amenit|pool|gym|clubhouse)\b/.test(text)) workflowId = 'amenities_question';
   else if (/\b(talk\s+to|speak\s+to|human|agent|call\s+me|callback|call\s+back)\b/.test(text)) workflowId = 'escalate_to_human';
   if (!workflowId) return null;
+
+  const { isBuyerVisitStatusQuery, buildBuyerVisitStatusReply } = await import('../buyerVisitQuery.service');
+  if (
+    workflowId === 'schedule_visit'
+    && input.leadId
+    && isBuyerVisitStatusQuery(input.messageText)
+  ) {
+    return buildBuyerVisitStatusReply({
+      leadId: input.leadId,
+      companyId: input.companyId,
+      companyName: input.companyName,
+    });
+  }
+
   if (workflowId === 'escalate_to_human' && !input.leadId) return null;
 
   const gate = evaluateMutationGate(workflowId, 1, 'exact_regex');
@@ -1393,6 +1438,15 @@ export async function classifyAndRunBuyerWorkflow(
   }
   if (isBuyerQualificationOnlyMessage(input.messageText)) {
     return null;
+  }
+
+  const { isBuyerVisitStatusQuery, buildBuyerVisitStatusReply } = await import('../buyerVisitQuery.service');
+  if (input.leadId && isBuyerVisitStatusQuery(input.messageText)) {
+    return buildBuyerVisitStatusReply({
+      leadId: input.leadId,
+      companyId: input.companyId,
+      companyName: input.companyName,
+    });
   }
 
   const run = buildBuyerWorkflowRun(input);

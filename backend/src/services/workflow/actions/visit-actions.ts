@@ -103,6 +103,15 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
   const scheduledAt = scheduledAtRaw ? new Date(String(scheduledAtRaw)) : null;
   if (!leadId) return fail('Lead is required to book a visit.');
   if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+    const customerMessage = ctx.run.messageText ?? '';
+    const { isBuyerVisitStatusQuery, buildBuyerVisitStatusReply } = await import('../../buyerVisitQuery.service');
+    if (isBuyerVisitStatusQuery(customerMessage)) {
+      const reply = await buildBuyerVisitStatusReply({
+        leadId,
+        companyId: ctx.run.toolContext.companyId,
+      });
+      return ok(reply, { leadId });
+    }
     return fail('When should the visit be scheduled? Share date and time.');
   }
 

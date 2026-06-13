@@ -81,3 +81,29 @@ export async function uploadProjectFile(projectId: string, file: File): Promise<
 export async function deletePropertyProjectFile(projectId: string, fileId: string): Promise<void> {
   await api.delete(`/property-projects/${projectId}/files/${fileId}`);
 }
+
+export type PropertyMediaRole = 'screenshot' | 'brochure';
+
+export interface AttachPropertyMediaResult {
+  public_url: string;
+  media_role: PropertyMediaRole;
+  knowledge_indexed: boolean;
+  knowledge_chunk_count: number;
+}
+
+export async function attachPropertyMedia(
+  projectId: string,
+  propertyId: string,
+  file: File,
+  mediaRole: PropertyMediaRole,
+): Promise<AttachPropertyMediaResult> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('media_role', mediaRole);
+  const res = await api.post<{ data: AttachPropertyMediaResult }>(
+    `/property-projects/${projectId}/properties/${propertyId}/media`,
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return res.data.data;
+}

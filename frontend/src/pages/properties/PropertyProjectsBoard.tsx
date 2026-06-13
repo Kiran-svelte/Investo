@@ -4,6 +4,7 @@ import {
   FolderPlus,
   GripVertical,
   FileSpreadsheet,
+  ImageIcon,
   Loader2,
   Plus,
   Trash2,
@@ -25,6 +26,7 @@ import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
 import { stashBulkImportFile } from '../../utils/bulk-import-pending-file';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+import PropertyMediaAssignModal from './PropertyMediaAssignModal';
 
 function isSpreadsheetFile(file: File): boolean {
   return (
@@ -32,6 +34,14 @@ function isSpreadsheetFile(file: File): boolean {
     file.type.includes('csv') ||
     file.type.includes('spreadsheet') ||
     file.type.includes('excel')
+  );
+}
+
+function isPropertyMediaFile(file: File): boolean {
+  return (
+    file.type.startsWith('image/') ||
+    file.type === 'application/pdf' ||
+    /\.(jpe?g|png|webp|pdf)$/i.test(file.name)
   );
 }
 
@@ -95,7 +105,13 @@ export default function PropertyProjectsBoard({
   const [projectFiles, setProjectFiles] = useState<Record<string, PropertyProjectFile[]>>({});
   const [uploadingFile, setUploadingFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadTargetProject, setUploadTargetProject] = useState<string | null>(null);
+  const [mediaAssignState, setMediaAssignState] = useState<{
+    projectId: string;
+    projectName: string;
+    file: File;
+  } | null>(null);
   const [uploadNotice, setUploadNotice] = useState<Record<string, string>>({});
   const [boardError, setBoardError] = useState<string | null>(null);
 
@@ -170,6 +186,32 @@ export default function PropertyProjectsBoard({
   const handleFilePick = (projectId: string) => {
     setUploadTargetProject(projectId);
     fileInputRef.current?.click();
+  };
+
+  const handleMediaPick = (projectId: string) => {
+    setUploadTargetProject(projectId);
+    mediaInputRef.current?.click();
+  };
+
+  const onMediaSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const projectId = uploadTargetProject;
+    e.target.value = '';
+    setUploadTargetProject(null);
+    if (!file || !projectId) return;
+
+    const project = projects.find((p) => p.id === projectId);
+    if (!isPropertyMediaFile(file)) {
+      setBoardError('Use JPEG, PNG, WebP for screenshots or PDF for brochures.');
+      return;
+    }
+
+    setBoardError(null);
+    setMediaAssignState({
+      projectId,
+      projectName: project?.name ?? 'Project',
+      file,
+    });
   };
 
   const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -313,8 +355,15 @@ export default function PropertyProjectsBoard({
         ref={fileInputRef}
         type="file"
         className="hidden"
-        accept=".csv,.xlsx,.xls,.pdf,.txt,text/csv,application/pdf"
+        accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         onChange={(e) => void onFileSelected(e)}
+      />
+      <input
+        ref={mediaInputRef}
+        type="file"
+        className="hidden"
+        accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+        onChange={onMediaSelected}
       />
 
       {canManage && (
@@ -388,6 +437,14 @@ export default function PropertyProjectsBoard({
                     <FileSpreadsheet className="h-3.5 w-3.5" />
                   )}
                   Import CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMediaPick(project.id)}
+                  className="investo-btn-secondary text-xs"
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  Screenshot / brochure
                 </button>
                 <button
                   type="button"
@@ -473,7 +530,7 @@ export default function PropertyProjectsBoard({
             {project && expandedProject === project.id && (
               <ul className="mt-2 space-y-1 rounded-lg border bg-white p-3 text-sm">
                 {(projectFiles[project.id] ?? []).length === 0 ? (
-                  <li className="text-ink-faint">No extra files yet. Upload CSV, Excel, or PDF.</li>
+                  <li className="text-ink-faint">No extra files yet. Upload CSV or Excel reference sheets.</li>
                 ) : (
                   projectFiles[project.id].map((f) => (
                     <li key={f.id} className="flex justify-between items-center gap-2">
@@ -518,6 +575,32 @@ export default function PropertyProjectsBoard({
           </div>
         );
       })}
+      <PropertyMediaAssignModal
+        open={mediaAssignState !== null}
+        projectId={mediaAssignState?.projectId ?? ''}
+        projectName={mediaAssignState?.projectName ?? ''}
+        file={mediaAssignState?.file ?? null}
+        properties={
+          mediaAssignState
+            ? byProject(mediaAssignState.projectId).map((p) => ({
+                id: p.id,
+                name: p.name,
+                property_type: p.property_type,
+                bedrooms: p.bedrooms,
+              }))
+            : []
+        }
+        onClose={() => setMediaAssignState(null)}
+        onSuccess={(message) => {
+          if (mediaAssignState) {
+            setUploadNotice((prev) => ({
+              ...prev,
+              [mediaAssignState.projectId]: message,
+            }));
+          }
+          onRefresh();
+        }}
+      />
       {Dialog}
     </div>
   );

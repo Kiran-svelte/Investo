@@ -15,6 +15,13 @@ import {
   deletePropertyProjectFile,
   ResourceDeleteError,
 } from '../services/resourceDelete.service';
+import {
+  attachMediaToProperty,
+  inferDefaultMediaRole,
+  isPropertyMediaMime,
+  PropertyMediaAttachError,
+} from '../services/propertyMediaAttach.service';
+import { mapPropertyToSnakeCaseDTO } from './property.routes';
 
 const router = Router();
 
@@ -37,8 +44,14 @@ const PROJECT_FILE_MIMES = new Set([
   'text/csv',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/pdf',
   'text/plain',
+]);
+
+const PROPERTY_MEDIA_MIMES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
 ]);
 
 const upload = multer({
@@ -350,6 +363,69 @@ router.post(
       const message = err instanceof Error ? err.message : String(err);
       logger.error('Failed to upload project file', { error: message });
       res.status(500).json({ error: 'Failed to upload file' });
+    }
+  },
+);
+
+/**
+ * POST /api/property-projects/:projectId/properties/:propertyId/media
+ * Attach a screenshot (hero image) or brochure PDF to one listing in the project.
+ */
+router.post(
+  '/:projectId/properties/:propertyId/media',
+  authorize('properties', 'update'),
+  upload.single('file'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: 'file is required' });
+        return;
+      }
+
+      const mime = file.mimetype || 'application/octet-stream';
+      if (!isPropertyMediaMime(mime)) {
+        res.status(400).json({
+          error: 'Unsupported file type. Use JPEG, PNG, WebP for screenshots or PDF for brochures.',
+        });
+        return;
+      }
+
+      const mediaRoleRaw = typeof req.body?.media_role === 'string' ? req.body.media_role : '';
+      const mediaRole =
+        mediaRoleRaw === 'screenshot' || mediaRoleRaw === 'brochure'
+          ? mediaRoleRaw
+          : inferDefaultMediaRole(mime);
+
+      const safeName = path.basename(file.originalname || 'upload').replace(/[^\w.\-]+/g, '_');
+      const result = await attachMediaToProperty({
+        companyId,
+        projectId: req.params.projectId,
+        propertyId: req.params.propertyId,
+        buffer: file.buffer,
+        fileName: safeName,
+        mimeType: mime,
+        mediaRole,
+      });
+
+      res.status(201).json({
+        data: {
+          property: mapPropertyToSnakeCaseDTO(result.property),
+          public_url: result.public_url,
+          media_role: result.media_role,
+          knowledge_indexed: result.knowledge_indexed,
+          knowledge_chunk_count: result.knowledge_chunk_count,
+        },
+      });
+    } catch (err: unknown) {
+      if (err instanceof PropertyMediaAttachError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to attach property media from project board', { error: message });
+      res.status(500).json({ error: 'Failed to attach media to property' });
     }
   },
 );

@@ -113,6 +113,7 @@ import {
   detectBuyerNegotiationEscalationBias,
   buildBuyerWorkflowFailureReply,
   isBuyerQualificationOnlyMessage,
+  isClarificationOnlyWorkflowFailure,
   runWorkflow,
   tryRunBuyerWorkflow,
 } from '../../services/workflow/workflow-engine.service';
@@ -727,5 +728,22 @@ describe('workflow-engine.service', () => {
         completedSteps: expect.arrayContaining(['updateLeadStatus']),
       }),
     );
+  });
+
+  it('treats missing visit time as clarification, not staff escalation', () => {
+    expect(
+      isClarificationOnlyWorkflowFailure(
+        'schedule_visit',
+        'bookVisit',
+        'When should the visit be scheduled? Share date and time.',
+      ),
+    ).toBe(true);
+    expect(
+      isClarificationOnlyWorkflowFailure(
+        'schedule_visit',
+        'bookVisit',
+        'Agent has a conflicting visit within 60 minutes',
+      ),
+    ).toBe(false);
   });
 });

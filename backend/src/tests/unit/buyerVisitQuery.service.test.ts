@@ -1,5 +1,6 @@
 import {
   isBuyerVisitStatusQuery,
+  isBuyerExistingVisitInquiry,
 } from '../../services/buyerVisitQuery.service';
 import { formatCustomerSalutation } from '../../services/customerMessageFastPath.service';
 
@@ -10,6 +11,14 @@ describe('buyerVisitQuery.service', () => {
     expect(isBuyerVisitStatusQuery('Do I have any visits?')).toBe(true);
     expect(isBuyerVisitStatusQuery('Show my visits')).toBe(true);
     expect(isBuyerVisitStatusQuery('hello')).toBe(false);
+  });
+
+  it('detects existing-visit confirmation checks (not new booking)', () => {
+    expect(isBuyerExistingVisitInquiry("Its already confirmed ryt ??")).toBe(true);
+    expect(isBuyerExistingVisitInquiry('Is it already scheduled?')).toBe(true);
+    expect(isBuyerExistingVisitInquiry('No its already scheduled and confirmed ..see here')).toBe(true);
+    expect(isBuyerVisitStatusQuery("Its already confirmed ryt ??")).toBe(true);
+    expect(isBuyerExistingVisitInquiry('Please reschedule my visit')).toBe(false);
   });
 });
 

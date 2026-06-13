@@ -386,7 +386,7 @@ const config = {
     claudeApiKey: process.env.CLAUDE_API_KEY || '',
     claudeModel: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
     openaiApiKey: (process.env.OPENAI_API_KEY || '').trim(),
-    openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
+    openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
   },
 
@@ -415,7 +415,7 @@ const config = {
      */
     copilotEnabled: process.env.AGENT_AI_COPILOT_ENABLED !== 'false',
     provider: (process.env.AGENT_AI_PROVIDER || 'openai').toLowerCase(),
-    model: process.env.AGENT_AI_MODEL || 'gpt-4o',
+    model: process.env.AGENT_AI_MODEL || 'gpt-4o-mini',
     maxToolCalls: parseInt(process.env.AGENT_AI_MAX_TOOL_CALLS || '10', 10),
     threadTtlHours: parseInt(process.env.AGENT_AI_THREAD_TTL_HOURS || '24', 10),
     confirmationTtlMinutes: parseInt(process.env.AGENT_AI_CONFIRMATION_TTL_MINUTES || '5', 10),
