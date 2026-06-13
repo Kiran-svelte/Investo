@@ -29,6 +29,7 @@ import { fetchOpenAi, OPENAI_CHAT_URL, openAiKeyProblem } from '../openaiStatus.
 import { setAgentSessionClientContext } from '../clientMemory.service';
 import type { ToolContext } from '../agent/agent-state';
 import { sanitizeStaffInstructionsForBuyer } from '../../utils/buyerStaffCopyGuard.util';
+import { shouldBypassBuyerWorkflowForRichPropertyLlm } from '../customerMessageFastPath.service';
 import type { AgentSessionMessage } from '../agent/agent-session-messages.service';
 import { WORKFLOW_ACTION_HANDLERS } from './actions';
 import { enrichWorkflowParams } from './actions/action-helpers';
@@ -1241,6 +1242,8 @@ export async function tryRunBuyerWorkflow(input: {
   companyName?: string;
   sessionVisitId?: string | null;
 }): Promise<string | null> {
+  if (shouldBypassBuyerWorkflowForRichPropertyLlm(input.messageText)) return null;
+
   const text = input.messageText.toLowerCase();
   let workflowId: WorkflowId | null = null;
   if (/\b(cancel|call\s+off)\b.*\b(visit|appointment)\b/.test(text)) workflowId = 'cancel_visit';
@@ -1383,6 +1386,8 @@ export async function classifyAndRunBuyerWorkflow(
   },
   deps?: { llm?: WorkflowLlmCaller },
 ): Promise<string | null> {
+  if (shouldBypassBuyerWorkflowForRichPropertyLlm(input.messageText)) return null;
+
   if (!shouldClassifyWorkflow(input.messageText)) {
     return null;
   }

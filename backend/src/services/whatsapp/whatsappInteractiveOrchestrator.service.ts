@@ -20,7 +20,7 @@ import { createVisitApprovalRequest, findPendingVisitApprovalForLead } from '../
 import { assignLeadRoundRobin } from '../leadAssignment.service';
 import { formatBuyerVisitPendingApprovalReply } from '../../utils/visitFormat.util';
 import { formatISTDateTime, formatISTDateTimeLong, formatISTShortDate, getISTDatePlusDays } from '../../utils/dateTime.util';
-import { buildWhatsAppPropertyDetailText } from '../propertyAiContext.service';
+import { buildWhatsAppPropertyDetailFromAiInput, enrichAiPropertiesFromKnowledge, propertyToAiPromptInput } from '../propertyAiContext.service';
 import { getPropertyKnowledgeForProperty } from '../propertyKnowledge.service';
 import { getPropertyPromptLimits } from '../../utils/propertyPromptLimits.util';
 import { confirmVisitById } from '../visitState.service';
@@ -439,9 +439,17 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     };
   }
 
-  let details = buildWhatsAppPropertyDetailText(property);
-
   const promptLimits = getPropertyPromptLimits();
+  let promptInput = propertyToAiPromptInput(property);
+  const [enriched] = await enrichAiPropertiesFromKnowledge(
+    company.id,
+    [promptInput],
+    getPropertyKnowledgeForProperty,
+  );
+  promptInput = enriched;
+
+  let details = buildWhatsAppPropertyDetailFromAiInput(promptInput);
+
   const knowledgeChunks = await getPropertyKnowledgeForProperty(
     company.id,
     property.id,
@@ -449,7 +457,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   );
   const extraFacts = knowledgeChunks
     .map((chunk) => chunk.content.trim())
-    .filter((content) => content && !details.includes(content.slice(0, 80)))
+    .filter((content) => content && !details.toLowerCase().includes(content.slice(0, 60).toLowerCase()))
     .slice(0, promptLimits.moreInfoKnowledgeAppend);
   if (extraFacts.length > 0) {
     details = `${details}\n\n📌 *More from our records:*\n${extraFacts.join('\n\n')}`;

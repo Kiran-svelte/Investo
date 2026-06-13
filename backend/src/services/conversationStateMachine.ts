@@ -13,6 +13,7 @@
  */
 
 import logger from '../config/logger';
+import { isPropertyDetailQuestion } from './customerMessageFastPath.service';
 import {
   detectAuthorityLimitTopic,
   getAuthorityLimitPromptModifier,
@@ -543,6 +544,17 @@ export class PolicyBrain {
 
     // 5. Handle adjacent (related but not advancing)
     if (messageIntent === 'adjacent') {
+      if (customerMessage && isPropertyDetailQuestion(customerMessage)) {
+          return {
+            action: 'continue',
+            promptModifiers: [
+              'Customer asking a specific property detail question.',
+              'Answer thoroughly using grounded property facts first (concrete specs, numbers, dates).',
+              'Visit booking CTA is secondary — at most one soft line at the end.',
+              `Stage context: ${stageConfig.goal}`,
+            ],
+          };
+        }
       return {
         action: 'continue',
         promptModifiers: [

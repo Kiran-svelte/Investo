@@ -8,6 +8,7 @@
  * resetting to the first-time-buyer onboarding question.
  */
 
+import config from '../config';
 import { isVisitSchedulingMessage } from './visitIntentFromMessage.service';
 import type { ActiveVisitContext } from './liveLeadContext.service';
 import { buildVisitAwareGreeting } from './liveLeadContext.service';
@@ -118,6 +119,13 @@ export function isPropertyInquiryMessage(message: string): boolean {
 export function isPropertyDetailQuestion(message: string): boolean {
   return isPropertyInquiryMessage(message)
     && /\b(how much|what is|what's|when|where|which|tell me|explain|describe|details?|more about|carpet|possession|facing|maintenance|amenit|sq\.?\s*ft|price|cost|bhk|bedroom)\b/i.test(message);
+}
+
+/** Property detail/price/amenity questions should use H9 LLM + RAG, not thin H7 workflows. */
+export function shouldBypassBuyerWorkflowForRichPropertyLlm(message: string): boolean {
+  if (!config.features.detailQuestionLlm) return false;
+  if (isVisitSchedulingMessage(message)) return false;
+  return isPropertyInquiryMessage(message);
 }
 
 export function shouldSkipKnowledgeSearchForMessage(
@@ -243,6 +251,13 @@ export function buildFastPathCustomerReply(input: {
   if (isConversationAcknowledgmentMessage(trimmed)) {
     const history = input.conversationHistory ?? [];
     const discussed = findLastDiscussedPropertyName(history, input.propertyNames ?? []);
+    if (config.features.detailQuestionLlm && discussed) {
+      const recentAi = history.slice(-6).filter((m) => m.senderType === 'ai');
+      const hadPropertyReply = recentAi.some((m) =>
+        String(m.content ?? '').toLowerCase().includes(discussed.toLowerCase()),
+      );
+      if (hadPropertyReply) return null;
+    }
     return {
       text: buildAckByLanguage(lang, discussed, company),
       detectedLanguage: lang,

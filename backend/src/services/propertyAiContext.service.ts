@@ -315,24 +315,27 @@ export async function enrichAiPropertiesFromKnowledge(
 }
 
 export function buildWhatsAppPropertyDetailText(property: Property): string {
+  return buildWhatsAppPropertyDetailFromAiInput(propertyToAiPromptInput(property));
+}
+
+export function buildWhatsAppPropertyDetailFromAiInput(input: PropertyAiPromptInput): string {
   const limits = getPropertyPromptLimits();
-  const input = propertyToAiPromptInput(property);
-  const location = [property.locationArea, property.locationCity].filter(Boolean).join(', ');
+  const location = [input.locationArea, input.locationCity].filter(Boolean).join(', ');
 
   const lines = [
-    `🏠 *${property.name}*`,
+    `🏠 *${input.name}*`,
     '',
-    property.description?.trim() ? truncateText(property.description, limits.whatsappDescriptionMax) : null,
-    property.description?.trim() ? '' : null,
+    input.description?.trim() ? truncateText(input.description, limits.whatsappDescriptionMax) : null,
+    input.description?.trim() ? '' : null,
     `💰 Price: ${formatPriceRange(input.priceMin, input.priceMax)}`,
-    property.propertyType ? `🏢 Type: ${property.propertyType}` : null,
-    property.bedrooms ? `🛏️ Bedrooms: ${property.bedrooms} BHK` : null,
+    input.propertyType ? `🏢 Type: ${input.propertyType}` : null,
+    input.bedrooms ? `🛏️ Bedrooms: ${input.bedrooms} BHK` : null,
     location ? `📍 Location: ${location}` : null,
-    property.builder ? `🏗️ Builder: ${property.builder}` : null,
-    property.reraNumber ? `📋 RERA: ${property.reraNumber}` : null,
-    property.brochureUrl ? `📄 Brochure: on file` : null,
+    input.builder ? `🏗️ Builder: ${input.builder}` : null,
+    input.reraNumber ? `📋 RERA: ${input.reraNumber}` : null,
+    input.brochureUrl ? `📄 Brochure: on file` : null,
     input.floorPlanUrls?.length ? `📐 Floor plans: on file` : null,
-    property.priceListUrl ? `💵 Price list: on file` : null,
+    input.priceListUrl ? `💵 Price list: on file` : null,
     input.amenities.length
       ? `✨ Amenities: ${input.amenities.slice(0, limits.whatsappAmenitiesMax).join(', ')}`
       : null,

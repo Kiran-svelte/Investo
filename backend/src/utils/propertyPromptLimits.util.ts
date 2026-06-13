@@ -47,9 +47,9 @@ const EXPANDED_LIMITS: PropertyPromptLimits = {
   vectorSearchLimit: 16,
   vectorSearchFocusedLimit: 20,
   focusedPropertyChunks: 12,
-  moreInfoKnowledgeFetch: 8,
-  moreInfoKnowledgeAppend: 5,
-  enrichKnowledgeChunks: 4,
+  moreInfoKnowledgeFetch: 12,
+  moreInfoKnowledgeAppend: 8,
+  enrichKnowledgeChunks: 8,
 };
 
 let shadowMismatchLogged = false;

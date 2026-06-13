@@ -46,6 +46,7 @@ export function getStaffCopilotTimeoutMs(): number {
 export function shouldSkipHeavyBuyerContext(messageText: string, historyLength: number): boolean {
   if (!isFastWhatsAppRepliesEnabled()) return false;
   const trimmed = messageText.trim();
+  if (/\b(property|project|amenit|price|carpet|possession|bhk|details?)\b/i.test(trimmed)) return false;
   if (SIMPLE_GREETING_PATTERN.test(trimmed)) return true;
   if (historyLength < 4 && trimmed.length <= 120) return true;
   return false;

@@ -36,7 +36,7 @@ describe('propertyPromptLimits.util', () => {
     expect(limits.knowledgeChunksMax).toBe(20);
     expect(limits.availablePropertiesMax).toBe(20);
     expect(limits.listAmenitiesMax).toBe(12);
-    expect(limits.moreInfoKnowledgeAppend).toBe(5);
+    expect(limits.moreInfoKnowledgeAppend).toBe(8);
     expect(limits.focusedDescriptionMax).toBe(1800);
   });
 });

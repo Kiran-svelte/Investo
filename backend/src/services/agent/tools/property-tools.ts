@@ -17,6 +17,7 @@ import {
 } from '../../propertyKnowledge.service';
 import { formatExtendedAttributesForPrompt } from '../../../utils/extractExtendedPropertyAttributes.util';
 import { extractExtendedPropertyAttributes } from '../../../utils/extractExtendedPropertyAttributes.util';
+import { getPropertyPromptLimits } from '../../../utils/propertyPromptLimits.util';
 
 const propertyType = z.enum(['villa', 'apartment', 'plot', 'commercial', 'other']);
 const propertyStatus = z.enum(['available', 'sold', 'upcoming']);
@@ -88,8 +89,9 @@ export function createPropertyTools(context: ToolContext): AgentTool[] {
           `Visits: ${property._count.visits}`,
         ].filter(Boolean);
 
-        if (config.features.copilotPropertyRag) {
-          const chunks = await getPropertyKnowledgeForProperty(context.companyId, propertyId, 5);
+        if (config.features.copilotPropertyRag || config.features.fullImportKnowledgeIndexing) {
+          const limit = getPropertyPromptLimits().focusedPropertyChunks;
+          const chunks = await getPropertyKnowledgeForProperty(context.companyId, propertyId, limit);
           if (chunks.length) {
             lines.push('Knowledge index excerpts:', ...chunks.map((c) => c.content));
           }

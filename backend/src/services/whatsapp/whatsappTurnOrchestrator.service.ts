@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import config from '../../config';
 import type { TurnResult, WhatsAppComponent, BuyerTurnInput } from '../../types/whatsapp-turn.types';
 import { conversationStateManager, type ConversationState } from '../conversationStateMachine';
 import { resolveBuyerComponents } from '../buyer/buyerButtonPolicy.service';
@@ -1181,6 +1182,10 @@ async function handleClassifierWorkflowTurn(
 ): Promise<TurnResult | null> {
   if (visitCommit.committed) return null;
   if (ctx.input.interactiveId?.trim()) return null;
+
+  const { shouldBypassBuyerWorkflowForRichPropertyLlm } = await import('../customerMessageFastPath.service');
+  if (shouldBypassBuyerWorkflowForRichPropertyLlm(ctx.input.messageText)) return null;
+
   if (shouldDeferToFullAiForExtraction(ctx.input.messageText)) return null;
 
   const resolvedPropertyId = await resolveBuyerPropertyReference({
