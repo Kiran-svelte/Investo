@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { deleteCompany } from '../../services/resourceDelete';
 import { useAuth } from '../../context/AuthContext';
+import { useTenantContext } from '../../context/TenantContext';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
 
 interface Company {
@@ -34,6 +35,7 @@ interface SubscriptionPlan {
 const CompaniesPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { setTargetCompany } = useTenantContext();
   const { confirm, Dialog } = useConfirmDialog();
   const isPlatformAdmin = user?.role === 'super_admin';
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -138,6 +140,7 @@ const CompaniesPage: React.FC = () => {
           plan_name: plans.find((p) => p.id === created.planId)?.name ?? null,
           agent_count: 0,
         });
+        setTargetCompany(created.id, created.name);
         setInviteError('');
         setInviteSuccess(
           warning
@@ -393,6 +396,7 @@ const CompaniesPage: React.FC = () => {
                             type="button"
                             onClick={() => {
                               setInviteCompany(company);
+                              setTargetCompany(company.id, company.name);
                               setInviteError('');
                               setInviteSuccess('');
                             }}

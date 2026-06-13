@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.11",
-    "deployNote": "v0.1.11-tenant-isolation-phase2",
+    "version": "0.1.12",
+    "deployNote": "v0.1.12-invite-admin-tenant-body-fix",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {

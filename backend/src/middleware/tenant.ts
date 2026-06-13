@@ -1,6 +1,26 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
 
+function readTargetCompanyId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * Super-admin tenant scope from query string or JSON body (per-action overrides sidebar context).
+ */
+export function resolveSuperAdminTargetCompanyId(req: AuthRequest): string {
+  const fromQuery = readTargetCompanyId(req.query.target_company_id);
+  if (fromQuery) return fromQuery;
+
+  const body = req.body;
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const fromBody = readTargetCompanyId((body as Record<string, unknown>).target_company_id);
+    if (fromBody) return fromBody;
+  }
+
+  return '';
+}
+
 /**
  * Tenant isolation middleware.
  * Injects company_id into query context so all downstream DB queries
@@ -39,9 +59,7 @@ export function strictTenantIsolation(req: AuthRequest, res: Response, next: Nex
   }
 
   if (user.role === 'super_admin') {
-    const targetCompanyId = typeof req.query.target_company_id === 'string'
-      ? req.query.target_company_id.trim()
-      : '';
+    const targetCompanyId = resolveSuperAdminTargetCompanyId(req);
     if (!targetCompanyId) {
       res.status(400).json({
         error: 'Select a tenant company before accessing agency data (target_company_id query parameter).',

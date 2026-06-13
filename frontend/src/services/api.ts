@@ -117,6 +117,25 @@ function shouldAttachTargetCompanyId(url?: string): boolean {
   return TENANT_SCOPED_PREFIXES.some((prefix) => url.startsWith(prefix) || url.includes(`${prefix}?`));
 }
 
+function resolveRequestTargetCompanyId(
+  _url: string | undefined,
+  params: Record<string, unknown> | undefined,
+  data: unknown,
+): string | null {
+  const stored = getStoredTargetCompanyId();
+  if (stored) return stored;
+
+  const fromParams = typeof params?.target_company_id === 'string' ? params.target_company_id.trim() : '';
+  if (fromParams) return fromParams;
+
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const fromBody = (data as Record<string, unknown>).target_company_id;
+    if (typeof fromBody === 'string' && fromBody.trim()) return fromBody.trim();
+  }
+
+  return null;
+}
+
 const getApiBaseUrl = (): string => {
   const envApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
 
@@ -181,7 +200,11 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    const targetCompanyId = getStoredTargetCompanyId();
+    const targetCompanyId = resolveRequestTargetCompanyId(
+      config.url,
+      config.params as Record<string, unknown> | undefined,
+      config.data,
+    );
     if (targetCompanyId && shouldAttachTargetCompanyId(config.url)) {
       config.params = {
         ...(config.params as Record<string, unknown> | undefined),

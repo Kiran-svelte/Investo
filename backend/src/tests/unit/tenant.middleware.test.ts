@@ -67,7 +67,7 @@ describe('tenant middleware', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('strictTenantIsolation scopes super_admin to target_company_id', () => {
+  it('strictTenantIsolation scopes super_admin to target_company_id query', () => {
     const req = mockReq({
       user: { id: 'sa', role: 'super_admin', company_id: 'platform-co' } as any,
       query: { target_company_id: 'tenant-c' },
@@ -78,6 +78,21 @@ describe('tenant middleware', () => {
     strictTenantIsolation(req, res, next);
 
     expect((req as any).companyId).toBe('tenant-c');
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('strictTenantIsolation accepts target_company_id from JSON body', () => {
+    const req = {
+      user: { id: 'sa', role: 'super_admin', company_id: 'platform-co' },
+      query: {},
+      body: { target_company_id: 'tenant-from-body', name: 'Admin' },
+    } as any;
+    const res = mockRes();
+    const next = jest.fn() as NextFunction;
+
+    strictTenantIsolation(req, res, next);
+
+    expect(req.companyId).toBe('tenant-from-body');
     expect(next).toHaveBeenCalled();
   });
 });
