@@ -1,35 +1,42 @@
 ---
-description: Enterprise WhatsApp buyer UX — partial/improving items, implementation plan, rollout gates
+description: Enterprise WhatsApp buyer UX — architecture, invariants, rollout gates
 alwaysApply: true
 ---
 
-# WhatsApp Enterprise Readiness Plan
+# Enterprise WhatsApp Buyer UX
 
-Workstream: Close all **partial / improving** buyer-facing gaps for enterprise rollout.
-**Definition of done per chunk:** unit tests + `npm run smoke` + commit + push `kiran/main` + Railway deploy + prod health check.
+## Architecture (single sources of truth)
 
-## Status tracker
+| Concern | Module | Rule |
+|---------|--------|------|
+| CRM button flags | `buyerEnterpriseUx.service.ts` → `buildBuyerCrmButtonFlags` | Never duplicate visit/project id logic in orchestrators |
+| Visit-era buttons | `buildActiveVisitActionButtons` + `shouldUseVisitAwareButtonsOnly` | Active visit → no Book Visit / Property Details except visit-scheduling prompts |
+| Buyer copy | `buyerI18n.util.ts` → `tBuyer()` | No `buyerTurn("literal")` in interactive orchestrator — enforced by `buyerCopyCompliance.test.ts` |
+| Sold units | `resolveBuyerPropertyReferenceEnterprise` + `propertyBrowseTurn` | Sold by name → explanation + View Listings, never silent empty |
+| Language | `resolveTurnBuyerLanguage` / `resolveInteractiveBuyerLanguage` | Message language wins; Hi → English + Hindi suffix if `leadLanguage=hi` |
+| Browse filters | `buildDiscoveryButtonSet(snapshot, lang)` | Always pass `lang` — never cache localized titles in Redis snapshot |
 
-| ID | Scope | Status | Key files |
-|----|-------|--------|-----------|
-| E1 | Localized filter button titles (company inventory → buyer buttons) | DONE | `companyInventoryBrowse.service.ts`, `buyerI18n.util.ts` |
-| E2 | Localize `handlePropertyFilter` + interactive orchestrator English literals | DONE | `whatsappInteractiveOrchestrator.service.ts`, `buyerI18n.util.ts` |
-| E3 | Active-visit guards on `post_visit`, `price_discussed`, `brochure_or_location` buttons | DONE | `buyerSituationButtons.util.ts`, `whatsappTurnOrchestrator.service.ts` |
-| E4 | Sold/unavailable unit by-name reply (not silent empty browse) | DONE | `propertyBrowseTurn.util.ts`, `buyerPropertyContext.service.ts` |
-| E5 | Custom greeting template + bilingual Hi when `leadLanguage=hi` | DONE | `customerMessageFastPath.service.ts`, `buyerQualification.service.ts` |
-| E6 | Devanagari/Hinglish location tokens in browse intent | DONE | `buyerBrowseIntent.util.ts`, `propertyKnowledge.service.ts` |
-| E7 | Regression tests + evals for E1–E6 | DONE | `backend/src/tests/unit/*` |
+## Invariants (must never break)
 
-## Retest checklist (production WhatsApp)
+1. **Booked property tap** → `visit_booked_property_reminder`, not full detail repeat.
+2. **Active visit + any AI reply** → Change Time / View Listings / Call Agent (catch-all in `resolveSituationBuyerButtons`).
+3. **Post-visit** → Share Feedback / Talk to Agent / View Listings (not more-info loop).
+4. **Filter tap** → localized reply + localized filter buttons.
+5. **Sold unit by name** → sold message + project listings button.
 
-1. Hindi filter tap → Hindi buttons + Hindi filter result text.
-2. Booked visit + price question → no Book Visit button.
-3. Sold unit by name → clear sold message + View Listings.
-4. Hi (Hindi lead, custom template) → bilingual.
-5. Hindi area query (e.g. Whitefield Devanagari) → project list matches English query.
+## Definition of done
 
-## Safety nets
+- `buyerEnterpriseUx.service.test.ts` matrix passes
+- `buyerCopyCompliance.test.ts` passes
+- `npm run smoke` passes
+- Deploy + prod health check
 
-1. `npm run smoke` before deploy.
-2. Deploy: `RAILWAY_ACCOUNT_TOKEN=... node scripts/deploy-railway-graphql.mjs`
-3. Prod health: `https://investo-backend-production.up.railway.app/api/health/live`
+## Status: Enterprise v2 (2026-06-14)
+
+| Layer | Status |
+|-------|--------|
+| Central CRM context | DONE |
+| Visit button catch-all | DONE |
+| i18n compliance test | DONE |
+| Legacy whatsapp.service lang threading | DONE |
+| Property sold enterprise resolver | DONE |

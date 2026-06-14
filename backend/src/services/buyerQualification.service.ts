@@ -18,11 +18,11 @@ import {
   resolveBuyerLanguage,
   tBuyer,
   normalizeBuyerLang,
-  hindiGreetingFollowupBlock,
   wasRecentBareGreetingWelcomeSent,
   wasRecentVisitWelcomeSent,
   wasRecentCallWelcomeSent,
 } from '../utils/buyerI18n.util';
+import { appendHindiLeadGreetingSuffix } from './buyer/buyerEnterpriseUx.service';
 
 function isRapportPhrase(message: string): boolean {
   return (
@@ -242,9 +242,13 @@ export function buildReturningBuyerWelcomeReply(input: {
   }
 
   let text = resolveWelcomeShell(company, input.customerName, input.greetingTemplate);
-  if (lang === 'en' && normalizeBuyerLang(input.leadLanguage) === 'hi') {
-    text += hindiGreetingFollowupBlock(company, input.customerName);
-  }
+  text = appendHindiLeadGreetingSuffix(
+    text,
+    lang,
+    input.leadLanguage,
+    company,
+    input.customerName,
+  );
   const activityLines = buildReturningActivityLines({
     locationPreference: input.locationPreference,
     liveCtx: input.liveCtx,

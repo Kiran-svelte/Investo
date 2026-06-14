@@ -5,6 +5,7 @@
 
 import { buyerButtonTitle } from './buyerI18n.util';
 import { buildActiveVisitActionButtons } from '../services/projectBrowse.service';
+import { shouldUseVisitAwareButtonsOnly } from '../services/buyer/buyerEnterpriseUx.service';
 
 export type BuyerButtonSituation =
   | 'active_call'
@@ -220,6 +221,10 @@ export function resolveButtonsForBuyerSituation(
       return inventoryFilterButtons(input.browseFilters, { includeCallMe: false, maxFilters: 3, language: lang });
 
     case 'multi_property_list': {
+      if (input.hasActiveVisit) {
+        const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
+        return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+      }
       const narrow = firstBrowseFilter(input.browseFilters);
       const buttons: Array<{ id: string; title: string }> = [];
       if (narrow) buttons.push({ id: narrow.id, title: buyerButtonTitle(lang, 'narrow_search') });
@@ -295,5 +300,12 @@ export function resolveSituationBuyerButtons(
   input: SituationButtonInput,
 ): Array<{ id: string; title: string }> | null {
   const situation = detectBuyerButtonSituation(input);
+  const lang = input.language ?? 'en';
+
+  if (shouldUseVisitAwareButtonsOnly(input.hasActiveVisit, situation)) {
+    const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
+    return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+  }
+
   return resolveButtonsForBuyerSituation(situation, input);
 }

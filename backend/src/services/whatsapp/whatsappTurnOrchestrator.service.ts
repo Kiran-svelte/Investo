@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import config from '../../config';
 import type { TurnResult, WhatsAppComponent, BuyerTurnInput } from '../../types/whatsapp-turn.types';
 import { conversationStateManager, type ConversationState } from '../conversationStateMachine';
+import { buildBuyerCrmButtonFlags } from '../buyer/buyerEnterpriseUx.service';
 import { resolveBuyerComponents } from '../buyer/buyerButtonPolicy.service';
 import { stripBuyerInternalMetadata } from './whatsappResponseSanitizer.service';
 import prisma from '../../config/prisma';
@@ -1837,24 +1838,11 @@ function buyerButtonFlagsFromLive(
   liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
   leadId?: string,
 ) {
-  return {
-    hasActiveVisit: Boolean(liveCtx.activeVisit),
-    hasActiveCall: Boolean(liveCtx.activeCall),
-    visitStatus: liveCtx.activeVisit?.status,
-    visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
-    visitTime: resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
-    visitPropertyProjectId:
-      liveCtx.activeVisit?.projectId ?? liveCtx.recentCompletedVisit?.projectId ?? null,
-    visitPropertyId:
-      liveCtx.activeVisit?.propertyId ?? liveCtx.recentCompletedVisit?.propertyId ?? null,
-    hasCompletedVisit: isPostVisitBuyer(liveCtx),
+  return buildBuyerCrmButtonFlags(
+    liveCtx,
     leadId,
-    liveLeadSnapshot: {
-      activeVisit: liveCtx.activeVisit,
-      recentCompletedVisit: liveCtx.recentCompletedVisit,
-      leadStatus: liveCtx.leadStatus,
-    },
-  };
+    resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
+  );
 }
 
 /** Visit state + conversation property context for contextual next-step buttons. */

@@ -917,9 +917,12 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       let body = topHint;
       const altProp = tiers[0]?.properties?.[0];
       if (altProp) {
-        body += `\n\nClosest option: *${altProp.name}* (${altProp.locationArea || altProp.locationCity}).`;
+        body += `\n\n${tBuyer(lang, 'filter_closest_option', {
+          name: altProp.name,
+          location: altProp.locationArea || altProp.locationCity || 'TBD',
+        })}`;
       }
-      body += '\n\nReply *WAITLIST* to get alerted when a match is listed, or tell me another area/BHK.';
+      body += `\n\n${tBuyer(lang, 'filter_waitlist_cta')}`;
 
       await prisma.conversation.update({
         where: { id: conversation.id },

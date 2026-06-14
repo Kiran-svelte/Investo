@@ -2549,6 +2549,9 @@ export class WhatsAppService {
       visitProperty?: string;
       /** Formatted visit time string for the button body. */
       visitTime?: string;
+      visitPropertyProjectId?: string | null;
+      visitPropertyId?: string | null;
+      leadLanguage?: string | null;
       /** Set when an action just completed — suppresses follow-up buttons for this turn. */
       recentAction?: QuickReplyRecentAction;
       browseFilters?: Array<{ id: string; title: string }>;
@@ -2556,10 +2559,13 @@ export class WhatsAppService {
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
     let browseFilters = context.browseFilters;
+    const lang = context.leadLanguage
+      ? (await import('../utils/buyerI18n.util')).resolveBuyerLanguage({ leadLanguage: context.leadLanguage })
+      : 'en';
     if (!browseFilters && context.companyId) {
       const { getCompanyBrowseSnapshot, buildDiscoveryButtonSet } = await import('./companyInventoryBrowse.service');
       const snapshot = await getCompanyBrowseSnapshot(context.companyId);
-      browseFilters = buildDiscoveryButtonSet(snapshot);
+      browseFilters = buildDiscoveryButtonSet(snapshot, lang);
     }
     const components = resolveBuyerComponents({
       stage,
@@ -2573,7 +2579,10 @@ export class WhatsAppService {
       visitStatus: context.visitStatus,
       visitProperty: context.visitProperty,
       visitTime: context.visitTime,
+      visitPropertyProjectId: context.visitPropertyProjectId,
+      visitPropertyId: context.visitPropertyId,
       browseFilters,
+      language: lang,
     });
     await this.sendTurnComponents(to, components, whatsappConfig, context.outboundText);
   }

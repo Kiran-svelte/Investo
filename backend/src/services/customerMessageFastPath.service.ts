@@ -23,8 +23,8 @@ import {
   wasRecentVisitWelcomeSent,
   wasRecentCallWelcomeSent,
   isBasicSocialMessage,
-  hindiGreetingFollowupBlock,
 } from '../utils/buyerI18n.util';
+import { appendHindiLeadGreetingSuffix } from './buyer/buyerEnterpriseUx.service';
 
 /**
  * Minimum number of prior conversation messages that qualifies a user as
@@ -273,10 +273,13 @@ export function buildFastPathCustomerReply(input: {
       : null;
 
     if (greeting) {
-      let text = greeting;
-      if (isBasicSocialMessage(trimmed) && normalizeBuyerLang(input.leadLanguage) === 'hi') {
-        text += hindiGreetingFollowupBlock(company, name || null);
-      }
+      const text = appendHindiLeadGreetingSuffix(
+        greeting,
+        lang,
+        input.leadLanguage,
+        company,
+        name || null,
+      );
       return { text, detectedLanguage: lang };
     }
 

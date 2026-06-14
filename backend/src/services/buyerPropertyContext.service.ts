@@ -146,6 +146,24 @@ export async function resolveBuyerPropertyReference(input: {
   return null;
 }
 
+/** Enterprise property reference — checks sold units before available catalog match. */
+export async function resolveBuyerPropertyReferenceEnterprise(input: {
+  companyId: string;
+  messageText: string;
+  selectedPropertyId?: string | null;
+  recommendedPropertyIds?: readonly string[] | null;
+}): Promise<{
+  availablePropertyId: string | null;
+  soldProperty: Awaited<ReturnType<typeof findSoldPropertyMentionedByName>>;
+}> {
+  const soldProperty = await findSoldPropertyMentionedByName(input.companyId, input.messageText);
+  if (soldProperty) {
+    return { availablePropertyId: null, soldProperty };
+  }
+  const availablePropertyId = await resolveBuyerPropertyReference(input);
+  return { availablePropertyId, soldProperty: null };
+}
+
 export function inferBuyerPropertyContextFromOutbound(input: {
   outboundText: string;
   properties: BuyerPropertyContextProperty[];

@@ -215,6 +215,8 @@ type BuyerCopyKey =
   | 'filter_error'
   | 'filter_inventory_hint'
   | 'filter_inventory_empty'
+  | 'filter_closest_option'
+  | 'filter_waitlist_cta'
   | 'interactive_visit_confirm_no_visit'
   | 'interactive_visit_confirm_failed'
   | 'interactive_visit_confirmed'
@@ -1074,6 +1076,14 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   filter_inventory_empty: langPack(
     "We're still setting up our listings.",
     'Hamari listings abhi setup ho rahi hain.',
+  ),
+  filter_closest_option: langPack(
+    'Closest option: *{name}* ({location}).',
+    'Sabse nazdeek: *{name}* ({location}).',
+  ),
+  filter_waitlist_cta: langPack(
+    'Reply *WAITLIST* to get alerted when a match is listed, or tell me another area/BHK.',
+    '*WAITLIST* likhein jab match aaye to alert mile, ya aur area/BHK batayein.',
   ),
   interactive_visit_confirm_no_visit: langPack(
     "I couldn't find an upcoming visit to confirm. Would you like to book a new site visit?",
