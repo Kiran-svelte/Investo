@@ -8,16 +8,24 @@ import {
   getCompanyBrowseSnapshot,
 } from '../services/companyInventoryBrowse.service';
 import {
+  companyUsesProjectBrowse,
+  listProjectsForBuyerBrowse,
+  formatProjectCatalogIntro,
+  buildProjectSelectListComponent,
+} from '../services/projectBrowse.service';
+import {
   formatBuyerCatalogEmpty,
   formatBuyerCatalogMatches,
   formatInventoryCountReply,
   isInventoryCountQuery,
 } from './formatBuyerCatalog.util';
+import { tBuyer } from './buyerI18n.util';
 
 export type PropertyBrowseContext = {
   companyId: string;
   messageText: string;
   stage: string;
+  leadLanguage?: string | null;
 };
 
 export type PropertyBrowseTurnPayload = {
@@ -26,6 +34,52 @@ export type PropertyBrowseTurnPayload = {
   properties: Array<{ id: string; name: string }>;
   components: WhatsAppComponent[];
 };
+
+function parseBrowseFilters(messageText: string): { propertyType?: string; bedrooms?: number } {
+  const t = messageText.toLowerCase();
+  const filters: { propertyType?: string; bedrooms?: number } = {};
+  if (/\bvillas?\b/.test(t)) filters.propertyType = 'villa';
+  else if (/\b(apartments?|flats?)\b/.test(t)) filters.propertyType = 'apartment';
+  else if (/\bplots?\b/.test(t)) filters.propertyType = 'plot';
+  else if (/\bcommercial\b/.test(t)) filters.propertyType = 'commercial';
+  const bhk = t.match(/\b(\d)\s*bhk\b/);
+  if (bhk) filters.bedrooms = Number(bhk[1]);
+  return filters;
+}
+
+async function resolveProjectFirstBrowseTurn(
+  input: PropertyBrowseContext,
+  filters?: { propertyType?: string; bedrooms?: number },
+): Promise<PropertyBrowseTurnPayload | null> {
+  const usesProjects = await companyUsesProjectBrowse(input.companyId);
+  if (!usesProjects) return null;
+
+  const projects = await listProjectsForBuyerBrowse(input.companyId, filters);
+  const lang = input.leadLanguage ?? 'en';
+
+  if (!projects.length) {
+    const snapshot = await getCompanyBrowseSnapshot(input.companyId);
+    return {
+      reply: tBuyer(lang, 'project_browse_none'),
+      propertyIds: [],
+      properties: [],
+      components: buildFilterButtonsComponent(snapshot),
+    };
+  }
+
+  const reply = formatProjectCatalogIntro(projects, lang);
+  const snapshot = await getCompanyBrowseSnapshot(input.companyId);
+
+  return {
+    reply,
+    propertyIds: [],
+    properties: [],
+    components: [
+      buildProjectSelectListComponent(projects),
+      ...buildFilterButtonsComponent(snapshot),
+    ],
+  };
+}
 
 export async function resolvePropertyBrowseTurn(
   input: PropertyBrowseContext,
@@ -36,7 +90,18 @@ export async function resolvePropertyBrowseTurn(
     return null;
   }
 
+  const filters = parseBrowseFilters(messageText);
+
   if (isInventoryCountQuery(messageText)) {
+    const projectTurn = await resolveProjectFirstBrowseTurn(input, filters);
+    if (projectTurn) {
+      const summary = await getInventorySummary(companyId);
+      return {
+        ...projectTurn,
+        reply: `${formatInventoryCountReply(summary)}\n\n${projectTurn.reply}`,
+      };
+    }
+
     const summary = await getInventorySummary(companyId);
     const reply = formatInventoryCountReply(summary);
     const properties = await prisma.property.findMany({
@@ -59,10 +124,15 @@ export async function resolvePropertyBrowseTurn(
     };
   }
 
+  const projectTurn = await resolveProjectFirstBrowseTurn(input, filters);
+  if (projectTurn) {
+    return projectTurn;
+  }
+
   const matches = await matchCatalogPropertiesForQuery({
     companyId,
     query: messageText,
-    limit: 5,
+    limit: 10,
   });
 
   if (!matches.length) {
@@ -114,13 +184,13 @@ async function buildPropertyBrowseComponents(input: {
   if (input.matches.length >= 2) {
     return [{
       kind: 'list',
-      title: 'View projects',
+      title: 'View properties',
       sections: [{
-        title: 'Matching projects',
+        title: 'Matching listings',
         rows: input.matches.slice(0, 10).map((p) => ({
           id: `more-info-${p.id}`,
           title: p.name.slice(0, 24),
-          description: (p.propertyType ?? 'project').slice(0, 72),
+          description: (p.propertyType ?? 'listing').slice(0, 72),
         })),
       }],
     }];
@@ -145,35 +215,32 @@ async function buildPropertyBrowseComponents(input: {
 /** Hero image + brochure for a single shortlisted property (proactive, before user asks). */
 async function resolveProactiveBrowseMedia(
   companyId: string,
-  matches: Array<{ id: string; name: string; brochureUrl: string | null }>,
+  matches: Array<{ id: string; brochureUrl?: string | null; name: string; images?: unknown }>,
 ): Promise<WhatsAppComponent[]> {
-  if (matches.length !== 1) return [];
+  const out: WhatsAppComponent[] = [];
+  const primary = matches[0];
+  if (!primary) return out;
 
-  const prop = await prisma.property.findFirst({
-    where: { id: matches[0].id, companyId },
-    select: { id: true, name: true, images: true, brochureUrl: true },
+  const full = await prisma.property.findFirst({
+    where: { id: primary.id, companyId },
+    select: { brochureUrl: true, images: true, name: true },
   });
-  if (!prop) return [];
+  if (!full) return out;
 
-  const components: WhatsAppComponent[] = [];
-  const images = Array.isArray(prop.images) ? (prop.images as string[]) : [];
-  const heroUrl = images.find((url) => typeof url === 'string' && url.startsWith('https://'));
-  if (heroUrl) {
-    components.push({ kind: 'media', url: heroUrl, mime: 'image/jpeg', caption: prop.name });
-  }
-
-  const brochureStored = prop.brochureUrl ?? matches[0].brochureUrl;
-  if (brochureStored) {
-    const pdfUrl = await resolveBrochureUrlForWhatsApp(brochureStored);
-    if (pdfUrl) {
-      components.push({
-        kind: 'media',
-        url: pdfUrl,
-        mime: 'application/pdf',
-        caption: `${prop.name} — Brochure`,
-      });
+  if (full.brochureUrl) {
+    const url = await resolveBrochureUrlForWhatsApp(full.brochureUrl);
+    if (url) {
+      out.push({ kind: 'media', url, mime: 'application/pdf', caption: full.name });
     }
   }
 
-  return components.slice(0, 2);
+  const images = full.images;
+  if (Array.isArray(images)) {
+    const hero = images.find((u) => typeof u === 'string' && u.startsWith('https://'));
+    if (hero) {
+      out.push({ kind: 'media', url: hero, mime: 'image/jpeg', caption: full.name });
+    }
+  }
+
+  return out.slice(0, 2);
 }

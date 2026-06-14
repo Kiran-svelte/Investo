@@ -57,6 +57,20 @@ export interface BoardProperty {
   property_type: string | null;
   status: string;
   project_id?: string | null;
+  images?: string[] | string;
+  brochure_url?: string | null;
+}
+
+function parseBoardImages(val: string[] | string | null | undefined): string[] {
+  if (!val) return [];
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val) as string[];
+    } catch {
+      return [];
+    }
+  }
+  return val;
 }
 
 interface PropertyProjectsBoardProps {
@@ -264,18 +278,35 @@ export default function PropertyProjectsBoard({
     }
   };
 
-  const renderPropertyCard = (property: BoardProperty) => (
+  const renderPropertyCard = (property: BoardProperty) => {
+    const cardImages = parseBoardImages(property.images);
+    const heroImage = cardImages[0];
+    return (
     <div
       key={property.id}
       draggable={canManage}
       onDragStart={() => setDragPropertyId(property.id)}
       onDragEnd={() => setDragPropertyId(null)}
       onClick={() => onPropertyClick(property)}
-      className={`rounded-lg border bg-white p-3 shadow-sm transition-shadow hover:shadow-md ${
+      className={`rounded-lg border bg-white overflow-hidden shadow-sm transition-shadow hover:shadow-md ${
         dragPropertyId === property.id ? 'opacity-50' : ''
       } ${canManage ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
     >
-      <div className="flex items-start gap-2">
+      <div className="relative h-24 bg-surface-subtle">
+        {heroImage ? (
+          <img src={heroImage} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <ImageIcon className="h-8 w-8 text-ink-faint" />
+          </div>
+        )}
+        {(cardImages.length > 0 || property.brochure_url) && (
+          <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+            {cardImages.length > 0 ? `${cardImages.length} photo${cardImages.length === 1 ? '' : 's'}` : 'Brochure'}
+          </span>
+        )}
+      </div>
+      <div className="flex items-start gap-2 p-3">
         {canManage && <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink-primary">{property.name}</p>
@@ -288,6 +319,13 @@ export default function PropertyProjectsBoard({
         </div>
         {canManage && (
           <div className="flex shrink-0 gap-1" onClick={(ev) => ev.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => onPropertyClick(property)}
+              className="rounded p-1 text-xs text-brand-700 hover:bg-brand-50"
+            >
+              Photos
+            </button>
             <button
               type="button"
               onClick={() => onEdit(property)}
@@ -308,6 +346,7 @@ export default function PropertyProjectsBoard({
       </div>
     </div>
   );
+  };
 
   const renderDropZone = (
     key: string,

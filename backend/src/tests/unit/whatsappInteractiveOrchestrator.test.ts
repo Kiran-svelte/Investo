@@ -3,7 +3,7 @@ import { enforceTurnComponentBudget } from '../../services/whatsapp/whatsappTurn
 
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
-  default: {
+    default: {
     visit: { findFirst: jest.fn(), update: jest.fn() },
     user: { findUnique: jest.fn() },
     notification: { create: jest.fn() },
@@ -11,6 +11,7 @@ jest.mock('../../config/prisma', () => ({
     conversation: { update: jest.fn() },
     message: { findFirst: jest.fn(), create: jest.fn() },
     property: { findFirst: jest.fn(), findMany: jest.fn() },
+    propertyProject: { count: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
   },
 }));
 
@@ -23,6 +24,32 @@ jest.mock('../../services/brochureDelivery.service', () => ({
 
 jest.mock('../../services/alternativeInventory.service', () => ({
   searchAlternativeTiers: jest.fn(async () => []),
+}));
+
+jest.mock('../../services/projectBrowse.service', () => ({
+  companyUsesProjectBrowse: jest.fn(async () => false),
+  listProjectsForBuyerBrowse: jest.fn(async () => []),
+  formatProjectCatalogIntro: jest.fn(() => ''),
+  buildProjectSelectListComponent: jest.fn(() => ({ kind: 'list', title: 'Choose project', sections: [] })),
+  loadProjectProperties: jest.fn(async () => null),
+  buildProjectPropertyListComponent: jest.fn(),
+  buildPropertyDetailButtons: jest.fn(),
+  resolveProjectBrochureMediaComponent: jest.fn(async () => null),
+  resolveProjectHeroImageComponent: jest.fn(async () => null),
+  formatProjectSelectedIntro: jest.fn(() => ''),
+}));
+
+jest.mock('../../services/companyInventoryBrowse.service', () => ({
+  getCompanyBrowseSnapshot: jest.fn(async () => ({
+    companyId: 'co-1',
+    totalListings: 5,
+    propertyTypes: ['apartment'],
+    bedroomOptions: [2],
+    filters: [{ id: 'filter-2bhk', filterKey: '2bhk', title: '2 BHK' }],
+    typeSummary: 'apartments',
+  })),
+  isFilterInCompanyInventory: jest.fn((_snapshot, key: string) => key === '2bhk'),
+  buildDiscoveryButtonSet: jest.fn(() => []),
 }));
 
 jest.mock('../../services/callRequest.service', () => ({
@@ -56,6 +83,7 @@ jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => {
 });
 
 import prisma from '../../config/prisma';
+import { resolveHeroMediaComponentFromPropertyIds } from '../../services/whatsapp/whatsappTurnOrchestrator.service';
 
 const baseParams = {
   lead: {
@@ -115,6 +143,7 @@ describe('whatsappInteractiveOrchestrator.service', () => {
   });
 
   test('filter shortlist builds list + hero within budget', async () => {
+    (resolveHeroMediaComponentFromPropertyIds as jest.Mock).mockResolvedValue(null);
     (prisma.message.findFirst as jest.Mock).mockResolvedValue(null);
     (prisma.lead.update as jest.Mock).mockResolvedValue({
       ...baseParams.lead,

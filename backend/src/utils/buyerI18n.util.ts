@@ -108,6 +108,7 @@ type BuyerCopyKey =
   | 'btn_share_feedback'
   | 'btn_talk_agent'
   | 'btn_see_options'
+  | 'btn_view_project_listings'
   | 'btn_narrow_search'
   | 'btn_emi'
   | 'btn_more_details'
@@ -137,7 +138,12 @@ type BuyerCopyKey =
   | 'prop_label_price_list'
   | 'prop_label_amenities'
   | 'prop_label_details'
-  | 'prop_on_file';
+  | 'prop_on_file'
+  | 'project_browse_none'
+  | 'project_browse_header'
+  | 'project_browse_line'
+  | 'project_browse_footer'
+  | 'project_selected_intro';
 
 type CopyVars = Record<string, string | number | null | undefined>;
 
@@ -553,6 +559,19 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     pa: 'Hor Options',
     or: 'Adhika Options',
   },
+  btn_view_project_listings: {
+    en: 'View Listings',
+    hi: 'Listings Dekhein',
+    kn: 'Listings Nodi',
+    te: 'Listings Chudandi',
+    ta: 'Listings Paarunga',
+    ml: 'Listings Kanu',
+    mr: 'Listings Paha',
+    bn: 'Listings Dekhun',
+    gu: 'Listings Juo',
+    pa: 'Listings Dekho',
+    or: 'Listings Dekhantu',
+  },
   btn_narrow_search: {
     en: 'Narrow Search',
     hi: 'Search Sankuchit',
@@ -799,6 +818,26 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   prop_label_amenities: langPack('Amenities', 'Suvidhaayein'),
   prop_label_details: langPack('Details', 'Vivaran'),
   prop_on_file: langPack('on file', 'uplabdh'),
+  project_browse_none: langPack(
+    'No project listings are published right now. Tell me your budget or area and I will help.',
+    'Abhi koi project listing publish nahi hai. Apna budget ya area batayein.',
+  ),
+  project_browse_header: langPack(
+    'Here are *{count}* project(s) you can explore:',
+    'Yeh *{count}* project explore kar sakte hain:',
+  ),
+  project_browse_line: langPack(
+    '*{index}. {name}* — {count} listings · {types} · {location}{price}',
+    '*{index}. {name}* — {count} listings · {types} · {location}{price}',
+  ),
+  project_browse_footer: langPack(
+    'Tap a *project* below to get the brochure and choose a specific property inside it.',
+    'Neeche *project* chunein — brochure milega, phir us project ki property select karein.',
+  ),
+  project_selected_intro: langPack(
+    'Great choice — *{name}* has *{count}* available listing(s). Here is the project brochure. Tap a property below for full details, photos, and visit booking.',
+    'Badhiya — *{name}* mein *{count}* listing(s) available hain. Project brochure neeche hai. Property chunein details aur visit ke liye.',
+  ),
 };
 
 function interpolate(template: string, vars: CopyVars): string {
@@ -862,6 +901,7 @@ export type BuyerButtonKey =
   | 'share_feedback'
   | 'talk_agent'
   | 'see_options'
+  | 'view_project_listings'
   | 'narrow_search'
   | 'emi'
   | 'more_details';
@@ -878,6 +918,7 @@ const BUTTON_KEY_MAP: Record<BuyerButtonKey, BuyerCopyKey> = {
   share_feedback: 'btn_share_feedback',
   talk_agent: 'btn_talk_agent',
   see_options: 'btn_see_options',
+  view_project_listings: 'btn_view_project_listings',
   narrow_search: 'btn_narrow_search',
   emi: 'btn_emi',
   more_details: 'btn_more_details',

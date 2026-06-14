@@ -27,6 +27,18 @@ import { confirmVisitById } from '../visitState.service';
 import { maskPhone } from '../agent/tools/format-helpers';
 import { logAgentAction } from '../agent-action-log.service';
 import { getCompanyBrowseSnapshot, isFilterInCompanyInventory, buildDiscoveryButtonSet } from '../companyInventoryBrowse.service';
+import {
+  buildProjectPropertyListComponent,
+  buildPropertyDetailButtons,
+  companyUsesProjectBrowse,
+  formatProjectCatalogIntro,
+  formatProjectSelectedIntro,
+  listProjectsForBuyerBrowse,
+  loadProjectProperties,
+  resolveProjectBrochureMediaComponent,
+  resolveProjectHeroImageComponent,
+  buildProjectSelectListComponent,
+} from '../projectBrowse.service';
 import { buyerButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
 
 export type InteractiveActionParams = {
@@ -122,6 +134,8 @@ async function routeInteractiveAction(
   if (interactiveId === 'more-info' || interactiveId.startsWith('more-info-')) {
     return handleMoreInfo(params);
   }
+  if (interactiveId.startsWith('project-select-')) return handleProjectSelect(params);
+  if (interactiveId.startsWith('project-properties-')) return handleProjectProperties(params);
   if (interactiveId.startsWith('filter-')) return handlePropertyFilter(params);
 
   return null;
@@ -515,14 +529,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       ],
     };
   } else {
-    buttonComponent = {
-      kind: 'buttons',
-      buttons: [
-        { id: `book-visit-${propertyId}`, title: buyerButtonTitle(lang, 'book_visit') },
-        { id: 'call-me', title: buyerButtonTitle(lang, 'call_me') },
-        { id: `location-${propertyId}`, title: 'Show Location' },
-      ],
-    };
+    buttonComponent = buildPropertyDetailButtons(propertyId, property.projectId, lang);
   }
 
   const brochure = await resolveInteractiveBrochure({
@@ -562,6 +569,115 @@ async function resolveInteractiveBrochure(input: {
     return { cleanedText: input.aiText, mediaComponent: null };
   }
   return brochureModule.resolveBrochureForAiTurn(input);
+}
+
+async function handleProjectSelect(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const { interactiveId, lead, conversation, company } = params;
+  const projectId = interactiveId.replace('project-select-', '');
+  const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
+
+  const loaded = await loadProjectProperties(company.id, projectId);
+  if (!loaded) {
+    return {
+      handled: true,
+      action: 'project-not-found',
+      turnResult: buyerTurn(
+        tBuyer(lang, 'project_browse_none'),
+      ),
+    };
+  }
+
+  let outboundText = formatProjectSelectedIntro(
+    loaded.project.name,
+    loaded.properties.length,
+    lang,
+  );
+  if (loaded.properties.length > 10) {
+    outboundText += `\n\nShowing 10 of ${loaded.properties.length} listings — reply with a unit name for others.`;
+  }
+
+  const mediaComponents: WhatsAppComponent[] = [];
+  const brochure = await resolveProjectBrochureMediaComponent(
+    company.id,
+    projectId,
+    loaded.project.name,
+  );
+  if (brochure) {
+    mediaComponents.push(brochure);
+  } else {
+    const hero = await resolveProjectHeroImageComponent(company.id, projectId);
+    if (hero) mediaComponents.push(hero);
+  }
+
+  const listComponent = buildProjectPropertyListComponent(
+    projectId,
+    loaded.project.name,
+    loaded.properties,
+  );
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      stage: 'shortlist' as never,
+      stageEnteredAt: new Date(),
+      stageMessageCount: 0,
+      commitments: {
+        ...((conversation.commitments as object) || {}),
+        selectedProjectId: projectId,
+      },
+    },
+  });
+
+  const components = enforceTurnComponentBudget([...mediaComponents, listComponent]);
+
+  return {
+    handled: true,
+    action: 'project-selected',
+    newState: { stage: 'shortlist' },
+    turnResult: buyerTurn(outboundText, components),
+  };
+}
+
+async function handleProjectProperties(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const { interactiveId, lead, conversation, company } = params;
+  const projectId = interactiveId.replace('project-properties-', '');
+  const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
+
+  const loaded = await loadProjectProperties(company.id, projectId);
+  if (!loaded) {
+    return {
+      handled: true,
+      action: 'project-properties-not-found',
+      turnResult: buyerTurn(tBuyer(lang, 'project_browse_none')),
+    };
+  }
+
+  let outboundText = `*${loaded.project.name}* — choose a listing for full details:`;
+  if (loaded.properties.length > 10) {
+    outboundText += `\n\nShowing 10 of ${loaded.properties.length} — reply with a unit name for others.`;
+  }
+
+  const listComponent = buildProjectPropertyListComponent(
+    projectId,
+    loaded.project.name,
+    loaded.properties,
+  );
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      commitments: {
+        ...((conversation.commitments as object) || {}),
+        selectedProjectId: projectId,
+      },
+    },
+  });
+
+  return {
+    handled: true,
+    action: 'project-properties-list',
+    turnResult: buyerTurn(outboundText, [listComponent]),
+  };
 }
 
 async function handlePropertyFilter(params: InteractiveActionParams): Promise<InteractiveActionResult | null> {
@@ -655,6 +771,62 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
         status: 'sent',
       },
     });
+
+    const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
+    const browseFilters = {
+      propertyType: filter.propertyType,
+      bedrooms: filter.bedrooms,
+    };
+
+    if (await companyUsesProjectBrowse(company.id)) {
+      const projects = await listProjectsForBuyerBrowse(company.id, browseFilters);
+      if (!projects.length) {
+        const tiers = await searchAlternativeTiers({
+          companyId: company.id,
+          bedrooms: filter.bedrooms,
+          propertyType: filter.propertyType,
+          locationPreference: updatedLead.locationPreference,
+          budgetMin: updatedLead.budgetMin ? Number(updatedLead.budgetMin) : null,
+          budgetMax: updatedLead.budgetMax ? Number(updatedLead.budgetMax) : null,
+        });
+        const topHint =
+          tiers[0]?.messageHint ||
+          `No ${filter.displayName} project matches right now — tell me your area or budget.`;
+        return {
+          handled: true,
+          action: 'filter-no-project-results',
+          newState: { stage: 'qualify' },
+          turnResult: buyerTurn(topHint),
+        };
+      }
+
+      const reply = formatProjectCatalogIntro(projects, lang);
+      const listComponent = buildProjectSelectListComponent(projects);
+      const snapshot = await getCompanyBrowseSnapshot(company.id);
+      const filterButtons = buildDiscoveryButtonSet(snapshot);
+      const components = enforceTurnComponentBudget([
+        listComponent,
+        ...(filterButtons.length
+          ? [{ kind: 'buttons' as const, buttons: filterButtons }]
+          : []),
+      ]);
+
+      logger.info('Project filter applied', {
+        filter: filter.displayName,
+        projectCount: projects.length,
+        conversationId: conversation.id,
+      });
+
+      return {
+        handled: true,
+        action: 'filter-applied-projects',
+        newState: { stage: 'shortlist' },
+        turnResult: buyerTurn(
+          `Great choice! Here are *${filter.displayName}* projects for you:\n\n${reply}`,
+          components,
+        ),
+      };
+    }
 
     const propertyWhere: Record<string, unknown> = {
       companyId: company.id,

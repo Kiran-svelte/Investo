@@ -89,6 +89,10 @@ export interface AttachPropertyMediaResult {
   media_role: PropertyMediaRole;
   knowledge_indexed: boolean;
   knowledge_chunk_count: number;
+  property?: {
+    images?: string[] | string;
+    brochure_url?: string | null;
+  };
 }
 
 export async function attachPropertyMedia(
@@ -100,10 +104,17 @@ export async function attachPropertyMedia(
   const form = new FormData();
   form.append('file', file);
   form.append('media_role', mediaRole);
-  const res = await api.post<{ data: AttachPropertyMediaResult }>(
+  const res = await api.post<{ data: AttachPropertyMediaResult & { property?: AttachPropertyMediaResult['property'] } }>(
     `/property-projects/${projectId}/properties/${propertyId}/media`,
     form,
     { headers: { 'Content-Type': 'multipart/form-data' } },
   );
-  return res.data.data;
+  const body = res.data.data;
+  return {
+    public_url: body.public_url,
+    media_role: body.media_role,
+    knowledge_indexed: body.knowledge_indexed,
+    knowledge_chunk_count: body.knowledge_chunk_count,
+    property: body.property,
+  };
 }

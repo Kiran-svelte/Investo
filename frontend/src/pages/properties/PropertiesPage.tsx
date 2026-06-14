@@ -13,6 +13,7 @@ import {
 } from '../../services/propertyImport';
 import RemoveCancelButton from '../../components/actions/RemoveCancelButton';
 import PropertyProjectsBoard from './PropertyProjectsBoard';
+import PropertyMediaPanel from './PropertyMediaPanel';
 import { listPropertyProjects, type PropertyProject } from '../../services/propertyProjects';
 import Pagination from '../../components/common/Pagination';
 import PageLoader from '../../components/ui/PageLoader';
@@ -415,7 +416,17 @@ const PropertiesPage: React.FC = () => {
       )}
 
       {showModal && <PropertyModal property={editingProperty} onClose={() => { setShowModal(false); setEditingProperty(null); }} onSaved={() => { setShowModal(false); setEditingProperty(null); loadProperties(); }} />}
-      {detailProperty && <PropertyDetailModal property={detailProperty} onClose={() => setDetailProperty(null)} />}
+      {detailProperty && (
+        <PropertyDetailModal
+          property={detailProperty}
+          canManage={capabilities.canManageProperties}
+          onClose={() => setDetailProperty(null)}
+          onPropertyChange={(next) => {
+            setDetailProperty(next);
+            void loadProperties();
+          }}
+        />
+      )}
       {Dialog}
     </div>
     </PageLoader>
@@ -640,7 +651,12 @@ const PropertyModal: React.FC<PropertyModalProps> = ({ property, onClose, onSave
 };
 
 /* ───── Property Detail Modal ───── */
-const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }> = ({ property, onClose }) => {
+const PropertyDetailModal: React.FC<{
+  property: Property;
+  canManage: boolean;
+  onClose: () => void;
+  onPropertyChange: (property: Property) => void;
+}> = ({ property, canManage, onClose, onPropertyChange }) => {
   const parseArr = (val: string[] | string | null): string[] => {
     if (!val) return [];
     if (typeof val === 'string') { try { return JSON.parse(val); } catch { return []; } }
@@ -663,12 +679,22 @@ const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }>
           <h2 className="text-lg font-semibold">{property.name}</h2>
           <button onClick={onClose} title="Close details" aria-label="Close details" className="p-1 hover:bg-surface-subtle rounded"><X className="h-5 w-5" /></button>
         </div>
-        <div className="p-4 space-y-4">
-          {images.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto">
-              {images.map((img, i) => <img key={i} src={img} alt={`${property.name} image ${i + 1}`} className="h-40 rounded-lg object-cover flex-shrink-0" />)}
-            </div>
-          )}
+        <div className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+          <PropertyMediaPanel
+            propertyId={property.id}
+            projectId={property.project_id}
+            propertyName={property.name}
+            images={images}
+            brochureUrl={property.brochure_url}
+            canManage={canManage}
+            onUpdated={(patch) => {
+              onPropertyChange({
+                ...property,
+                images: patch.images ?? images,
+                brochure_url: patch.brochure_url !== undefined ? patch.brochure_url : property.brochure_url,
+              });
+            }}
+          />
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><span className="text-ink-muted">Builder</span><p className="font-medium">{property.builder || '-'}</p></div>
             <div><span className="text-ink-muted">Type</span><p className="font-medium">{property.property_type || '-'}</p></div>

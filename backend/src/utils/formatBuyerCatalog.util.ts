@@ -131,7 +131,7 @@ export function formatBuyerCatalogMatches(matches: BuyerCatalogMatch[]): string 
     ].filter(Boolean).join(' · ');
   });
 
-  return [header, ...items, '\nTap a project from the list below to see photos, brochure, and visit slots.'].join('\n\n');
+  return [header, ...items, '\nTap a listing from the list below for photos, brochure, and visit slots.'].join('\n\n');
 }
 
 export function dedupeCatalogMatches<T extends { id: string; name: string }>(matches: T[]): T[] {
