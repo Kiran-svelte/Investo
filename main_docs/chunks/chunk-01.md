@@ -1,23 +1,42 @@
-# Chunk 01 — Inbound Pipeline Guards (full.md PART I)
+# Chunk 01 — Multi-Visit Live Context Registry
 
 > **BOUNDARY RULE:** Do not touch other files or lines. Do only what is mentioned in this chunk.
 
 | Field | Value |
 |-------|-------|
-| Chunk | 01 of 15 |
-| full.md | **PART I** — Inbound Pipeline (§I.1–I.10) |
+| Chunk | 01 of 10 |
+| Workstream | Enterprise Multi-Project Buyer UX |
 | Status | **Done** |
-| Est. PR size | ~400–600 LOC touched across 3 files |
+| Est. PR size | ~350–500 LOC across 4 files |
+| Feature flag | `FEATURE_MULTI_VISIT_CONTEXT` (default **OFF**) |
+| Depends on | Enterprise v2 baseline (2026-06-14) |
+| Blocks | Chunks 05, 08, 09, 10 |
 
 ---
 
 ## 1. Objective
 
-**Remove** ad-hoc inbound guard logic scattered in `whatsapp.service.ts` and **replace** with a single, testable pipeline that matches full.md PART I exactly:
+**Replace** the single-slot `activeVisit: ActiveVisitContext | null` model with a **visit registry** that exposes all upcoming visits for a lead, while preserving backward-compatible `activeVisit` as the *primary* visit for existing callers.
 
-- Company resolution → dedup → staff intercept → fingerprint → concurrent lock → lead upsert → message persist → route to interactive/orchestrator
+**Why:** With multiple projects, a buyer may have:
 
-**Do NOT** change handler logic (H0–H9), interactive handlers, AI generation, or outbound send in this chunk.
+- Sunset Heights visit Saturday 4 PM (confirmed)
+- Lake Vista visit Saturday 6 PM (scheduled)
+
+Today `getLiveLeadContext` returns only the first matching visit:
+
+```139:164:backend/src/services/liveLeadContext.service.ts
+    const upcoming = (lead.visits ?? []).find(
+      (v) =>
+        ['scheduled', 'confirmed', 'rescheduled'].includes(v.status) &&
+        new Date(v.scheduledAt) >= new Date(now.getTime() - 2 * 60 * 60 * 1000),
+    );
+    const activeVisit = upcoming ? toVisitContext(upcoming) : null;
+```
+
+Confirm/reschedule/cancel and AI prompt injection then operate on the **wrong** visit. Spec reference: `.kiro/specs/ai-agent-production-standards/bugfix.md` row **6.1**.
+
+**Do NOT** in this chunk: change disambiguation UX (Chunk 05), conversation focus (Chunk 02), or button policy.
 
 ---
 
@@ -25,12 +44,10 @@
 
 | File | What you may change |
 |------|---------------------|
-| `backend/src/services/whatsapp.service.ts` | **Only** `handleIncomingMessage` from company resolution through `beginOutboundTurn` / lead+conversation bootstrap / customer message insert / branch to interactive vs orchestrator. **Do not edit** `sendTurnResult`, `handleInteractiveAction` body, or staff copilot paths beyond the intercept block already at top of handler. |
-| `backend/src/services/inboundMessageGuard.service.ts` | Dedup claim/release functions only |
-| `backend/src/services/customerInboundQueue.service.ts` | FIFO queue + drain + retry scheduling |
-| `backend/src/services/whatsapp/inboundGuardPipeline.service.ts` | **NEW** — Layers 1–5 extracted from handleIncomingMessage |
-| `backend/src/tests/unit/whatsapp.inbound-processing.test.ts` | Update mocks/assertions for refactored pipeline |
-| `backend/src/tests/unit/customerInboundQueue.test.ts` | **Create if missing** — queue/drain tests |
+| `backend/src/services/liveLeadContext.service.ts` | Add `upcomingVisits[]`, extend prompt block, keep `activeVisit` compat |
+| `backend/src/tests/unit/liveLeadContext.service.test.ts` | **CREATE** if missing — multi-visit cases |
+| `backend/src/tests/unit/buyerEnterpriseUx.service.test.ts` | Update mocks if `LiveLeadContext` shape extended |
+| `backend/src/config/index.ts` | Add `multiVisitContext: process.env.FEATURE_MULTI_VISIT_CONTEXT === 'true'` |
 
 ---
 
@@ -38,340 +55,229 @@
 
 | File | Why |
 |------|-----|
-| `backend/src/routes/webhook.routes.ts` | Webhook ACK; calls `handleIncomingMessage` |
-| `backend/src/services/inboundWhatsAppRouting.service.ts` | Staff route (Chunk 14 owns changes) |
-| `backend/src/services/visitPendingApproval.service.ts` | Approval intercept handlers |
-| `backend/src/services/callRequest.service.ts` | Call approval intercept |
-| `backend/src/services/leadAssignment.service.ts` | `assignLeadWithRouting` on new lead |
-| `backend/src/services/socket.service.ts` | `LEAD_CREATED` emit |
-| `backend/src/services/automationQueue.service.ts` | `retry_concurrent_inbound` job |
-| `backend/src/config/redis.ts` | Redis client |
+| `backend/src/services/buyer/buyerEnterpriseUx.service.ts` | Chunk 08 extends `buildBuyerCrmButtonFlags` |
+| `backend/src/services/whatsapp/whatsappTurnOrchestrator.service.ts` | Consumes `liveCtx` — unchanged until Chunk 04 |
+| `backend/src/services/visitMutationFromChat.service.ts` | Chunk 05 uses registry |
+| `backend/src/services/ai.service.ts` | Reads `liveLeadContextBlock` string only |
 
 ---
 
 ## 4. Files CALLERS (who depends on this chunk)
 
 ```
-webhook.routes.ts
-  └── whatsappService.handleIncomingMessage(msg)
-        └── [THIS CHUNK] guards + lead/conversation + route
-              ├── handleInteractiveAction()     ← Chunk 08 (unchanged here)
-              └── orchestrateWhatsAppBuyerTurn() ← Chunk 03+ (unchanged here)
+getLiveLeadContext(leadId, companyId)
+  ├── whatsappTurnOrchestrator.service.ts → buyerButtonContextFromTurn, H9 prompt
+  ├── customerMessageFastPath.service.ts → visit-aware greeting
+  ├── ai.service.ts → liveLeadContextBlock injection
+  ├── buyerEnterpriseUx.service.ts → buildBuyerCrmButtonFlags(liveCtx)
+  └── whatsappInteractiveOrchestrator.service.ts → handleMoreInfo (direct prisma today; Chunk 09 aligns)
+```
+
+**Contract:** Existing callers reading `activeVisit` alone must behave identically when flag OFF or when lead has ≤1 upcoming visit.
+
+---
+
+## 5. Connection diagram
+
+```
+getLiveLeadContext
+│
+├─ [D] prisma.lead.findFirst + visits (increase take: 5 → 10 when flag ON)
+│
+├─ [S] Filter upcoming visits (scheduled|confirmed|rescheduled, within window)
+│     └─ flag OFF → .find() → activeVisit (legacy)
+│     └─ flag ON  → .filter() → upcomingVisits[]
+│
+├─ [S] Pick primary activeVisit:
+│     1. Soonest scheduledAt in future (or within 2h grace past)
+│     2. Tie-break: confirmed > scheduled > rescheduled
+│     3. Same as legacy .find() order when only one exists
+│
+├─ [S] pending_approval visit (unchanged path)
+│
+├─ [S] buildPromptBlock:
+│     └─ flag OFF → current single-visit block
+│     └─ flag ON  → "### Upcoming Site Visits (N)" list + primary visit emphasis
+│
+└─ return LiveLeadContext { activeVisit, upcomingVisits, ... }
 ```
 
 ---
 
-## 5. Connection diagram (full.md PART I)
+## 6. Type changes
 
-```
-handleIncomingMessage(msg)
-│
-├─ [S] getCompanyByPhoneNumberId(msg.phoneNumberId)
-│     └─ miss → return { status:'skipped', reason:'company_not_found' }
-│
-├─ [S] claimInboundMessageFull(companyId, msg.messageId)
-│     └─ false → return { status:'skipped', reason:'duplicate_message_id' }
-│
-├─ [S] Staff approval intercept (visit-approve|decline, call-approve|decline)
-│     └─ staff user → approval handler → return processed
-│
-├─ [S] routeCompanyScopedInbound(...)
-│     └─ handled → return processed (copilot/staff)
-│
-├─ [S] claimCustomerInboundFingerprint (SKIP if interactiveId)
-│     └─ false → return duplicate_customer_fingerprint
-│
-├─ [S] claimCustomerProcessingTurn (SKIP lock if interactiveId)
-│     └─ false → enqueueCustomerInbound + retry_concurrent_inbound +4s
-│
-├─ [S] beginOutboundTurn(...)
-│
-├─ try:
-│   ├─ [D] Find/create lead (exact phone → last10 → upsert)
-│   ├─ [D] Find/create conversation (ai_active, rapport)
-│   ├─ [D] Insert customer message (dedup layers)
-│   ├─ [S] ensureProspectConversationAiActive
-│   ├─ branch: interactiveId → handleInteractiveAction
-│   └─ branch: text → orchestrateWhatsAppBuyerTurn
-│
-├─ catch: releaseInboundMessageFull on failure
-│
-└─ finally: releaseCustomerProcessingTurn + drainCustomerInboundQueue
-```
+### 6.1 Extend `LiveLeadContext`
 
----
-
-## 6. Algorithm — guard layers (implement exactly)
-
-### Layer 1 — Message ID dedup (full.md §I.2)
-
-**Algorithm:**
-1. If `msg.queuedReplay === true` → skip Redis/DB claim (replay from queue).
-2. Call `claimInboundMessageFull(companyId, whatsappMessageId)`.
-3. On failure → exit early; Meta retry is OK after TTL/release.
-
-**Redis key:** `inbound:{companyId}:{messageId}` (via inboundMessageGuard)
-
-**DB:** `inbound_whatsapp_dedup` unique `(companyId, whatsappMessageId)`
-
-**If it breaks:**
-- Duplicate replies to customer → claim TTL too short or release not called on error.
-- Meta retries dropped forever → forgot `releaseInboundMessageFull` in catch.
-
-**Debug:** Log `reason: duplicate_message_id` with masked phone + messageId.
-
----
-
-### Layer 2 — Staff approval intercept (full.md §I.3)
-
-**Precondition:** `interactiveId` starts with `visit-approve-|visit-decline-|call-approve-|call-decline-`
-
-**Algorithm:**
-1. `findCompanyUserByPhone(customerPhone, companyId)`
-2. If not staff → fall through to prospect pipeline (buyer tapping agent button is rare; log warning).
-3. Route to `tryHandleVisitApprovalInteractive` or `tryHandleCallApprovalInteractive`.
-4. Return `{ status:'processed', reason:'visit_approval_handled' | 'call_approval_handled' }`
-
-**Do not move** this block below prospect lead creation.
-
-**If it breaks:**
-- Agent tap creates spurious lead → intercept runs after lead upsert (wrong order).
-
----
-
-### Layer 3 — Staff copilot route (full.md §I.4)
-
-**Algorithm:** `routeCompanyScopedInbound({ senderPhone, messageText, companyId, interactiveId, inboundMessageId })`
-
-If `handled === true` → return immediately; **never** auto-create lead for staff phones.
-
-**If it breaks:**
-- Agent "Hi" triggers buyer H2 → staff route not running or phone not on user profile.
-
----
-
-### Layer 4 — Text fingerprint dedup (full.md §I.5)
-
-**Precondition:** `!msg.interactiveId?.trim() && !msg.queuedReplay`
-
-**Algorithm:**
-1. Hash normalized text → `claimCustomerInboundFingerprint(companyId, phone, text)`
-2. TTL **90s** — prevents double webhook delivery of same text.
-
-**Skip for interactive:** Button titles repeat ("Call Me"); fingerprint would false-positive.
-
-**If it breaks:**
-- Customer sends same text twice in 90s legitimately → second silently dropped (by design per full.md).
-
----
-
-### Layer 5 — Concurrent processing lock (full.md §I.6)
-
-**Algorithm:**
-```
-if (interactiveId) {
-  customerTurnClaimed = true;  // bypass lock
-} else {
-  customerTurnClaimed = await claimCustomerProcessingTurn(companyId, phone);
-}
-if (!customerTurnClaimed) {
-  enqueueCustomerInbound(...);  // FIFO list
-  schedule retry_concurrent_inbound +4s fallback;
-  return { status:'skipped', reason:'concurrent_customer_processing' };
+```typescript
+export interface LiveLeadContext {
+  // ... existing fields ...
+  /** All upcoming visits ordered by scheduledAt ASC. Empty when flag OFF and legacy path. */
+  upcomingVisits: ActiveVisitContext[];
 }
 ```
 
-**Redis key:** `customer-processing:{companyId}:{phoneLast10}` TTL **60s**
+### 6.2 Backward compatibility rule
 
-**Queue key:** `customer-inbound-queue:{companyId}:{phoneLast10}` TTL **3600s**
+| Condition | `upcomingVisits` | `activeVisit` |
+|-----------|------------------|---------------|
+| Flag OFF | `[]` always (or omit population) | Same as today |
+| Flag ON, 0 visits | `[]` | `null` |
+| Flag ON, 1 visit | `[v1]` | `v1` |
+| Flag ON, N visits | `[v1..vN]` | Primary per §6.3 |
 
-**Drain:** In `finally`, `drainCustomerInboundQueue` replays with `queuedReplay=true`.
+### 6.3 Primary visit selection algorithm
 
-**If it breaks:**
-- Second message lost → enqueue not called (historical bug; full.md requires queue).
-- Infinite replay loop → drain without clearing claim or missing dedup on replay messageId.
+When flag ON and `upcomingVisits.length > 1`:
 
-**Debug:** `logOutboundBranch('H2', 'whatsapp.service.ts:concurrent', 'concurrent_customer_blocked', ...)`
-
----
-
-### Layer 6 — Lead resolution (full.md §I.7)
-
-**Algorithm:**
-1. `findFirst({ companyId, phone: exact })`
-2. Miss → `findFirst({ companyId, phone: { endsWith: last10 } }, orderBy updatedAt desc)`
-3. If found with different format → update phone to normalized E.164
-4. Still miss → `upsert` unique `(companyId, phone)`:
-   - `assignLeadWithRouting(companyId, { metadata: { source_detail } })`
-   - `notification` type `lead_new`
-   - `notifyAgentOfNewLead` if assigned
-   - `socketService.emitToCompany(LEAD_CREATED)`
-   - `logAgentAction('autoCreateLeadFromWhatsApp')`
-
-**source_detail:** `wa_interactive:{id}` or `whatsapp_inbound`
-
-**If it breaks:**
-- Duplicate leads on concurrent first message → upsert must use unique constraint.
-- Wrong agent assigned → routing service issue (out of scope; don't change assignment here).
+1. Sort by `scheduledAt` ascending.
+2. Prefer status `confirmed` over `scheduled` if same day and within 4 hours.
+3. Set `activeVisit = upcomingVisits[0]` after sort (document exact comparator in code comment).
+4. **Do not** auto-cancel or merge visits — read-only aggregation.
 
 ---
 
-### Layer 7 — Conversation bootstrap (full.md §I.8)
+## 7. Prompt block changes (flag ON only)
 
-**Algorithm:** Find open conversation for lead or create:
-- `status: 'ai_active'`
-- `aiEnabled: true`
-- `stage: 'rapport'`
-- `commitments`: from `conversationStateManager.createInitialState()`
+Add to `buildPromptBlock` when `upcomingVisits.length > 1`:
 
-**If it breaks:**
-- New message opens second conversation thread → find query must use leadId + not closed.
+```markdown
+### Upcoming Site Visits (2)
 
----
+1. **Sunset Heights 1102** — ✅ CONFIRMED — Saturday 14 June, 4:00 PM
+2. **Lake Vista 304** — 📅 SCHEDULED — Saturday 14 June, 6:00 PM
 
-### Layer 8 — Customer message persist (full.md §I.9)
+⚠️ RULE: Customer has MULTIPLE upcoming visits. When they say "confirm", "cancel", or "reschedule"
+without naming a property, you MUST ask which visit they mean. List options by property name and time.
+Do NOT assume the first visit only.
+```
 
-**Dedup layers (in order):**
-1. Existing row with same `whatsappMessageId` → skip insert
-2. `prisma.message.create` customer row
-3. P2002 on unique whatsappMessageId → skip
-4. Duplicate content within **90s** same conversation → skip (`duplicate_customer_content`)
-
-**Wrong-number path:** If message matches wrong-report pattern → `handleWrongReport` + WRONG_ACK (keep existing behavior; do not remove).
+When `upcomingVisits.length === 1`, prompt block matches legacy single-visit format (parity).
 
 ---
 
-### Layer 9 — AI reactivation + route (full.md §I.10)
+## 8. Algorithm — visit query window
 
-**Algorithm:**
-1. `ensureProspectConversationAiActive(conversation)` — re-enable AI unless manual takeover.
-2. Reset legacy `human_escalated` stage → `rapport` (if still present in DB).
-3. If `interactiveId` → `this.handleInteractiveAction(...)` (delegate unchanged).
-4. Else → build context + `orchestrateWhatsAppBuyerTurn(...)` (delegate unchanged).
+**Current:** 2-hour grace past `scheduledAt` for `.find()`.
 
----
+**Keep** same window for inclusion in `upcomingVisits`:
 
-## 7. What to REMOVE (existing logic to delete in-scope)
+```typescript
+const VISIT_INCLUDE_STATUSES = ['scheduled', 'confirmed', 'rescheduled'] as const;
+const GRACE_MS = 2 * 60 * 60 * 1000;
 
-Search within **only** the inbound block of `whatsapp.service.ts`:
+function isUpcomingVisit(v: Visit, now: Date): boolean {
+  return VISIT_INCLUDE_STATUSES.includes(v.status as typeof VISIT_INCLUDE_STATUSES[number])
+    && new Date(v.scheduledAt).getTime() >= now.getTime() - GRACE_MS;
+}
+```
 
-| Remove / consolidate | Reason |
-|---------------------|--------|
-| Duplicate dedup checks that bypass `claimInboundMessageFull` | Single Layer 1 entry point |
-| Inline Redis lock logic not using `customerInboundQueue.service.ts` | Centralize FIFO |
-| Early returns that skip `releaseInboundMessageFull` on error | full.md §I.2 release on catastrophic failure |
-| Lead creation code duplicated outside upsert path | One §I.7 path |
-| Debug `fetch` to localhost / agent log noise | Production hygiene |
-
-**Do not remove:** Staff intercept, wrong-report handler, `beginOutboundTurn`, socket emits.
+**Future visits cap:** Max **5** in `upcomingVisits` (align with prisma `take`). Log warn if truncated.
 
 ---
 
-## 8. What to ADD
+## 9. What to REMOVE
+
+| Remove / avoid | Reason |
+|----------------|--------|
+| Changing `activeVisit` to null when multiple exist | Breaks enterprise v2 button catch-all |
+| Removing single-visit prompt rules | Regression for 1-visit tenants |
+| Editing visit mutation logic | Chunk 05 |
+
+---
+
+## 10. What to ADD
 
 | Addition | Location |
 |----------|----------|
-| `runInboundGuardPipeline(ctx): GuardResult` | New private method or `inboundPipeline.service.ts` **only if** you create it in this chunk — if created, add to IN SCOPE list in PR description; prefer keeping in whatsapp.service.ts private methods to respect boundary |
-| Structured return type for skip reasons | Align with full.md PART XVII rows 1–5 |
-| `finally` block guarantee | Always `releaseCustomerProcessingTurn` + `drainCustomerInboundQueue` |
-| Unit test: concurrent → queue → replay | `whatsapp.inbound-processing.test.ts` |
-
-Optional extraction (allowed in this chunk only):
-
-```
-backend/src/services/whatsapp/inboundGuardPipeline.service.ts  (NEW)
-  - export runInboundGuards(...)
-  - called only from whatsapp.service.ts handleIncomingMessage
-```
-
-If you extract, **whatsapp.service.ts** only replaces inline guards with one import call — no other behavioral change.
+| `upcomingVisits: ActiveVisitContext[]` on return type | `liveLeadContext.service.ts` |
+| `selectPrimaryVisit(visits: ActiveVisitContext[]): ActiveVisitContext \| null` | Same file, exported for Chunk 05 |
+| Multi-visit prompt section | `buildPromptBlock` |
+| Feature flag gate | `config/index.ts` |
+| Unit tests: 0, 1, 2, 3 visits | `liveLeadContext.service.test.ts` |
 
 ---
 
-## 9. Implementation steps (ordered)
+## 11. Implementation steps (ordered)
 
-1. **Read** full.md PART I and mark line ranges in `whatsapp.service.ts` `handleIncomingMessage`.
-2. **Write** characterization tests for current skip reasons (if missing).
-3. **Refactor** Layer 1–3 without changing order.
-4. **Refactor** Layer 4–5; verify interactive bypass with test.
-5. **Refactor** Layer 6–8 lead/conversation/message; keep socket + notification calls identical.
-6. **Ensure** catch calls `releaseInboundMessageFull(companyId, msg.messageId)`.
-7. **Ensure** finally drains queue.
-8. **Run** tests listed in §12.
+1. Add flag to `config/index.ts` (default OFF).
+2. Extend `LiveLeadContext` interface + `buildEmptyContext()` with `upcomingVisits: []`.
+3. Refactor visit loop: when flag OFF, keep exact `.find()` behavior; when ON, `.filter()` + sort.
+4. Implement `selectPrimaryVisit` — verify `activeVisit` equals legacy `.find()` for all existing unit scenarios.
+5. Extend `buildPromptBlock` behind flag for N>1.
+6. Write unit tests (§14).
+7. Run smoke — confirm single-visit tenants unchanged with flag OFF.
 
 ---
 
-## 10. Debug instrumentation
+## 12. Why it won't break in future
+
+| Risk | Mitigation |
+|------|------------|
+| Callers assume one visit | `activeVisit` preserved; `upcomingVisits` additive |
+| Prompt token bloat | Cap at 5 visits; summarize older in one line |
+| Primary visit wrong | Exported `selectPrimaryVisit` + tests; Chunk 05 owns disambiguation UX |
+| Flag forgotten ON in prod | Chunk 10 rollout checklist; default OFF until sign-off |
+
+**Single source of truth:** All visit lists for AI prompt come from `getLiveLeadContext` — Chunk 05 must not duplicate prisma visit queries for buyer-facing disambiguation (import registry helpers instead).
+
+---
+
+## 13. Debug instrumentation
 
 | Hook | When |
 |------|------|
-| `logger.info('Inbound skipped', { reason, companyId, messageId })` | Every early return |
-| `logOutboundBranch('H2', 'whatsapp.service.ts:concurrent', ...)` | Concurrent block |
-| `logAgentAction('autoCreateLeadFromWhatsApp')` | New lead |
-| Redis key logged at **debug** level only | Never log full phone |
-
-Add **temporary** trace ID (optional): `inboundTraceId = messageId.slice(-8)` passed to orchestrator in later chunks — if added here, only add field to context object, do not change orchestrator.
+| `logger.info('liveLeadContext.multiVisit', { leadId, count: upcomingVisits.length })` | Flag ON and count > 1 |
+| `FEATURE_SHADOW_MODE` compare | Log if legacy `.find()` id !== `selectPrimaryVisit` id |
 
 ---
 
-## 11. Failure modes & recovery (full.md PART XVII)
+## 14. Verification checklist
 
-| # | Symptom | Cause | Recovery |
-|---|---------|-------|----------|
-| 1 | No reply, logs `company_not_found` | Wrong `phoneNumberId` on Meta | Fix company settings / env |
-| 2 | No reply, `duplicate_message_id` | Meta retry while claim held | Expected; or release on crash missing |
-| 3 | No reply, `duplicate_customer_fingerprint` | Same text within 90s | Expected; customer must wait or rephrase |
-| 4 | Delayed reply ~4–65s | `concurrent_customer_processing` | Expected; verify queue drain |
-| 5 | No reply, `duplicate_customer_content` | Echo webhook | Expected |
-| 6 | 500, customer can retry | Uncaught exception | Fix bug; releaseInboundMessageFull must run |
-| 13 | Stuck, no Meta retry | Claim not released on crash | releaseInboundMessageFull in catch |
-
----
-
-## 12. Verification checklist
-
-### Unit tests (must pass)
+### Unit tests
 
 ```bash
 cd backend
-npm test -- --testPathPattern="whatsapp.inbound-processing|customerInboundQueue|inboundMessageGuard"
+npm test -- --testPathPattern="liveLeadContext|buyerEnterpriseUx"
 ```
 
-| Test case | full.md E2E |
-|-----------|-------------|
-| Unknown company → skip | — |
-| Duplicate messageId → skip | — |
-| Concurrent text → queue + replay | `buyer-09-concurrent` |
-| Interactive bypasses lock | `buyer-int-filter` |
-| New lead upsert + LEAD_CREATED | `buyer-01-rapport` (setup) |
+| Test case | Expected |
+|-----------|----------|
+| Flag OFF, 2 visits in DB | `activeVisit` = legacy first only; `upcomingVisits` = `[]` |
+| Flag ON, 0 visits | `activeVisit` null; `upcomingVisits` [] |
+| Flag ON, 1 confirmed visit | Both arrays length 1; same id |
+| Flag ON, 2 same-day visits | `upcomingVisits.length === 2`; prompt contains both names |
+| Flag ON, pending_approval + scheduled | pending becomes `activeVisit` (legacy rule preserved) |
+| Primary visit tie-break | confirmed beats scheduled same day |
 
-### Manual smoke
+### Smoke / manual
 
-1. Send `Hi` from new number → lead created, one reply (handler tested in Chunk 04).
-2. Send two texts within 1s → second processed after ~4s or via drain.
-3. Agent taps `visit-approve-*` → no new lead row.
+1. Lead with one visit → greeting unchanged (flag ON).
+2. Lead with two future visits → AI prompt block lists both (inspect logs / shadow mode).
 
----
+### Regression
 
-## 13. Definition of Done
-
-- [x] All guard layers match PART I order and skip reasons
-- [x] No edits outside IN SCOPE files
-- [x] H0–H9 and interactive bodies unchanged
-- [x] Unit tests green (15/15)
-- [ ] `e2e-handset-proof.mjs` **buyer-09-concurrent** still passes (or unchanged fail documented)
-- [x] Code review confirms boundary rule quoted in PR
+- `buyerEnterpriseUx.service.test.ts` button matrix still passes (uses single `activeVisit` mock).
 
 ---
 
-## 14. Rollback
+## 15. Definition of Done
 
-Revert PR. Guards are stateless except Redis TTL keys — no migration rollback needed.
-
-If partial failure in prod: disable concurrent queue drain via env **not recommended**; instead redeploy previous image.
+- [ ] Flag `FEATURE_MULTI_VISIT_CONTEXT` added, default OFF
+- [ ] `upcomingVisits` populated when flag ON
+- [ ] `activeVisit` backward compatible
+- [ ] Multi-visit prompt block when N > 1
+- [ ] Unit tests green
+- [ ] No edits outside IN SCOPE files
+- [ ] `npm run smoke` passes with flag OFF
 
 ---
 
-## 15. Next chunk
+## 16. Rollback
 
-After Done → [chunk-02.md](./chunk-02.md) (Session taxonomy: `hasPriorOutbound`, `/start`, returning buyer detection).
+Set `FEATURE_MULTI_VISIT_CONTEXT=false` on Railway — no migration. Revert PR if type changes break compile.
+
+---
+
+## 17. Next chunk
+
+After Done → [chunk-02.md](./chunk-02.md) (Conversation focus stack — project + property memory).

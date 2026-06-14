@@ -568,6 +568,8 @@ const config = {
     expandedBuyerResponseCap: process.env.FEATURE_EXPANDED_BUYER_RESPONSE_CAP !== 'false',
     /** Skip unreliable vector search when local hash embeddings are active (D12). */
     skipVectorOnDegradedEmbeddings: process.env.FEATURE_SKIP_VECTOR_ON_DEGRADED_EMBEDDINGS !== 'false',
+    /** Multi-visit live context registry — upcomingVisits[] + multi-visit prompt (Chunk 01). */
+    multiVisitContext: process.env.FEATURE_MULTI_VISIT_CONTEXT === 'true',
   },
 };
 

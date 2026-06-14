@@ -13,6 +13,7 @@
  */
 
 import prisma from '../config/prisma';
+import config from '../config';
 import logger from '../config/logger';
 import { findPendingVisitApprovalForLead } from './visitPendingApproval.service';
 import { findActiveCallRequest } from './callRequest.service';
@@ -42,12 +43,19 @@ export interface ActiveCallContext {
   agentPhone: string | null;
 }
 
+const VISIT_INCLUDE_STATUSES = ['scheduled', 'confirmed', 'rescheduled'] as const;
+const GRACE_MS = 2 * 60 * 60 * 1000;
+const UPCOMING_VISITS_MAX = 5;
+const SAME_DAY_CONFIRM_PREFERENCE_MS = 4 * 60 * 60 * 1000;
+
 /** Full real-time state snapshot for a lead. */
 export interface LiveLeadContext {
   leadStatus: string;
   leadName: string | null;
   /** Upcoming or recently-completed visits (most urgent first). */
   activeVisit: ActiveVisitContext | null;
+  /** All upcoming visits ordered by scheduledAt ASC. Empty when flag OFF and legacy path. */
+  upcomingVisits: ActiveVisitContext[];
   /** Any past completed visits within the last 30 days. */
   recentCompletedVisit: ActiveVisitContext | null;
   /** Most recent cancelled visit within 30 days when no active visit exists. */
@@ -91,6 +99,34 @@ function visitStatusLabel(status: string): string {
   return map[status] ?? status.toUpperCase();
 }
 
+function isUpcomingVisit(v: { status: string; scheduledAt: Date }, now: Date): boolean {
+  return VISIT_INCLUDE_STATUSES.includes(v.status as typeof VISIT_INCLUDE_STATUSES[number])
+    && new Date(v.scheduledAt).getTime() >= now.getTime() - GRACE_MS;
+}
+
+/**
+ * Picks the primary visit from upcoming visits when multi-visit context is enabled.
+ * Comparator: scheduledAt ASC; same calendar day within 4h → confirmed beats scheduled/rescheduled.
+ */
+export function selectPrimaryVisit(visits: ActiveVisitContext[]): ActiveVisitContext | null {
+  if (!visits.length) return null;
+  if (visits.length === 1) return visits[0];
+
+  const sorted = [...visits].sort((a, b) => {
+    const sameDay = a.scheduledAt.toDateString() === b.scheduledAt.toDateString();
+    const within4h = Math.abs(a.scheduledAt.getTime() - b.scheduledAt.getTime()) <= SAME_DAY_CONFIRM_PREFERENCE_MS;
+    if (sameDay && within4h) {
+      const statusRank = (s: string) => (s === 'confirmed' ? 0 : s === 'scheduled' ? 1 : 2);
+      const statusDiff = statusRank(a.status) - statusRank(b.status);
+      if (statusDiff !== 0) return statusDiff;
+    }
+
+    return a.scheduledAt.getTime() - b.scheduledAt.getTime();
+  });
+
+  return sorted[0];
+}
+
 /**
  * Fetches the real-time lead context from the database.
  *
@@ -106,6 +142,9 @@ export async function getLiveLeadContext(
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   try {
+    const multiVisitEnabled = config.features.multiVisitContext;
+    const visitTake = multiVisitEnabled ? 10 : 5;
+
     const lead = await prisma.lead.findFirst({
       where: { id: leadId, companyId },
       select: {
@@ -114,7 +153,7 @@ export async function getLiveLeadContext(
         assignedAgentId: true,
         visits: {
           orderBy: { scheduledAt: 'asc' },
-          take: 5,
+          take: visitTake,
           include: {
             property: { select: { id: true, name: true, projectId: true } },
             agent: { select: { name: true, phone: true } },
@@ -136,12 +175,6 @@ export async function getLiveLeadContext(
       });
     }
 
-    // Find the most relevant upcoming or recent visit
-    const upcoming = (lead.visits ?? []).find(
-      (v) =>
-        ['scheduled', 'confirmed', 'rescheduled'].includes(v.status) &&
-        new Date(v.scheduledAt) >= new Date(now.getTime() - 2 * 60 * 60 * 1000), // within 2h ago
-    );
     const recentCompleted = (lead.visits ?? []).find(
       (v) => v.status === 'completed' && new Date(v.scheduledAt) >= thirtyDaysAgo,
     );
@@ -161,7 +194,40 @@ export async function getLiveLeadContext(
       notes: v.notes ?? null,
     });
 
-    const activeVisit = upcoming ? toVisitContext(upcoming) : null;
+    const legacyUpcoming = (lead.visits ?? []).find((v) => isUpcomingVisit(v, now));
+    let upcomingVisits: ActiveVisitContext[] = [];
+    let activeVisit: ActiveVisitContext | null = legacyUpcoming ? toVisitContext(legacyUpcoming) : null;
+
+    if (multiVisitEnabled) {
+      const allUpcoming = (lead.visits ?? [])
+        .filter((v) => isUpcomingVisit(v, now))
+        .map(toVisitContext);
+      if (allUpcoming.length > UPCOMING_VISITS_MAX) {
+        logger.warn('liveLeadContext.upcomingVisitsTruncated', {
+          leadId,
+          total: allUpcoming.length,
+          cap: UPCOMING_VISITS_MAX,
+        });
+      }
+      upcomingVisits = allUpcoming.slice(0, UPCOMING_VISITS_MAX);
+      activeVisit = selectPrimaryVisit(upcomingVisits);
+
+      if (upcomingVisits.length > 1) {
+        logger.info('liveLeadContext.multiVisit', { leadId, count: upcomingVisits.length });
+      }
+
+      if (config.features.shadowMode && legacyUpcoming) {
+        const legacyId = legacyUpcoming.id;
+        const primaryId = activeVisit?.visitId ?? null;
+        if (primaryId && legacyId !== primaryId) {
+          logger.warn('liveLeadContext.multiVisit.shadowMismatch', {
+            leadId,
+            legacyId,
+            primaryId,
+          });
+        }
+      }
+    }
     const recentCompletedVisit = recentCompleted ? toVisitContext(recentCompleted) : null;
     const recentCancelledVisit =
       !activeVisit && recentCancelled ? toVisitContext(recentCancelled) : null;
@@ -214,17 +280,20 @@ export async function getLiveLeadContext(
       leadStatus: lead.status,
       leadName: lead.customerName,
       activeVisit: resolvedActiveVisit,
+      upcomingVisits,
       recentCompletedVisit,
       recentCancelledVisit,
       activeCall,
       assignedAgentName: globalAgent?.name ?? null,
       assignedAgentPhone: globalAgent?.phone ?? null,
+      multiVisitEnabled,
     });
 
     return {
       leadStatus: lead.status,
       leadName: lead.customerName,
       activeVisit: resolvedActiveVisit,
+      upcomingVisits,
       recentCompletedVisit,
       recentCancelledVisit,
       activeCall,
@@ -247,6 +316,7 @@ function buildEmptyContext(): LiveLeadContext {
     leadStatus: 'unknown',
     leadName: null,
     activeVisit: null,
+    upcomingVisits: [],
     recentCompletedVisit: null,
     recentCancelledVisit: null,
     activeCall: null,
@@ -260,7 +330,10 @@ function buildEmptyContext(): LiveLeadContext {
  * Formats the live context into a structured block for the AI system prompt.
  * Placed at the TOP of the prompt so it takes precedence over all RAG context.
  */
-function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
+function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'> & {
+  multiVisitEnabled?: boolean;
+}): string {
+  const multiVisitEnabled = ctx.multiVisitEnabled ?? false;
   const postVisitByCrmStatus =
     !ctx.activeVisit && isPostVisitLeadStatus(ctx.leadStatus);
 
@@ -290,13 +363,29 @@ function buildPromptBlock(ctx: Omit<LiveLeadContext, 'promptBlock'>): string {
 
   if (ctx.activeVisit) {
     const v = ctx.activeVisit;
-    lines.push('');
-    lines.push('### Upcoming Site Visit');
-    lines.push(`- Status: ${visitStatusLabel(v.status)}`);
-    lines.push(`- Property: ${v.propertyName ?? 'Unknown Property'}`);
-    lines.push(`- When: ${toISTString(v.scheduledAt)}`);
-    if (v.agentName) lines.push(`- Agent: ${v.agentName}${v.agentPhone ? ` (${v.agentPhone})` : ''}`);
-    if (v.notes) lines.push(`- Notes: ${v.notes.slice(0, 200)}`);
+    if (multiVisitEnabled && ctx.upcomingVisits.length > 1) {
+      lines.push('');
+      lines.push(`### Upcoming Site Visits (${ctx.upcomingVisits.length})`);
+      ctx.upcomingVisits.forEach((visit, idx) => {
+        lines.push(
+          `${idx + 1}. **${visit.propertyName ?? 'Unknown Property'}** — ${visitStatusLabel(visit.status)} — ${toISTString(visit.scheduledAt)}`,
+        );
+      });
+      lines.push('');
+      lines.push(
+        '⚠️ RULE: Customer has MULTIPLE upcoming visits. When they say "confirm", "cancel", or "reschedule"'
+        + ' without naming a property, you MUST ask which visit they mean. List options by property name and time.'
+        + ' Do NOT assume the first visit only.',
+      );
+    } else {
+      lines.push('');
+      lines.push('### Upcoming Site Visit');
+      lines.push(`- Status: ${visitStatusLabel(v.status)}`);
+      lines.push(`- Property: ${v.propertyName ?? 'Unknown Property'}`);
+      lines.push(`- When: ${toISTString(v.scheduledAt)}`);
+      if (v.agentName) lines.push(`- Agent: ${v.agentName}${v.agentPhone ? ` (${v.agentPhone})` : ''}`);
+      if (v.notes) lines.push(`- Notes: ${v.notes.slice(0, 200)}`);
+    }
   }
 
   if (ctx.recentCancelledVisit && !ctx.activeVisit) {

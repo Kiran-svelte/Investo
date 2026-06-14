@@ -28,6 +28,7 @@ function liveCtx(overrides: Partial<LiveLeadContext> = {}): LiveLeadContext {
     assignedAgentName: null,
     assignedAgentPhone: null,
     promptBlock: '',
+    upcomingVisits: [],
     ...overrides,
   };
 }
