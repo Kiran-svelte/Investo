@@ -331,6 +331,26 @@ export function buildPropertyDetailButtons(
   return { kind: 'buttons', buttons: buttons.slice(0, 3) };
 }
 
+/** Buttons when buyer already has a visit — no repeat Property Details. */
+export function buildActiveVisitActionButtons(
+  projectId: string | null,
+  lang: string,
+): WhatsAppComponent {
+  const buttons: Array<{ id: string; title: string }> = [
+    { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'change_time') },
+  ];
+  if (projectId) {
+    buttons.push({
+      id: `project-properties-${projectId}`,
+      title: buyerButtonTitle(lang, 'view_project_listings'),
+    });
+  } else {
+    buttons.push({ id: 'browse-projects', title: buyerButtonTitle(lang, 'browse_projects') });
+  }
+  buttons.push({ id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') });
+  return { kind: 'buttons', buttons: buttons.slice(0, 3) };
+}
+
 export async function resolveProjectBrochureMediaComponent(
   companyId: string,
   projectId: string,

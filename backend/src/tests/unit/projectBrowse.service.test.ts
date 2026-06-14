@@ -2,6 +2,7 @@ import {
   buildProjectSelectListComponent,
   buildProjectPropertyListComponent,
   buildPropertyDetailButtons,
+  buildActiveVisitActionButtons,
   formatProjectCatalogIntro,
   formatProjectSelectedIntro,
 } from '../../services/projectBrowse.service';
@@ -77,5 +78,27 @@ describe('projectBrowse.service', () => {
     const text = formatProjectSelectedIntro('investo', 4, 'hi', 1);
     expect(text).toMatch(/[\u0900-\u097F]/);
     expect(text).toContain('4');
+  });
+
+  it('buildActiveVisitActionButtons omits property details and offers view listings', () => {
+    const buttons = buildActiveVisitActionButtons('proj-investo', 'en');
+    expect(buttons.kind).toBe('buttons');
+    if (buttons.kind !== 'buttons') throw new Error('expected buttons');
+    expect(buttons.buttons.map((b) => b.id)).toEqual([
+      'visit-reschedule',
+      'project-properties-proj-investo',
+      'call-me',
+    ]);
+    expect(buttons.buttons.map((b) => b.id)).not.toContain('more-info');
+  });
+
+  it('buildActiveVisitActionButtons uses browse-projects when no projectId', () => {
+    const buttons = buildActiveVisitActionButtons(null, 'hi');
+    if (buttons.kind !== 'buttons') throw new Error('expected buttons');
+    expect(buttons.buttons.map((b) => b.id)).toEqual([
+      'visit-reschedule',
+      'browse-projects',
+      'call-me',
+    ]);
   });
 });

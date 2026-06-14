@@ -83,6 +83,20 @@ describe('customerMessageFastPath.service', () => {
     expect(reply?.text.length).toBeGreaterThan(20);
   });
 
+  it('builds English greeting with Hindi follow-up when lead was Hindi and message is Hi', () => {
+    const reply = buildFastPathCustomerReply({
+      customerMessage: 'Hi',
+      companyName: 'Palm Realty',
+      leadLanguage: 'hi',
+      aiSettings: { defaultLanguage: 'hi' },
+      conversationHistory: [],
+    });
+    expect(reply?.detectedLanguage).toBe('en');
+    expect(reply?.text).toMatch(/Welcome to \*Palm Realty\*/);
+    expect(reply?.text).toMatch(/Namaste/);
+    expect(reply?.text).toMatch(/swagat hai/i);
+  });
+
   it('uses compact visit ack after recent booking message on repeat Hi', () => {
     const { formatBuyerVisitScheduled } = require('../../utils/visitFormat.util');
     const scheduledAt = new Date('2026-06-15T10:00:00+05:30');
@@ -94,6 +108,7 @@ describe('customerMessageFastPath.service', () => {
         visitId: 'v1',
         propertyId: 'p1',
         propertyName,
+        projectId: null,
         scheduledAt,
         status: 'scheduled',
         agentName: 'Riya',

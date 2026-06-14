@@ -24,6 +24,8 @@ export interface ActiveVisitContext {
   visitId: string;
   propertyId: string | null;
   propertyName: string | null;
+  /** Project board id for the visit property — enables View Listings buttons. */
+  projectId: string | null;
   status: string;
   scheduledAt: Date;
   agentName: string | null;
@@ -114,7 +116,7 @@ export async function getLiveLeadContext(
           orderBy: { scheduledAt: 'asc' },
           take: 5,
           include: {
-            property: { select: { id: true, name: true } },
+            property: { select: { id: true, name: true, projectId: true } },
             agent: { select: { name: true, phone: true } },
           },
         },
@@ -151,6 +153,7 @@ export async function getLiveLeadContext(
       visitId: v.id,
       propertyId: v.property?.id ?? null,
       propertyName: v.property?.name ?? null,
+      projectId: v.property?.projectId ?? null,
       status: v.status,
       scheduledAt: v.scheduledAt,
       agentName: v.agent?.name ?? globalAgent?.name ?? null,
@@ -167,10 +170,19 @@ export async function getLiveLeadContext(
     if (!resolvedActiveVisit) {
       const pendingApproval = await findPendingVisitApprovalForLead({ companyId, leadId });
       if (pendingApproval) {
+        let pendingProjectId: string | null = null;
+        if (pendingApproval.propertyId) {
+          const prop = await prisma.property.findUnique({
+            where: { id: pendingApproval.propertyId },
+            select: { projectId: true },
+          });
+          pendingProjectId = prop?.projectId ?? null;
+        }
         resolvedActiveVisit = {
           visitId: pendingApproval.approvalId,
           propertyId: pendingApproval.propertyId,
           propertyName: pendingApproval.propertyName ?? null,
+          projectId: pendingProjectId,
           status: 'pending_approval',
           scheduledAt: new Date(pendingApproval.scheduledAt),
           agentName: globalAgent?.name ?? null,

@@ -163,6 +163,9 @@ type BuyerCopyKey =
   | 'project_browse_footer'
   | 'project_selected_intro'
   | 'project_listings_hidden_note'
+  | 'visit_pending_approval_prefix'
+  | 'visit_booked_property_reminder'
+  | 'btn_browse_projects'
   | 'choose_project'
   | 'choose_property'
   | 'our_projects'
@@ -442,7 +445,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   },
   more_from_records: {
     en: '📌 *More from our records:*',
-    hi: '📌 *Hamare records se aur:*',
+    hi: '📌 *हमारे रिकॉर्ड से और:*',
     kn: '📌 *Namma records inda hechchu:*',
     te: '📌 *Maa records nundi inka:*',
     ta: '📌 *Engal records il irundhu innum:*',
@@ -455,7 +458,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   },
   btn_change_time: {
     en: '📅 Change Time',
-    hi: '📅 Time Badle',
+    hi: '📅 समय बदलें',
     kn: '📅 Time Badla',
     te: '📅 Time Marchu',
     ta: '📅 Time Maathu',
@@ -468,7 +471,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   },
   btn_property_details: {
     en: '🏗️ Property Details',
-    hi: '🏗️ Property Details',
+    hi: '🏗️ संपत्ति विवरण',
     kn: '🏗️ Property Details',
     te: '🏗️ Property Details',
     ta: '🏗️ Property Details',
@@ -481,7 +484,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   },
   btn_call_agent: {
     en: '📞 Call Agent',
-    hi: '📞 Agent Call',
+    hi: '📞 एजेंट को कॉल',
     kn: '📞 Agent Call',
     te: '📞 Agent Call',
     ta: '📞 Agent Call',
@@ -611,7 +614,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   },
   btn_view_project_listings: {
     en: 'View Listings',
-    hi: 'Listings Dekhein',
+    hi: 'लिस्टिंग देखें',
     kn: 'Listings Nodi',
     te: 'Listings Chudandi',
     ta: 'Listings Paarunga',
@@ -621,6 +624,19 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     gu: 'Listings Juo',
     pa: 'Listings Dekho',
     or: 'Listings Dekhantu',
+  },
+  btn_browse_projects: {
+    en: 'View Projects',
+    hi: 'परियोजनाएँ देखें',
+    kn: 'View Projects',
+    te: 'View Projects',
+    ta: 'View Projects',
+    ml: 'View Projects',
+    mr: 'View Projects',
+    bn: 'View Projects',
+    gu: 'View Projects',
+    pa: 'View Projects',
+    or: 'View Projects',
   },
   btn_narrow_search: {
     en: 'Narrow Search',
@@ -908,6 +924,14 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     'You already have a visit for *{property}* on {date} 🗓️',
     '*{property}* के लिए {date} की विज़िट पहले से है 🗓️',
   ),
+  visit_pending_approval_prefix: langPack(
+    'Your visit request for *{property}* on {date} is awaiting team approval ⏳',
+    '*{property}* के लिए {date} की विज़िट अनुमोदन की प्रतीक्षा में है ⏳',
+  ),
+  visit_booked_property_reminder: langPack(
+    'This is *{property}* — your booked visit is on *{date}* ✅\n\nExplore other listings in this project or browse more projects below.',
+    'यह *{property}* है — आपकी बुक की गई विज़िट *{date}* को है ✅\n\nइसी परियोजना की अन्य लिस्टिंग या और परियोजनाएँ नीचे देखें।',
+  ),
   property_not_selected_yet: langPack(
     "I don't have a specific property selected yet. Tell me which property you'd like — name or location works.",
     'अभी कोई विशेष संपत्ति चयनित नहीं है। बताएँ किस संपत्ति की जानकारी चाहिए — नाम या इलाका लिखें।',
@@ -1034,6 +1058,7 @@ export type BuyerButtonKey =
   | 'share_feedback'
   | 'talk_agent'
   | 'see_options'
+  | 'browse_projects'
   | 'view_project_listings'
   | 'narrow_search'
   | 'emi'
@@ -1052,6 +1077,7 @@ const BUTTON_KEY_MAP: Record<BuyerButtonKey, BuyerCopyKey> = {
   talk_agent: 'btn_talk_agent',
   see_options: 'btn_see_options',
   view_project_listings: 'btn_view_project_listings',
+  browse_projects: 'btn_browse_projects',
   narrow_search: 'btn_narrow_search',
   emi: 'btn_emi',
   more_details: 'btn_more_details',

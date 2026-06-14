@@ -21,6 +21,8 @@ export type BuyerButtonContext = {
   visitStatus?: string;
   visitProperty?: string;
   visitTime?: string;
+  visitPropertyProjectId?: string | null;
+  visitPropertyId?: string | null;
   isReturningGreeting?: boolean;
   hasCompletedVisit?: boolean;
   leadId?: string | null;
@@ -80,6 +82,8 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
     hasActiveCall: ctx.hasActiveCall,
     hasCompletedVisit,
     visitStatus: ctx.visitStatus,
+    visitPropertyProjectId: ctx.visitPropertyProjectId,
+    visitPropertyId: ctx.visitPropertyId,
     browseFilters: ctx.browseFilters,
     language: ctx.language,
   });

@@ -1822,6 +1822,8 @@ function buyerButtonFlagsFromLive(
     visitStatus: liveCtx.activeVisit?.status,
     visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
     visitTime: resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
+    visitPropertyProjectId: liveCtx.activeVisit?.projectId ?? null,
+    visitPropertyId: liveCtx.activeVisit?.propertyId ?? null,
     hasCompletedVisit: isPostVisitBuyer(liveCtx),
     leadId,
     liveLeadSnapshot: {

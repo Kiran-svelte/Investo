@@ -19,6 +19,7 @@ import {
 } from './liveLeadContext.service';
 import {
   resolveBuyerLanguage,
+  normalizeBuyerLang,
   wasRecentVisitWelcomeSent,
   wasRecentCallWelcomeSent,
 } from '../utils/buyerI18n.util';
@@ -274,7 +275,7 @@ export function buildFastPathCustomerReply(input: {
     }
 
     return {
-      text: buildGreetingByLanguage(lang, name, company),
+      text: buildGreetingByLanguage(lang, name, company, input.leadLanguage),
       detectedLanguage: lang,
     };
   }
@@ -305,8 +306,26 @@ export function buildFastPathCustomerReply(input: {
   return null;
 }
 
-function buildGreetingByLanguage(lang: string, name: string, company: string): string {
+function buildGreetingByLanguage(
+  lang: string,
+  name: string,
+  company: string,
+  leadLanguage?: string | null,
+): string {
   const who = name ? `, *${name}*` : '';
+  const english =
+    `*Hey${who}!* 👋  Welcome to *${company}*.\n\n` +
+    `I'm your personal property assistant — here to help you find the right home, fast. 🏡\n\n` +
+    `What *area* are you looking in, and what's your rough *budget*?`;
+
+  if (lang === 'en' && normalizeBuyerLang(leadLanguage) === 'hi') {
+    const hindi =
+      `\n\n*Namaste${who}!* 🙏\n\n` +
+      `*${company}* mein aapka swagat hai — aap bilkul sahi jagah aaye hain. 🏡\n\n` +
+      `Aap kis area mein ghar dekhna chahte hain, aur budget roughly kitna hai?`;
+    return english + hindi;
+  }
+
   switch (lang) {
     case 'hi':
       return `*Namaste${who}!* 🙏\n\n*${company}* mein aapka swagat hai — aap bilkul sahi jagah aaye hain. 🏡\n\nAap kis area mein ghar dekhna chahte hain, aur budget roughly kitna hai?`;
@@ -317,11 +336,7 @@ function buildGreetingByLanguage(lang: string, name: string, company: string): s
     case 'ta':
       return `*Vanakkam${who}!* 🙏\n\n*${company}* ku varaverppu — correct idattilukkae vanteerkal. 🏡\n\nEtha area la property paarkureerkal, budget roughly enna?`;
     default:
-      return (
-        `*Hey${who}!* 👋  Welcome to *${company}*.\n\n` +
-        `I'm your personal property assistant — here to help you find the right home, fast. 🏡\n\n` +
-        `What *area* are you looking in, and what's your rough *budget*?`
-      );
+      return english;
   }
 }
 

@@ -38,6 +38,7 @@ import {
   resolveProjectBrochureMediaComponent,
   resolveProjectHeroImageComponent,
   buildProjectSelectListComponent,
+  buildActiveVisitActionButtons,
 } from '../projectBrowse.service';
 import { buyerButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
 
@@ -136,6 +137,7 @@ async function routeInteractiveAction(
   }
   if (interactiveId.startsWith('project-select-')) return handleProjectSelect(params);
   if (interactiveId.startsWith('project-properties-')) return handleProjectProperties(params);
+  if (interactiveId === 'browse-projects') return handleBrowseProjects(params);
   if (interactiveId.startsWith('filter-')) return handlePropertyFilter(params);
 
   return null;
@@ -453,6 +455,43 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     };
   }
 
+  const activeVisit = await prisma.visit.findFirst({
+    where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
+    orderBy: { scheduledAt: 'asc' },
+    include: { property: { select: { id: true, name: true, projectId: true } } },
+  });
+  const pendingApproval = activeVisit
+    ? null
+    : await findPendingVisitApprovalForLead({ companyId: company.id, leadId: lead.id });
+
+  const visitDate = activeVisit
+    ? formatISTDateTimeLong(new Date(activeVisit.scheduledAt))
+    : pendingApproval
+      ? formatISTDateTimeLong(new Date(pendingApproval.scheduledAt))
+      : null;
+
+  const isBookedPropertyTap =
+    Boolean(activeVisit?.propertyId && activeVisit.propertyId === propertyId);
+
+  if (isBookedPropertyTap && visitDate) {
+    const outboundText = tBuyer(lang, 'visit_booked_property_reminder', {
+      property: property.name,
+      date: visitDate,
+    });
+    const buttonComponent = buildActiveVisitActionButtons(property.projectId, lang);
+    const hero = await resolveHeroMediaComponentFromPropertyIds(company.id, [property.id]);
+    const components = enforceTurnComponentBudget([
+      buttonComponent,
+      ...(hero ? [hero] : []),
+    ]);
+    return {
+      handled: true,
+      action: 'more-info-booked-property',
+      newState: { selectedPropertyId: propertyId },
+      turnResult: buyerTurn(outboundText, components),
+    };
+  }
+
   const promptLimits = getPropertyPromptLimits();
   let promptInput = propertyToAiPromptInput(property);
   const [enriched] = await enrichAiPropertiesFromKnowledge(
@@ -477,52 +516,24 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     details = `${details}\n\n${tBuyer(lang, 'more_from_records')}\n${extraFacts.join('\n\n')}`;
   }
 
-  const activeVisit = await prisma.visit.findFirst({
-    where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
-    orderBy: { scheduledAt: 'asc' },
-    include: { property: { select: { name: true } } },
-  });
-  const pendingApproval = activeVisit
-    ? null
-    : await findPendingVisitApprovalForLead({ companyId: company.id, leadId: lead.id });
-
   let outboundText = details;
   let buttonComponent: WhatsAppComponent;
 
-  if (activeVisit) {
-    const visitDate = formatISTDateTimeLong(new Date(activeVisit.scheduledAt));
+  if (activeVisit && visitDate) {
     const visitPropName = (activeVisit.property as { name?: string })?.name ?? property.name;
     const visitAlreadyConfirmed = activeVisit.status === 'confirmed';
     const prefixKey = visitAlreadyConfirmed ? 'visit_detail_confirmed_prefix' : 'visit_detail_scheduled_prefix';
     outboundText =
       `${tBuyer(lang, prefixKey, { property: visitPropName, date: visitDate })}\n\n` + details;
-    buttonComponent = {
-      kind: 'buttons',
-      buttons: visitAlreadyConfirmed
-        ? [
-            { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'change_time') },
-            { id: `more-info-${propertyId}`, title: buyerButtonTitle(lang, 'property_details') },
-            { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
-          ]
-        : [
-            { id: 'visit-confirm', title: buyerButtonTitle(lang, 'confirm_visit') },
-            { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'reschedule') },
-            { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
-          ],
-    };
-  } else if (pendingApproval) {
-    const visitDate = formatISTDateTimeLong(new Date(pendingApproval.scheduledAt));
+    buttonComponent = buildActiveVisitActionButtons(
+      property.projectId ?? (activeVisit.property as { projectId?: string | null })?.projectId ?? null,
+      lang,
+    );
+  } else if (pendingApproval && visitDate) {
     const visitPropName = pendingApproval.propertyName ?? 'the property';
     outboundText =
-      `Your visit request for *${visitPropName}* on ${visitDate} is awaiting team approval ⏳\n\n` + details;
-    buttonComponent = {
-      kind: 'buttons',
-      buttons: [
-        { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'change_time') },
-        { id: `more-info-${propertyId}`, title: buyerButtonTitle(lang, 'property_details') },
-        { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
-      ],
-    };
+      `${tBuyer(lang, 'visit_pending_approval_prefix', { property: visitPropName, date: visitDate })}\n\n` + details;
+    buttonComponent = buildActiveVisitActionButtons(property.projectId, lang);
   } else {
     buttonComponent = buildPropertyDetailButtons(propertyId, property.projectId, lang);
   }
@@ -635,6 +646,39 @@ async function handleProjectSelect(params: InteractiveActionParams): Promise<Int
   };
 }
 
+async function handleBrowseProjects(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const { lead, company } = params;
+  const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
+
+  const usesProjects = await companyUsesProjectBrowse(company.id);
+  if (!usesProjects) {
+    return {
+      handled: true,
+      action: 'browse-projects-unavailable',
+      turnResult: buyerTurn(tBuyer(lang, 'project_browse_none')),
+    };
+  }
+
+  const projects = await listProjectsForBuyerBrowse(company.id);
+  if (!projects.length) {
+    return {
+      handled: true,
+      action: 'browse-projects-empty',
+      turnResult: buyerTurn(tBuyer(lang, 'project_browse_none')),
+    };
+  }
+
+  const reply = formatProjectCatalogIntro(projects, lang);
+  const listComponent = buildProjectSelectListComponent(projects, lang);
+  const components = enforceTurnComponentBudget([listComponent]);
+
+  return {
+    handled: true,
+    action: 'browse-projects',
+    turnResult: buyerTurn(reply, components),
+  };
+}
+
 async function handleProjectProperties(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { interactiveId, lead, conversation, company } = params;
   const projectId = interactiveId.replace('project-properties-', '');
@@ -649,9 +693,9 @@ async function handleProjectProperties(params: InteractiveActionParams): Promise
     };
   }
 
-  let outboundText = `*${loaded.project.name}* — choose a listing for full details:`;
+  let outboundText = `*${loaded.project.name}* — ${tBuyer(lang, 'choose_property').toLowerCase()}:`;
   if (loaded.properties.length > 10) {
-    outboundText += `\n\nShowing 10 of ${loaded.properties.length} — reply with a unit name for others.`;
+    outboundText += `\n\n${tBuyer(lang, 'showing_listings_truncated', { total: loaded.properties.length })}`;
   }
 
   const listComponent = buildProjectPropertyListComponent(

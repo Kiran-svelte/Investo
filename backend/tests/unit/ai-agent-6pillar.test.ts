@@ -86,6 +86,7 @@ const MOCK_ACTIVE_VISIT: ActiveVisitContext = {
   visitId: 'visit-uuid-1',
   propertyId: 'prop-uuid-1',
   propertyName: 'Sunset Heights',
+  projectId: null,
   status: 'scheduled',
   scheduledAt: new Date('2026-06-15T10:00:00+05:30'),
   agentName: 'Rahul Sharma',

@@ -12,6 +12,7 @@ function sampleVisit(overrides: Partial<ActiveVisitContext> = {}): ActiveVisitCo
     visitId: 'v1',
     propertyId: 'p1',
     propertyName: 'Palmvilla',
+    projectId: 'proj-1',
     scheduledAt: new Date('2026-06-17T04:30:00.000Z'),
     status: 'confirmed',
     agentName: 'Kiran Sales',
@@ -113,6 +114,6 @@ describe('buyerI18n.util', () => {
     const en = nurtureMessageForReason('en', '48h_no_activity', { name: 'Ravi', area: 'Whitefield' });
     expect(hi).toContain('Ravi');
     expect(hi).not.toBe(en);
-    expect(tBuyer('hi', 'more_from_records')).toContain('records');
+    expect(tBuyer('hi', 'more_from_records')).toMatch(/[\u0900-\u097F]/);
   });
 });

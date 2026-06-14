@@ -4,6 +4,7 @@
  */
 
 import { buyerButtonTitle } from './buyerI18n.util';
+import { buildActiveVisitActionButtons } from '../services/projectBrowse.service';
 
 export type BuyerButtonSituation =
   | 'active_call'
@@ -37,6 +38,10 @@ export type SituationButtonInput = {
   visitStatus?: string;
   /** Buyer language for button titles. */
   language?: string;
+  /** Project board id for the active visit property (enables View Listings). */
+  visitPropertyProjectId?: string | null;
+  /** Property id tied to the active visit. */
+  visitPropertyId?: string | null;
   /** Company inventory filters — never show apartment/villa buttons the company does not list. */
   browseFilters?: BrowseFilterButton[];
 };
@@ -183,12 +188,10 @@ export function resolveButtonsForBuyerSituation(
       ];
 
     case 'visit_pending_approval':
-    case 'visit_confirmed':
-      return [
-        { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'change_time') },
-        { id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'property_details') },
-        { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
-      ];
+    case 'visit_confirmed': {
+      const component = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
+      return component.kind === 'buttons' ? component.buttons : null;
+    }
 
     case 'visit_scheduled':
       return [
@@ -229,6 +232,10 @@ export function resolveButtonsForBuyerSituation(
 
     case 'single_property_focus':
     case 'general_followup': {
+      if (input.hasActiveVisit) {
+        const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
+        return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+      }
       const buttons: Array<{ id: string; title: string }> = [];
       if (primaryId) {
         buttons.push({ id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') });

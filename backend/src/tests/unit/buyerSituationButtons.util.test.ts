@@ -78,4 +78,38 @@ describe('buyerSituationButtons.util', () => {
     });
     expect(situation).toBe('visit_confirmed');
   });
+
+  test('visit confirmed buttons exclude property details and include view listings', () => {
+    const buttons = resolveButtonsForBuyerSituation('visit_confirmed', {
+      stage: 'confirmation',
+      outboundText: 'Your visit is confirmed.',
+      hasActiveVisit: true,
+      visitStatus: 'confirmed',
+      visitPropertyProjectId: 'proj-sunset',
+      language: 'en',
+    });
+    expect(buttons?.map((b) => b.id)).toEqual([
+      'visit-reschedule',
+      'project-properties-proj-sunset',
+      'call-me',
+    ]);
+    expect(buttons?.map((b) => b.id)).not.toContain('more-info-p1');
+  });
+
+  test('single property focus with active visit uses visit action buttons', () => {
+    const buttons = resolveSituationBuyerButtons({
+      stage: 'shortlist',
+      outboundText: 'Sunset Heights 1102 starts from ₹95L.',
+      propertyId: 'prop-1102',
+      hasActiveVisit: true,
+      visitStatus: 'confirmed',
+      visitPropertyProjectId: 'proj-sunset',
+      language: 'hi',
+    });
+    expect(buttons?.map((b) => b.id)).toEqual([
+      'visit-reschedule',
+      'project-properties-proj-sunset',
+      'call-me',
+    ]);
+  });
 });
