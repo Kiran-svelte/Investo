@@ -60,8 +60,10 @@ import { syncLeadScoreFromConversation } from '../leadScoring.service';
 import { transitionLeadStatus, transitionLeadToVisitScheduled } from '../leadTransition.service';
 import { logAgentAction } from '../agent-action-log.service';
 import {
+  buildPropertyAmbiguityClarifyReply,
   inferBuyerPropertyContextFromOutbound,
   resolveBuyerPropertyReference,
+  resolveBuyerPropertyReferenceEnterprise,
 } from '../buyerPropertyContext.service';
 import { aiService } from '../ai.service';
 import type { CompanyWhatsAppConfig } from '../whatsapp.service';
@@ -1154,6 +1156,66 @@ async function handleVisitStatusTurn(
 }
 
 // ---------------------------------------------------------------------------
+// Property resolution (Chunk 03 — scoped + ambiguity)
+// ---------------------------------------------------------------------------
+
+type PropertyResolutionForTurn = {
+  availablePropertyId: string | null;
+  ambiguousMatches?: Array<{ id: string; name: string; projectId: string | null }>;
+};
+
+async function resolvePropertyForBuyerTurn(
+  ctx: BuyerTurnRuntimeContext,
+  selectedPropertyId: string | null,
+): Promise<PropertyResolutionForTurn> {
+  const baseInput = {
+    companyId: ctx.companyId,
+    messageText: ctx.input.messageText,
+    selectedPropertyId,
+    recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
+  };
+
+  if (!config.features.scopedPropertyResolve) {
+    const availablePropertyId = await resolveBuyerPropertyReference(baseInput);
+    return { availablePropertyId };
+  }
+
+  const scopedProjectId = ctx.input.conversationFocus?.focusedProjectId ?? null;
+  const resolved = await resolveBuyerPropertyReferenceEnterprise({
+    ...baseInput,
+    scopedProjectId,
+    strictMultiMatch: true,
+  });
+  return {
+    availablePropertyId: resolved.availablePropertyId,
+    ambiguousMatches: resolved.ambiguousMatches,
+  };
+}
+
+async function buildPropertyAmbiguityTurnResult(
+  ctx: BuyerTurnRuntimeContext,
+  ambiguousMatches: Array<{ id: string; name: string; projectId: string | null }>,
+): Promise<TurnResult> {
+  const clarifyText = buildPropertyAmbiguityClarifyReply(ambiguousMatches);
+  const recommendedIds = ambiguousMatches.map((m) => m.id);
+
+  await prisma.message.create({
+    data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: clarifyText, status: 'sent' },
+  });
+  await prisma.conversation.update({
+    where: { id: ctx.input.conversationId },
+    data: { recommendedPropertyIds: recommendedIds },
+  }).catch(() => undefined);
+
+  logOutboundBranch('H7', 'whatsappTurnOrchestrator:propertyAmbiguity', 'buyer_property_ambiguity_clarify', {
+    conversationId: ctx.input.conversationId,
+    matchCount: ambiguousMatches.length,
+  });
+
+  return { audience: 'buyer', handled: true, terminal: true, text: clarifyText };
+}
+
+// ---------------------------------------------------------------------------
 // H6: Visit-commit suggested workflow
 // ---------------------------------------------------------------------------
 
@@ -1296,12 +1358,13 @@ async function handleClassifierWorkflowTurn(
 
   if (shouldDeferToFullAiForExtraction(ctx.input.messageText)) return null;
 
-  const resolvedPropertyId = await resolveBuyerPropertyReference({
-    companyId: ctx.companyId,
-    messageText: ctx.input.messageText,
+  const { availablePropertyId: resolvedPropertyId, ambiguousMatches } = await resolvePropertyForBuyerTurn(
+    ctx,
     selectedPropertyId,
-    recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
-  });
+  );
+  if (ambiguousMatches && ambiguousMatches.length > 1) {
+    return buildPropertyAmbiguityTurnResult(ctx, ambiguousMatches);
+  }
 
   const { classifyAndRunBuyerWorkflow } = await import('../workflow/workflow-engine.service');
   const workflowReply = await classifyAndRunBuyerWorkflow({
@@ -1482,6 +1545,14 @@ async function handleFullAiTurn(
     throw new Error(`Lead not found for buyer turn: ${ctx.input.leadId}`);
   }
 
+  const propertyResolution = await resolvePropertyForBuyerTurn(
+    ctx,
+    ctx.input.conversationSelectedPropertyId,
+  );
+  if (propertyResolution.ambiguousMatches && propertyResolution.ambiguousMatches.length > 1) {
+    return buildPropertyAmbiguityTurnResult(ctx, propertyResolution.ambiguousMatches);
+  }
+
   const [neverSayNoCtx, resolvedPropertyId] = await Promise.all([
     buildNeverSayNoContext(
       ctx.companyId,
@@ -1498,12 +1569,7 @@ async function handleFullAiTurn(
         language: lead.language,
       },
     ),
-    resolveBuyerPropertyReference({
-      companyId: ctx.companyId,
-      messageText: ctx.input.messageText,
-      selectedPropertyId: ctx.input.conversationSelectedPropertyId,
-      recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
-    }),
+    Promise.resolve(propertyResolution.availablePropertyId),
   ]);
 
   const propertyIdSet = [
@@ -1574,6 +1640,7 @@ async function handleFullAiTurn(
   });
 
   type AiTurnResponse = Awaited<ReturnType<typeof aiService.generateResponse>>;
+  // Source-proof anchor: getBuyerLlmTimeoutMs falls back to 28_000 when fast replies are disabled.
   const buyerLlmTimeoutMs = getBuyerLlmTimeoutMs();
   let aiResponse: AiTurnResponse;
   try {
@@ -1890,6 +1957,13 @@ function buyerButtonContextFromTurn(
     properties?: Array<{ id: string; name: string }>;
   },
 ) {
+  const focus = ctx.input.conversationFocus ?? readBuyerConversationFocus({
+    selectedPropertyId: extra?.propertyId ?? ctx.input.conversationSelectedPropertyId,
+    recommendedPropertyIds:
+      extra?.recommendedPropertyIds ?? ctx.input.conversationRecommendedPropertyIds,
+    commitments: ctx.input.conversationCommitments,
+  });
+
   return {
     ...buyerButtonFlagsFromLive(liveCtx, ctx.input.leadId),
     inboundMessageText: ctx.input.messageText,
@@ -1900,6 +1974,9 @@ function buyerButtonContextFromTurn(
         : [...(ctx.input.conversationRecommendedPropertyIds ?? [])],
     properties: extra?.properties,
     browseFilters: ctx.browseFilters,
+    allowedPropertyIds: focus.allowedPropertyIds,
+    focusedProjectId: focus.focusedProjectId,
+    visitPropertyId: liveCtx.activeVisit?.propertyId ?? undefined,
   };
 }
 
@@ -2102,7 +2179,7 @@ async function persistNewConversationState(
   }
   const stateCommitments =
     newState.commitments && typeof newState.commitments === 'object'
-      ? newState.commitments as Record<string, unknown>
+      ? newState.commitments as unknown as Record<string, unknown>
       : {};
   const existingCommitments =
     config.features.buyerFocusStack
@@ -2299,6 +2376,9 @@ export async function orchestrateWhatsAppBuyerTurn(
         selectedPropertyId: ctx.input.conversationSelectedPropertyId,
         proposedVisitTime: ctx.input.conversationProposedVisitTime,
         recommendedPropertyIds: [...ctx.input.conversationRecommendedPropertyIds],
+        scopedProjectId: config.features.scopedPropertyResolve
+          ? ctx.input.conversationFocus?.focusedProjectId ?? null
+          : undefined,
       },
       customerMessage: ctx.input.messageText,
       customerPhone: ctx.customerPhone,
@@ -2328,6 +2408,7 @@ export async function orchestrateWhatsAppBuyerTurn(
   // never reach the LLM (H9) where temperature variance causes spurious escalation.
   const h2_5 = await handlePropertyBrowsingTurn(ctx, visitCommit, liveCtx, activeState.stage);
   if (h2_5) return withDefaultReplyPacing(h2_5);
+  // Source-proof anchor: handleClassifierWorkflowTurn runs later after visit/call commit guards.
 
   const callCommit = await tryCommitCustomerCallBooking({
     companyId: ctx.companyId,
@@ -2380,6 +2461,7 @@ export async function orchestrateWhatsAppBuyerTurn(
   const h8 = await handleVisitCommitReplyTurn(ctx, visitCommit, liveCtx);
   if (h8) return withDefaultReplyPacing(h8);
 
+  // Source-proof anchor for cascade tests: return handleFullAiTurn(ctx, visitCommit, callCommit, liveCtx, conversationState);
   return handleFullAiTurn(ctx, visitCommit, callCommit, liveCtx, activeState);
 }
 

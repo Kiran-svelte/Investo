@@ -572,6 +572,14 @@ const config = {
     multiVisitContext: process.env.FEATURE_MULTI_VISIT_CONTEXT === 'true',
     /** Conversation focus stack — project + property memory (Chunk 02). */
     buyerFocusStack: process.env.FEATURE_BUYER_FOCUS_STACK === 'true',
+    /** Project-scoped property name resolution + ambiguity clarify (Chunk 03). */
+    scopedPropertyResolve: process.env.FEATURE_SCOPED_PROPERTY_RESOLVE === 'true',
+    /** Validate book-visit / more-info buttons against focus scope (Chunk 06). */
+    buttonScopeValidate: process.env.FEATURE_BUTTON_SCOPE_VALIDATE === 'true',
+    /** Post-LLM outbound property mention validator (Chunk 07). */
+    outboundPropertyValidate: process.env.FEATURE_OUTBOUND_PROPERTY_VALIDATE === 'true',
+    /** Second visit on different project — clarify, don't blanket block (Chunk 08). */
+    secondVisitPolicy: process.env.FEATURE_SECOND_VISIT_POLICY === 'true',
   },
 };
 

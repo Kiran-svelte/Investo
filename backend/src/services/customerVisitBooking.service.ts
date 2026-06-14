@@ -19,10 +19,15 @@ import {
   notifyAgentVisitChangeRequested,
   reschedulePendingVisitApprovalForBuyer,
 } from './visitPendingApproval.service';
-import { resolveBuyerPropertyReference } from './buyerPropertyContext.service';
+import {
+  buildPropertyAmbiguityClarifyReply,
+  resolveBuyerPropertyReference,
+  resolveBuyerPropertyReferenceEnterprise,
+} from './buyerPropertyContext.service';
 import { formatBuyerVisitScheduled, formatBuyerVisitPendingApprovalReply } from '../utils/visitFormat.util';
 import { isConversationAwaitingCallTime } from '../utils/conversationCallContext.util';
 import { isVisitAutoConfirmEnabled } from './visitAutoConfirm.service';
+import config from '../config';
 import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
 import type { WorkflowId } from '../constants/workflow.constants';
 import type { WorkflowParams } from './workflow/workflow.types';
@@ -41,6 +46,8 @@ export interface CommitCustomerVisitInput {
     /** May be stale; always refreshed from DB before use. */
     proposedVisitTime: Date | null;
     recommendedPropertyIds?: unknown;
+    /** Chunk 03 — project scope for property name resolution */
+    scopedProjectId?: string | null;
   };
   customerMessage: string;
   customerPhone: string;
@@ -88,21 +95,40 @@ async function isVisitAlreadyConfirmed(conversationId: string): Promise<boolean>
   return Boolean(c?.visitSlotConfirmed);
 }
 
-function resolvePropertyId(
+async function resolvePropertyId(
   companyId: string,
   conversation: CommitCustomerVisitInput['conversation'],
   message: string,
-): Promise<string | null> {
+): Promise<{
+  propertyId: string | null;
+  ambiguousMatches?: Array<{ id: string; name: string; projectId: string | null }>;
+}> {
   const recommended = Array.isArray(conversation.recommendedPropertyIds)
     ? (conversation.recommendedPropertyIds as string[])
     : [];
 
-  return resolveBuyerPropertyReference({
+  if (config.features.scopedPropertyResolve) {
+    const resolved = await resolveBuyerPropertyReferenceEnterprise({
+      companyId,
+      messageText: message,
+      selectedPropertyId: conversation.selectedPropertyId,
+      recommendedPropertyIds: recommended,
+      scopedProjectId: conversation.scopedProjectId ?? null,
+      strictMultiMatch: true,
+    });
+    return {
+      propertyId: resolved.availablePropertyId,
+      ambiguousMatches: resolved.ambiguousMatches,
+    };
+  }
+
+  const propertyId = await resolveBuyerPropertyReference({
     companyId,
     messageText: message,
     selectedPropertyId: conversation.selectedPropertyId,
     recommendedPropertyIds: recommended,
   });
+  return { propertyId };
 }
 
 function resolveScheduledAt(
@@ -486,7 +512,21 @@ export async function tryCommitCustomerVisitBooking(
     return { committed: false };
   }
 
-  let propertyId = await resolvePropertyId(companyId, conversation, customerMessage);
+  const resolved = await resolvePropertyId(companyId, conversation, customerMessage);
+
+  if (resolved.ambiguousMatches && resolved.ambiguousMatches.length > 1) {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { recommendedPropertyIds: resolved.ambiguousMatches.map((m) => m.id) },
+    }).catch(() => undefined);
+    return {
+      committed: true,
+      customerReply: buildPropertyAmbiguityClarifyReply(resolved.ambiguousMatches),
+      leadStatus: 'contacted',
+    };
+  }
+
+  let propertyId = resolved.propertyId;
 
   if (!propertyId) {
     // Buyer said "book visit tuesday 2pm" without specifying a property.
