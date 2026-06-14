@@ -49,6 +49,7 @@ export type TypingSession = { stop: () => void };
 export function startTypingDuringProcessing(
   to: string,
   whatsappConfig: WhatsAppPresenceConfig,
+  inboundMessageId?: string,
 ): TypingSession {
   if (!isTypingDuringProcessingEnabled()) {
     return { stop: () => undefined };
@@ -56,7 +57,7 @@ export function startTypingDuringProcessing(
 
   let stopped = false;
   const pulse = () => {
-    if (!stopped) void sendTypingIndicator(to, whatsappConfig);
+    if (!stopped) void sendTypingIndicator(to, whatsappConfig, inboundMessageId);
   };
 
   pulse();
@@ -78,10 +79,25 @@ export function startTypingDuringProcessing(
 export async function sendTypingIndicator(
   to: string,
   whatsappConfig: WhatsAppPresenceConfig,
+  inboundMessageId?: string,
 ): Promise<void> {
   const phoneNumberId = whatsappConfig.phoneNumberId;
   const accessToken = whatsappConfig.accessToken;
   if (!phoneNumberId || !accessToken) return;
+
+  const trimmedInboundId = inboundMessageId?.trim();
+  const payload = trimmedInboundId
+    ? {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: trimmedInboundId,
+        typing_indicator: { type: 'text' },
+      }
+    : {
+        messaging_product: 'whatsapp',
+        to: normalizeTo(to),
+        typing_indicator: { type: 'text' },
+      };
 
   try {
     const response = await fetch(`${config.whatsapp.apiUrl}/${phoneNumberId}/messages`, {
@@ -90,11 +106,7 @@ export async function sendTypingIndicator(
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: normalizeTo(to),
-        typing_indicator: { type: 'text' },
-      }),
+      body: JSON.stringify(payload),
     });
     if (!response.ok) {
       logger.debug('Typing indicator not supported by API version', { status: response.status });
@@ -149,7 +161,7 @@ export async function simulateHumanReplyPacing(input: {
 
   await markInboundMessageRead(input.inboundMessageId, input.whatsappConfig);
   if (mode === 'full' && !isReplyPacingGloballyDisabled()) {
-    await sendTypingIndicator(input.to, input.whatsappConfig);
+    await sendTypingIndicator(input.to, input.whatsappConfig, input.inboundMessageId);
   }
   if (!isReplyPacingGloballyDisabled()) {
     await new Promise((r) => setTimeout(r, computeHumanReplyDelayMs(input.outboundTextLength, mode)));

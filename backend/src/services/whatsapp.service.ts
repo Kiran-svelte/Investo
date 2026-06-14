@@ -31,6 +31,8 @@ import {
   releaseCustomerProcessingTurn,
   claimOutboundAiReply,
   releaseInboundMessageFull,
+  releaseOutboundAiReply,
+  inboundCustomerMessageLacksAiReply,
 } from './inboundMessageGuard.service';
 import {
   enqueueCustomerInbound,
@@ -507,11 +509,43 @@ export class WhatsAppService {
     }
 
     if (msg.messageId && !msg.queuedReplay) {
-      const inboundClaimed = await claimInboundMessageFull(
+      let inboundClaimed = await claimInboundMessageFull(
         companyId,
         msg.messageId,
         customerPhone,
       );
+      if (!inboundClaimed) {
+        const lacksReply = await inboundCustomerMessageLacksAiReply(msg.messageId);
+        if (lacksReply) {
+          await releaseInboundMessageFull(companyId, msg.messageId);
+          inboundClaimed = await claimInboundMessageFull(companyId, msg.messageId, customerPhone);
+        } else {
+          const recovered = await this.tryResendStoredBuyerReply({
+            companyId,
+            customerPhone,
+            messageId: msg.messageId,
+            whatsappConfig: whatsappConfig!,
+          });
+          if (recovered) {
+            return {
+              status: 'processed',
+              reason: 'outbound_recovery_resend',
+              companyId,
+              propagation: notAttempted,
+            };
+          }
+          logger.info('Skipping duplicate inbound WhatsApp message', {
+            whatsappMessageId: msg.messageId,
+            companyId,
+          });
+          return {
+            status: 'skipped',
+            reason: 'duplicate_message_id',
+            companyId,
+            propagation: notAttempted,
+          };
+        }
+      }
       if (!inboundClaimed) {
         logger.info('Skipping duplicate inbound WhatsApp message', {
           whatsappMessageId: msg.messageId,
@@ -936,17 +970,47 @@ export class WhatsAppService {
         select: { id: true },
       });
       if (existingMessage) {
-        logger.info('Skipping duplicate webhook message', {
-          whatsappMessageId: msg.messageId,
-          existingMessageId: existingMessage.id,
-        });
-        return {
-          status: 'skipped',
-          companyId,
-          leadId: lead.id,
-          conversationId: conversation?.id,
-          propagation: null,
-        };
+        const lacksReply = await inboundCustomerMessageLacksAiReply(msg.messageId);
+        if (lacksReply) {
+          logger.warn('Duplicate webhook customer row without AI reply — continuing processing', {
+            whatsappMessageId: msg.messageId,
+            existingMessageId: existingMessage.id,
+          });
+        } else {
+          const recovered = await this.tryResendStoredBuyerReply({
+            companyId,
+            customerPhone,
+            messageId: msg.messageId,
+            whatsappConfig: whatsappConfig!,
+          });
+          if (recovered) {
+            processingSucceeded = true;
+            return {
+              status: 'processed',
+              reason: 'outbound_recovery_resend',
+              companyId,
+              leadId: lead.id,
+              conversationId: conversation.id,
+              propagation: await this.propagateConversationUpdate({
+                companyId,
+                conversationId: conversation.id,
+                leadId: lead.id,
+                trigger: 'outbound_recovery',
+              }),
+            };
+          }
+          logger.info('Skipping duplicate webhook message', {
+            whatsappMessageId: msg.messageId,
+            existingMessageId: existingMessage.id,
+          });
+          return {
+            status: 'skipped',
+            companyId,
+            leadId: lead.id,
+            conversationId: conversation?.id,
+            propagation: null,
+          };
+        }
       }
     }
 
@@ -1114,7 +1178,7 @@ export class WhatsAppService {
 
     // 3.5. Handle interactive button/list responses
     if (msg.interactiveId && conversation.status === 'ai_active' && conversation.aiEnabled) {
-      buyerTypingSession = startTypingDuringProcessing(customerPhone, whatsappConfig!);
+      buyerTypingSession = startTypingDuringProcessing(customerPhone, whatsappConfig!, msg.messageId);
       const actionResult = await this.handleInteractiveAction({
         interactiveId: msg.interactiveId,
         interactiveType: msg.interactiveType,
@@ -1176,14 +1240,22 @@ export class WhatsAppService {
                 error: sendErr instanceof Error ? sendErr.message : String(sendErr),
                 conversationId: conversation.id,
               });
+              await releaseOutboundAiReply(companyId, msg.messageId);
+              await releaseInboundMessageFull(companyId, msg.messageId).catch(() => undefined);
             }
           } else {
-            logger.warn('Interactive outbound dedup blocked — still persisting AI reply in transcript', {
+            logger.warn('Interactive outbound dedup blocked — attempting transcript resend', {
               companyId,
               messageId: msg.messageId,
               interactiveId: msg.interactiveId,
             });
-            deliveryOk = Boolean(outboundText);
+            deliveryOk = await this.tryResendStoredBuyerReply({
+              companyId,
+              customerPhone,
+              messageId: msg.messageId,
+              whatsappConfig: whatsappConfig!,
+              turnResult: actionResult.turnResult,
+            });
           }
           if (pendingMsgId) {
             await prisma.message.update({
@@ -1269,7 +1341,7 @@ export class WhatsAppService {
     const { orchestrateWhatsAppBuyerTurn } = await import('./whatsapp/whatsappTurnOrchestrator.service');
     const buyerTurnStartedAt = Date.now();
     if (!buyerTypingSession) {
-      buyerTypingSession = startTypingDuringProcessing(customerPhone, whatsappConfig!);
+      buyerTypingSession = startTypingDuringProcessing(customerPhone, whatsappConfig!, msg.messageId);
     }
     const turnResult = await orchestrateWhatsAppBuyerTurn(
       {
@@ -1390,8 +1462,6 @@ export class WhatsAppService {
       }
       throw processingErr;
     } finally {
-      buyerTypingSession?.stop();
-      buyerTypingSession = null;
       endOutboundTurn('buyer_orchestration_done');
       if (claimedCustomerProcessingTurn) {
         await releaseCustomerProcessingTurn(companyId, customerPhone);
@@ -1407,6 +1477,7 @@ export class WhatsAppService {
     if (pendingBuyerOutbound?.turnResult.text?.trim()) {
       const { turnResult, conversationId } = pendingBuyerOutbound;
       const orchestratorClaimed = await claimOutboundAiReply(companyId, msg.messageId);
+      let outboundDelivered = false;
       if (orchestratorClaimed) {
         const pacingStartedAt = Date.now();
         await simulateHumanReplyPacing({
@@ -1424,6 +1495,7 @@ export class WhatsAppService {
         });
         try {
           await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);
+          outboundDelivered = true;
           incrementOpsMetric('whatsapp_outbound');
           await prisma.message.updateMany({
             where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
@@ -1438,8 +1510,31 @@ export class WhatsAppService {
             where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
             data: { status: 'failed' },
           }).catch(() => undefined);
+          await releaseOutboundAiReply(companyId, msg.messageId);
+          await releaseInboundMessageFull(companyId, msg.messageId).catch(() => undefined);
         }
+      } else {
+        logger.warn('Outbound dedup blocked — attempting transcript resend', {
+          companyId,
+          messageId: msg.messageId,
+          conversationId,
+        });
+        outboundDelivered = await this.tryResendStoredBuyerReply({
+          companyId,
+          customerPhone,
+          messageId: msg.messageId,
+          whatsappConfig: whatsappConfig!,
+          turnResult,
+        });
       }
+      buyerTypingSession?.stop();
+      buyerTypingSession = null;
+      if (!outboundDelivered && msg.messageId) {
+        await releaseInboundMessageFull(companyId, msg.messageId).catch(() => undefined);
+      }
+    } else {
+      buyerTypingSession?.stop();
+      buyerTypingSession = null;
     }
 
     if (pendingBuyerOutbound) {
@@ -1450,6 +1545,67 @@ export class WhatsAppService {
         conversationId: pendingBuyerOutbound.conversationId,
         propagation: pendingBuyerOutbound.propagation,
       };
+    }
+  }
+
+  /**
+   * Re-deliver a stored AI reply when inbound dedup blocked re-processing but WhatsApp never got the message.
+   */
+  private async tryResendStoredBuyerReply(input: {
+    companyId: string;
+    customerPhone: string;
+    messageId: string | undefined;
+    whatsappConfig: CompanyWhatsAppConfig;
+    turnResult?: TurnResult;
+  }): Promise<boolean> {
+    const inboundId = input.messageId?.trim();
+    if (!inboundId) return false;
+
+    let text = input.turnResult?.text?.trim();
+    let components = input.turnResult?.components;
+
+    if (!text) {
+      const customerMsg = await prisma.message.findFirst({
+        where: { whatsappMessageId: inboundId },
+        select: { conversationId: true, createdAt: true },
+      });
+      if (!customerMsg) return false;
+
+      const aiMsg = await prisma.message.findFirst({
+        where: {
+          conversationId: customerMsg.conversationId,
+          senderType: { in: ['ai', 'agent'] },
+          createdAt: { gte: customerMsg.createdAt },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { content: true },
+      });
+      text = aiMsg?.content?.trim();
+      if (!text) return false;
+    }
+
+    const outboundClaimed = await claimOutboundAiReply(input.companyId, inboundId);
+    if (!outboundClaimed) return false;
+
+    try {
+      await this.sendTurnResult(input.customerPhone, {
+        audience: 'buyer',
+        handled: true,
+        terminal: true,
+        text,
+        components,
+        replyPacing: 'none',
+      }, input.whatsappConfig);
+      incrementOpsMetric('whatsapp_outbound');
+      return true;
+    } catch (err: unknown) {
+      logger.error('tryResendStoredBuyerReply failed', {
+        companyId: input.companyId,
+        messageId: inboundId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await releaseOutboundAiReply(input.companyId, inboundId);
+      return false;
     }
   }
 

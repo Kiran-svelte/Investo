@@ -19,7 +19,7 @@ import {
   formatInventoryCountReply,
   isInventoryCountQuery,
 } from './formatBuyerCatalog.util';
-import { tBuyer } from './buyerI18n.util';
+import { buyerButtonTitle, tBuyer } from './buyerI18n.util';
 
 export type PropertyBrowseContext = {
   companyId: string;
@@ -120,6 +120,7 @@ export async function resolvePropertyBrowseTurn(
         outboundText: reply,
         properties,
         companyId,
+        lang: input.leadLanguage ?? 'en',
       }),
     };
   }
@@ -145,6 +146,7 @@ export async function resolvePropertyBrowseTurn(
     };
   }
 
+  const lang = input.leadLanguage ?? 'en';
   const reply = formatBuyerCatalogMatches(matches);
   const properties = matches.map((p) => ({ id: p.id, name: p.name }));
   const propertyIds = matches.map((p) => p.id);
@@ -156,6 +158,7 @@ export async function resolvePropertyBrowseTurn(
     outboundText: reply,
     properties,
     companyId,
+    lang,
   });
 
   return {
@@ -180,13 +183,15 @@ async function buildPropertyBrowseComponents(input: {
   outboundText: string;
   properties: Array<{ id: string; name: string }>;
   companyId: string;
+  lang: string;
 }): Promise<WhatsAppComponent[]> {
+  const lang = input.lang;
   if (input.matches.length >= 2) {
     return [{
       kind: 'list',
-      title: 'View properties',
+      title: tBuyer(lang, 'browse_list_title').slice(0, 24),
       sections: [{
-        title: 'Matching listings',
+        title: tBuyer(lang, 'browse_list_section').slice(0, 24),
         rows: input.matches.slice(0, 10).map((p) => ({
           id: `more-info-${p.id}`,
           title: p.name.slice(0, 24),
@@ -205,9 +210,9 @@ async function buildPropertyBrowseComponents(input: {
   return [{
     kind: 'buttons',
     buttons: [
-      { id: `more-info-${primary.id}`, title: '🏗️ Property Details' },
-      { id: `book-visit-${primary.id}`, title: '🗓️ Book Visit' },
-      { id: 'call-me', title: '📞 Call Me' },
+      { id: `more-info-${primary.id}`, title: buyerButtonTitle(lang, 'property_details') },
+      { id: `book-visit-${primary.id}`, title: buyerButtonTitle(lang, 'book_visit') },
+      { id: 'call-me', title: buyerButtonTitle(lang, 'call_me') },
     ],
   }];
 }

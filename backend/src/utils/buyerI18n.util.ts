@@ -143,7 +143,9 @@ type BuyerCopyKey =
   | 'project_browse_header'
   | 'project_browse_line'
   | 'project_browse_footer'
-  | 'project_selected_intro';
+  | 'project_selected_intro'
+  | 'browse_list_title'
+  | 'browse_list_section';
 
 type CopyVars = Record<string, string | number | null | undefined>;
 
@@ -838,6 +840,8 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     'Great choice — *{name}* has *{count}* available listing(s). Here is the project brochure. Tap a property below for full details, photos, and visit booking.',
     'Badhiya — *{name}* mein *{count}* listing(s) available hain. Project brochure neeche hai. Property chunein details aur visit ke liye.',
   ),
+  browse_list_title: langPack('View properties', 'Properties dekhein'),
+  browse_list_section: langPack('Matching listings', 'Matching listings'),
 };
 
 function interpolate(template: string, vars: CopyVars): string {

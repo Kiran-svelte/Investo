@@ -899,6 +899,10 @@ async function handlePropertyBrowsingTurn(
     companyId: ctx.companyId,
     messageText: ctx.input.messageText,
     stage: conversationStage,
+    leadLanguage: resolveBuyerLanguage({
+      message: ctx.input.messageText,
+      leadLanguage: ctx.input.leadLanguage,
+    }),
   });
   if (!browse) return null;
 

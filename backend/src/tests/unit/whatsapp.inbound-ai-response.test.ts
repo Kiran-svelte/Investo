@@ -129,11 +129,14 @@ jest.mock('../../services/inboundMessageGuard.service', () => ({
   releaseCustomerProcessingTurn: jest.fn().mockResolvedValue(undefined),
   releaseInboundMessageFull: jest.fn().mockResolvedValue(undefined),
   claimOutboundAiReply: jest.fn().mockResolvedValue(true),
+  releaseOutboundAiReply: jest.fn().mockResolvedValue(undefined),
+  inboundCustomerMessageLacksAiReply: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock('../../services/whatsappPresence.service', () => ({
   __esModule: true,
   simulateHumanReplyPacing: jest.fn().mockResolvedValue(undefined),
+  startTypingDuringProcessing: jest.fn().mockReturnValue({ stop: jest.fn() }),
 }));
 
 jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => ({

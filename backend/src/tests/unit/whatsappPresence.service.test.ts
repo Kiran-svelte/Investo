@@ -35,11 +35,15 @@ describe('whatsappPresence typing session', () => {
     const session = startTypingDuringProcessing('919876543210', {
       phoneNumberId: '123',
       accessToken: 'token',
-    });
+    }, 'wamid.inbound.1');
 
     await Promise.resolve();
     expect(calls.length).toBe(1);
-    expect(calls[0]).toMatchObject({ typing_indicator: { type: 'text' } });
+    expect(calls[0]).toMatchObject({
+      status: 'read',
+      message_id: 'wamid.inbound.1',
+      typing_indicator: { type: 'text' },
+    });
 
     jest.advanceTimersByTime(20_000);
     await Promise.resolve();

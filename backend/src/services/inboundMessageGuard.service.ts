@@ -294,6 +294,44 @@ export async function claimOutboundAiReply(
   return claimOutboundTurn(companyId, inboundMessageId, ttlSeconds);
 }
 
+/** Release outbound dedup so a failed send or Meta retry can deliver the AI reply. */
+export async function releaseOutboundAiReply(
+  companyId: string,
+  inboundMessageId: string | undefined | null,
+): Promise<void> {
+  if (!inboundMessageId?.trim()) return;
+  await deduplicationService.release(`${OUTBOUND_TURN_PREFIX}${companyId}:${inboundMessageId.trim()}`);
+}
+
+/**
+ * True when the inbound customer row exists but no AI/agent reply was persisted after it.
+ * Used to recover from partial processing (crash after insert, before outbound send).
+ */
+export async function inboundCustomerMessageLacksAiReply(
+  whatsappMessageId: string | undefined | null,
+): Promise<boolean> {
+  const trimmed = whatsappMessageId?.trim();
+  if (!trimmed) return false;
+
+  const prisma = (await import('../config/prisma')).default;
+  const customerMsg = await prisma.message.findFirst({
+    where: { whatsappMessageId: trimmed },
+    select: { id: true, conversationId: true, createdAt: true },
+  });
+  if (!customerMsg) return true;
+
+  const aiReply = await prisma.message.findFirst({
+    where: {
+      conversationId: customerMsg.conversationId,
+      senderType: { in: ['ai', 'agent'] },
+      createdAt: { gte: customerMsg.createdAt },
+    },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  return !aiReply;
+}
+
 /**
  * Ensures at most one copilot text reply per inbound messageId (staff).
  */
