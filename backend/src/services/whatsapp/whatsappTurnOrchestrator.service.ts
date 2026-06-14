@@ -554,6 +554,7 @@ async function resolveRapportOutbound(
       locationPreference,
       greetingTemplate: aiSettings?.greetingTemplate ?? null,
       lang,
+      leadLanguage: ctx.input.leadLanguage,
       conversationHistory: ctx.history,
       liveCtx: input.liveCtx,
     });
@@ -889,7 +890,23 @@ async function handlePropertyBrowsingTurn(
   if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
 
   const { isPropertyInquiryMessage } = await import('../customerMessageFastPath.service');
-  if (isPropertyInquiryMessage(ctx.input.messageText)) return null;
+  const resolvedLang = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+  });
+
+  const { resolvePropertyBrowseTurn } = await import('../../utils/propertyBrowseTurn.util');
+
+  if (isPropertyInquiryMessage(ctx.input.messageText)) {
+    const soldBrowse = await resolvePropertyBrowseTurn({
+      companyId: ctx.companyId,
+      messageText: ctx.input.messageText,
+      stage: conversationStage,
+      leadLanguage: resolvedLang,
+    });
+    if (!soldBrowse) return null;
+    return dispatchPropertyBrowseTurn(ctx, soldBrowse, resolvedLang, liveCtx, 'sold_property_inquiry');
+  }
 
   if (!isPropertyBrowsingIntent(ctx.input.messageText)) return null;
 
@@ -897,12 +914,6 @@ async function handlePropertyBrowsingTurn(
     messagePreview: ctx.input.messageText.slice(0, 40),
   });
 
-  const resolvedLang = resolveBuyerLanguage({
-    message: ctx.input.messageText,
-    leadLanguage: ctx.input.leadLanguage,
-  });
-
-  const { resolvePropertyBrowseTurn } = await import('../../utils/propertyBrowseTurn.util');
   const browse = await resolvePropertyBrowseTurn({
     companyId: ctx.companyId,
     messageText: ctx.input.messageText,
@@ -911,6 +922,16 @@ async function handlePropertyBrowsingTurn(
   });
   if (!browse) return null;
 
+  return dispatchPropertyBrowseTurn(ctx, browse, resolvedLang, liveCtx, 'availability_check');
+}
+
+async function dispatchPropertyBrowseTurn(
+  ctx: BuyerTurnRuntimeContext,
+  browse: Awaited<ReturnType<typeof import('../../utils/propertyBrowseTurn.util').resolvePropertyBrowseTurn>> & object,
+  resolvedLang: string,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
+  workflowId: string,
+): Promise<TurnResult> {
   if (resolvedLang !== normalizeBuyerLang(ctx.input.leadLanguage)) {
     await prisma.lead.update({ where: { id: ctx.input.leadId }, data: { language: resolvedLang } }).catch(() => undefined);
     await prisma.conversation.update({
@@ -939,7 +960,7 @@ async function handlePropertyBrowsingTurn(
     leadId: ctx.input.leadId,
     messageText: ctx.input.messageText,
     outboundText: safeReply,
-    workflowId: 'availability_check',
+    workflowId,
     liveCtx,
   });
 
@@ -1822,8 +1843,10 @@ function buyerButtonFlagsFromLive(
     visitStatus: liveCtx.activeVisit?.status,
     visitProperty: liveCtx.activeVisit?.propertyName ?? undefined,
     visitTime: resolveVisitTimeString(liveCtx.activeVisit?.scheduledAt),
-    visitPropertyProjectId: liveCtx.activeVisit?.projectId ?? null,
-    visitPropertyId: liveCtx.activeVisit?.propertyId ?? null,
+    visitPropertyProjectId:
+      liveCtx.activeVisit?.projectId ?? liveCtx.recentCompletedVisit?.projectId ?? null,
+    visitPropertyId:
+      liveCtx.activeVisit?.propertyId ?? liveCtx.recentCompletedVisit?.propertyId ?? null,
     hasCompletedVisit: isPostVisitBuyer(liveCtx),
     leadId,
     liveLeadSnapshot: {
@@ -2155,8 +2178,12 @@ export async function orchestrateWhatsAppBuyerTurn(
   conversationState: ConversationState,
 ): Promise<TurnResult> {
   let activeState = conversationState;
+  const browseLang = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+  });
   const browseSnapshot = await getCompanyBrowseSnapshot(ctx.companyId);
-  ctx.browseFilters = buildDiscoveryButtonSet(browseSnapshot);
+  ctx.browseFilters = buildDiscoveryButtonSet(browseSnapshot, browseLang);
   // /start resets all booking/conversation state and re-enables AI — must run before H1.
   const hStart = await handleStartFreshTurn(ctx, activeState);
   if (hStart) return hStart;
@@ -2327,7 +2354,7 @@ export async function buildBuyerRapportTurnResult(input: {
   let browseFilters = input.browseFilters;
   if (!browseFilters && input.companyId) {
     const snapshot = await getCompanyBrowseSnapshot(input.companyId);
-    browseFilters = buildDiscoveryButtonSet(snapshot);
+    browseFilters = buildDiscoveryButtonSet(snapshot, 'en');
   }
 
   const components = resolveBuyerComponents({
@@ -2338,6 +2365,7 @@ export async function buildBuyerRapportTurnResult(input: {
     hasActiveVisit: Boolean(liveCtx.activeVisit),
     hasActiveCall: Boolean(liveCtx.activeCall),
     visitStatus: liveCtx.activeVisit?.status,
+    visitPropertyProjectId: liveCtx.activeVisit?.projectId ?? null,
     hasCompletedVisit: isPostVisitBuyer(liveCtx),
     liveLeadSnapshot: {
       activeVisit: liveCtx.activeVisit,

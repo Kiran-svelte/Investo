@@ -22,6 +22,8 @@ import {
   normalizeBuyerLang,
   wasRecentVisitWelcomeSent,
   wasRecentCallWelcomeSent,
+  isBasicSocialMessage,
+  hindiGreetingFollowupBlock,
 } from '../utils/buyerI18n.util';
 
 /**
@@ -271,7 +273,11 @@ export function buildFastPathCustomerReply(input: {
       : null;
 
     if (greeting) {
-      return { text: greeting, detectedLanguage: lang };
+      let text = greeting;
+      if (isBasicSocialMessage(trimmed) && normalizeBuyerLang(input.leadLanguage) === 'hi') {
+        text += hindiGreetingFollowupBlock(company, name || null);
+      }
+      return { text, detectedLanguage: lang };
     }
 
     return {

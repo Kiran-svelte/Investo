@@ -112,4 +112,32 @@ describe('buyerSituationButtons.util', () => {
       'call-me',
     ]);
   });
+
+  test('post_visit prefers view listings over more-info when project known', () => {
+    const buttons = resolveButtonsForBuyerSituation('post_visit', {
+      stage: 'confirmation',
+      outboundText: 'How was your visit?',
+      hasCompletedVisit: true,
+      visitPropertyProjectId: 'proj-sunset',
+      language: 'en',
+    });
+    expect(buttons?.map((b) => b.id)).toEqual([
+      'share-visit-feedback',
+      'call-me',
+      'project-properties-proj-sunset',
+    ]);
+  });
+
+  test('price_discussed with active visit uses visit action buttons', () => {
+    const buttons = resolveButtonsForBuyerSituation('price_discussed', {
+      stage: 'shortlist',
+      outboundText: 'Pricing for Sunset Heights is ₹95L.',
+      propertyId: 'p1',
+      hasActiveVisit: true,
+      visitPropertyProjectId: 'proj-sunset',
+      language: 'en',
+    });
+    expect(buttons?.map((b) => b.id)).toContain('visit-reschedule');
+    expect(buttons?.map((b) => b.id)).not.toContain('book-visit-p1');
+  });
 });

@@ -1,5 +1,6 @@
 import prisma from '../config/prisma';
 import { cacheGet, cacheSet } from '../config/redis';
+import { buyerButtonTitle, buyerFilterButtonTitle } from '../utils/buyerI18n.util';
 
 const CACHE_TTL_SECONDS = 300;
 
@@ -18,32 +19,19 @@ export type CompanyBrowseSnapshot = {
   typeSummary: string;
 };
 
-const PROPERTY_TYPE_LABELS: Record<string, { label: string; emoji?: string }> = {
-  apartment: { label: 'Apartments', emoji: '🏢' },
-  villa: { label: 'Villas', emoji: '🏡' },
-  plot: { label: 'Plots', emoji: '📐' },
-  commercial: { label: 'Commercial', emoji: '🏬' },
-  other: { label: 'Projects', emoji: '🏗️' },
-};
-
 const TYPE_ORDER = ['apartment', 'villa', 'plot', 'commercial', 'other'];
 
-function formatFilterTitle(type: string, withEmoji: boolean): string {
-  const meta = PROPERTY_TYPE_LABELS[type] ?? { label: type.charAt(0).toUpperCase() + type.slice(1) };
-  if (withEmoji && meta.emoji) return `${meta.emoji} ${meta.label}`;
-  return meta.label;
+function formatFilterTitle(type: string, lang?: string): string {
+  return buyerFilterButtonTitle(lang, type, false);
 }
 
-function formatBhkTitle(bedrooms: number): string {
-  return `${bedrooms} BHK`;
+function formatBhkTitle(bedrooms: number, lang?: string): string {
+  return buyerFilterButtonTitle(lang, `${bedrooms}bhk`, false);
 }
 
 function formatTypeSummary(types: string[]): string {
   if (!types.length) return 'no active listings yet';
-  const labels = types.map((t) => {
-    const meta = PROPERTY_TYPE_LABELS[t];
-    return meta?.label.toLowerCase() ?? t;
-  });
+  const labels = types.map((t) => formatFilterTitle(t).toLowerCase());
   if (labels.length === 1) return labels[0];
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
   return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
@@ -52,6 +40,7 @@ function formatTypeSummary(types: string[]): string {
 function buildFiltersFromInventory(
   typeCounts: Record<string, number>,
   bhkCounts: Record<number, number>,
+  lang?: string,
 ): CompanyBrowseFilter[] {
   const propertyTypes = TYPE_ORDER.filter((t) => (typeCounts[t] ?? 0) > 0);
   const bedroomOptions = Object.keys(bhkCounts)
@@ -65,7 +54,7 @@ function buildFiltersFromInventory(
     if (filters.length >= 3) break;
     filters.push({
       id: `filter-${type}`,
-      title: formatFilterTitle(type, false),
+      title: formatFilterTitle(type, lang),
       filterKey: type,
     });
   }
@@ -77,7 +66,7 @@ function buildFiltersFromInventory(
       if (!filters.some((f) => f.filterKey === key)) {
         filters.push({
           id: `filter-${key}`,
-          title: formatBhkTitle(bhk),
+          title: formatBhkTitle(bhk, lang),
           filterKey: key,
         });
       }
@@ -134,36 +123,42 @@ export async function getCompanyBrowseSnapshot(companyId: string): Promise<Compa
 
 export function browseFiltersToButtons(
   filters: CompanyBrowseFilter[],
-  options?: { withEmoji?: boolean; maxFilters?: number },
+  options?: { withEmoji?: boolean; maxFilters?: number; lang?: string },
 ): Array<{ id: string; title: string }> {
   const max = options?.maxFilters ?? 2;
+  const lang = options?.lang ?? 'en';
   return filters.slice(0, max).map((f) => {
-    if (options?.withEmoji && !/^\d+bhk$/.test(f.filterKey)) {
-      return { id: f.id, title: formatFilterTitle(f.filterKey, true) };
-    }
-    return { id: f.id, title: f.title };
+    const withEmoji = Boolean(options?.withEmoji && !/^\d+bhk$/.test(f.filterKey));
+    return {
+      id: f.id,
+      title: buyerFilterButtonTitle(lang, f.filterKey, withEmoji),
+    };
   });
 }
 
 /** Greeting / inventory-summary buttons: up to 2 company filters + Call Me. */
 export function buildDiscoveryButtonSet(
   snapshot: CompanyBrowseSnapshot,
+  lang?: string,
 ): Array<{ id: string; title: string }> {
-  const buttons = browseFiltersToButtons(snapshot.filters, { maxFilters: 2 });
+  const resolvedLang = lang ?? 'en';
+  const buttons = browseFiltersToButtons(snapshot.filters, { maxFilters: 2, lang: resolvedLang });
   if (buttons.length) {
-    buttons.push({ id: 'call-me', title: 'Call Me' });
+    buttons.push({ id: 'call-me', title: buyerButtonTitle(resolvedLang, 'call_me') });
     return buttons.slice(0, 3);
   }
-  return [{ id: 'call-me', title: 'Call Me' }];
+  return [{ id: 'call-me', title: buyerButtonTitle(resolvedLang, 'call_me') }];
 }
 
 /** Empty-catalog / narrow-search: up to 3 inventory filters, no Call Me unless empty. */
 export function buildCatalogFilterButtonSet(
   snapshot: CompanyBrowseSnapshot,
+  lang?: string,
 ): Array<{ id: string; title: string }> {
-  const buttons = browseFiltersToButtons(snapshot.filters, { maxFilters: 3 });
+  const resolvedLang = lang ?? 'en';
+  const buttons = browseFiltersToButtons(snapshot.filters, { maxFilters: 3, lang: resolvedLang });
   if (buttons.length) return buttons;
-  return [{ id: 'call-me', title: 'Call Agent' }];
+  return [{ id: 'call-me', title: buyerButtonTitle(resolvedLang, 'call_agent') }];
 }
 
 export function isFilterInCompanyInventory(
@@ -174,17 +169,28 @@ export function isFilterInCompanyInventory(
   return snapshot.filters.some((f) => f.filterKey === normalized);
 }
 
-export async function getCompanyBrowseButtons(companyId: string): Promise<Array<{ id: string; title: string }>> {
+export async function getCompanyBrowseButtons(
+  companyId: string,
+  lang?: string,
+): Promise<Array<{ id: string; title: string }>> {
   const snapshot = await getCompanyBrowseSnapshot(companyId);
-  return buildDiscoveryButtonSet(snapshot);
+  return buildDiscoveryButtonSet(snapshot, lang);
 }
+
+const PROPERTY_TYPE_LABELS: Record<string, string> = {
+  apartment: 'Apartments',
+  villa: 'Villas',
+  plot: 'Plots',
+  commercial: 'Commercial',
+  other: 'Projects',
+};
 
 export function formatCompanyInventoryPromptLine(snapshot: CompanyBrowseSnapshot, companyName: string): string {
   if (snapshot.totalListings === 0) {
     return `${companyName} has no active listings in the system yet. Do NOT mention apartments, villas, plots, or other property types. Say listings are being updated and offer to connect with an agent.`;
   }
   if (snapshot.propertyTypes.length) {
-    const labels = snapshot.propertyTypes.map((t) => PROPERTY_TYPE_LABELS[t]?.label ?? t);
+    const labels = snapshot.propertyTypes.map((t) => PROPERTY_TYPE_LABELS[t] ?? t);
     return `${companyName} ONLY lists: ${labels.join(', ')}. NEVER mention or suggest property types outside this list.`;
   }
   return `${companyName} has ${snapshot.totalListings} active project(s). Only discuss properties in AVAILABLE PROPERTIES — never invent types.`;

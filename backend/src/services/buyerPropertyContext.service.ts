@@ -1,4 +1,5 @@
 import prisma from '../config/prisma';
+import type { PropertyStatus } from '@prisma/client';
 import logger from '../config/logger';
 
 export type BuyerPropertyContextProperty = {
@@ -43,9 +44,10 @@ function propertyMentionIndex(messageText: string, propertyName: string | null):
 async function findPropertyMentionedByName(
   companyId: string,
   messageText: string,
+  statuses: PropertyStatus[] = ['available', 'upcoming'],
 ): Promise<string | null> {
   const properties = await prisma.property.findMany({
-    where: { companyId, status: { in: ['available', 'upcoming'] } },
+    where: { companyId, status: { in: statuses } },
     select: { id: true, name: true },
     take: 100,
   });
@@ -59,6 +61,41 @@ async function findPropertyMentionedByName(
     });
 
   return matches[0]?.property.id ?? null;
+}
+
+function extractUnitNumberTokens(messageText: string): string[] {
+  return [...messageText.matchAll(/\b(\d{3,4})\b/g)].map((m) => m[1]);
+}
+
+/** Match sold/unavailable units when buyer asks by name or unit number. */
+export async function findSoldPropertyMentionedByName(
+  companyId: string,
+  messageText: string,
+): Promise<{ id: string; name: string; projectId: string | null; status: string } | null> {
+  const byName = await findPropertyMentionedByName(companyId, messageText, ['sold']);
+  if (byName) {
+    const row = await prisma.property.findFirst({
+      where: { id: byName, companyId },
+      select: { id: true, name: true, projectId: true, status: true },
+    });
+    if (row) return row;
+  }
+
+  const unitTokens = extractUnitNumberTokens(messageText);
+  if (!unitTokens.length) return null;
+
+  const soldUnits = await prisma.property.findMany({
+    where: { companyId, status: 'sold' },
+    select: { id: true, name: true, projectId: true, status: true },
+    take: 80,
+  });
+
+  for (const token of unitTokens) {
+    const match = soldUnits.find((p) => p.name?.includes(token));
+    if (match) return match;
+  }
+
+  return null;
 }
 
 /**

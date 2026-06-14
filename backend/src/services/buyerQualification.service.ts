@@ -17,6 +17,8 @@ import {
 import {
   resolveBuyerLanguage,
   tBuyer,
+  normalizeBuyerLang,
+  hindiGreetingFollowupBlock,
   wasRecentBareGreetingWelcomeSent,
   wasRecentVisitWelcomeSent,
   wasRecentCallWelcomeSent,
@@ -177,6 +179,7 @@ export function buildReturningBuyerWelcomeReply(input: {
   locationPreference?: string | null;
   greetingTemplate?: string | null;
   lang?: string;
+  leadLanguage?: string | null;
   conversationHistory?: Array<{ senderType?: string; content?: string; createdAt?: Date | string }>;
   liveCtx: Pick<
     LiveLeadContext,
@@ -239,6 +242,9 @@ export function buildReturningBuyerWelcomeReply(input: {
   }
 
   let text = resolveWelcomeShell(company, input.customerName, input.greetingTemplate);
+  if (lang === 'en' && normalizeBuyerLang(input.leadLanguage) === 'hi') {
+    text += hindiGreetingFollowupBlock(company, input.customerName);
+  }
   const activityLines = buildReturningActivityLines({
     locationPreference: input.locationPreference,
     liveCtx: input.liveCtx,

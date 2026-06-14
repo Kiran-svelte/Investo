@@ -3,6 +3,7 @@ import {
   isMultilingualInventoryCountQuery,
   isMultilingualPropertyTypeBrowseQuery,
   parseMultilingualBrowseFilters,
+  extractBrowseLocationAliases,
 } from '../../utils/buyerBrowseIntent.util';
 
 describe('buyerBrowseIntent.util', () => {
@@ -30,5 +31,13 @@ describe('buyerBrowseIntent.util', () => {
     expect(parseMultilingualBrowseFilters('Any 4bhk properties ?')).toEqual({ bedrooms: 4 });
     expect(parseMultilingualBrowseFilters('क्या विला है?')).toEqual({ propertyType: 'villa' });
     expect(parseMultilingualBrowseFilters('फ्लैट दिखाओ')).toEqual({ propertyType: 'apartment' });
+  });
+
+  test('extractBrowseLocationAliases maps Devanagari Whitefield', () => {
+    expect(extractBrowseLocationAliases('व्हाइटफील्ड में प्रॉपर्टी')).toContain('whitefield');
+  });
+
+  test('Hindi Whitefield location matches browse intent', () => {
+    expect(isMultilingualBrowseIntent('व्हाइटफील्ड में प्रोजेक्ट')).toBe(true);
   });
 });

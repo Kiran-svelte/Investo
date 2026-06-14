@@ -28,6 +28,13 @@ describe('companyInventoryBrowse.service', () => {
     expect(buttons.map((b) => b.id)).toEqual(['filter-apartment', 'filter-2bhk', 'call-me']);
   });
 
+  test('discovery buttons use Hindi filter titles when lang=hi', () => {
+    const buttons = buildDiscoveryButtonSet(snapshot(), 'hi');
+    expect(buttons[0].title).toBe('अपार्टमेंट');
+    expect(buttons[1].title).toBe('2 BHK');
+    expect(buttons[2].title).toBe('कॉल करें');
+  });
+
   test('apartment-only company has no villa filter', () => {
     const buttons = buildDiscoveryButtonSet(snapshot({ propertyTypes: ['apartment'] }));
     const ids = buttons.map((b) => b.id);

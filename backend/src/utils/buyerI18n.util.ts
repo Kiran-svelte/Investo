@@ -196,7 +196,45 @@ type BuyerCopyKey =
   | 'catalog_match_multi_header'
   | 'catalog_match_multi_footer'
   | 'catalog_match_location_on_request'
-  | 'no_matching_properties';
+  | 'no_matching_properties'
+  | 'btn_filter_apartment'
+  | 'btn_filter_villa'
+  | 'btn_filter_plot'
+  | 'btn_filter_commercial'
+  | 'btn_filter_other'
+  | 'btn_filter_1bhk'
+  | 'btn_filter_2bhk'
+  | 'btn_filter_3bhk'
+  | 'btn_filter_4bhk'
+  | 'btn_filter_5bhk'
+  | 'property_sold_explanation'
+  | 'filter_not_in_catalog'
+  | 'filter_already_viewing'
+  | 'filter_applied_projects'
+  | 'filter_applied_list'
+  | 'filter_error'
+  | 'filter_inventory_hint'
+  | 'filter_inventory_empty'
+  | 'interactive_visit_confirm_no_visit'
+  | 'interactive_visit_confirm_failed'
+  | 'interactive_visit_confirmed'
+  | 'interactive_visit_reschedule_prompt'
+  | 'interactive_visit_reschedule_no_visit'
+  | 'interactive_book_visit_no_property'
+  | 'interactive_book_visit_invalid_property'
+  | 'interactive_book_visit_initiated'
+  | 'interactive_share_feedback'
+  | 'interactive_call_time_prompt'
+  | 'interactive_call_cancel_not_found'
+  | 'interactive_call_cancel_confirmed'
+  | 'interactive_call_cancelled'
+  | 'interactive_call_reschedule_prompt'
+  | 'interactive_visit_time_parse_failed'
+  | 'interactive_visit_property_unavailable'
+  | 'interactive_visit_no_agent'
+  | 'interactive_visit_confirmed_change'
+  | 'interactive_generic_slot_no_property'
+  | 'greeting_hindi_followup';
 
 type CopyVars = Record<string, string | number | null | undefined>;
 
@@ -562,7 +600,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   },
   btn_call_me: {
     en: 'Call Me',
-    hi: 'Call Me',
+    hi: 'कॉल करें',
     kn: 'Call Me',
     te: 'Call Me',
     ta: 'Call Me',
@@ -995,6 +1033,128 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     'No matching properties in our catalog right now.',
     'Abhi hamare catalog mein matching properties nahi hain.',
   ),
+  btn_filter_apartment: langPack('Apartments', 'अपार्टमेंट'),
+  btn_filter_villa: langPack('Villas', 'विला'),
+  btn_filter_plot: langPack('Plots', 'प्लॉट'),
+  btn_filter_commercial: langPack('Commercial', 'कमर्शियल'),
+  btn_filter_other: langPack('Projects', 'परियोजनाएँ'),
+  btn_filter_1bhk: langPack('1 BHK', '1 BHK'),
+  btn_filter_2bhk: langPack('2 BHK', '2 BHK'),
+  btn_filter_3bhk: langPack('3 BHK', '3 BHK'),
+  btn_filter_4bhk: langPack('4 BHK', '4 BHK'),
+  btn_filter_5bhk: langPack('5 BHK', '5 BHK'),
+  property_sold_explanation: langPack(
+    'Sorry, *{name}* is no longer available — it has been sold. I can show you other units in the same project.',
+    'क्षमा करें, *{name}* अब उपलब्ध नहीं है — यह बिक चुकी है। मैं इसी परियोजना की अन्य यूनिट दिखा सकता हूँ।',
+  ),
+  filter_not_in_catalog: langPack(
+    "We don't have *{filter}* in our catalog right now. {hint} Tell me your budget or area and I'll find the closest match.",
+    'Hamare catalog mein abhi *{filter}* nahi hai. {hint} Apna budget ya area batayein — main closest match dhundhunga.',
+  ),
+  filter_already_viewing: langPack(
+    "You're already viewing *{filter}* options — tap a property from the list above or tell me another preference.",
+    'Aap pehle se hi *{filter}* options dekh rahe hain — upar list se property chunein ya aur preference batayein.',
+  ),
+  filter_applied_projects: langPack(
+    'Great choice! Here are *{filter}* projects for you:\n\n{reply}',
+    'Bahut accha! Yeh *{filter}* projects hain:\n\n{reply}',
+  ),
+  filter_applied_list: langPack(
+    'Great choice! Found {count} {filter} {unitLabel} for you! 🏠✨',
+    'Bahut accha! {count} {filter} {unitLabel} mili! 🏠✨',
+  ),
+  filter_error: langPack(
+    "I'm having trouble filtering properties right now. What specific {filter} properties would you like to know about?",
+    'Abhi filter lagane mein dikkat ho rahi hai. Kaun si {filter} properties ke baare mein jaanna chahte hain?',
+  ),
+  filter_inventory_hint: langPack(
+    'We currently have {typeSummary}.',
+    'Abhi hamare paas {typeSummary} hain.',
+  ),
+  filter_inventory_empty: langPack(
+    "We're still setting up our listings.",
+    'Hamari listings abhi setup ho rahi hain.',
+  ),
+  interactive_visit_confirm_no_visit: langPack(
+    "I couldn't find an upcoming visit to confirm. Would you like to book a new site visit?",
+    'Confirm karne ke liye koi upcoming visit nahi mili. Kya nayi site visit book karein?',
+  ),
+  interactive_visit_confirm_failed: langPack(
+    "I couldn't confirm that visit right now. Please try again or ask our team to help.",
+    'Abhi visit confirm nahi ho payi. Dobara try karein ya team se madad lein.',
+  ),
+  interactive_visit_confirmed: langPack(
+    '✅ *Visit Confirmed!*\n\n🏠 *{property}*\n📅 {date}\n\nWe look forward to seeing you! 😊\n\nNeed anything else? Feel free to ask.',
+    '✅ *Visit Confirm!*\n\n🏠 *{property}*\n📅 {date}\n\nAapka intezar rahega! 😊\n\nAur kuch chahiye? Poochh sakte hain.',
+  ),
+  interactive_visit_reschedule_prompt: langPack(
+    "📅 Let's find a new time for your visit to *{property}*. When works best for you?",
+    '📅 *{property}* ki visit ke liye naya time chunein. Aapke liye kab theek rahega?',
+  ),
+  interactive_visit_reschedule_no_visit: langPack(
+    "I couldn't find an upcoming visit to reschedule. Would you like to book a new site visit?",
+    'Reschedule karne ke liye koi upcoming visit nahi mili. Kya nayi site visit book karein?',
+  ),
+  interactive_book_visit_no_property: langPack(
+    "I'd love to schedule a visit! Could you tell me which property you're interested in?",
+    'Visit schedule karna chahta hoon! Kaun si property mein dilchaspi hai?',
+  ),
+  interactive_book_visit_invalid_property: langPack(
+    "I couldn't find that property. Let me show you our available options.",
+    'Woh property nahi mili. Main available options dikhata hoon.',
+  ),
+  interactive_book_visit_initiated: langPack(
+    "Great choice! 🏠 Let's schedule your visit to *{property}*.\n\nWhen would you prefer to visit?",
+    'Bahut accha! 🏠 *{property}* ki visit schedule karte hain.\n\nKab aana pasand karenge?',
+  ),
+  interactive_share_feedback: langPack(
+    'We would love to hear about your visit! Please share your feedback here — our team reads every message.',
+    'Aapki visit ke baare mein sunna chahenge! Yahan feedback share karein — team har message padhti hai.',
+  ),
+  interactive_call_time_prompt: langPack(
+    "📞 I'll ask our team to call you — please share a good time if you have one (e.g. *tomorrow 3pm*).",
+    '📞 Team aapko call karegi — accha time batayein (jaise *kal 3pm*).',
+  ),
+  interactive_call_cancel_not_found: langPack(
+    "I couldn't find a scheduled callback to cancel.",
+    'Cancel karne ke liye koi scheduled callback nahi mili.',
+  ),
+  interactive_call_cancel_confirmed: langPack(
+    "Your callback is already confirmed, so I can't cancel it automatically. I have notified the team to help you.",
+    'Callback pehle se confirm hai, auto cancel nahi ho sakta. Team ko notify kar diya hai.',
+  ),
+  interactive_call_cancelled: langPack(
+    "*Callback cancelled*\n\nReply anytime if you'd like to schedule a new call with our team.",
+    '*Callback cancel ho gaya*\n\nNayi call schedule karni ho to kabhi bhi reply karein.',
+  ),
+  interactive_call_reschedule_prompt: langPack(
+    'Sure — share your preferred call time (e.g. *tomorrow 6pm*, *Friday 4pm*, or *next Saturday 11am*).',
+    'Theek hai — call ka time batayein (jaise *kal 6pm*, *Friday 4pm*).',
+  ),
+  interactive_visit_time_parse_failed: langPack(
+    'Sorry, I could not read that time slot. Please tap a visit time button again or tell me your preferred date.',
+    'Maaf kijiye, time slot samajh nahi aaya. Dobara button dabayein ya date batayein.',
+  ),
+  interactive_visit_property_unavailable: langPack(
+    'That project is not available for visit booking right now. I can show you our available and upcoming projects instead.',
+    'Woh project abhi visit booking ke liye available nahi hai. Main available aur upcoming projects dikha sakta hoon.',
+  ),
+  interactive_visit_no_agent: langPack(
+    "Thanks for selecting a time! We're getting your visit set up and our team will confirm the details with you shortly. 🗓️",
+    'Time chunne ke liye dhanyavad! Visit setup ho rahi hai — team jald confirm karegi. 🗓️',
+  ),
+  interactive_visit_confirmed_change: langPack(
+    "Your visit is already confirmed, so I won't change it automatically.\n\nI've notified the team with your preferred new time.",
+    'Visit pehle se confirm hai, auto change nahi hoga.\n\nTeam ko naya time bata diya hai.',
+  ),
+  interactive_generic_slot_no_property: langPack(
+    "Which property would you like to visit? Share the project name and I'll get you some time slots.",
+    'Kaun si property visit karni hai? Project ka naam batayein — time slots bhejunga.',
+  ),
+  greeting_hindi_followup: langPack(
+    '\n\n*Namaste{name}!* 🙏\n\n*{company}* mein aapka swagat hai — aap bilkul sahi jagah aaye hain. 🏡\n\nAap kis area mein ghar dekhna chahte hain, aur budget roughly kitna hai?',
+    '\n\n*Namaste{name}!* 🙏\n\n*{company}* mein aapka swagat hai — aap bilkul sahi jagah aaye hain. 🏡\n\nAap kis area mein ghar dekhna chahte hain, aur budget roughly kitna hai?',
+  ),
 };
 
 function interpolate(template: string, vars: CopyVars): string {
@@ -1086,6 +1246,52 @@ const BUTTON_KEY_MAP: Record<BuyerButtonKey, BuyerCopyKey> = {
 export function buyerButtonTitle(lang: string | null | undefined, key: BuyerButtonKey): string {
   const title = tBuyer(lang, BUTTON_KEY_MAP[key]);
   return title.length > 20 ? title.slice(0, 20) : title;
+}
+
+const FILTER_TYPE_EMOJI: Record<string, string> = {
+  apartment: '🏢',
+  villa: '🏡',
+  plot: '📐',
+  commercial: '🏬',
+  other: '🏗️',
+};
+
+const FILTER_COPY_KEY: Record<string, BuyerCopyKey> = {
+  apartment: 'btn_filter_apartment',
+  villa: 'btn_filter_villa',
+  plot: 'btn_filter_plot',
+  commercial: 'btn_filter_commercial',
+  other: 'btn_filter_other',
+  '1bhk': 'btn_filter_1bhk',
+  '2bhk': 'btn_filter_2bhk',
+  '3bhk': 'btn_filter_3bhk',
+  '4bhk': 'btn_filter_4bhk',
+  '5bhk': 'btn_filter_5bhk',
+};
+
+/** Localized inventory filter button title (property type or BHK). */
+export function buyerFilterButtonTitle(
+  lang: string | null | undefined,
+  filterKey: string,
+  withEmoji = false,
+): string {
+  const normalized = filterKey.toLowerCase();
+  const copyKey = FILTER_COPY_KEY[normalized];
+  const label = copyKey ? tBuyer(lang, copyKey) : filterKey;
+  if (withEmoji && FILTER_TYPE_EMOJI[normalized]) {
+    return `${FILTER_TYPE_EMOJI[normalized]} ${label}`;
+  }
+  const title = label.length > 20 ? label.slice(0, 20) : label;
+  return title;
+}
+
+/** Hindi follow-up block appended after custom English greeting templates. */
+export function hindiGreetingFollowupBlock(
+  company: string,
+  customerName?: string | null,
+): string {
+  const name = customerName?.trim() ? `, *${customerName.trim()}*` : '';
+  return tBuyer('hi', 'greeting_hindi_followup', { company, name });
 }
 
 const VISIT_STATUS_LABELS: Record<string, Record<BuyerLang, string>> = {

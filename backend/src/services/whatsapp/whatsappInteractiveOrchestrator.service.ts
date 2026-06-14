@@ -40,7 +40,7 @@ import {
   buildProjectSelectListComponent,
   buildActiveVisitActionButtons,
 } from '../projectBrowse.service';
-import { buyerButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
+import { buyerButtonTitle, buyerFilterButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -64,6 +64,21 @@ export type InteractiveActionParams = {
   };
   company: { id: string; name?: string };
 };
+
+function leadLang(lead: InteractiveActionParams['lead']): string {
+  return resolveBuyerLanguage({ leadLanguage: lead.language });
+}
+
+function localizedCallActionButtons(lang: string): WhatsAppComponent {
+  return {
+    kind: 'buttons',
+    buttons: [
+      { id: 'call-reschedule', title: buyerButtonTitle(lang, 'change_time') },
+      { id: 'call-cancel', title: buyerButtonTitle(lang, 'cancel_call') },
+      { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
+    ],
+  };
+}
 
 function buyerTurn(text: string, components?: WhatsAppComponent[]): TurnResult {
   return {
@@ -159,6 +174,7 @@ function buildVisitSlotButtons(propertyId: string): WhatsAppComponent {
 
 async function handleVisitConfirm(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { lead, company } = params;
+  const lang = leadLang(lead);
   const existingVisit = await prisma.visit.findFirst({
     where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
     orderBy: { scheduledAt: 'asc' },
@@ -169,9 +185,7 @@ async function handleVisitConfirm(params: InteractiveActionParams): Promise<Inte
     return {
       handled: true,
       action: 'visit-confirm-no-visit',
-      turnResult: buyerTurn(
-        `I couldn't find an upcoming visit to confirm. Would you like to book a new site visit?`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_visit_confirm_no_visit')),
     };
   }
 
@@ -184,9 +198,7 @@ async function handleVisitConfirm(params: InteractiveActionParams): Promise<Inte
     return {
       handled: true,
       action: 'visit-confirm-failed',
-      turnResult: buyerTurn(
-        `I couldn't confirm that visit right now. Please try again or ask our team to help.`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_visit_confirm_failed')),
     };
   }
 
@@ -199,13 +211,17 @@ async function handleVisitConfirm(params: InteractiveActionParams): Promise<Inte
     action: 'visit-confirmed',
     leadStatus: 'visit_scheduled',
     turnResult: buyerTurn(
-      `✅ *Visit Confirmed!*\n\n🏠 *${propName}*\n📅 ${visitDate}\n\nWe look forward to seeing you! 😊\n\nNeed anything else? Feel free to ask.`,
+      tBuyer(lang, 'interactive_visit_confirmed', {
+        property: propName,
+        date: visitDate,
+      }),
     ),
   };
 }
 
 async function handleVisitReschedule(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { lead, company } = params;
+  const lang = leadLang(lead);
   const existingVisit = await prisma.visit.findFirst({
     where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
     orderBy: { scheduledAt: 'asc' },
@@ -223,7 +239,9 @@ async function handleVisitReschedule(params: InteractiveActionParams): Promise<I
         action: 'visit-reschedule-pending-approval',
         newState: { stage: 'visit_booking', selectedPropertyId: pending.propertyId },
         turnResult: buyerTurn(
-          `📅 Let's find a new time for your visit to *${pending.propertyName || 'the property'}*. When works best for you?`,
+          tBuyer(lang, 'interactive_visit_reschedule_prompt', {
+            property: pending.propertyName || tBuyer(lang, 'property_not_selected_yet'),
+          }),
           [buildVisitSlotButtons(pending.propertyId)],
         ),
       };
@@ -231,9 +249,7 @@ async function handleVisitReschedule(params: InteractiveActionParams): Promise<I
     return {
       handled: true,
       action: 'visit-reschedule-no-visit',
-      turnResult: buyerTurn(
-        `I couldn't find an upcoming visit to reschedule. Would you like to book a new site visit?`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_visit_reschedule_no_visit')),
     };
   }
 
@@ -244,7 +260,7 @@ async function handleVisitReschedule(params: InteractiveActionParams): Promise<I
     handled: true,
     action: 'visit-reschedule-initiated',
     turnResult: buyerTurn(
-      `📅 Let's find a new time for your visit to *${propName}*. When works best for you?`,
+      tBuyer(lang, 'interactive_visit_reschedule_prompt', { property: propName }),
       [buildVisitSlotButtons(propertyId)],
     ),
   };
@@ -252,6 +268,7 @@ async function handleVisitReschedule(params: InteractiveActionParams): Promise<I
 
 async function handleBookVisit(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { interactiveId, lead, conversation, company } = params;
+  const lang = leadLang(lead);
 
   const pending = await findPendingVisitApprovalForLead({
     companyId: company.id,
@@ -262,20 +279,23 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
       where: { id: pending.agentId },
       select: { name: true },
     });
+    const pendingProperty = pending.propertyId
+      ? await prisma.property.findFirst({
+          where: { id: pending.propertyId, companyId: company.id },
+          select: { projectId: true },
+        })
+      : null;
+    const pendingButtons = buildActiveVisitActionButtons(
+      pendingProperty?.projectId ?? null,
+      lang,
+    );
     return {
       handled: true,
       action: 'book-visit-already-pending',
       newState: { stage: 'visit_booking', selectedPropertyId: pending.propertyId },
       turnResult: buyerTurn(
         formatBuyerVisitPendingApprovalReply(new Date(pending.scheduledAt), agent?.name),
-        [{
-          kind: 'buttons',
-          buttons: [
-            { id: 'visit-reschedule', title: '📅 Change Time' },
-            { id: `more-info-${pending.propertyId}`, title: '🏗️ Property Details' },
-            { id: 'call-me', title: '📞 Call Agent' },
-          ],
-        }],
+        [pendingButtons],
       ),
     };
   }
@@ -289,9 +309,7 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     return {
       handled: true,
       action: 'book-visit-no-property',
-      turnResult: buyerTurn(
-        "I'd love to schedule a visit! Could you tell me which property you're interested in?",
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_book_visit_no_property')),
     };
   }
 
@@ -303,7 +321,7 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     return {
       handled: true,
       action: 'book-visit-invalid-property',
-      turnResult: buyerTurn("I couldn't find that property. Let me show you our available options."),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_book_visit_invalid_property')),
     };
   }
 
@@ -325,24 +343,24 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     action: 'book-visit-initiated',
     newState: { stage: 'visit_booking', selectedPropertyId: propertyId },
     turnResult: buyerTurn(
-      `Great choice! 🏠 Let's schedule your visit to *${property.name}*.\n\nWhen would you prefer to visit?`,
+      tBuyer(lang, 'interactive_book_visit_initiated', { property: property.name }),
       [buildVisitSlotButtons(propertyId)],
     ),
   };
 }
 
 async function handleShareVisitFeedback(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const lang = leadLang(params.lead);
   return {
     handled: true,
     action: 'share-visit-feedback',
-    turnResult: buyerTurn(
-      'We would love to hear about your visit! Please share your feedback here — our team reads every message.',
-    ),
+    turnResult: buyerTurn(tBuyer(lang, 'interactive_share_feedback')),
   };
 }
 
 async function handleCallMe(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { lead, company } = params;
+  const lang = leadLang(lead);
   const { scheduleCallRequest, formatBuyerCallReply } = await import('../callRequest.service');
   const { resolveCallScheduledAt } = await import('../../utils/callIntentFromMessage.util');
 
@@ -360,9 +378,7 @@ async function handleCallMe(params: InteractiveActionParams): Promise<Interactiv
     return {
       handled: true,
       action: 'callback-requested',
-      turnResult: buyerTurn(
-        `📞 I'll ask our team to call you — please share a good time if you have one (e.g. *tomorrow 3pm*).`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_call_time_prompt')),
     };
   }
 
@@ -375,24 +391,21 @@ async function handleCallMe(params: InteractiveActionParams): Promise<Interactiv
     action: 'callback-requested',
     leadStatus: 'contacted',
     turnResult: buyerTurn(formatBuyerCallReply('Callback request sent', scheduledAt, agent?.name), [
-      { kind: 'buttons', buttons: [
-        { id: 'call-reschedule', title: '📅 Change Time' },
-        { id: 'call-cancel', title: '❌ Cancel Call' },
-        { id: 'call-me', title: '📞 Call Agent' },
-      ]},
+      localizedCallActionButtons(lang),
     ]),
   };
 }
 
 async function handleCallCancel(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { lead, company } = params;
+  const lang = leadLang(lead);
   const { findActiveCallRequest, cancelCallRequest, notifyAgentCallChangeRequested } = await import('../callRequest.service');
   const active = await findActiveCallRequest({ companyId: company.id, leadId: lead.id });
   if (!active) {
     return {
       handled: true,
       action: 'callback-cancelled',
-      turnResult: buyerTurn("I couldn't find a scheduled callback to cancel."),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_call_cancel_not_found')),
     };
   }
   if (active.status === 'confirmed') {
@@ -404,29 +417,24 @@ async function handleCallCancel(params: InteractiveActionParams): Promise<Intera
     return {
       handled: true,
       action: 'callback-change-requested',
-      turnResult: buyerTurn(
-        `Your callback is already confirmed, so I can't cancel it automatically. I have notified the team to help you.`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_call_cancel_confirmed')),
     };
   }
   await cancelCallRequest({ companyId: company.id, callId: active.id });
   return {
     handled: true,
     action: 'callback-cancelled',
-    turnResult: buyerTurn(
-      `*Callback cancelled*\n\nReply anytime if you'd like to schedule a new call with our team.`,
-    ),
+    turnResult: buyerTurn(tBuyer(lang, 'interactive_call_cancelled')),
   };
 }
 
 async function handleCallReschedule(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   await setConversationAwaitingCallTime(params.conversation.id).catch(() => undefined);
+  const lang = leadLang(params.lead);
   return {
     handled: true,
     action: 'callback-reschedule-prompt',
-    turnResult: buyerTurn(
-      `Sure — share your preferred call time (e.g. *tomorrow 6pm*, *Friday 4pm*, or *next Saturday 11am*).`,
-    ),
+    turnResult: buyerTurn(tBuyer(lang, 'interactive_call_reschedule_prompt')),
   };
 }
 
@@ -724,37 +732,40 @@ async function handleProjectProperties(params: InteractiveActionParams): Promise
 
 async function handlePropertyFilter(params: InteractiveActionParams): Promise<InteractiveActionResult | null> {
   const { interactiveId, lead, conversation, company } = params;
+  const lang = leadLang(lead);
   const filterValue = interactiveId.replace('filter-', '');
 
   const filterMap: Record<
     string,
-    { propertyType?: string; bedrooms?: number; displayName: string }
+    { propertyType?: string; bedrooms?: number }
   > = {
-    '1bhk': { bedrooms: 1, displayName: '1 BHK' },
-    '2bhk': { bedrooms: 2, displayName: '2 BHK' },
-    '3bhk': { bedrooms: 3, displayName: '3 BHK' },
-    '4bhk': { bedrooms: 4, displayName: '4 BHK' },
-    '5bhk': { bedrooms: 5, displayName: '5 BHK' },
-    villa: { propertyType: 'villa', displayName: 'Villa' },
-    apartment: { propertyType: 'apartment', displayName: 'Apartment' },
-    plot: { propertyType: 'plot', displayName: 'Plot' },
-    commercial: { propertyType: 'commercial', displayName: 'Commercial' },
+    '1bhk': { bedrooms: 1 },
+    '2bhk': { bedrooms: 2 },
+    '3bhk': { bedrooms: 3 },
+    '4bhk': { bedrooms: 4 },
+    '5bhk': { bedrooms: 5 },
+    villa: { propertyType: 'villa' },
+    apartment: { propertyType: 'apartment' },
+    plot: { propertyType: 'plot' },
+    commercial: { propertyType: 'commercial' },
   };
 
   const filter = filterMap[filterValue.toLowerCase()];
   if (!filter) return null;
 
+  const filterDisplayName = buyerFilterButtonTitle(lang, filterValue.toLowerCase());
+
   const browseSnapshot = await getCompanyBrowseSnapshot(company.id);
   if (!isFilterInCompanyInventory(browseSnapshot, filterValue)) {
     const hint = browseSnapshot.totalListings
-      ? `We currently have ${browseSnapshot.typeSummary}.`
-      : `We're still setting up our listings.`;
+      ? tBuyer(lang, 'filter_inventory_hint', { typeSummary: browseSnapshot.typeSummary })
+      : tBuyer(lang, 'filter_inventory_empty');
     return {
       handled: true,
       action: 'filter-not-in-inventory',
       turnResult: buyerTurn(
-        `We don't have *${filter.displayName}* in our catalog right now. ${hint} Tell me your budget or area and I'll find the closest match.`,
-        [{ kind: 'buttons', buttons: buildDiscoveryButtonSet(browseSnapshot) }],
+        tBuyer(lang, 'filter_not_in_catalog', { filter: filterDisplayName, hint }),
+        [{ kind: 'buttons', buttons: buildDiscoveryButtonSet(browseSnapshot, lang) }],
       ),
     };
   }
@@ -762,7 +773,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
   const recentFilterAction = await prisma.message.findFirst({
     where: {
       conversationId: conversation.id,
-      content: { contains: `Filter applied: ${filter.displayName}` },
+      content: { contains: `Filter applied: ${filterDisplayName}` },
       createdAt: { gte: new Date(Date.now() - 30_000) },
     },
   });
@@ -780,8 +791,8 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       handled: true,
       action: 'filter-duplicate-prevented',
       turnResult: buyerTurn(
-        lastFilterReply?.content?.trim() ||
-          `You're already viewing *${filter.displayName}* options — tap a property from the list above or tell me another preference.`,
+        lastFilterReply?.content?.trim()
+          || tBuyer(lang, 'filter_already_viewing', { filter: filterDisplayName }),
       ),
     };
   }
@@ -809,12 +820,11 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       data: {
         conversationId: conversation.id,
         senderType: 'customer',
-        content: `Filter applied: ${filter.displayName}`,
+        content: `Filter applied: ${filterDisplayName}`,
         status: 'sent',
       },
     });
 
-    const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
     const browseFilters = {
       propertyType: filter.propertyType,
       bedrooms: filter.bedrooms,
@@ -833,7 +843,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
         });
         const topHint =
           tiers[0]?.messageHint ||
-          `No ${filter.displayName} project matches right now — tell me your area or budget.`;
+          tBuyer(lang, 'catalog_empty_type', { type: filterDisplayName });
         return {
           handled: true,
           action: 'filter-no-project-results',
@@ -845,7 +855,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       const reply = formatProjectCatalogIntro(projects, lang);
       const listComponent = buildProjectSelectListComponent(projects, lang);
       const snapshot = await getCompanyBrowseSnapshot(company.id);
-      const filterButtons = buildDiscoveryButtonSet(snapshot);
+      const filterButtons = buildDiscoveryButtonSet(snapshot, lang);
       const components = enforceTurnComponentBudget([
         listComponent,
         ...(filterButtons.length
@@ -854,7 +864,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       ]);
 
       logger.info('Project filter applied', {
-        filter: filter.displayName,
+        filter: filterDisplayName,
         projectCount: projects.length,
         conversationId: conversation.id,
       });
@@ -864,7 +874,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
         action: 'filter-applied-projects',
         newState: { stage: 'shortlist' },
         turnResult: buyerTurn(
-          `Great choice! Here are *${filter.displayName}* projects for you:\n\n${reply}`,
+          tBuyer(lang, 'filter_applied_projects', { filter: filterDisplayName, reply }),
           components,
         ),
       };
@@ -903,7 +913,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       });
       const topHint =
         tiers[0]?.messageHint ||
-        `No ${filter.displayName} matches right now — I can add you to our waitlist or show nearby options.`;
+        tBuyer(lang, 'catalog_empty_type', { type: filterDisplayName });
       let body = topHint;
       const altProp = tiers[0]?.properties?.[0];
       if (altProp) {
@@ -917,7 +927,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
           commitments: {
             ...((conversation.commitments as object) || {}),
             waitlist: true,
-            waitlistCriteria: filter.displayName,
+            waitlistCriteria: filterDisplayName,
           },
         },
       });
@@ -937,14 +947,18 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
     };
 
     const propertyIds = properties.map((p) => p.id);
-    const listText = `Great choice! Found ${properties.length} ${filter.displayName} ${properties.length === 1 ? 'property' : 'properties'} for you! 🏠✨`;
+    const listText = tBuyer(lang, 'filter_applied_list', {
+      count: properties.length,
+      filter: filterDisplayName,
+      unitLabel: properties.length === 1 ? 'property' : 'properties',
+    });
 
     const listComponent: WhatsAppComponent = {
       kind: 'list',
-      title: 'View Properties',
+      title: tBuyer(lang, 'browse_list_title').slice(0, 24),
       sections: [
         {
-          title: `${filter.displayName} Options (${properties.length})`,
+          title: `${filterDisplayName} (${properties.length})`.slice(0, 24),
           rows: properties.slice(0, 10).map((p) => ({
             id: `prop-${p.id}`,
             title: p.name.substring(0, 24),
@@ -961,7 +975,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
     const components = enforceTurnComponentBudget([listComponent, ...(hero ? [hero] : [])]);
 
     logger.info('Filter applied successfully', {
-      filter: filter.displayName,
+      filter: filterDisplayName,
       matchCount: properties.length,
       conversationId: conversation.id,
       leadId: lead.id,
@@ -983,7 +997,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       handled: true,
       action: 'filter-error',
       turnResult: buyerTurn(
-        `I'm having trouble filtering properties right now. Let me help you manually - what specific ${filter.displayName} properties would you like to know about?`,
+        tBuyer(lang, 'filter_error', { filter: filterDisplayName }),
       ),
     };
   }
@@ -995,14 +1009,13 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
  */
 async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { interactiveId, lead, conversation, company } = params;
+  const lang = leadLang(lead);
   const parsed = parseVisitTimeInteractiveId(interactiveId);
   if (!parsed) {
     return {
       handled: true,
       action: 'visit-time-parse-failed',
-      turnResult: buyerTurn(
-        'Sorry, I could not read that time slot. Please tap a visit time button again or tell me your preferred date.',
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_visit_time_parse_failed')),
     };
   }
 
@@ -1017,9 +1030,7 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
       handled: true,
       action: 'visit-property-unavailable',
       leadStatus: 'contacted',
-      turnResult: buyerTurn(
-        'That project is not available for visit booking right now. I can show you our available and upcoming projects instead.',
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_visit_property_unavailable')),
     };
   }
 
@@ -1077,9 +1088,7 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
       handled: true,
       action: 'visit-no-agent',
       leadStatus: 'contacted',
-      turnResult: buyerTurn(
-        "Thanks for selecting a time! We're getting your visit set up and our team will confirm the details with you shortly. 🗓️",
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_visit_no_agent')),
     };
   }
 
@@ -1103,9 +1112,7 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
       handled: true,
       action: 'visit-confirmed-change-requested',
       leadStatus: 'visit_scheduled',
-      turnResult: buyerTurn(
-        `Your visit is already confirmed, so I won't change it automatically.\n\nI've notified the team with your preferred new time.`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_visit_confirmed_change')),
     };
   }
 
@@ -1146,15 +1153,14 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
  */
 async function handleGenericVisitSlot(params: InteractiveActionParams): Promise<InteractiveActionResult> {
   const { interactiveId, conversation } = params;
+  const lang = leadLang(params.lead);
   const propertyId = conversation.selectedPropertyId;
 
   if (!propertyId) {
     return {
       handled: true,
       action: 'generic-slot-no-property',
-      turnResult: buyerTurn(
-        "Which property would you like to visit? Share the project name and I'll get you some time slots.",
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_generic_slot_no_property')),
     };
   }
 

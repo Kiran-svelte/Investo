@@ -21,6 +21,7 @@ import {
   isInventoryCountQuery,
 } from './formatBuyerCatalog.util';
 import { buyerButtonTitle, tBuyer } from './buyerI18n.util';
+import { findSoldPropertyMentionedByName } from '../services/buyerPropertyContext.service';
 import {
   isMultilingualBrowseIntent,
   parseMultilingualBrowseFilters,
@@ -73,7 +74,7 @@ async function resolveProjectFirstBrowseTurn(
       reply: tBuyer(lang, 'project_browse_none'),
       propertyIds: [],
       properties: [],
-      components: buildFilterButtonsComponent(snapshot),
+      components: buildFilterButtonsComponent(snapshot, lang),
     };
   }
 
@@ -86,7 +87,7 @@ async function resolveProjectFirstBrowseTurn(
     properties: [],
     components: [
       buildProjectSelectListComponent(projects, lang),
-      ...buildFilterButtonsComponent(snapshot),
+      ...buildFilterButtonsComponent(snapshot, lang),
     ],
   };
 }
@@ -98,6 +99,10 @@ export async function resolvePropertyBrowseTurn(
   const lang = input.leadLanguage ?? 'en';
 
   if (isPropertyInquiryMessage(messageText)) {
+    const sold = await findSoldPropertyMentionedByName(companyId, messageText);
+    if (sold) {
+      return buildSoldPropertyTurnPayload(sold, lang);
+    }
     return null;
   }
 
@@ -157,12 +162,16 @@ export async function resolvePropertyBrowseTurn(
   });
 
   if (!matches.length) {
+    const sold = await findSoldPropertyMentionedByName(companyId, messageText);
+    if (sold) {
+      return buildSoldPropertyTurnPayload(sold, lang);
+    }
     const snapshot = await getCompanyBrowseSnapshot(companyId);
     return {
       reply: formatBuyerCatalogEmpty(messageText, lang),
       propertyIds: [],
       properties: [],
-      components: buildFilterButtonsComponent(snapshot),
+      components: buildFilterButtonsComponent(snapshot, lang),
     };
   }
 
@@ -190,10 +199,35 @@ export async function resolvePropertyBrowseTurn(
 
 function buildFilterButtonsComponent(
   snapshot: Awaited<ReturnType<typeof getCompanyBrowseSnapshot>>,
+  lang?: string,
 ): WhatsAppComponent[] {
-  const buttons = buildCatalogFilterButtonSet(snapshot);
+  const buttons = buildCatalogFilterButtonSet(snapshot, lang);
   if (!buttons.length) return [];
   return [{ kind: 'buttons', buttons }];
+}
+
+function buildSoldPropertyTurnPayload(
+  sold: { id: string; name: string; projectId: string | null },
+  lang: string,
+): PropertyBrowseTurnPayload {
+  const reply = tBuyer(lang, 'property_sold_explanation', { name: sold.name });
+  const buttons: Array<{ id: string; title: string }> = [];
+  if (sold.projectId) {
+    buttons.push({
+      id: `project-properties-${sold.projectId}`,
+      title: buyerButtonTitle(lang, 'view_project_listings'),
+    });
+  } else {
+    buttons.push({ id: 'browse-projects', title: buyerButtonTitle(lang, 'browse_projects') });
+  }
+  buttons.push({ id: 'call-me', title: buyerButtonTitle(lang, 'call_me') });
+
+  return {
+    reply,
+    propertyIds: [],
+    properties: [{ id: sold.id, name: sold.name }],
+    components: [{ kind: 'buttons', buttons: buttons.slice(0, 3) }],
+  };
 }
 
 async function buildPropertyBrowseComponents(input: {
@@ -223,7 +257,7 @@ async function buildPropertyBrowseComponents(input: {
   const primary = input.matches[0];
   if (!primary) {
     const snapshot = await getCompanyBrowseSnapshot(input.companyId);
-    return buildFilterButtonsComponent(snapshot);
+    return buildFilterButtonsComponent(snapshot, lang);
   }
 
   return [{

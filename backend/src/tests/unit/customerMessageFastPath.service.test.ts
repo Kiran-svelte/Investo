@@ -97,6 +97,22 @@ describe('customerMessageFastPath.service', () => {
     expect(reply?.text).toMatch(/swagat hai/i);
   });
 
+  it('appends Hindi block after custom greeting template for Hindi lead Hi', () => {
+    const reply = buildFastPathCustomerReply({
+      customerMessage: 'Hi',
+      companyName: 'Palm Realty',
+      leadLanguage: 'hi',
+      aiSettings: {
+        defaultLanguage: 'en',
+        greetingTemplate: 'Hello! Welcome to {business_name}. How can I help?',
+      },
+      conversationHistory: [],
+    });
+    expect(reply?.text).toMatch(/Welcome to Palm Realty/);
+    expect(reply?.text).toMatch(/Namaste/);
+    expect(reply?.text).toMatch(/swagat hai/i);
+  });
+
   it('uses compact visit ack after recent booking message on repeat Hi', () => {
     const { formatBuyerVisitScheduled } = require('../../utils/visitFormat.util');
     const scheduledAt = new Date('2026-06-15T10:00:00+05:30');

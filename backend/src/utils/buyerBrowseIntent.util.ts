@@ -35,6 +35,42 @@ const TE_COUNT = /(?:ఎన|ఎంత|మొత్త)/u;
 const ROMAN_BROWSE =
   /\b(projects?|properties|property|flats?|apartments?|villas?|plots?|listings?|inventory|dikhao|dikha|batao|bataiye|dekhna|dekh|jan|janna|janana|available|options)\b/i;
 
+/** Common Indian RE location aliases — Devanagari + romanized. */
+const LOCATION_ALIASES: Array<{ re: RegExp; tokens: string[] }> = [
+  { re: /(?:व्हाइटफील्ड|white\s*field)/iu, tokens: ['whitefield'] },
+  { re: /(?:इलेक्ट्र(?:ॉ|ो)न(?:िक|िक)?\s*सिटी|electronic\s*city)/iu, tokens: ['electronic', 'city'] },
+  { re: /(?:सरज(?:ा|)पुर|sarjapur)/iu, tokens: ['sarjapur'] },
+  { re: /(?:ह(?:ा|)सर(?:ा|)ता|hsr\s*layout|hsr)/iu, tokens: ['hsr', 'layout'] },
+  { re: /(?:को(?:र|)मंग(?:ा|)ला|koramangala)/iu, tokens: ['koramangala'] },
+  { re: /(?:इ(?:ं|)द(?:ि|)र(?:ा|)न(?:ा|)ग(?:र|)|indiranagar)/iu, tokens: ['indiranagar'] },
+  { re: /(?:म(?:ा|)र(?:ा|)थ(?:ा|)ह(?:ा|)ल(?:ी|)|marathahalli)/iu, tokens: ['marathahalli'] },
+  { re: /(?:ब(?:े|)ल(?:ा|)न्(?:द|)ur|bellandur)/iu, tokens: ['bellandur'] },
+  { re: /(?:ह(?:े|)ब(?:्|)ब(?:ा|)ल(?:ी|)|hebbal)/iu, tokens: ['hebbal'] },
+  { re: /(?:य(?:े|)ल(?:ा|)ह(?:ं|)का|yelahanka)/iu, tokens: ['yelahanka'] },
+  { re: /(?:न(?:ा|)ग(?:ा|)र(?:ा|)भ(?:ा|)व(?:ी|)|nagarbhavi)/iu, tokens: ['nagarbhavi'] },
+  { re: /(?:ज(?:े|)प(?:्|)प(?:ा|)ल(?:ी|)|jalahalli|jpnagar|jp\s*nagar)/iu, tokens: ['jalahalli', 'nagar'] },
+  { re: /(?:ब(?:े|)ंग(?:ा|)ल(?:ू|)र(?:ु|)|bengaluru|bangalore)/iu, tokens: ['bengaluru', 'bangalore'] },
+  { re: /(?:ग(?:ु|)र(?:ु|)ग(?:ा|)(?:ं|)व|gurgaon|gurugram)/iu, tokens: ['gurgaon', 'gurugram'] },
+  { re: /(?:न(?:ो|)ए(?:ड|)(?:ा|)|noida)/iu, tokens: ['noida'] },
+  { re: /(?:ग(?:ा|)ज(?:ि|)य(?:ा|)ब(?:ा|)द|ghaziabad)/iu, tokens: ['ghaziabad'] },
+  { re: /(?:द(?:े|)ल(?:्|)ह(?:ी|)|delhi)/iu, tokens: ['delhi'] },
+  { re: /(?:म(?:ु|)ंब(?:ै|)|mumbai)/iu, tokens: ['mumbai'] },
+  { re: /(?:ह(?:ै|)द(?:र|)(?:ा|)ब(?:ा|)द|hyderabad)/iu, tokens: ['hyderabad'] },
+  { re: /(?:प(?:ु|)ण(?:े|)|pune)/iu, tokens: ['pune'] },
+  { re: /(?:च(?:े|)न्न(?:ै|)(?:ई|)|chennai)/iu, tokens: ['chennai'] },
+];
+
+/** Extract canonical English location tokens from Devanagari/Hinglish area names. */
+export function extractBrowseLocationAliases(message: string): string[] {
+  const tokens = new Set<string>();
+  for (const { re, tokens: mapped } of LOCATION_ALIASES) {
+    if (re.test(message)) {
+      for (const token of mapped) tokens.add(token);
+    }
+  }
+  return [...tokens];
+}
+
 const ROMAN_COUNT =
   /\b(kitne|kitna|kitni|how many|number of|total|count)\b/i;
 
@@ -79,6 +115,8 @@ export function isMultilingualBrowseIntent(message: string): boolean {
   if (isMultilingualNegative(t)) return false;
 
   if (hasIndicBrowseSignal(t)) return true;
+
+  if (extractBrowseLocationAliases(t).length > 0) return true;
 
   // Question about projects/properties in Devanagari without explicit noun still counts
   // e.g. "आपके प्रोजेक्ट" fragments

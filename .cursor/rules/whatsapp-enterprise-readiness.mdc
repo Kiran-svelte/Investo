@@ -1,0 +1,35 @@
+---
+description: Enterprise WhatsApp buyer UX — partial/improving items, implementation plan, rollout gates
+alwaysApply: true
+---
+
+# WhatsApp Enterprise Readiness Plan
+
+Workstream: Close all **partial / improving** buyer-facing gaps for enterprise rollout.
+**Definition of done per chunk:** unit tests + `npm run smoke` + commit + push `kiran/main` + Railway deploy + prod health check.
+
+## Status tracker
+
+| ID | Scope | Status | Key files |
+|----|-------|--------|-----------|
+| E1 | Localized filter button titles (company inventory → buyer buttons) | DONE | `companyInventoryBrowse.service.ts`, `buyerI18n.util.ts` |
+| E2 | Localize `handlePropertyFilter` + interactive orchestrator English literals | DONE | `whatsappInteractiveOrchestrator.service.ts`, `buyerI18n.util.ts` |
+| E3 | Active-visit guards on `post_visit`, `price_discussed`, `brochure_or_location` buttons | DONE | `buyerSituationButtons.util.ts`, `whatsappTurnOrchestrator.service.ts` |
+| E4 | Sold/unavailable unit by-name reply (not silent empty browse) | DONE | `propertyBrowseTurn.util.ts`, `buyerPropertyContext.service.ts` |
+| E5 | Custom greeting template + bilingual Hi when `leadLanguage=hi` | DONE | `customerMessageFastPath.service.ts`, `buyerQualification.service.ts` |
+| E6 | Devanagari/Hinglish location tokens in browse intent | DONE | `buyerBrowseIntent.util.ts`, `propertyKnowledge.service.ts` |
+| E7 | Regression tests + evals for E1–E6 | DONE | `backend/src/tests/unit/*` |
+
+## Retest checklist (production WhatsApp)
+
+1. Hindi filter tap → Hindi buttons + Hindi filter result text.
+2. Booked visit + price question → no Book Visit button.
+3. Sold unit by name → clear sold message + View Listings.
+4. Hi (Hindi lead, custom template) → bilingual.
+5. Hindi area query (e.g. Whitefield Devanagari) → project list matches English query.
+
+## Safety nets
+
+1. `npm run smoke` before deploy.
+2. Deploy: `RAILWAY_ACCOUNT_TOKEN=... node scripts/deploy-railway-graphql.mjs`
+3. Prod health: `https://investo-backend-production.up.railway.app/api/health/live`

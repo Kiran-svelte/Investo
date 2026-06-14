@@ -201,15 +201,17 @@ export function resolveButtonsForBuyerSituation(
       ];
 
     case 'post_visit': {
-      const browseMore = firstBrowseFilter(input.browseFilters);
       const buttons: Array<{ id: string; title: string }> = [
         { id: 'share-visit-feedback', title: buyerButtonTitle(lang, 'share_feedback') },
         { id: 'call-me', title: buyerButtonTitle(lang, 'talk_agent') },
       ];
-      if (primaryId) {
-        buttons.push({ id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'see_options') });
-      } else if (browseMore) {
-        buttons.push({ id: browseMore.id, title: browseMore.title });
+      if (input.visitPropertyProjectId) {
+        buttons.push({
+          id: `project-properties-${input.visitPropertyProjectId}`,
+          title: buyerButtonTitle(lang, 'view_project_listings'),
+        });
+      } else {
+        buttons.push({ id: 'browse-projects', title: buyerButtonTitle(lang, 'browse_projects') });
       }
       return buttons.slice(0, 3);
     }
@@ -252,19 +254,29 @@ export function resolveButtonsForBuyerSituation(
       return buttons.slice(0, 3);
     }
 
-    case 'price_discussed':
+    case 'price_discussed': {
+      if (input.hasActiveVisit) {
+        const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
+        return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+      }
       return [
         { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') },
         { id: 'emi-calculator', title: buyerButtonTitle(lang, 'emi') },
         { id: 'call-me', title: buyerButtonTitle(lang, 'call_me') },
       ];
+    }
 
-    case 'brochure_or_location':
+    case 'brochure_or_location': {
+      if (input.hasActiveVisit) {
+        const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
+        return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+      }
       return [
         { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') },
         { id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'more_details') },
         { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
       ];
+    }
 
     case 'inventory_summary':
       return inventoryFilterButtons(input.browseFilters, { includeCallMe: true, language: lang });
