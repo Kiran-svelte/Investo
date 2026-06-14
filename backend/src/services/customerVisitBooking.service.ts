@@ -41,6 +41,7 @@ export interface CommitCustomerVisitInput {
     assignedAgentId: string | null;
     customerName: string | null;
     status: string;
+    language?: string | null;
   };
   conversation: {
     id: string;

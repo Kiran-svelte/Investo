@@ -54,6 +54,11 @@ jest.mock('../../config', () => ({
     whatsapp: {
       apiUrl: 'https://graph.facebook.com/v17.0',
     },
+    features: {
+      shadowMode: false,
+      expandedPropertyPrompts: true,
+      secondVisitPolicy: false,
+    },
   },
 }));
 
@@ -83,9 +88,56 @@ jest.mock('../../services/alternativeInventory.service', () => ({
   searchAlternativeTiers: jest.fn().mockResolvedValue([]),
 }));
 
+jest.mock('../../services/companyInventoryBrowse.service', () => ({
+  getCompanyBrowseSnapshot: jest.fn(async () => ({
+    companyId: 'company-1',
+    totalListings: 5,
+    propertyTypes: ['apartment', 'villa'],
+    bedroomOptions: [2],
+    filters: [
+      { id: 'filter-2bhk', filterKey: '2bhk', title: '2 BHK' },
+      { id: 'filter-villa', filterKey: 'villa', title: 'Villa' },
+    ],
+    typeSummary: 'apartments and villas',
+  })),
+  isFilterInCompanyInventory: jest.fn(() => true),
+  buildDiscoveryButtonSet: jest.fn(() => []),
+}));
+
+jest.mock('../../services/projectBrowse.service', () => ({
+  companyUsesProjectBrowse: jest.fn(async () => false),
+  listProjectsForBuyerBrowse: jest.fn(async () => []),
+  formatProjectCatalogIntro: jest.fn(() => ''),
+  buildProjectSelectListComponent: jest.fn(() => ({ kind: 'list', title: 'Choose project', sections: [] })),
+  loadProjectProperties: jest.fn(async () => null),
+  buildProjectPropertyListComponent: jest.fn(),
+  buildPropertyDetailButtons: jest.fn((propertyId: string) => ({
+    kind: 'buttons',
+    buttons: [
+      { id: `book-visit-${propertyId}`, title: 'Book Visit' },
+      { id: 'call-me', title: 'Call Me' },
+    ],
+  })),
+  resolveProjectBrochureMediaComponent: jest.fn(async () => null),
+  resolveProjectHeroImageComponent: jest.fn(async () => null),
+  formatProjectSelectedIntro: jest.fn(() => ''),
+  buildActiveVisitActionButtons: jest.fn(() => ({
+    kind: 'buttons',
+    buttons: [
+      { id: 'visit-reschedule', title: 'Change Time' },
+      { id: 'browse-projects', title: 'View Listings' },
+      { id: 'call-me', title: 'Call Agent' },
+    ],
+  })),
+}));
+
 jest.mock('../../services/brochureDelivery.service', () => ({
   __esModule: true,
   resolveBrochureUrlForWhatsApp: jest.fn(async (url: string) => url),
+  resolveBrochureForAiTurn: jest.fn(async ({ aiText }: { aiText: string }) => ({
+    cleanedText: aiText,
+    mediaComponent: null,
+  })),
 }));
 
 jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => {
@@ -289,7 +341,7 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
       expect(result.handled).toBe(true);
       expect(result.action).toBe('more-info-sent');
       expect(result.newState?.selectedPropertyId).toBe(mockPropertyId);
-      expect(result.turnResult?.components?.[0]).toMatchObject({ kind: 'buttons' });
+      expect(result.turnResult?.components?.some((component) => component.kind === 'buttons')).toBe(true);
     });
 
     it('returns unhandled when property not found', async () => {
@@ -305,7 +357,8 @@ describe('Interactive Buttons Handling (CHUNK 3)', () => {
         customerPhone: '+919876543210',
       });
 
-      expect(result.handled).toBe(false);
+      expect(result.handled).toBe(true);
+      expect(result.turnResult?.text).toContain('no longer available');
     });
   });
 

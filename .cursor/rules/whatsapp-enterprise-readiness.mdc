@@ -40,3 +40,4 @@ alwaysApply: true
 | i18n compliance test | DONE |
 | Legacy whatsapp.service lang threading | DONE |
 | Property sold enterprise resolver | DONE |
+| Multi-project enterprise (Chunks 01–10) | DONE — flags OFF until staging sign-off; see `whatsapp-multi-project-enterprise.mdc` |

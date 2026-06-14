@@ -3,6 +3,7 @@ import {
   resolveButtonsForBuyerSituation,
   resolveSituationBuyerButtons,
 } from '../../utils/buyerSituationButtons.util';
+import config from '../../config';
 
 const APARTMENT_ONLY_FILTERS = [
   { id: 'filter-apartment', title: 'Apartments' },
@@ -11,6 +12,12 @@ const APARTMENT_ONLY_FILTERS = [
 ];
 
 describe('buyerSituationButtons.util', () => {
+  const originalButtonScopeValidate = config.features.buttonScopeValidate;
+
+  afterEach(() => {
+    config.features.buttonScopeValidate = originalButtonScopeValidate;
+  });
+
   test('catalog empty reply gets company-specific filter buttons', () => {
     const situation = detectBuyerButtonSituation({
       stage: 'qualify',
@@ -139,5 +146,36 @@ describe('buyerSituationButtons.util', () => {
     });
     expect(buttons?.map((b) => b.id)).toContain('visit-reschedule');
     expect(buttons?.map((b) => b.id)).not.toContain('book-visit-p1');
+  });
+
+  test('flag ON multi-property list does not attach Book Visit for multiple allowed properties', () => {
+    config.features.buttonScopeValidate = true;
+    const buttons = resolveSituationBuyerButtons({
+      stage: 'shortlist',
+      outboundText: 'Here are 2 options for you: Sunset Heights and Lake Vista.',
+      recommendedPropertyIds: ['p-sunset', 'p-lake'],
+      allowedPropertyIds: ['p-sunset', 'p-lake'],
+      properties: [
+        { id: 'p-sunset', name: 'Sunset Heights' },
+        { id: 'p-lake', name: 'Lake Vista' },
+      ],
+    });
+
+    expect(buttons?.map((b) => b.id).some((id) => id.startsWith('book-visit'))).toBe(false);
+    expect(buttons?.map((b) => b.id)).toContain('browse-projects');
+  });
+
+  test('flag ON single allowed property rewrites property buttons to the allowed id', () => {
+    config.features.buttonScopeValidate = true;
+    const buttons = resolveButtonsForBuyerSituation('single_property_focus', {
+      stage: 'shortlist',
+      outboundText: 'Sunset Heights looks like a fit.',
+      propertyId: 'out-of-scope',
+      allowedPropertyIds: ['p-sunset'],
+    });
+
+    expect(buttons?.map((b) => b.id)).toContain('book-visit-p-sunset');
+    expect(buttons?.map((b) => b.id)).toContain('more-info-p-sunset');
+    expect(buttons?.map((b) => b.id)).not.toContain('book-visit-out-of-scope');
   });
 });

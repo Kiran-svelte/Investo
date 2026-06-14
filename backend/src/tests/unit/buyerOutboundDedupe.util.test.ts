@@ -60,6 +60,7 @@ describe('greeting fast path compact acks', () => {
     visitId: 'v1',
     propertyId: 'p1',
     propertyName: property,
+    projectId: null,
     scheduledAt,
     status: 'scheduled' as const,
     agentName: 'Riya',
