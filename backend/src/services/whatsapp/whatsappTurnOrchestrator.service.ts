@@ -85,6 +85,7 @@ import {
   CATALOG_SCOPE_PROMPT_APPENDIX,
   resolveBuyerAiPropertyCatalog,
 } from '../buyer/buyerScopedCatalog.service';
+import { validateBuyerOutboundForTurn } from '../buyer/buyerOutboundValidator.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -1470,6 +1471,10 @@ async function handleVisitCommitReplyTurn(
         ? 'workflow_reschedule_visit'
         : visitCommit.mode === 'cancelled'
           ? 'workflow_cancel_visit'
+          : visitCommit.mode === 'confirmed'
+            ? 'visit_confirmed_by_customer'
+            : visitCommit.mode === 'disambiguate'
+              ? 'visit_disambiguation'
           : 'customerVisitBooked';
 
   await logAgentAction({
@@ -1778,6 +1783,25 @@ async function handleFullAiTurn(
 
   if (!outboundText.trim()) {
     outboundText = resolveEmptyOutboundFallback(ctx.input.messageText, liveCtx.activeVisit);
+  }
+
+  if (config.features.outboundPropertyValidate) {
+    const visitPropertyIds = [
+      ...(liveCtx.activeVisit ? [liveCtx.activeVisit.propertyId] : []),
+      ...(liveCtx.upcomingVisits?.map((v) => v.propertyId) ?? []),
+    ].filter((id): id is string => Boolean(id));
+    const outboundValidation = await validateBuyerOutboundForTurn({
+      companyId: ctx.companyId,
+      text: outboundText,
+      allowedPropertyIds: conversationFocus.allowedPropertyIds,
+      scopeProperties: allRawProperties.map((p) => ({ id: p.id, name: p.name })),
+      visitPropertyRows: liveCtx.activeVisit?.propertyId && liveCtx.activeVisit.propertyName
+        ? [{ id: liveCtx.activeVisit.propertyId, name: liveCtx.activeVisit.propertyName }]
+        : [],
+      visitPropertyIds,
+      language: aiResponse.detectedLanguage ?? 'en',
+    });
+    outboundText = outboundValidation.text;
   }
 
   const brochureResolution = await resolveTurnBrochure({

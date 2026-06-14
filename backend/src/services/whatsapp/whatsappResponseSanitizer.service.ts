@@ -15,6 +15,8 @@ import {
   buildVisitBookingStageSafeReply,
   type SafeBuyerFallbackContext,
 } from '../../utils/safeBuyerFallback.util';
+import config from '../../config';
+import { validateBuyerOutbound, type OutboundValidateInput } from '../buyer/buyerOutboundValidator.service';
 
 export type SanitizeChannel = 'buyer' | 'staff';
 
@@ -38,6 +40,7 @@ export type SanitizeBuyerOutboundInput = {
   bannedPhraseContext?: BannedPhraseContext;
   activeVisit?: SafeBuyerFallbackContext['activeVisit'];
   selectedPropertyName?: string | null;
+  outboundPropertyValidate?: Omit<OutboundValidateInput, 'text' | 'language'>;
 };
 
 export type SanitizeStaffOutboundInput = {
@@ -129,6 +132,14 @@ export async function sanitizeBuyerOutbound(input: SanitizeBuyerOutboundInput): 
   if (containsBannedBuyerPhrase(text, input.bannedPhraseContext)) {
     logBannedPhraseBlocked('post_pipeline', text);
     text = resolveBannedPhraseFallback(input);
+  }
+
+  if (input.outboundPropertyValidate && config.features.outboundPropertyValidate) {
+    text = validateBuyerOutbound({
+      text,
+      language: input.language ?? 'en',
+      ...input.outboundPropertyValidate,
+    }).text;
   }
 
   return text.trim();
