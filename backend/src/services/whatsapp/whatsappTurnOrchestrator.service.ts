@@ -81,6 +81,10 @@ import {
   patchBuyerConversationFocus,
   readBuyerConversationFocus,
 } from '../buyer/buyerConversationFocus.service';
+import {
+  CATALOG_SCOPE_PROMPT_APPENDIX,
+  resolveBuyerAiPropertyCatalog,
+} from '../buyer/buyerScopedCatalog.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -1579,23 +1583,38 @@ async function handleFullAiTurn(
       ...(resolvedPropertyId ? [resolvedPropertyId] : []),
     ]),
   ];
-  const rawProperties =
-    propertyIdSet.length > 0
-      ? await prisma.property.findMany({
-        where: { companyId: ctx.companyId, id: { in: propertyIdSet }, status: { in: ['available', 'upcoming'] } },
-      })
-      : await prisma.property.findMany({
-        where: { companyId: ctx.companyId, status: { in: ['available', 'upcoming'] } },
-        take: 20,
-      });
 
-  let allRawProperties = rawProperties;
-  if (resolvedPropertyId && !rawProperties.some((p) => p.id === resolvedPropertyId)) {
+  const conversationFocus = ctx.input.conversationFocus ?? readBuyerConversationFocus({
+    selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+    recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
+    commitments: ctx.input.conversationCommitments,
+  });
+
+  const { properties: catalogProperties, catalogMode } = await resolveBuyerAiPropertyCatalog({
+    companyId: ctx.companyId,
+    focus: conversationFocus,
+    resolvedPropertyId,
+    neverSayNoPropertyIds: neverSayNoCtx.exactPropertyIds,
+    conversionAlternativeIds: neverSayNoCtx.alternativePropertyIds,
+    customerMessage: ctx.input.messageText,
+  });
+
+  if (config.features.scopedAiCatalog) {
+    logger.info('Buyer AI property catalog resolved', {
+      conversationId: ctx.input.conversationId,
+      catalogMode,
+      propertyCount: catalogProperties.length,
+      propertyIdSetSize: propertyIdSet.length,
+    });
+  }
+
+  let allRawProperties = catalogProperties;
+  if (resolvedPropertyId && !catalogProperties.some((p) => p.id === resolvedPropertyId)) {
     const focusedRow = await prisma.property.findFirst({
       where: { id: resolvedPropertyId, companyId: ctx.companyId, status: { in: ['available', 'upcoming'] } },
     });
     if (focusedRow) {
-      allRawProperties = [focusedRow, ...rawProperties];
+      allRawProperties = [focusedRow, ...catalogProperties];
     }
   }
 
@@ -1608,9 +1627,12 @@ async function handleFullAiTurn(
   const focusedAiProperty = resolvedPropertyId
     ? aiProperties.find((p) => p.id === resolvedPropertyId)
     : undefined;
-  const focusedPropertyBlock = focusedAiProperty
+  let focusedPropertyBlock = focusedAiProperty
     ? buildFocusedPropertyPromptBlock(focusedAiProperty)
     : undefined;
+  if (config.features.scopedAiCatalog && catalogMode !== 'legacy_fallback') {
+    focusedPropertyBlock = [focusedPropertyBlock, CATALOG_SCOPE_PROMPT_APPENDIX].filter(Boolean).join('\n\n');
+  }
 
   const properties: PropertySummary[] = allRawProperties.map((p) => ({
     id: p.id,

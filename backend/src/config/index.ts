@@ -574,6 +574,10 @@ const config = {
     buyerFocusStack: process.env.FEATURE_BUYER_FOCUS_STACK === 'true',
     /** Project-scoped property name resolution + ambiguity clarify (Chunk 03). */
     scopedPropertyResolve: process.env.FEATURE_SCOPED_PROPERTY_RESOLVE === 'true',
+    /** Focus-scoped AI property catalog for H9 LLM turns (Chunk 04). */
+    scopedAiCatalog: process.env.FEATURE_SCOPED_AI_CATALOG === 'true',
+    /** Disambiguate cancel/reschedule/confirm when a lead has multiple upcoming visits (Chunk 05). */
+    visitDisambiguation: process.env.FEATURE_VISIT_DISAMBIGUATION === 'true',
     /** Validate book-visit / more-info buttons against focus scope (Chunk 06). */
     buttonScopeValidate: process.env.FEATURE_BUTTON_SCOPE_VALIDATE === 'true',
     /** Post-LLM outbound property mention validator (Chunk 07). */
