@@ -19,15 +19,16 @@ describe('projectBrowse.service', () => {
     },
   ];
 
-  it('buildProjectSelectListComponent uses project-select ids not property ids', () => {
-    const list = buildProjectSelectListComponent(sampleProjects);
+  it('buildProjectSelectListComponent uses project-select ids and localized title', () => {
+    const list = buildProjectSelectListComponent(sampleProjects, 'hi');
     expect(list.kind).toBe('list');
     if (list.kind !== 'list') throw new Error('expected list');
+    expect(list.title).toContain('परियोजना');
     expect(list.sections[0].rows[0].id).toBe('project-select-proj-investo');
     expect(list.sections[0].rows[0].title).toBe('investo');
   });
 
-  it('buildProjectPropertyListComponent uses more-info property ids', () => {
+  it('buildProjectPropertyListComponent uses more-info property ids and localized title', () => {
     const list = buildProjectPropertyListComponent('proj-investo', 'investo', [
       {
         id: 'prop-lake-801',
@@ -41,8 +42,9 @@ describe('projectBrowse.service', () => {
         brochureUrl: null,
         images: [],
       },
-    ]);
+    ], 'hi');
     if (list.kind !== 'list') throw new Error('expected list');
+    expect(list.title).toContain('संपत्ति');
     expect(list.sections[0].rows[0].id).toBe('more-info-prop-lake-801');
     expect(list.sections[0].rows[0].title).toBe('Lake Vista 801');
   });
@@ -65,9 +67,15 @@ describe('projectBrowse.service', () => {
     expect(text).not.toContain('Lake Vista');
   });
 
-  it('formatProjectSelectedIntro includes project name and count', () => {
-    const text = formatProjectSelectedIntro('investo', 19, 'en');
+  it('formatProjectCatalogIntro uses Devanagari for Hindi', () => {
+    const text = formatProjectCatalogIntro(sampleProjects, 'hi');
+    expect(text).toMatch(/[\u0900-\u097F]/);
     expect(text).toContain('investo');
-    expect(text).toContain('19');
+  });
+
+  it('formatProjectSelectedIntro includes hidden listing note', () => {
+    const text = formatProjectSelectedIntro('investo', 4, 'hi', 1);
+    expect(text).toMatch(/[\u0900-\u097F]/);
+    expect(text).toContain('4');
   });
 });

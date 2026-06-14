@@ -2,7 +2,7 @@ import prisma from '../config/prisma';
 import type { WhatsAppComponent } from '../types/whatsapp-turn.types';
 import { matchCatalogPropertiesForQuery, getInventorySummary } from '../services/propertyKnowledge.service';
 import { isPropertyInquiryMessage } from '../services/customerMessageFastPath.service';
-import { resolveBrochureUrlForWhatsApp } from '../services/brochureDelivery.service';
+import { resolveBrochureUrlForWhatsApp, resolveFirstPropertyHeroMediaComponent } from '../services/brochureDelivery.service';
 import {
   buildCatalogFilterButtonSet,
   getCompanyBrowseSnapshot,
@@ -85,7 +85,7 @@ async function resolveProjectFirstBrowseTurn(
     propertyIds: [],
     properties: [],
     components: [
-      buildProjectSelectListComponent(projects),
+      buildProjectSelectListComponent(projects, lang),
       ...buildFilterButtonsComponent(snapshot),
     ],
   };
@@ -258,12 +258,12 @@ async function resolveProactiveBrowseMedia(
     }
   }
 
-  const images = full.images;
-  if (Array.isArray(images)) {
-    const hero = images.find((u) => typeof u === 'string' && u.startsWith('https://')) as string | undefined;
-    if (hero) {
-      out.push({ kind: 'media', url: hero, mime: 'image/jpeg', caption: full.name });
-    }
+  const heroMedia = await resolveFirstPropertyHeroMediaComponent({
+    images: full.images,
+    caption: full.name,
+  });
+  if (heroMedia) {
+    out.push(heroMedia);
   }
 
   return out.slice(0, 2);

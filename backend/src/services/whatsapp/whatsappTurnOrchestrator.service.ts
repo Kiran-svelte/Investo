@@ -22,6 +22,7 @@ import {
 } from '../visitIntentFromMessage.service';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
 import { buildSafeBuyerFallback } from '../../utils/safeBuyerFallback.util';
+import { resolveFirstPropertyHeroMediaComponent } from '../brochureDelivery.service';
 import {
   buildAdvancedReturningReply,
   buildPostVisitWelcomeReply,
@@ -174,11 +175,11 @@ export async function resolveHeroMediaComponentFromPropertyIds(
   });
   if (!prop) return undefined;
 
-  const images = Array.isArray(prop.images) ? (prop.images as string[]) : [];
-  const heroUrl = images.find((url) => typeof url === 'string' && url.startsWith('https://'));
-  if (!heroUrl) return undefined;
-
-  return { kind: 'media', url: heroUrl, mime: 'image/jpeg', caption: prop.name };
+  const media = await resolveFirstPropertyHeroMediaComponent({
+    images: prop.images,
+    caption: prop.name,
+  });
+  return media ?? undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -896,17 +897,27 @@ async function handlePropertyBrowsingTurn(
     messagePreview: ctx.input.messageText.slice(0, 40),
   });
 
+  const resolvedLang = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+  });
+
   const { resolvePropertyBrowseTurn } = await import('../../utils/propertyBrowseTurn.util');
   const browse = await resolvePropertyBrowseTurn({
     companyId: ctx.companyId,
     messageText: ctx.input.messageText,
     stage: conversationStage,
-    leadLanguage: resolveBuyerLanguage({
-      message: ctx.input.messageText,
-      leadLanguage: ctx.input.leadLanguage,
-    }),
+    leadLanguage: resolvedLang,
   });
   if (!browse) return null;
+
+  if (resolvedLang !== normalizeBuyerLang(ctx.input.leadLanguage)) {
+    await prisma.lead.update({ where: { id: ctx.input.leadId }, data: { language: resolvedLang } }).catch(() => undefined);
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: { language: resolvedLang },
+    }).catch(() => undefined);
+  }
 
   const safeReply = stripBuyerInternalMetadata(browse.reply);
   await prisma.message.create({

@@ -144,6 +144,16 @@ type BuyerCopyKey =
   | 'project_browse_line'
   | 'project_browse_footer'
   | 'project_selected_intro'
+  | 'project_listings_hidden_note'
+  | 'choose_project'
+  | 'choose_property'
+  | 'our_projects'
+  | 'project_listing_count_label'
+  | 'showing_listings_truncated'
+  | 'visit_detail_confirmed_prefix'
+  | 'visit_detail_scheduled_prefix'
+  | 'property_not_selected_yet'
+  | 'property_no_longer_available'
   | 'browse_list_title'
   | 'browse_list_section'
   | 'catalog_empty_default'
@@ -828,40 +838,68 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     pa: 'Haje vi options explore kar rahe ho, ya kuj nave?',
     or: 'Ebe bi options explore karuchanti, na nua kichhi?',
   },
-  prop_label_price: langPack('Price', 'Keemat'),
-  prop_label_type: langPack('Type', 'Prakar'),
-  prop_label_bedrooms: langPack('Bedrooms', 'Bedrooms'),
-  prop_label_location: langPack('Location', 'Location'),
-  prop_label_builder: langPack('Builder', 'Builder'),
+  prop_label_price: langPack('Price', 'कीमत'),
+  prop_label_type: langPack('Type', 'प्रकार'),
+  prop_label_bedrooms: langPack('Bedrooms', 'बेडरूम'),
+  prop_label_location: langPack('Location', 'स्थान'),
+  prop_label_builder: langPack('Builder', 'बिल्डर'),
   prop_label_rera: langPack('RERA', 'RERA'),
-  prop_label_brochure: langPack('Brochure', 'Brochure'),
-  prop_label_floor_plans: langPack('Floor plans', 'Floor plans'),
-  prop_label_price_list: langPack('Price list', 'Price list'),
-  prop_label_amenities: langPack('Amenities', 'Suvidhaayein'),
-  prop_label_details: langPack('Details', 'Vivaran'),
-  prop_on_file: langPack('on file', 'uplabdh'),
+  prop_label_brochure: langPack('Brochure', 'ब्रोशर'),
+  prop_label_floor_plans: langPack('Floor plans', 'फ़्लोर प्लान'),
+  prop_label_price_list: langPack('Price list', 'प्राइस लिस्ट'),
+  prop_label_amenities: langPack('Amenities', 'सुविधाएँ'),
+  prop_label_details: langPack('Details', 'विवरण'),
+  prop_on_file: langPack('available', 'उपलब्ध'),
   project_browse_none: langPack(
     'No project listings are published right now. Tell me your budget or area and I will help.',
-    'Abhi koi project listing publish nahi hai. Apna budget ya area batayein.',
+    'अभी कोई परियोजना लिस्टिंग प्रकाशित नहीं है। अपना बजट या इलाका बताएँ।',
   ),
   project_browse_header: langPack(
     'Here are *{count}* project(s) you can explore:',
-    'Yeh *{count}* project explore kar sakte hain:',
+    'आप *{count}* परियोजना देख सकते हैं:',
   ),
   project_browse_line: langPack(
     '*{index}. {name}* — {count} listings · {types} · {location}{price}',
-    '*{index}. {name}* — {count} listings · {types} · {location}{price}',
+    '*{index}. {name}* — {count} लिस्टिंग · {types} · {location}{price}',
   ),
   project_browse_footer: langPack(
     'Tap a *project* below to get the brochure and choose a specific property inside it.',
-    'Neeche *project* chunein — brochure milega, phir us project ki property select karein.',
+    'नीचे *परियोजना* चुनें — ब्रोशर मिलेगा, फिर उस परियोजना की संपत्ति चुनें।',
   ),
   project_selected_intro: langPack(
     'Great choice — *{name}* has *{count}* available listing(s). Here is the project brochure. Tap a property below for full details, photos, and visit booking.',
-    'Badhiya — *{name}* mein *{count}* listing(s) available hain. Project brochure neeche hai. Property chunein details aur visit ke liye.',
+    'बढ़िया — *{name}* में *{count}* लिस्टिंग उपलब्ध हैं। परियोजना ब्रोशर नीचे है। विवरण और विज़िट के लिए संपत्ति चुनें।',
   ),
-  browse_list_title: langPack('View properties', 'Properties dekhein'),
-  browse_list_section: langPack('Matching listings', 'Matching listings'),
+  project_listings_hidden_note: langPack(
+    '({hidden} unit(s) in this project are not available for booking right now.)',
+    '({hidden} यूनिट अभी बुकिंग के लिए उपलब्ध नहीं हैं।)',
+  ),
+  choose_project: langPack('Choose project', 'परियोजना चुनें'),
+  choose_property: langPack('Choose property', 'संपत्ति चुनें'),
+  our_projects: langPack('Our projects', 'हमारी परियोजनाएँ'),
+  project_listing_count_label: langPack('{count} listings', '{count} लिस्टिंग'),
+  showing_listings_truncated: langPack(
+    'Showing 10 of {total} listings — reply with a unit name for others.',
+    '10 में से {total} लिस्टिंग दिख रही हैं — बाकी के लिए यूनिट का नाम लिखें।',
+  ),
+  visit_detail_confirmed_prefix: langPack(
+    'Your visit for *{property}* on {date} is confirmed ✅',
+    '*{property}* के लिए {date} की विज़िट *पुष्ट* है ✅',
+  ),
+  visit_detail_scheduled_prefix: langPack(
+    'You already have a visit for *{property}* on {date} 🗓️',
+    '*{property}* के लिए {date} की विज़िट पहले से है 🗓️',
+  ),
+  property_not_selected_yet: langPack(
+    "I don't have a specific property selected yet. Tell me which property you'd like — name or location works.",
+    'अभी कोई विशेष संपत्ति चयनित नहीं है। बताएँ किस संपत्ति की जानकारी चाहिए — नाम या इलाका लिखें।',
+  ),
+  property_no_longer_available: langPack(
+    'Sorry, that property is no longer available. Would you like to see our other listings?',
+    'क्षमा करें, वह संपत्ति अब उपलब्ध नहीं है। क्या आप अन्य लिस्टिंग देखना चाहेंगे?',
+  ),
+  browse_list_title: langPack('View properties', 'संपत्तियाँ देखें'),
+  browse_list_section: langPack('Matching listings', 'मिलती-जुलती लिस्टिंग'),
   catalog_empty_default: langPack(
     "I couldn't find an exact match in our catalog.\n\nTell me your budget, area, or property type (e.g. \"3 BHK in Whitefield\") and I'll shortlist options.",
     'Hamare catalog mein exact match nahi mila.\n\nApna budget, area, ya property type batayein (jaise "3 BHK Whitefield") — main options bhejunga.',

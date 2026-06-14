@@ -6,7 +6,7 @@
 import prisma from '../config/prisma';
 import type { WhatsAppComponent } from '../types/whatsapp-turn.types';
 import { storageService } from './storage.service';
-import { resolveBrochureUrlForWhatsApp } from './brochureDelivery.service';
+import { resolveBrochureUrlForWhatsApp, resolveFirstPropertyHeroMediaComponent } from './brochureDelivery.service';
 import { propertyDetailLabels, resolveBuyerLanguage, tBuyer, buyerButtonTitle } from '../utils/buyerI18n.util';
 
 export type ProjectBrowseFilters = {
@@ -194,7 +194,11 @@ export async function loadProjectProperties(
   companyId: string,
   projectId: string,
   filters?: ProjectBrowseFilters,
-): Promise<{ project: { id: string; name: string; description: string | null }; properties: BrowseProjectProperty[] } | null> {
+): Promise<{
+  project: { id: string; name: string; description: string | null };
+  properties: BrowseProjectProperty[];
+  hiddenListingCount: number;
+} | null> {
   const project = await prisma.propertyProject.findFirst({
     where: { id: projectId, companyId },
     include: {
@@ -223,9 +227,18 @@ export async function loadProjectProperties(
 
   if (!project || !project.properties.length) return null;
 
+  const hiddenListingCount = await prisma.property.count({
+    where: {
+      companyId,
+      projectId,
+      status: { notIn: ['available', 'upcoming'] },
+    },
+  });
+
   return {
     project: { id: project.id, name: project.name, description: project.description },
     properties: project.properties,
+    hiddenListingCount,
   };
 }
 
@@ -254,17 +267,20 @@ export function formatProjectCatalogIntro(
   return [header, ...items, '', tBuyer(lang, 'project_browse_footer')].join('\n\n');
 }
 
-export function buildProjectSelectListComponent(projects: BrowseProjectSummary[]): WhatsAppComponent {
+export function buildProjectSelectListComponent(
+  projects: BrowseProjectSummary[],
+  lang = 'en',
+): WhatsAppComponent {
   return {
     kind: 'list',
-    title: 'Choose project',
+    title: tBuyer(lang, 'choose_project').slice(0, 24),
     sections: [{
-      title: 'Our projects',
+      title: tBuyer(lang, 'our_projects').slice(0, 24),
       rows: projects.slice(0, 10).map((p) => ({
         id: `project-select-${p.id}`,
         title: p.name.slice(0, 24),
         description: [
-          `${p.propertyCount} listings`,
+          tBuyer(lang, 'project_listing_count_label', { count: p.propertyCount }),
           p.propertyTypes.join('/') || 'mixed',
           p.locationLabel,
         ].filter(Boolean).join(' · ').slice(0, 72),
@@ -277,10 +293,11 @@ export function buildProjectPropertyListComponent(
   projectId: string,
   projectName: string,
   properties: BrowseProjectProperty[],
+  lang = 'en',
 ): WhatsAppComponent {
   return {
     kind: 'list',
-    title: 'Choose property',
+    title: tBuyer(lang, 'choose_property').slice(0, 24),
     sections: [{
       title: projectName.slice(0, 24),
       rows: properties.slice(0, 10).map((p) => ({
@@ -371,26 +388,38 @@ export async function resolveProjectHeroImageComponent(
   companyId: string,
   projectId: string,
 ): Promise<WhatsAppComponent | null> {
-  const prop = await prisma.property.findFirst({
+  const props = await prisma.property.findMany({
     where: {
       companyId,
       projectId,
       status: { in: ['available', 'upcoming'] },
     },
     select: { name: true, images: true },
+    orderBy: { name: 'asc' },
   });
-  if (!prop?.images || !Array.isArray(prop.images)) return null;
-  const hero = prop.images.find((u) => typeof u === 'string' && u.startsWith('https://')) as string | undefined;
-  if (!hero) return null;
-  return { kind: 'media', url: hero, mime: 'image/jpeg', caption: prop.name };
+
+  for (const prop of props) {
+    const media = await resolveFirstPropertyHeroMediaComponent({
+      images: prop.images,
+      caption: prop.name,
+    });
+    if (media) return media;
+  }
+
+  return null;
 }
 
 export function formatProjectSelectedIntro(
   projectName: string,
   propertyCount: number,
   lang: string,
+  hiddenListingCount = 0,
 ): string {
-  return tBuyer(lang, 'project_selected_intro', { name: projectName, count: propertyCount });
+  let text = tBuyer(lang, 'project_selected_intro', { name: projectName, count: propertyCount });
+  if (hiddenListingCount > 0) {
+    text += `\n\n${tBuyer(lang, 'project_listings_hidden_note', { hidden: hiddenListingCount })}`;
+  }
+  return text;
 }
 
 export function resolveBrowseLanguage(

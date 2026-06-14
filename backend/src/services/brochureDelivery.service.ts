@@ -31,6 +31,43 @@ export async function resolveBrochureUrlForWhatsApp(storedUrl: string): Promise<
   }
 }
 
+/** Presigned HTTPS URL for property hero images (private S3/R2 buckets). */
+export async function resolvePropertyImageUrlForWhatsApp(storedUrl: string): Promise<string | null> {
+  return resolveBrochureUrlForWhatsApp(storedUrl);
+}
+
+export type WhatsAppMediaComponent = {
+  kind: 'media';
+  url: string;
+  mime: string;
+  caption?: string;
+};
+
+/** First fetchable hero image from a property images JSON array. */
+export async function resolveFirstPropertyHeroMediaComponent(input: {
+  images: unknown;
+  caption?: string;
+}): Promise<WhatsAppMediaComponent | null> {
+  if (!Array.isArray(input.images)) return null;
+
+  for (const raw of input.images) {
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+
+    const presigned = await resolvePropertyImageUrlForWhatsApp(raw);
+    if (presigned) {
+      const mime = /\.png(?:\?|$)/i.test(raw) ? 'image/png' : 'image/jpeg';
+      return { kind: 'media', url: presigned, mime, caption: input.caption };
+    }
+
+    if (raw.startsWith('https://')) {
+      const mime = /\.png(?:\?|$)/i.test(raw) ? 'image/png' : 'image/jpeg';
+      return { kind: 'media', url: raw, mime, caption: input.caption };
+    }
+  }
+
+  return null;
+}
+
 export function stripBrochureLinksFromText(text: string): string {
   let cleaned = text;
 

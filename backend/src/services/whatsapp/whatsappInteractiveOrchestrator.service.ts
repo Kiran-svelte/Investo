@@ -439,9 +439,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   if (!propertyId) {
     return {
       handled: true as const,
-      turnResult: buyerTurn(
-        `I don't have a specific property selected yet. Could you let me know which property you'd like more details about? You can mention the name or location.`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'property_not_selected_yet')),
     };
   }
 
@@ -451,9 +449,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   if (!property) {
     return {
       handled: true as const,
-      turnResult: buyerTurn(
-        `I'm sorry, that property details are no longer available. Would you like me to share our other available properties?`,
-      ),
+      turnResult: buyerTurn(tBuyer(lang, 'property_no_longer_available')),
     };
   }
 
@@ -495,12 +491,11 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
 
   if (activeVisit) {
     const visitDate = formatISTDateTimeLong(new Date(activeVisit.scheduledAt));
-    const visitPropName = (activeVisit.property as { name?: string })?.name ?? 'the property';
+    const visitPropName = (activeVisit.property as { name?: string })?.name ?? property.name;
     const visitAlreadyConfirmed = activeVisit.status === 'confirmed';
+    const prefixKey = visitAlreadyConfirmed ? 'visit_detail_confirmed_prefix' : 'visit_detail_scheduled_prefix';
     outboundText =
-      (visitAlreadyConfirmed
-        ? `Your visit for *${visitPropName}* on ${visitDate} is confirmed ✅\n\n`
-        : `You already have a visit for *${visitPropName}* on ${visitDate} 🗓️\n\n`) + details;
+      `${tBuyer(lang, prefixKey, { property: visitPropName, date: visitDate })}\n\n` + details;
     buttonComponent = {
       kind: 'buttons',
       buttons: visitAlreadyConfirmed
@@ -591,9 +586,10 @@ async function handleProjectSelect(params: InteractiveActionParams): Promise<Int
     loaded.project.name,
     loaded.properties.length,
     lang,
+    loaded.hiddenListingCount,
   );
   if (loaded.properties.length > 10) {
-    outboundText += `\n\nShowing 10 of ${loaded.properties.length} listings — reply with a unit name for others.`;
+    outboundText += `\n\n${tBuyer(lang, 'showing_listings_truncated', { total: loaded.properties.length })}`;
   }
 
   const mediaComponents: WhatsAppComponent[] = [];
@@ -613,6 +609,7 @@ async function handleProjectSelect(params: InteractiveActionParams): Promise<Int
     projectId,
     loaded.project.name,
     loaded.properties,
+    lang,
   );
 
   await prisma.conversation.update({
@@ -661,6 +658,7 @@ async function handleProjectProperties(params: InteractiveActionParams): Promise
     projectId,
     loaded.project.name,
     loaded.properties,
+    lang,
   );
 
   await prisma.conversation.update({
@@ -801,7 +799,7 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
       }
 
       const reply = formatProjectCatalogIntro(projects, lang);
-      const listComponent = buildProjectSelectListComponent(projects);
+      const listComponent = buildProjectSelectListComponent(projects, lang);
       const snapshot = await getCompanyBrowseSnapshot(company.id);
       const filterButtons = buildDiscoveryButtonSet(snapshot);
       const components = enforceTurnComponentBudget([
