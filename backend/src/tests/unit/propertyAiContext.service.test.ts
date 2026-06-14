@@ -88,4 +88,11 @@ describe('propertyAiContext.service', () => {
     expect(text).toContain('RERA:');
     expect(text).toContain('lake view');
   });
+
+  test('buildWhatsAppPropertyDetailText uses Hindi field labels when lang is hi', () => {
+    const text = buildWhatsAppPropertyDetailText(sampleProperty as any, 'hi');
+    expect(text).toContain('Keemat:');
+    expect(text).toContain('Suvidhaayein:');
+    expect(text).toContain('Prakar:');
+  });
 });

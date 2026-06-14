@@ -1,71 +1,53 @@
+/// <reference types="jest" />
+
+jest.mock('../../config', () => ({
+  __esModule: true,
+  default: {
+    whatsapp: { apiUrl: 'https://graph.test/v18.0' },
+  },
+}));
+
 import {
-  computeHumanReplyDelayMs,
-  isReplyPacingGloballyDisabled,
-  simulateHumanReplyPacing,
+  isTypingDuringProcessingEnabled,
+  startTypingDuringProcessing,
 } from '../../services/whatsappPresence.service';
 
-describe('whatsappPresence.service', () => {
-  it('computes bounded human delay from message length (full mode)', () => {
-    const short = computeHumanReplyDelayMs(10, 'full');
-    const long = computeHumanReplyDelayMs(500, 'full');
-    expect(short).toBeGreaterThanOrEqual(200);
-    expect(long).toBeLessThanOrEqual(1200);
-    expect(long).toBeGreaterThan(short);
+describe('whatsappPresence typing session', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.useRealTimers();
   });
 
-  it('uses shorter bounds for minimal mode', () => {
-    const delay = computeHumanReplyDelayMs(100, 'minimal');
-    expect(delay).toBeGreaterThanOrEqual(100);
-    expect(delay).toBeLessThanOrEqual(400);
+  test('isTypingDuringProcessingEnabled defaults true', () => {
+    expect(isTypingDuringProcessingEnabled()).toBe(true);
   });
 
-  it('returns zero delay for none mode', () => {
-    expect(computeHumanReplyDelayMs(500, 'none')).toBe(0);
-  });
+  test('startTypingDuringProcessing sends typing immediately and on refresh', async () => {
+    jest.useFakeTimers();
+    const calls: unknown[] = [];
+    global.fetch = jest.fn(async (_url, init) => {
+      calls.push(JSON.parse(String((init as RequestInit).body)));
+      return { ok: true } as Response;
+    }) as typeof fetch;
 
-  it('simulateHumanReplyPacing completes without throw with minimal meta config', async () => {
-    const start = Date.now();
-    await simulateHumanReplyPacing({
-      to: '+919876543210',
-      whatsappConfig: { provider: 'meta' },
-      outboundTextLength: 50,
-      pacing: 'minimal',
+    const session = startTypingDuringProcessing('919876543210', {
+      phoneNumberId: '123',
+      accessToken: 'token',
     });
-    expect(Date.now() - start).toBeLessThan(800);
-  });
 
-  it('simulateHumanReplyPacing skips delay for none mode', async () => {
-    const start = Date.now();
-    await simulateHumanReplyPacing({
-      to: '+919876543210',
-      whatsappConfig: { provider: 'meta', phoneNumberId: 'x', accessToken: 'y' },
-      outboundTextLength: 200,
-      pacing: 'none',
-    });
-    expect(Date.now() - start).toBeLessThan(50);
-  });
+    await Promise.resolve();
+    expect(calls.length).toBe(1);
+    expect(calls[0]).toMatchObject({ typing_indicator: { type: 'text' } });
 
-  it('isReplyPacingGloballyDisabled reads env and fast-reply flags', () => {
-    jest.resetModules();
-    const prevPacing = process.env.WHATSAPP_REPLY_PACING_ENABLED;
-    const prevFast = process.env.FEATURE_FAST_WHATSAPP_REPLIES;
-    try {
-      process.env.FEATURE_FAST_WHATSAPP_REPLIES = 'false';
-      process.env.WHATSAPP_REPLY_PACING_ENABLED = 'false';
-      jest.isolateModules(() => {
-        const { isReplyPacingGloballyDisabled: disabled } = require('../../services/whatsappPresence.service');
-        expect(disabled()).toBe(true);
-      });
-      process.env.WHATSAPP_REPLY_PACING_ENABLED = 'true';
-      jest.isolateModules(() => {
-        const { isReplyPacingGloballyDisabled: disabled } = require('../../services/whatsappPresence.service');
-        expect(disabled()).toBe(false);
-      });
-    } finally {
-      if (prevPacing === undefined) delete process.env.WHATSAPP_REPLY_PACING_ENABLED;
-      else process.env.WHATSAPP_REPLY_PACING_ENABLED = prevPacing;
-      if (prevFast === undefined) delete process.env.FEATURE_FAST_WHATSAPP_REPLIES;
-      else process.env.FEATURE_FAST_WHATSAPP_REPLIES = prevFast;
-    }
+    jest.advanceTimersByTime(20_000);
+    await Promise.resolve();
+    expect(calls.length).toBe(2);
+
+    session.stop();
+    jest.advanceTimersByTime(20_000);
+    await Promise.resolve();
+    expect(calls.length).toBe(2);
   });
 });

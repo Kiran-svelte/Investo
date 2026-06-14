@@ -125,9 +125,29 @@ type BuyerCopyKey =
   | 'returning_pivot'
   | 'returning_welcome_back'
   | 'returning_area_hint'
-  | 'returning_explore_hint';
+  | 'returning_explore_hint'
+  | 'prop_label_price'
+  | 'prop_label_type'
+  | 'prop_label_bedrooms'
+  | 'prop_label_location'
+  | 'prop_label_builder'
+  | 'prop_label_rera'
+  | 'prop_label_brochure'
+  | 'prop_label_floor_plans'
+  | 'prop_label_price_list'
+  | 'prop_label_amenities'
+  | 'prop_label_details'
+  | 'prop_on_file';
 
 type CopyVars = Record<string, string | number | null | undefined>;
+
+function langPack(en: string, hi: string): Record<BuyerLang, string> {
+  const row = { en, hi } as Record<BuyerLang, string>;
+  for (const code of SUPPORTED_BUYER_LANGS) {
+    if (!row[code]) row[code] = en;
+  }
+  return row;
+}
 
 const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   visit_welcome_back: {
@@ -767,6 +787,18 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     pa: 'Haje vi options explore kar rahe ho, ya kuj nave?',
     or: 'Ebe bi options explore karuchanti, na nua kichhi?',
   },
+  prop_label_price: langPack('Price', 'Keemat'),
+  prop_label_type: langPack('Type', 'Prakar'),
+  prop_label_bedrooms: langPack('Bedrooms', 'Bedrooms'),
+  prop_label_location: langPack('Location', 'Location'),
+  prop_label_builder: langPack('Builder', 'Builder'),
+  prop_label_rera: langPack('RERA', 'RERA'),
+  prop_label_brochure: langPack('Brochure', 'Brochure'),
+  prop_label_floor_plans: langPack('Floor plans', 'Floor plans'),
+  prop_label_price_list: langPack('Price list', 'Price list'),
+  prop_label_amenities: langPack('Amenities', 'Suvidhaayein'),
+  prop_label_details: langPack('Details', 'Vivaran'),
+  prop_on_file: langPack('on file', 'uplabdh'),
 };
 
 function interpolate(template: string, vars: CopyVars): string {
@@ -784,6 +816,38 @@ export function tBuyer(lang: string | null | undefined, key: BuyerCopyKey, vars:
   const table = COPY[key];
   const template = table[normalized] ?? table.en;
   return interpolate(template, vars);
+}
+
+export type PropertyDetailLabels = {
+  price: string;
+  type: string;
+  bedrooms: string;
+  location: string;
+  builder: string;
+  rera: string;
+  brochure: string;
+  floorPlans: string;
+  priceList: string;
+  amenities: string;
+  details: string;
+  onFile: string;
+};
+
+export function propertyDetailLabels(lang: string | null | undefined): PropertyDetailLabels {
+  return {
+    price: tBuyer(lang, 'prop_label_price'),
+    type: tBuyer(lang, 'prop_label_type'),
+    bedrooms: tBuyer(lang, 'prop_label_bedrooms'),
+    location: tBuyer(lang, 'prop_label_location'),
+    builder: tBuyer(lang, 'prop_label_builder'),
+    rera: tBuyer(lang, 'prop_label_rera'),
+    brochure: tBuyer(lang, 'prop_label_brochure'),
+    floorPlans: tBuyer(lang, 'prop_label_floor_plans'),
+    priceList: tBuyer(lang, 'prop_label_price_list'),
+    amenities: tBuyer(lang, 'prop_label_amenities'),
+    details: tBuyer(lang, 'prop_label_details'),
+    onFile: tBuyer(lang, 'prop_on_file'),
+  };
 }
 
 export type BuyerButtonKey =

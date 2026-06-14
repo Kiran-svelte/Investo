@@ -31,6 +31,46 @@ export function isReplyPacingGloballyDisabled(): boolean {
   return isReplyPacingDisabled();
 }
 
+/** Default ON — typing while the server processes (independent of artificial post-reply delay). */
+export function isTypingDuringProcessingEnabled(): boolean {
+  if (process.env.WHATSAPP_TYPING_DURING_PROCESSING === 'false') return false;
+  return true;
+}
+
+/** Meta typing indicators expire; refresh before they drop off (~25s). */
+const TYPING_REFRESH_MS = 20_000;
+
+export type TypingSession = { stop: () => void };
+
+/**
+ * Show "typing…" for the full inbound processing window (LLM + DB), not only the brief pre-send pulse.
+ * Fast-reply mode disables artificial delay after the reply is ready but keeps this session active.
+ */
+export function startTypingDuringProcessing(
+  to: string,
+  whatsappConfig: WhatsAppPresenceConfig,
+): TypingSession {
+  if (!isTypingDuringProcessingEnabled()) {
+    return { stop: () => undefined };
+  }
+
+  let stopped = false;
+  const pulse = () => {
+    if (!stopped) void sendTypingIndicator(to, whatsappConfig);
+  };
+
+  pulse();
+  const interval = setInterval(pulse, TYPING_REFRESH_MS);
+
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(interval);
+    },
+  };
+}
+
 /**
  * Meta Cloud API typing indicator (best-effort).
  * @see https://developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators
@@ -105,11 +145,13 @@ export async function simulateHumanReplyPacing(input: {
   replyPacing?: ReplyPacingMode;
 }): Promise<void> {
   const mode = input.replyPacing ?? input.pacing ?? 'full';
-  if (mode === 'none' || isReplyPacingGloballyDisabled()) return;
+  if (mode === 'none') return;
 
   await markInboundMessageRead(input.inboundMessageId, input.whatsappConfig);
-  if (mode === 'full') {
+  if (mode === 'full' && !isReplyPacingGloballyDisabled()) {
     await sendTypingIndicator(input.to, input.whatsappConfig);
   }
-  await new Promise((r) => setTimeout(r, computeHumanReplyDelayMs(input.outboundTextLength, mode)));
+  if (!isReplyPacingGloballyDisabled()) {
+    await new Promise((r) => setTimeout(r, computeHumanReplyDelayMs(input.outboundTextLength, mode)));
+  }
 }

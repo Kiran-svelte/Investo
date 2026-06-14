@@ -4,6 +4,7 @@ import { getPropertyPromptLimits } from '../utils/propertyPromptLimits.util';
 import {
   formatExtendedAttributesForPrompt,
 } from '../utils/extractExtendedPropertyAttributes.util';
+import { propertyDetailLabels } from '../utils/buyerI18n.util';
 
 /** Full property row shape passed into buyer LLM prompts. */
 export interface PropertyAiPromptInput {
@@ -314,12 +315,16 @@ export async function enrichAiPropertiesFromKnowledge(
   );
 }
 
-export function buildWhatsAppPropertyDetailText(property: Property): string {
-  return buildWhatsAppPropertyDetailFromAiInput(propertyToAiPromptInput(property));
+export function buildWhatsAppPropertyDetailText(property: Property, lang = 'en'): string {
+  return buildWhatsAppPropertyDetailFromAiInput(propertyToAiPromptInput(property), lang);
 }
 
-export function buildWhatsAppPropertyDetailFromAiInput(input: PropertyAiPromptInput): string {
+export function buildWhatsAppPropertyDetailFromAiInput(
+  input: PropertyAiPromptInput,
+  lang = 'en',
+): string {
   const limits = getPropertyPromptLimits();
+  const labels = propertyDetailLabels(lang);
   const location = [input.locationArea, input.locationCity].filter(Boolean).join(', ');
 
   const lines = [
@@ -327,23 +332,23 @@ export function buildWhatsAppPropertyDetailFromAiInput(input: PropertyAiPromptIn
     '',
     input.description?.trim() ? truncateText(input.description, limits.whatsappDescriptionMax) : null,
     input.description?.trim() ? '' : null,
-    `💰 Price: ${formatPriceRange(input.priceMin, input.priceMax)}`,
-    input.propertyType ? `🏢 Type: ${input.propertyType}` : null,
-    input.bedrooms ? `🛏️ Bedrooms: ${input.bedrooms} BHK` : null,
-    location ? `📍 Location: ${location}` : null,
-    input.builder ? `🏗️ Builder: ${input.builder}` : null,
-    input.reraNumber ? `📋 RERA: ${input.reraNumber}` : null,
-    input.brochureUrl ? `📄 Brochure: on file` : null,
-    input.floorPlanUrls?.length ? `📐 Floor plans: on file` : null,
-    input.priceListUrl ? `💵 Price list: on file` : null,
+    `💰 ${labels.price}: ${formatPriceRange(input.priceMin, input.priceMax)}`,
+    input.propertyType ? `🏢 ${labels.type}: ${input.propertyType}` : null,
+    input.bedrooms ? `🛏️ ${labels.bedrooms}: ${input.bedrooms} BHK` : null,
+    location ? `📍 ${labels.location}: ${location}` : null,
+    input.builder ? `🏗️ ${labels.builder}: ${input.builder}` : null,
+    input.reraNumber ? `📋 ${labels.rera}: ${input.reraNumber}` : null,
+    input.brochureUrl ? `📄 ${labels.brochure}: ${labels.onFile}` : null,
+    input.floorPlanUrls?.length ? `📐 ${labels.floorPlans}: ${labels.onFile}` : null,
+    input.priceListUrl ? `💵 ${labels.priceList}: ${labels.onFile}` : null,
     input.amenities.length
-      ? `✨ Amenities: ${input.amenities.slice(0, limits.whatsappAmenitiesMax).join(', ')}`
+      ? `✨ ${labels.amenities}: ${input.amenities.slice(0, limits.whatsappAmenitiesMax).join(', ')}`
       : null,
   ].filter((line) => line !== null && line !== '') as string[];
 
   const extendedBlock = formatExtendedAttributesForPrompt(input.extendedAttributes);
   if (extendedBlock) {
-    lines.push('', `📋 *Details:*`, extendedBlock);
+    lines.push('', `📋 *${labels.details}:*`, extendedBlock);
   }
 
   return lines.join('\n');

@@ -452,7 +452,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   );
   promptInput = enriched;
 
-  let details = buildWhatsAppPropertyDetailFromAiInput(promptInput);
+  let details = buildWhatsAppPropertyDetailFromAiInput(promptInput, lang);
 
   const knowledgeChunks = await getPropertyKnowledgeForProperty(
     company.id,

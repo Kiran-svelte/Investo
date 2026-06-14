@@ -11,7 +11,7 @@ import { sanitizeBuyerOutbound } from './whatsapp/whatsappResponseSanitizer.serv
 import { buildButtonMessage, buildListMessage } from './whatsapp/metaMessageBuilder.service';
 import type { TurnResult, WhatsAppComponent } from '../types/whatsapp-turn.types';
 import { incrementOpsMetric } from './opsMetrics.service';
-import { simulateHumanReplyPacing } from './whatsappPresence.service';
+import { simulateHumanReplyPacing, startTypingDuringProcessing, type TypingSession } from './whatsappPresence.service';
 import { withRetry } from '../utils/retry';
 import { buildGroundedFactsBlock } from './groundingGuard.service';
 import { propertyToCompletenessInput } from './propertyCompleteness.service';
@@ -752,6 +752,7 @@ export class WhatsAppService {
     let pendingBuyerOutbound:
       | { turnResult: TurnResult; conversationId: string; leadId: string; propagation: InboundPropagationResult }
       | undefined;
+    let buyerTypingSession: TypingSession | null = null;
 
     try {
     // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
@@ -1113,6 +1114,7 @@ export class WhatsAppService {
 
     // 3.5. Handle interactive button/list responses
     if (msg.interactiveId && conversation.status === 'ai_active' && conversation.aiEnabled) {
+      buyerTypingSession = startTypingDuringProcessing(customerPhone, whatsappConfig!);
       const actionResult = await this.handleInteractiveAction({
         interactiveId: msg.interactiveId,
         interactiveType: msg.interactiveType,
@@ -1233,6 +1235,8 @@ export class WhatsAppService {
         });
 
         processingSucceeded = true;
+        buyerTypingSession?.stop();
+        buyerTypingSession = null;
         return {
           status: 'processed',
           companyId,
@@ -1264,6 +1268,9 @@ export class WhatsAppService {
 
     const { orchestrateWhatsAppBuyerTurn } = await import('./whatsapp/whatsappTurnOrchestrator.service');
     const buyerTurnStartedAt = Date.now();
+    if (!buyerTypingSession) {
+      buyerTypingSession = startTypingDuringProcessing(customerPhone, whatsappConfig!);
+    }
     const turnResult = await orchestrateWhatsAppBuyerTurn(
       {
         input: {
@@ -1383,6 +1390,8 @@ export class WhatsAppService {
       }
       throw processingErr;
     } finally {
+      buyerTypingSession?.stop();
+      buyerTypingSession = null;
       endOutboundTurn('buyer_orchestration_done');
       if (claimedCustomerProcessingTurn) {
         await releaseCustomerProcessingTurn(companyId, customerPhone);
