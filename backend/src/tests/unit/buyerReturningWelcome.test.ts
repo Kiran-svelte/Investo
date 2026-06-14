@@ -1,5 +1,4 @@
-import { buildReturningBuyerWelcomeReply } from '../../services/buyerQualification.service';
-import type { LiveLeadContext } from '../../services/liveLeadContext.service';
+import { buildReturningBuyerWelcomeReply } from '../../services/buyerQualification.service';import type { LiveLeadContext } from '../../services/liveLeadContext.service';
 
 function emptyLiveCtx(overrides: Partial<LiveLeadContext> = {}): LiveLeadContext {
   return {
@@ -37,6 +36,7 @@ describe('buildReturningBuyerWelcomeReply', () => {
         activeVisit: {
           visitId: 'v1',
           propertyId: 'p1',
+          projectId: null,
           propertyName: 'Lake Vista',
           status: 'confirmed',
           scheduledAt: new Date('2026-06-20T10:00:00Z'),
@@ -57,6 +57,7 @@ describe('buildReturningBuyerWelcomeReply', () => {
         recentCancelledVisit: {
           visitId: 'v2',
           propertyId: 'p2',
+          projectId: null,
           propertyName: 'Sunset Heights',
           status: 'cancelled',
           scheduledAt: new Date('2026-06-10T10:00:00Z'),
@@ -68,5 +69,18 @@ describe('buildReturningBuyerWelcomeReply', () => {
     });
     expect(reply).toContain('cancelled');
     expect(reply).toContain('Sunset Heights');
+  });
+
+  test('custom greeting template appends Hindi block for Hindi lead', () => {
+    const reply = buildReturningBuyerWelcomeReply({
+      companyName: 'Palm Realty',
+      customerName: 'Riya',
+      greetingTemplate: 'Hello! Welcome to {business_name}.',
+      leadLanguage: 'hi',
+      liveCtx: emptyLiveCtx(),
+    });
+    expect(reply).toMatch(/Welcome to Palm Realty/);
+    expect(reply).toMatch(/Namaste/);
+    expect(reply).toMatch(/swagat hai/i);
   });
 });

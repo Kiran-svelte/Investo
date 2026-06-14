@@ -15,6 +15,7 @@ import {
   PROPERTY_IMPORT_FIELDS,
   type PropertyImportFieldType,
 } from '../constants/property-import-fields.constants';
+import { extractBrowseLocationAliases } from '../utils/buyerBrowseIntent.util';
 
 const EMBEDDING_DIMENSIONS = 1536;
 const CHUNK_MAX_CHARS = 900;
@@ -914,7 +915,8 @@ export function parseLocationTokensFromQuery(query: string): string[] {
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
     .map((t) => t.trim())
-    .filter((t) => t.length >= 3 && !stop.has(t));
+    .filter((t) => t.length >= 3 && !stop.has(t))
+    .concat(extractBrowseLocationAliases(query));
 }
 
 export async function getInventorySummary(companyId: string): Promise<{
