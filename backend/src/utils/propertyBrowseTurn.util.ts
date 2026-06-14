@@ -236,7 +236,7 @@ async function resolveProactiveBrowseMedia(
 
   const images = full.images;
   if (Array.isArray(images)) {
-    const hero = images.find((u) => typeof u === 'string' && u.startsWith('https://'));
+    const hero = images.find((u) => typeof u === 'string' && u.startsWith('https://')) as string | undefined;
     if (hero) {
       out.push({ kind: 'media', url: hero, mime: 'image/jpeg', caption: full.name });
     }
