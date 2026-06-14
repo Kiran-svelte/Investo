@@ -4,11 +4,11 @@ import { shouldAttachContextualQuickReplies, type QuickReplyRecentAction } from 
 import { resolveSituationBuyerButtons, type BrowseFilterButton } from '../../utils/buyerSituationButtons.util';
 import { isPostVisitBuyer } from '../../utils/buyerLeadProgress.util';
 import type { LiveLeadContext } from '../liveLeadContext.service';
+import { readBuyerConversationFocus } from './buyerConversationFocus.service';
 
 export type BuyerButtonContext = {
   stage: string;
   outboundText: string;
-  /** Last buyer message — improves situation detection (optional). */
   inboundMessageText?: string;
   nextAction?: NextBestAction;
   recentAction?: QuickReplyRecentAction;
@@ -27,38 +27,25 @@ export type BuyerButtonContext = {
   hasCompletedVisit?: boolean;
   leadId?: string | null;
   liveLeadSnapshot?: Pick<LiveLeadContext, 'activeVisit' | 'recentCompletedVisit' | 'leadStatus'>;
-  /** Company-specific inventory filters — loaded from DB, never hardcoded types. */
   browseFilters?: BrowseFilterButton[];
-  /** Buyer language for localized button titles. */
   language?: string;
+  allowedPropertyIds?: string[];
+  focusedProjectId?: string | null;
 };
 
 const BARE_GREETING_OUTBOUND =
   /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i;
 
 function advancedHasCompletedVisit(ctx: BuyerButtonContext): boolean {
-  if (ctx.liveLeadSnapshot) {
-    return isPostVisitBuyer(ctx.liveLeadSnapshot);
-  }
+  if (ctx.liveLeadSnapshot) return isPostVisitBuyer(ctx.liveLeadSnapshot);
   return Boolean(ctx.hasCompletedVisit);
 }
 
-/**
- * Resolve at most one interactive component for a buyer turn.
- * Buttons are chosen from message situation + CRM context — not static stage menus.
- */
 export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppComponent[] {
   const hasCompletedVisit = advancedHasCompletedVisit(ctx);
-
   const outbound = ctx.outboundText.trim();
-  if (BARE_GREETING_OUTBOUND.test(outbound) && !hasCompletedVisit && !ctx.propertyId) {
-    return [];
-  }
-
-  if (ctx.stage === 'visit_booking') {
-    return [];
-  }
-
+  if (BARE_GREETING_OUTBOUND.test(outbound) && !hasCompletedVisit && !ctx.propertyId) return [];
+  if (ctx.stage === 'visit_booking') return [];
   if (
     !shouldAttachContextualQuickReplies({
       stage: ctx.stage,
@@ -70,6 +57,14 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
   ) {
     return [];
   }
+
+  const focus = readBuyerConversationFocus({
+    selectedPropertyId: ctx.propertyId ?? null,
+    recommendedPropertyIds: ctx.recommendedPropertyIds,
+    commitments: undefined,
+  });
+  const allowedPropertyIds = ctx.allowedPropertyIds ?? focus.allowedPropertyIds;
+  const focusedProjectId = ctx.focusedProjectId ?? focus.focusedProjectId;
 
   const buttons = resolveSituationBuyerButtons({
     stage: ctx.stage,
@@ -86,16 +81,14 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
     visitPropertyId: ctx.visitPropertyId,
     browseFilters: ctx.browseFilters,
     language: ctx.language,
+    allowedPropertyIds,
+    focusedProjectId,
   });
 
-  if (!buttons?.length) {
-    return [];
-  }
-
+  if (!buttons?.length) return [];
   return [{ kind: 'buttons', buttons }];
 }
 
-/** @deprecated Use resolveBuyerComponents — kept for interactive orchestrator imports. */
 export function resolvePostVisitButtons(
   propertyId?: string | null,
   browseFilters?: BrowseFilterButton[],

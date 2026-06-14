@@ -6,6 +6,8 @@
 import { buyerButtonTitle } from './buyerI18n.util';
 import { buildActiveVisitActionButtons } from '../services/projectBrowse.service';
 import { shouldUseVisitAwareButtonsOnly } from '../services/buyer/buyerEnterpriseUx.service';
+import config from '../config';
+import { validateBuyerButtonSet } from '../services/buyer/buyerButtonScope.service';
 
 export type BuyerButtonSituation =
   | 'active_call'
@@ -45,6 +47,10 @@ export type SituationButtonInput = {
   visitPropertyId?: string | null;
   /** Company inventory filters — never show apartment/villa buttons the company does not list. */
   browseFilters?: BrowseFilterButton[];
+  /** Property ids currently safe for property-bound buttons. */
+  allowedPropertyIds?: string[];
+  /** Focused project id for project-listing fallback buttons. */
+  focusedProjectId?: string | null;
 };
 
 const BARE_GREETING =
@@ -83,10 +89,15 @@ function propertiesMentionedInText(
 }
 
 function pickPrimaryPropertyId(input: SituationButtonInput): string {
-  if (input.propertyId) return input.propertyId;
-  const mentioned = propertiesMentionedInText(input.outboundText, input.properties ?? []);
+  const allowed = new Set(input.allowedPropertyIds ?? []);
+  const inScope = (id: string | null | undefined) => !allowed.size || (Boolean(id) && allowed.has(id!));
+  if (input.propertyId && inScope(input.propertyId)) return input.propertyId;
+  const mentioned = propertiesMentionedInText(input.outboundText, input.properties ?? [])
+    .filter((property) => inScope(property.id));
   if (mentioned.length) return mentioned[0].id;
-  return input.recommendedPropertyIds?.[0] ?? input.properties?.[0]?.id ?? '';
+  const recommended = input.recommendedPropertyIds?.find((id) => inScope(id));
+  if (recommended) return recommended;
+  return input.allowedPropertyIds?.[0] ?? '';
 }
 
 function withPropertyId(buttonId: string, propertyId: string): string {
@@ -172,6 +183,18 @@ export function detectBuyerButtonSituation(input: SituationButtonInput): BuyerBu
   return 'none';
 }
 
+function finalizeSituationButtons(
+  buttons: Array<{ id: string; title: string }> | null,
+  input: SituationButtonInput,
+): Array<{ id: string; title: string }> | null {
+  if (!buttons?.length) return null;
+  return validateBuyerButtonSet(buttons, {
+    allowedPropertyIds: input.allowedPropertyIds ?? [],
+    visitPropertyId: input.visitPropertyId,
+    language: input.language,
+  });
+}
+
 export function resolveButtonsForBuyerSituation(
   situation: BuyerButtonSituation,
   input: SituationButtonInput,
@@ -229,11 +252,27 @@ export function resolveButtonsForBuyerSituation(
       const buttons: Array<{ id: string; title: string }> = [];
       if (narrow) buttons.push({ id: narrow.id, title: buyerButtonTitle(lang, 'narrow_search') });
       buttons.push({ id: 'call-me', title: buyerButtonTitle(lang, 'call_me') });
-      buttons.push(
-        primaryId
-          ? { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') }
-          : { id: 'book-visit', title: buyerButtonTitle(lang, 'book_visit') },
-      );
+      if (config.features.buttonScopeValidate) {
+        if (input.allowedPropertyIds?.length === 1) {
+          buttons.push({
+            id: withPropertyId('book-visit', input.allowedPropertyIds[0]),
+            title: buyerButtonTitle(lang, 'book_visit'),
+          });
+        } else if (input.focusedProjectId) {
+          buttons.push({
+            id: `project-properties-${input.focusedProjectId}`,
+            title: buyerButtonTitle(lang, 'view_project_listings'),
+          });
+        } else {
+          buttons.push({ id: 'browse-projects', title: buyerButtonTitle(lang, 'browse_projects') });
+        }
+      } else {
+        buttons.push(
+          primaryId
+            ? { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') }
+            : { id: 'book-visit', title: buyerButtonTitle(lang, 'book_visit') },
+        );
+      }
       return buttons.slice(0, 3);
     }
 
@@ -302,10 +341,19 @@ export function resolveSituationBuyerButtons(
   const situation = detectBuyerButtonSituation(input);
   const lang = input.language ?? 'en';
 
-  if (shouldUseVisitAwareButtonsOnly(input.hasActiveVisit, situation)) {
+  if (shouldUseVisitAwareButtonsOnly(input.hasActiveVisit, situation, {
+    inboundMessageText: input.inboundMessageText,
+    explicitBookPropertyId: input.propertyId,
+    visitPropertyId: input.visitPropertyId,
+    activeVisitProjectId: input.visitPropertyProjectId,
+    targetProjectId: input.focusedProjectId,
+  })) {
     const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
-    return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+    return finalizeSituationButtons(
+      visitButtons.kind === 'buttons' ? visitButtons.buttons : null,
+      input,
+    );
   }
 
-  return resolveButtonsForBuyerSituation(situation, input);
+  return finalizeSituationButtons(resolveButtonsForBuyerSituation(situation, input), input);
 }
