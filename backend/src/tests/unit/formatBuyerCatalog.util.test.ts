@@ -22,6 +22,13 @@ describe('formatBuyerCatalog.util', () => {
 
   test('formatBuyerCatalogEmpty for 4bhk mentions BHK', () => {
     expect(formatBuyerCatalogEmpty('Any 4bhk properties ?')).toMatch(/4 BHK/i);
+    expect(formatBuyerCatalogEmpty('Any 4bhk properties ?', 'hi')).toMatch(/4 BHK/i);
+  });
+
+  test('formatBuyerCatalogEmpty Hindi uses localized copy', () => {
+    const text = formatBuyerCatalogEmpty('कुछ और', 'hi');
+    expect(text).toMatch(/catalog/i);
+    expect(text).not.toMatch(/I couldn't find an exact match/i);
   });
 
   test('formatInventoryCountReply summarizes by type', () => {
@@ -29,10 +36,24 @@ describe('formatBuyerCatalog.util', () => {
       total: 3,
       upcoming: 1,
       byType: { apartment: 2, villa: 1 },
+      usesProjects: true,
+      projectCount: 3,
     });
     expect(text).toMatch(/3.*active project/i);
     expect(text).toMatch(/2.*apartment/i);
     expect(text).toMatch(/1.*villa/i);
+  });
+
+  test('formatInventoryCountReply uses project count when usesProjects', () => {
+    const text = formatInventoryCountReply({
+      projectCount: 2,
+      propertyCount: 4,
+      upcoming: 0,
+      byType: { apartment: 4 },
+      usesProjects: true,
+    }, 'hi');
+    expect(text).toMatch(/2.*project/i);
+    expect(text).not.toMatch(/4.*project/i);
   });
 
   test('formatBuyerCatalogMatches single property is conversational', () => {

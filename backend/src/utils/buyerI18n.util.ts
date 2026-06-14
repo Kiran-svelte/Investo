@@ -145,7 +145,27 @@ type BuyerCopyKey =
   | 'project_browse_footer'
   | 'project_selected_intro'
   | 'browse_list_title'
-  | 'browse_list_section';
+  | 'browse_list_section'
+  | 'catalog_empty_default'
+  | 'catalog_empty_bhk'
+  | 'catalog_empty_type'
+  | 'inventory_count_header_projects'
+  | 'inventory_count_header_properties'
+  | 'inventory_count_none'
+  | 'inventory_count_type_part'
+  | 'inventory_count_upcoming'
+  | 'inventory_count_cta'
+  | 'catalog_match_single_intro'
+  | 'catalog_match_single_type'
+  | 'catalog_match_single_price'
+  | 'catalog_match_single_location'
+  | 'catalog_match_single_bedrooms'
+  | 'catalog_match_single_brochure'
+  | 'catalog_match_single_footer'
+  | 'catalog_match_multi_header'
+  | 'catalog_match_multi_footer'
+  | 'catalog_match_location_on_request'
+  | 'no_matching_properties';
 
 type CopyVars = Record<string, string | number | null | undefined>;
 
@@ -842,6 +862,59 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   ),
   browse_list_title: langPack('View properties', 'Properties dekhein'),
   browse_list_section: langPack('Matching listings', 'Matching listings'),
+  catalog_empty_default: langPack(
+    "I couldn't find an exact match in our catalog.\n\nTell me your budget, area, or property type (e.g. \"3 BHK in Whitefield\") and I'll shortlist options.",
+    'Hamare catalog mein exact match nahi mila.\n\nApna budget, area, ya property type batayein (jaise "3 BHK Whitefield") — main options bhejunga.',
+  ),
+  catalog_empty_bhk: langPack(
+    "I couldn't find a *{bhk} BHK* in our current catalog.\n\nTell me your preferred area or budget, or tap a filter below — I'll show the closest matches.",
+    'Hamare catalog mein *{bhk} BHK* nahi mila.\n\nApna area ya budget batayein, ya neeche filter dabayein — main closest matches dikhata hoon.',
+  ),
+  catalog_empty_type: langPack(
+    "I couldn't find *{type}* listings that match right now.\n\nShare your budget or area, or ask to see all available projects.",
+    'Abhi *{type}* listings match nahi ho rahi.\n\nBudget ya area share karein, ya saare available projects dekhne ko kahein.',
+  ),
+  inventory_count_header_projects: langPack(
+    'We have *{count}* active project(s) in our catalog',
+    'Hamare catalog mein *{count}* active project hain',
+  ),
+  inventory_count_header_properties: langPack(
+    'We have *{count}* active listing(s) in our catalog',
+    'Hamare catalog mein *{count}* active listing hain',
+  ),
+  inventory_count_none: langPack(
+    "We don't have any published projects available for visits right now. Our team can notify you when new inventory is added.",
+    'Abhi visit ke liye koi published project nahi hai. Naya inventory aate hi team aapko bata degi.',
+  ),
+  inventory_count_type_part: langPack('{count} {type}', '{count} {type}'),
+  inventory_count_upcoming: langPack(
+    '*{count}* upcoming launch(es) (pre-booking open).',
+    '*{count}* upcoming launch (pre-booking open).',
+  ),
+  inventory_count_cta: langPack(
+    'Would you like to see apartments, villas, or a specific BHK? Tap below or tell me your preference.',
+    'Apartments, villas, ya koi specific BHK dekhna chahenge? Neeche tap karein ya preference batayein.',
+  ),
+  catalog_match_single_intro: langPack('Yes — we have *{name}*', 'Haan — hamare paas *{name}* hai'),
+  catalog_match_single_type: langPack('Type: {type}', 'Type: {type}'),
+  catalog_match_single_price: langPack('Price: {price}', 'Keemat: {price}'),
+  catalog_match_single_location: langPack('Location: {location}', 'Location: {location}'),
+  catalog_match_single_bedrooms: langPack('Bedrooms: {bedrooms} BHK', 'Bedrooms: {bedrooms} BHK'),
+  catalog_match_single_brochure: langPack('Brochure: available 📎', 'Brochure: uplabdh 📎'),
+  catalog_match_single_footer: langPack(
+    "\nI'll share photos and details below. Tap *Property Details* or *Book Visit* when you're ready.",
+    '\nNeeche photos aur details bhej raha hoon. *Property Details* ya *Book Visit* dabayein jab ready hon.',
+  ),
+  catalog_match_multi_header: langPack('Here are *{count}* matching options:', 'Yeh *{count}* matching options hain:'),
+  catalog_match_multi_footer: langPack(
+    'Tap a listing from the list below for photos, brochure, and visit slots.',
+    'Photos, brochure aur visit slots ke liye neeche list se listing chunein.',
+  ),
+  catalog_match_location_on_request: langPack('Location on request', 'Location on request'),
+  no_matching_properties: langPack(
+    'No matching properties in our catalog right now.',
+    'Abhi hamare catalog mein matching properties nahi hain.',
+  ),
 };
 
 function interpolate(template: string, vars: CopyVars): string {

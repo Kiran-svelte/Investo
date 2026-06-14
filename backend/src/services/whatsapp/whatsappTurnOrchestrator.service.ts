@@ -34,6 +34,7 @@ import { isFeatureEnabledForLead } from '../../utils/featureRollout.util';
 import { shadowCompare } from '../../utils/featureShadow.util';
 import { loadBuyerAiSettings } from '../../utils/buyerAiSettings.util';
 import { resolveBuyerLanguage, normalizeBuyerLang } from '../../utils/buyerI18n.util';
+import { isMultilingualBrowseIntent } from '../../utils/buyerBrowseIntent.util';
 import { mergeGreetingMediaComponents } from '../../utils/greetingMedia.util';
 import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
 import {
@@ -860,6 +861,7 @@ export function isPropertyBrowsingIntent(messageText: string): boolean {
     /\b(available|current|new|latest|upcoming)\s+(properties|property|projects?|flats?|apartments?|villas?|plots?)\b/i.test(t) ||
     // "show me options / inventory"
     /\bshow\s+(me\s+)?(options|inventory|choices|what['']?s\s+available)\b/i.test(t)
+    || isMultilingualBrowseIntent(messageText)
   );
 }
 

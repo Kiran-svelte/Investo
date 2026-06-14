@@ -10,15 +10,46 @@ import {
   getInventorySummary,
   matchCatalogPropertiesForQuery,
 } from '../../../services/propertyKnowledge.service';
+import {
+  companyUsesProjectBrowse,
+  getProjectInventorySummary,
+} from '../../../services/projectBrowse.service';
+import { resolveBuyerLanguage } from '../../../utils/buyerI18n.util';
+import prisma from '../../../config/prisma';
 
-async function resolveBuyerCatalogReply(companyId: string, message: string): Promise<string> {
+async function resolveBuyerCatalogLang(ctx: ActionContext, message: string): Promise<string> {
+  const leadId = requireLeadId(ctx) ?? ctx.run.sessionLeadId ?? null;
+  let leadLanguage: string | null = null;
+  if (leadId) {
+    const lead = await prisma.lead.findFirst({
+      where: { id: leadId, companyId: ctx.run.toolContext.companyId },
+      select: { language: true },
+    });
+    leadLanguage = lead?.language ?? null;
+  }
+  return resolveBuyerLanguage({ message, leadLanguage });
+}
+
+async function resolveBuyerCatalogReply(
+  companyId: string,
+  message: string,
+  lang: string,
+): Promise<string> {
   if (isInventoryCountQuery(message)) {
+    const usesProjects = await companyUsesProjectBrowse(companyId);
+    if (usesProjects) {
+      const summary = await getProjectInventorySummary(companyId);
+      return formatInventoryCountReply({ ...summary, usesProjects: true }, lang);
+    }
     const summary = await getInventorySummary(companyId);
-    return formatInventoryCountReply(summary);
+    return formatInventoryCountReply(
+      { ...summary, propertyCount: summary.total, usesProjects: false },
+      lang,
+    );
   }
   const matches = await matchCatalogPropertiesForQuery({ companyId, query: message, limit: 5 });
-  if (!matches.length) return formatBuyerCatalogEmpty(message);
-  return formatBuyerCatalogMatches(matches);
+  if (!matches.length) return formatBuyerCatalogEmpty(message, lang);
+  return formatBuyerCatalogMatches(matches, lang);
 }
 
 export async function fetchPropertyPrice(ctx: ActionContext) {
@@ -46,9 +77,12 @@ export async function fetchPropertyPrice(ctx: ActionContext) {
   });
   if (catalog.ok === false) return failToolResult(catalog);
   if ((ctx.run.channel ?? 'staff') === 'buyer') {
+    const message = ctx.params.message ?? ctx.run.messageText;
+    const lang = await resolveBuyerCatalogLang(ctx, message);
     ctx.state.lastMessage = await resolveBuyerCatalogReply(
       ctx.run.toolContext.companyId,
-      ctx.params.message ?? ctx.run.messageText,
+      message,
+      lang,
     );
   } else {
     ctx.state.lastMessage = catalog.text;
@@ -64,7 +98,12 @@ export async function respondPrice(ctx: ActionContext) {
 export async function checkInventory(ctx: ActionContext) {
   const message = ctx.params.message ?? ctx.run.messageText;
   if ((ctx.run.channel ?? 'staff') === 'buyer') {
-    ctx.state.lastMessage = await resolveBuyerCatalogReply(ctx.run.toolContext.companyId, message);
+    const lang = await resolveBuyerCatalogLang(ctx, message);
+    ctx.state.lastMessage = await resolveBuyerCatalogReply(
+      ctx.run.toolContext.companyId,
+      message,
+      lang,
+    );
     return skip();
   }
   const result = await runNamedTool(ctx.run.toolContext, 'searchCatalogByCustomerMessage', {
@@ -84,7 +123,6 @@ export async function sendBrochure(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);
   if (!leadId) return fail('Which lead should receive the brochure?');
 
-  // If propertyId is known, send directly.
   if (ctx.params.propertyId) {
     const result = await runNamedTool(ctx.run.toolContext, 'sendBrochureToClient', {
       leadId,
@@ -94,14 +132,10 @@ export async function sendBrochure(ctx: ActionContext) {
     return ok(result.text);
   }
 
-  // propertyId is missing — attempt to find the best-matching property with a brochure
-  // by searching the catalog against the current message. This handles the common case
-  // where a buyer says "send me the brochure" without specifying which property.
   const catalog = await runNamedTool(ctx.run.toolContext, 'searchCatalogByCustomerMessage', {
     message: ctx.params.message ?? ctx.run.messageText,
   });
   if (catalog.ok) {
-    // catalog text contains property details; extract the first propertyId if present
     const idMatch = catalog.text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
     if (idMatch) {
       const resolved = await runNamedTool(ctx.run.toolContext, 'sendBrochureToClient', {
@@ -112,9 +146,6 @@ export async function sendBrochure(ctx: ActionContext) {
     }
   }
 
-  // No property could be resolved — clarify without failing the workflow.
-  // Log the inline clarification so it shows in AI-quality telemetry alongside
-  // confidence-gated clarifications.
   {
     const { logAgentAction } = await import('../../agent-action-log.service');
     void logAgentAction({
@@ -133,7 +164,6 @@ export async function sendBrochure(ctx: ActionContext) {
     'We have several properties available.',
   );
 }
-
 
 export async function logBrochureRequest(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);
@@ -175,3 +205,4 @@ export async function notifyIfHot(ctx: ActionContext) {
   const { notifyAgent } = await import('./lead-actions');
   return notifyAgent(ctx);
 }
+

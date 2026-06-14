@@ -2,6 +2,13 @@
  * Buyer-facing property catalog formatters — no internal IDs, scores, or staff metadata.
  */
 
+import { tBuyer } from './buyerI18n.util';
+import {
+  isMultilingualInventoryCountQuery,
+  isMultilingualPropertyTypeBrowseQuery,
+  parseMultilingualBrowseFilters,
+} from './buyerBrowseIntent.util';
+
 export type BuyerCatalogMatch = {
   id: string;
   name: string;
@@ -15,9 +22,9 @@ export type BuyerCatalogMatch = {
   priceMax?: unknown;
 };
 
-function formatLocation(p: BuyerCatalogMatch): string {
+function formatLocation(p: BuyerCatalogMatch, lang?: string): string {
   const parts = [p.locationArea, p.locationCity].filter(Boolean);
-  return parts.length ? parts.join(', ') : 'Location on request';
+  return parts.length ? parts.join(', ') : tBuyer(lang, 'catalog_match_location_on_request');
 }
 
 function formatPrice(min: unknown, max: unknown): string | null {
@@ -37,6 +44,19 @@ function formatPrice(min: unknown, max: unknown): string | null {
   return null;
 }
 
+function extractBhkFromQuery(query: string): string | null {
+  const latin = query.match(/\b(\d)\s*bhk\b/i);
+  if (latin) return latin[1];
+  return null;
+}
+
+function extractTypeFromQuery(query: string): string | null {
+  const latin = query.match(/\b(villa|apartment|flat|plot|commercial)\b/i);
+  if (latin) return latin[1].toLowerCase();
+  const ml = parseMultilingualBrowseFilters(query);
+  return ml.propertyType ?? null;
+}
+
 /** Detect inventory-count questions ("how many projects ongoing"). */
 export function isInventoryCountQuery(query: string): boolean {
   const t = query.toLowerCase();
@@ -44,6 +64,7 @@ export function isInventoryCountQuery(query: string): boolean {
     /\b(how many|how much|count|number of|total)\b[\s\S]{0,50}\b(project|projects|properties|property|listing|inventory|ongoing|available|upcoming)\b/.test(t)
     || /\b(ongoing|available|upcoming)\s+(project|projects|properties)\b/.test(t)
     || /\bwhat\s+(project|projects|properties)\s+(do you|are you)\s+have\b/.test(t)
+    || isMultilingualInventoryCountQuery(query)
   );
 }
 
@@ -54,84 +75,88 @@ export function isPropertyTypeBrowseQuery(query: string): boolean {
     /\b(do you|have you|got|any)\b[\s\S]{0,40}\b(villas?|apartments?|flats?|plots?|commercial|properties|projects?)\b/.test(t)
     || /\b(\d)\s*bhk\b/.test(t)
     || /\b(villas?|apartments?|plots?)\b[\s\S]{0,20}\?(?:\s|$)/.test(t)
+    || isMultilingualPropertyTypeBrowseQuery(query)
   );
 }
 
-export function formatBuyerCatalogEmpty(query: string): string {
-  if (/\b(\d)\s*bhk\b/i.test(query)) {
-    const bhk = query.match(/\b(\d)\s*bhk\b/i)?.[1];
-    return (
-      `I couldn't find a *${bhk} BHK* in our current catalog.\n\n` +
-      `Tell me your preferred area or budget, or tap a filter below — I'll show the closest matches.`
-    );
+export function formatBuyerCatalogEmpty(query: string, lang?: string): string {
+  const bhk = extractBhkFromQuery(query);
+  if (bhk) {
+    return tBuyer(lang, 'catalog_empty_bhk', { bhk });
   }
-  if (/\b(villa|apartment|plot|commercial)\b/i.test(query)) {
-    const type = query.match(/\b(villa|apartment|flat|plot|commercial)\b/i)?.[1] ?? 'matching';
-    return (
-      `I couldn't find *${type}* listings that match right now.\n\n` +
-      `Share your budget or area, or ask to see all available projects.`
-    );
+  const type = extractTypeFromQuery(query);
+  if (type) {
+    return tBuyer(lang, 'catalog_empty_type', { type });
   }
-  return (
-    "I couldn't find an exact match in our catalog.\n\n" +
-    'Tell me your budget, area, or property type (e.g. "3 BHK in Whitefield") and I\'ll shortlist options.'
-  );
+  return tBuyer(lang, 'catalog_empty_default');
 }
 
-export function formatInventoryCountReply(input: {
-  total: number;
-  byType: Record<string, number>;
-  upcoming: number;
-}): string {
-  if (input.total === 0) {
-    return 'We don\'t have any published projects available for visits right now. Our team can notify you when new inventory is added.';
+export function formatInventoryCountReply(
+  input: {
+    total?: number;
+    projectCount?: number;
+    propertyCount?: number;
+    byType: Record<string, number>;
+    upcoming: number;
+    usesProjects?: boolean;
+  },
+  lang?: string,
+): string {
+  const usesProjects = input.usesProjects === true;
+  const displayCount = usesProjects
+    ? (input.projectCount ?? input.total ?? 0)
+    : (input.propertyCount ?? input.total ?? 0);
+
+  if (displayCount === 0) {
+    return tBuyer(lang, 'inventory_count_none');
   }
 
-  const typeParts = Object.entries(input.byType)
+  const typePartsFormatted = Object.entries(input.byType)
     .filter(([, n]) => n > 0)
     .map(([type, n]) => `*${n}* ${type}${n === 1 ? '' : 's'}`)
     .join(', ');
 
-  let text = `We have *${input.total}* active project${input.total === 1 ? '' : 's'} in our catalog`;
-  if (typeParts) text += ` — ${typeParts}`;
+  const headerKey = usesProjects ? 'inventory_count_header_projects' : 'inventory_count_header_properties';
+  let text = tBuyer(lang, headerKey, { count: displayCount });
+  if (typePartsFormatted) text += ` — ${typePartsFormatted}`;
   if (input.upcoming > 0) {
-    text += `\n\n*${input.upcoming}* upcoming launch${input.upcoming === 1 ? '' : 'es'} (pre-booking open).`;
+    text += `\n\n${tBuyer(lang, 'inventory_count_upcoming', { count: input.upcoming })}`;
   }
-  text += '\n\nWould you like to see apartments, villas, or a specific BHK? Tap below or tell me your preference.';
+  text += `\n\n${tBuyer(lang, 'inventory_count_cta')}`;
   return text;
 }
 
-export function formatBuyerCatalogMatches(matches: BuyerCatalogMatch[]): string {
+export function formatBuyerCatalogMatches(matches: BuyerCatalogMatch[], lang?: string): string {
   const unique = dedupeCatalogMatches(matches);
-  if (!unique.length) return formatBuyerCatalogEmpty('');
+  if (!unique.length) return formatBuyerCatalogEmpty('', lang);
 
   if (unique.length === 1) {
     const p = unique[0];
     const price = formatPrice(p.priceMin, p.priceMax);
     const lines = [
-      `Yes — we have *${p.name}*`,
-      p.propertyType ? `Type: ${p.propertyType}` : null,
-      price ? `Price: ${price}` : null,
-      `Location: ${formatLocation(p)}`,
-      p.bedrooms != null ? `Bedrooms: ${p.bedrooms} BHK` : null,
-      p.brochureUrl ? `Brochure: available 📎` : null,
-      `\nI'll share photos and details below. Tap *Property Details* or *Book Visit* when you're ready.`,
+      tBuyer(lang, 'catalog_match_single_intro', { name: p.name }),
+      p.propertyType ? tBuyer(lang, 'catalog_match_single_type', { type: p.propertyType }) : null,
+      price ? tBuyer(lang, 'catalog_match_single_price', { price }) : null,
+      tBuyer(lang, 'catalog_match_single_location', { location: formatLocation(p, lang) }),
+      p.bedrooms != null ? tBuyer(lang, 'catalog_match_single_bedrooms', { bedrooms: p.bedrooms }) : null,
+      p.brochureUrl ? tBuyer(lang, 'catalog_match_single_brochure') : null,
+      tBuyer(lang, 'catalog_match_single_footer'),
     ].filter(Boolean);
     return lines.join('\n');
   }
 
-  const header = `Here are *${unique.length}* matching options:`;
+  const header = tBuyer(lang, 'catalog_match_multi_header', { count: unique.length });
   const items = unique.map((p, i) => {
     const price = formatPrice(p.priceMin, p.priceMax);
     return [
       `*${i + 1}. ${p.name}*`,
       p.propertyType ? `${p.propertyType}` : null,
       price ? price : null,
-      formatLocation(p),
+      formatLocation(p, lang),
     ].filter(Boolean).join(' · ');
   });
 
-  return [header, ...items, '\nTap a listing from the list below for photos, brochure, and visit slots.'].join('\n\n');
+  return [header, ...items, `\n${tBuyer(lang, 'catalog_match_multi_footer')}`].join('\n\n');
 }
 
 export function dedupeCatalogMatches<T extends { id: string; name: string }>(matches: T[]): T[] {

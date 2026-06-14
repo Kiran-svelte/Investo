@@ -12,6 +12,7 @@ import {
   listProjectsForBuyerBrowse,
   formatProjectCatalogIntro,
   buildProjectSelectListComponent,
+  getProjectInventorySummary,
 } from '../services/projectBrowse.service';
 import {
   formatBuyerCatalogEmpty,
@@ -20,6 +21,10 @@ import {
   isInventoryCountQuery,
 } from './formatBuyerCatalog.util';
 import { buyerButtonTitle, tBuyer } from './buyerI18n.util';
+import {
+  isMultilingualBrowseIntent,
+  parseMultilingualBrowseFilters,
+} from './buyerBrowseIntent.util';
 
 export type PropertyBrowseContext = {
   companyId: string;
@@ -44,6 +49,11 @@ function parseBrowseFilters(messageText: string): { propertyType?: string; bedro
   else if (/\bcommercial\b/.test(t)) filters.propertyType = 'commercial';
   const bhk = t.match(/\b(\d)\s*bhk\b/);
   if (bhk) filters.bedrooms = Number(bhk[1]);
+
+  const ml = parseMultilingualBrowseFilters(messageText);
+  if (ml.propertyType && !filters.propertyType) filters.propertyType = ml.propertyType;
+  if (ml.bedrooms != null && filters.bedrooms == null) filters.bedrooms = ml.bedrooms;
+
   return filters;
 }
 
@@ -85,6 +95,7 @@ export async function resolvePropertyBrowseTurn(
   input: PropertyBrowseContext,
 ): Promise<PropertyBrowseTurnPayload | null> {
   const { companyId, messageText } = input;
+  const lang = input.leadLanguage ?? 'en';
 
   if (isPropertyInquiryMessage(messageText)) {
     return null;
@@ -93,17 +104,21 @@ export async function resolvePropertyBrowseTurn(
   const filters = parseBrowseFilters(messageText);
 
   if (isInventoryCountQuery(messageText)) {
+    const usesProjects = await companyUsesProjectBrowse(companyId);
     const projectTurn = await resolveProjectFirstBrowseTurn(input, filters);
-    if (projectTurn) {
-      const summary = await getInventorySummary(companyId);
+    if (projectTurn && usesProjects) {
+      const summary = await getProjectInventorySummary(companyId);
       return {
         ...projectTurn,
-        reply: `${formatInventoryCountReply(summary)}\n\n${projectTurn.reply}`,
+        reply: `${formatInventoryCountReply({ ...summary, usesProjects: true }, lang)}\n\n${projectTurn.reply}`,
       };
     }
 
     const summary = await getInventorySummary(companyId);
-    const reply = formatInventoryCountReply(summary);
+    const reply = formatInventoryCountReply(
+      { ...summary, propertyCount: summary.total, usesProjects: false },
+      lang,
+    );
     const properties = await prisma.property.findMany({
       where: { companyId, status: { in: ['available', 'upcoming'] } },
       take: 10,
@@ -120,9 +135,14 @@ export async function resolvePropertyBrowseTurn(
         outboundText: reply,
         properties,
         companyId,
-        lang: input.leadLanguage ?? 'en',
+        lang,
       }),
     };
+  }
+
+  if (isMultilingualBrowseIntent(messageText)) {
+    const projectTurn = await resolveProjectFirstBrowseTurn(input, filters);
+    if (projectTurn) return projectTurn;
   }
 
   const projectTurn = await resolveProjectFirstBrowseTurn(input, filters);
@@ -139,15 +159,14 @@ export async function resolvePropertyBrowseTurn(
   if (!matches.length) {
     const snapshot = await getCompanyBrowseSnapshot(companyId);
     return {
-      reply: formatBuyerCatalogEmpty(messageText),
+      reply: formatBuyerCatalogEmpty(messageText, lang),
       propertyIds: [],
       properties: [],
       components: buildFilterButtonsComponent(snapshot),
     };
   }
 
-  const lang = input.leadLanguage ?? 'en';
-  const reply = formatBuyerCatalogMatches(matches);
+  const reply = formatBuyerCatalogMatches(matches, lang);
   const properties = matches.map((p) => ({ id: p.id, name: p.name }));
   const propertyIds = matches.map((p) => p.id);
 

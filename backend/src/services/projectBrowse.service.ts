@@ -85,6 +85,48 @@ export async function companyUsesProjectBrowse(companyId: string): Promise<boole
   return count > 0;
 }
 
+/** Inventory summary scoped to project-first browse (project count vs unit count). */
+export async function getProjectInventorySummary(companyId: string): Promise<{
+  projectCount: number;
+  propertyCount: number;
+  upcoming: number;
+  byType: Record<string, number>;
+}> {
+  const projects = await prisma.propertyProject.findMany({
+    where: {
+      companyId,
+      properties: { some: { status: { in: ['available', 'upcoming'] } } },
+    },
+    select: {
+      id: true,
+      properties: {
+        where: { status: { in: ['available', 'upcoming'] } },
+        select: { propertyType: true, status: true },
+      },
+    },
+  });
+
+  const byType: Record<string, number> = {};
+  let propertyCount = 0;
+  let upcoming = 0;
+
+  for (const project of projects) {
+    for (const row of project.properties) {
+      propertyCount += 1;
+      const type = row.propertyType || 'other';
+      byType[type] = (byType[type] ?? 0) + 1;
+      if (row.status === 'upcoming') upcoming += 1;
+    }
+  }
+
+  return {
+    projectCount: projects.length,
+    propertyCount,
+    upcoming,
+    byType,
+  };
+}
+
 /** List projects (not individual units) for the buyer catalog. */
 export async function listProjectsForBuyerBrowse(
   companyId: string,

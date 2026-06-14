@@ -259,6 +259,10 @@ describe('whatsappTurnOrchestrator property browse (chunk 04 H2.5)', () => {
     expect(isPropertyBrowsingIntent('Any 4bhk properties ?')).toBe(true);
   });
 
+  test('isPropertyBrowsingIntent matches Hindi project browse query', () => {
+    expect(isPropertyBrowsingIntent('क्या मैं आपकी परियोजनाओं के बारे में जान सकता हूँ?')).toBe(true);
+  });
+
   test('H2.5 uses resolvePropertyBrowseTurn not classifyAndRunBuyerWorkflow', async () => {
     mockResolvePropertyBrowseTurn.mockResolvedValueOnce({
       reply: 'Here are *2* matching options:\n\n*Sunset Heights*',
