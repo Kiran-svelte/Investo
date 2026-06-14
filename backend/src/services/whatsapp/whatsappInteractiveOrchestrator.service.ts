@@ -43,6 +43,13 @@ import {
 import { buyerButtonTitle, buyerFilterButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
 import config from '../../config';
 import { evaluateSecondVisitPolicy } from '../buyer/buyerEnterpriseUx.service';
+import { readBuyerConversationFocus } from '../buyer/buyerConversationFocus.service';
+import { validateBuyerButtonSet } from '../buyer/buyerButtonScope.service';
+import {
+  buildInteractiveFocusNewState,
+  type InteractiveConversationRow,
+  type InteractiveFocusNewState,
+} from './whatsappInteractivePersist.service';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -59,11 +66,7 @@ export type InteractiveActionParams = {
     status?: string;
     language?: string | null;
   };
-  conversation: {
-    id: string;
-    selectedPropertyId?: string | null;
-    commitments?: unknown;
-  };
+  conversation: InteractiveConversationRow & { id: string };
   company: { id: string; name?: string };
 };
 
@@ -103,6 +106,62 @@ function buyerTurn(text: string, components?: WhatsAppComponent[]): TurnResult {
     text,
     components: components?.length ? components : undefined,
     replyPacing: 'none',
+  };
+}
+
+function interactiveFocusEnabled(): boolean {
+  return config.features.buyerFocusStack === true;
+}
+
+function focusNewState(
+  conversation: InteractiveConversationRow,
+  patch: Parameters<typeof buildInteractiveFocusNewState>[1],
+): InteractiveFocusNewState {
+  return buildInteractiveFocusNewState(conversation, patch);
+}
+
+function validateInteractivePropertyScope(input: {
+  propertyId: string | null | undefined;
+  conversation: InteractiveConversationRow;
+  visitPropertyId?: string | null;
+  explicitSuffix: boolean;
+}): boolean {
+  if (!interactiveFocusEnabled() || !input.propertyId) return true;
+  if (input.explicitSuffix) return true;
+  const focus = readBuyerConversationFocus({
+    selectedPropertyId: input.conversation.selectedPropertyId ?? null,
+    recommendedPropertyIds: input.conversation.recommendedPropertyIds,
+    commitments: input.conversation.commitments,
+  });
+  if (!focus.allowedPropertyIds.length) return true;
+  if (input.visitPropertyId && input.propertyId === input.visitPropertyId) return true;
+  return focus.allowedPropertyIds.includes(input.propertyId);
+}
+
+function scopeValidateButtons(
+  component: WhatsAppComponent,
+  ctx: {
+    conversation: InteractiveConversationRow;
+    visitPropertyId?: string | null;
+    hasActiveVisit?: boolean;
+    language: string;
+  },
+): WhatsAppComponent {
+  if (!interactiveFocusEnabled() || !config.features.buttonScopeValidate) return component;
+  if (component.kind !== 'buttons') return component;
+  const focus = readBuyerConversationFocus({
+    selectedPropertyId: ctx.conversation.selectedPropertyId ?? null,
+    recommendedPropertyIds: ctx.conversation.recommendedPropertyIds,
+    commitments: ctx.conversation.commitments,
+  });
+  return {
+    ...component,
+    buttons: validateBuyerButtonSet(component.buttons, {
+      allowedPropertyIds: focus.allowedPropertyIds,
+      visitPropertyId: ctx.visitPropertyId,
+      hasActiveVisit: ctx.hasActiveVisit,
+      language: ctx.language,
+    }),
   };
 }
 
@@ -253,7 +312,11 @@ async function handleVisitReschedule(params: InteractiveActionParams): Promise<I
       return {
         handled: true,
         action: 'visit-reschedule-pending-approval',
-        newState: { stage: 'visit_booking', selectedPropertyId: pending.propertyId },
+        newState: focusNewState(params.conversation, {
+          stage: 'visit_booking',
+          focusedPropertyId: pending.propertyId,
+          selectedPropertyId: pending.propertyId,
+        }),
         turnResult: buyerTurn(
           tBuyer(lang, 'interactive_visit_reschedule_prompt', {
             property: pending.propertyName || tBuyer(lang, 'property_not_selected_yet'),
@@ -308,7 +371,11 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     return {
       handled: true,
       action: 'book-visit-already-pending',
-      newState: { stage: 'visit_booking', selectedPropertyId: pending.propertyId },
+      newState: focusNewState(conversation, {
+        stage: 'visit_booking',
+        focusedPropertyId: pending.propertyId,
+        selectedPropertyId: pending.propertyId,
+      }),
       turnResult: buyerTurn(
         formatBuyerVisitPendingApprovalReply(new Date(pending.scheduledAt), agent?.name),
         [pendingButtons],
@@ -316,16 +383,31 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     };
   }
 
-  const propertyId =
-    interactiveId.replace('book-visit-', '') !== 'book-visit'
-      ? interactiveId.replace('book-visit-', '')
-      : conversation.selectedPropertyId;
+  const explicitSuffix = interactiveId.replace('book-visit-', '') !== 'book-visit';
+  const propertyId = explicitSuffix
+    ? interactiveId.replace('book-visit-', '')
+    : conversation.selectedPropertyId;
 
   if (!propertyId) {
     return {
       handled: true,
       action: 'book-visit-no-property',
       turnResult: buyerTurn(tBuyer(lang, 'interactive_book_visit_no_property')),
+    };
+  }
+
+  if (
+    interactiveFocusEnabled()
+    && !validateInteractivePropertyScope({
+      propertyId,
+      conversation,
+      explicitSuffix,
+    })
+  ) {
+    return {
+      handled: true,
+      action: 'book-visit-out-of-scope',
+      turnResult: buyerTurn(tBuyer(lang, 'property_not_selected_yet')),
     };
   }
 
@@ -341,7 +423,7 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     };
   }
 
-  if (config.features.secondVisitPolicy) {
+  if (interactiveFocusEnabled() && config.features.secondVisitPolicy) {
     const activeVisitForPolicy = await prisma.visit.findFirst({
       where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
       orderBy: { scheduledAt: 'asc' },
@@ -403,7 +485,12 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
   return {
     handled: true,
     action: 'book-visit-initiated',
-    newState: { stage: 'visit_booking', selectedPropertyId: propertyId },
+    newState: focusNewState(conversation, {
+      stage: 'visit_booking',
+      focusedPropertyId: propertyId,
+      focusedProjectId: property.projectId,
+      selectedPropertyId: propertyId,
+    }),
     turnResult: buyerTurn(
       tBuyer(lang, 'interactive_book_visit_initiated', { property: property.name }),
       [buildVisitSlotButtons(propertyId)],
@@ -503,12 +590,34 @@ async function handleCallReschedule(params: InteractiveActionParams): Promise<In
 async function handleMoreInfo(params: InteractiveActionParams): Promise<InteractiveActionResult | null> {
   const { interactiveId, lead, conversation, company } = params;
   const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
-  const propertyId =
-    interactiveId.replace('more-info-', '') !== 'more-info'
-      ? interactiveId.replace('more-info-', '')
-      : conversation.selectedPropertyId;
+  const explicitSuffix = interactiveId.replace('more-info-', '') !== 'more-info';
+  const propertyId = explicitSuffix
+    ? interactiveId.replace('more-info-', '')
+    : conversation.selectedPropertyId;
 
   if (!propertyId) {
+    return {
+      handled: true as const,
+      turnResult: buyerTurn(tBuyer(lang, 'property_not_selected_yet')),
+    };
+  }
+
+  const activeVisitEarly = await prisma.visit.findFirst({
+    where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
+    orderBy: { scheduledAt: 'asc' },
+    select: { propertyId: true },
+  });
+
+  if (
+    interactiveFocusEnabled()
+    && explicitSuffix
+    && !validateInteractivePropertyScope({
+      propertyId,
+      conversation,
+      visitPropertyId: activeVisitEarly?.propertyId,
+      explicitSuffix,
+    })
+  ) {
     return {
       handled: true as const,
       turnResult: buyerTurn(tBuyer(lang, 'property_not_selected_yet')),
@@ -552,7 +661,15 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       property: reminderPropertyName,
       date: visitDate,
     });
-    const buttonComponent = buildActiveVisitActionButtons(property.projectId, lang);
+    const buttonComponent = scopeValidateButtons(
+      buildActiveVisitActionButtons(property.projectId, lang),
+      {
+        conversation,
+        visitPropertyId: bookedPropertyId,
+        hasActiveVisit: true,
+        language: lang,
+      },
+    );
     const hero = await resolveHeroMediaComponentFromPropertyIds(company.id, [property.id]);
     const components = enforceTurnComponentBudget([
       buttonComponent,
@@ -561,7 +678,11 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     return {
       handled: true,
       action: 'more-info-booked-property',
-      newState: { selectedPropertyId: propertyId },
+      newState: focusNewState(conversation, {
+        focusedPropertyId: propertyId,
+        focusedProjectId: property.projectId,
+        selectedPropertyId: propertyId,
+      }),
       turnResult: buyerTurn(outboundText, components),
     };
   }
@@ -621,7 +742,15 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       `${tBuyer(lang, 'visit_pending_approval_prefix', { property: visitPropName, date: visitDate })}\n\n` + details;
     buttonComponent = buildActiveVisitActionButtons(property.projectId, lang);
   } else {
-    buttonComponent = buildPropertyDetailButtons(propertyId, property.projectId, lang);
+    buttonComponent = scopeValidateButtons(
+      buildPropertyDetailButtons(propertyId, property.projectId, lang),
+      {
+        conversation,
+        visitPropertyId: activeVisit?.propertyId,
+        hasActiveVisit: Boolean(activeVisit),
+        language: lang,
+      },
+    );
   }
 
   const brochure = await resolveInteractiveBrochure({
@@ -643,7 +772,11 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   return {
     handled: true,
     action: 'more-info-sent',
-    newState: { selectedPropertyId: propertyId },
+    newState: focusNewState(conversation, {
+      focusedPropertyId: propertyId,
+      focusedProjectId: property.projectId,
+      selectedPropertyId: propertyId,
+    }),
     turnResult: buyerTurn(outboundText, components),
   };
 }
@@ -709,31 +842,24 @@ async function handleProjectSelect(params: InteractiveActionParams): Promise<Int
     lang,
   );
 
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: {
-      stage: 'shortlist' as never,
-      stageEnteredAt: new Date(),
-      stageMessageCount: 0,
-      commitments: {
-        ...((conversation.commitments as object) || {}),
-        selectedProjectId: projectId,
-      },
-    },
-  });
-
+  const recommendedIds = loaded.properties.slice(0, 10).map((p) => p.id);
   const components = enforceTurnComponentBudget([...mediaComponents, listComponent]);
 
   return {
     handled: true,
     action: 'project-selected',
-    newState: { stage: 'shortlist' },
+    newState: focusNewState(conversation, {
+      stage: 'shortlist',
+      focusedProjectId: projectId,
+      focusedPropertyId: null,
+      recommendedPropertyIds: recommendedIds,
+    }),
     turnResult: buyerTurn(outboundText, components),
   };
 }
 
 async function handleBrowseProjects(params: InteractiveActionParams): Promise<InteractiveActionResult> {
-  const { lead, company } = params;
+  const { lead, company, conversation } = params;
   const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
 
   const usesProjects = await companyUsesProjectBrowse(company.id);
@@ -761,6 +887,13 @@ async function handleBrowseProjects(params: InteractiveActionParams): Promise<In
   return {
     handled: true,
     action: 'browse-projects',
+    newState: interactiveFocusEnabled()
+      ? focusNewState(conversation, {
+        focusedProjectId: null,
+        focusedPropertyId: null,
+        recommendedPropertyIds: [],
+      })
+      : undefined,
     turnResult: buyerTurn(reply, components),
   };
 }
@@ -791,19 +924,16 @@ async function handleProjectProperties(params: InteractiveActionParams): Promise
     lang,
   );
 
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: {
-      commitments: {
-        ...((conversation.commitments as object) || {}),
-        selectedProjectId: projectId,
-      },
-    },
-  });
+  const recommendedIds = loaded.properties.slice(0, 10).map((p) => p.id);
 
   return {
     handled: true,
     action: 'project-properties-list',
+    newState: focusNewState(conversation, {
+      focusedProjectId: projectId,
+      focusedPropertyId: null,
+      recommendedPropertyIds: recommendedIds,
+    }),
     turnResult: buyerTurn(outboundText, [listComponent]),
   };
 }
@@ -1065,7 +1195,11 @@ async function handlePropertyFilter(params: InteractiveActionParams): Promise<In
     return {
       handled: true,
       action: 'filter-applied',
-      newState: { stage: 'shortlist', recommendedPropertyIds: propertyIds },
+      newState: focusNewState(conversation, {
+        stage: 'shortlist',
+        recommendedPropertyIds: propertyIds,
+        focusedPropertyId: null,
+      }),
       turnResult: buyerTurn(listText, components),
     };
   } catch (error: unknown) {
@@ -1101,6 +1235,22 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
   }
 
   const { propertyId, slot } = parsed;
+
+  if (
+    interactiveFocusEnabled()
+    && !validateInteractivePropertyScope({
+      propertyId,
+      conversation,
+      explicitSuffix: true,
+    })
+  ) {
+    return {
+      handled: true,
+      action: 'visit-property-out-of-scope',
+      turnResult: buyerTurn(tBuyer(lang, 'property_not_selected_yet')),
+    };
+  }
+
   const proposedTime = resolveVisitSlotToDate(slot);
   const property = await prisma.property.findFirst({
     where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
@@ -1218,11 +1368,13 @@ async function handleVisitTimeSlot(params: InteractiveActionParams): Promise<Int
     handled: true,
     action: 'visit-pending-agent-approval',
     leadStatus: 'contacted',
-    newState: {
+    newState: focusNewState(conversation, {
       stage: 'visit_booking',
+      focusedPropertyId: propertyId,
+      focusedProjectId: property.projectId,
       selectedPropertyId: propertyId,
       proposedVisitTime: proposedTime,
-    },
+    }),
     turnResult: buyerTurn(formatBuyerVisitPendingApprovalReply(proposedTime, agent?.name)),
   };
 }

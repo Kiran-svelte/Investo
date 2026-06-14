@@ -1,5 +1,17 @@
 import { tryOrchestratedInteractiveAction } from '../../services/whatsapp/whatsappInteractiveOrchestrator.service';
 import { enforceTurnComponentBudget } from '../../services/whatsapp/whatsappTurnOrchestrator.service';
+import { mergeInteractiveNewState } from '../../services/whatsapp/whatsappInteractivePersist.service';
+
+jest.mock('../../config', () => ({
+  __esModule: true,
+  default: {
+    features: {
+      buyerFocusStack: false,
+      buttonScopeValidate: false,
+      secondVisitPolicy: false,
+    },
+  },
+}));
 
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
@@ -108,7 +120,9 @@ jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => {
 });
 
 import prisma from '../../config/prisma';
+import config from '../../config';
 import { resolveHeroMediaComponentFromPropertyIds } from '../../services/whatsapp/whatsappTurnOrchestrator.service';
+import { loadProjectProperties, buildPropertyDetailButtons, buildProjectPropertyListComponent } from '../../services/projectBrowse.service';
 
 const baseParams = {
   lead: {
@@ -129,6 +143,9 @@ const baseParams = {
 describe('whatsappInteractiveOrchestrator.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    config.features.buyerFocusStack = false;
+    config.features.buttonScopeValidate = false;
+    config.features.secondVisitPolicy = false;
   });
 
   test('returns null for unrecognized interactive ids', async () => {
@@ -260,5 +277,166 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     expect(text).toContain('Sunset Heights 1102');
     expect(text).not.toMatch(/Your visit for \*Lake Vista 801\* on .* is confirmed/i);
     expect(text).toMatch(/confirmed visit is for \*Sunset Heights 1102\*/i);
+  });
+
+  test('project select sets focus newState when buyerFocusStack ON', async () => {
+    config.features.buyerFocusStack = true;
+    (loadProjectProperties as jest.Mock).mockResolvedValue({
+      project: { name: 'Lake Vista' },
+      properties: [
+        { id: 'prop-a', name: 'Unit A' },
+        { id: 'prop-b', name: 'Unit B' },
+      ],
+      hiddenListingCount: 0,
+    });
+    (buildProjectPropertyListComponent as jest.Mock).mockReturnValue({
+      kind: 'list',
+      title: 'Units',
+      sections: [{ title: 'Units', rows: [] }],
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'project-select-proj-lake',
+    });
+
+    expect(result?.action).toBe('project-selected');
+    expect(result?.newState).toMatchObject({
+      stage: 'shortlist',
+      focusedProjectId: 'proj-lake',
+      focusedPropertyId: null,
+      recommendedPropertyIds: ['prop-a', 'prop-b'],
+    });
+  });
+
+  test('more-info sets focusedPropertyId when buyerFocusStack ON', async () => {
+    config.features.buyerFocusStack = true;
+    const unit = {
+      id: 'prop-unit-1',
+      name: 'Sunset 1102',
+      companyId: 'co-1',
+      status: 'available',
+      priceMin: 9000000,
+      priceMax: 9500000,
+      propertyType: 'apartment',
+      bedrooms: 2,
+      locationArea: 'Whitefield',
+      locationCity: 'Bengaluru',
+      builder: 'Builder',
+      reraNumber: 'RERA',
+      brochureUrl: null,
+      projectId: 'proj-sunset',
+      amenities: [],
+      description: 'Nice unit',
+      extendedAttributes: {},
+    };
+    (prisma.property.findFirst as jest.Mock).mockResolvedValue(unit);
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue(null);
+    (resolveHeroMediaComponentFromPropertyIds as jest.Mock).mockResolvedValue(null);
+    (buildPropertyDetailButtons as jest.Mock).mockReturnValue({
+      kind: 'buttons',
+      buttons: [{ id: 'book-visit-prop-unit-1', title: 'Book Visit' }],
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'more-info-prop-unit-1',
+      conversation: {
+        id: 'conv-1',
+        selectedPropertyId: null,
+        recommendedPropertyIds: ['prop-unit-1'],
+        commitments: { focusedProjectId: 'proj-sunset' },
+      },
+    });
+
+    expect(result?.action).toBe('more-info-sent');
+    expect(result?.newState).toMatchObject({
+      focusedPropertyId: 'prop-unit-1',
+      focusedProjectId: 'proj-sunset',
+      selectedPropertyId: 'prop-unit-1',
+    });
+  });
+
+  test('book visit allows cross-project explicit tap when second visit policy ON', async () => {
+    config.features.buyerFocusStack = true;
+    config.features.secondVisitPolicy = true;
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue({
+      id: 'visit-1',
+      propertyId: 'prop-sunset',
+      status: 'confirmed',
+      scheduledAt: new Date('2026-06-17T04:30:00.000Z'),
+      property: { projectId: 'proj-sunset', name: 'Sunset Heights' },
+    });
+    (prisma.property.findFirst as jest.Mock).mockResolvedValue({
+      id: 'prop-lake',
+      name: 'Lake Vista',
+      projectId: 'proj-lake',
+      status: 'available',
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'book-visit-prop-lake',
+    });
+
+    expect(result?.action).toBe('book-visit-initiated');
+    expect(result?.newState).toMatchObject({
+      focusedPropertyId: 'prop-lake',
+      focusedProjectId: 'proj-lake',
+    });
+  });
+
+  test('book visit blocks same property when active visit and flags ON', async () => {
+    config.features.buyerFocusStack = true;
+    config.features.secondVisitPolicy = true;
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue({
+      id: 'visit-1',
+      propertyId: 'prop-sunset',
+      status: 'confirmed',
+      scheduledAt: new Date('2026-06-17T04:30:00.000Z'),
+      property: { projectId: 'proj-sunset', name: 'Sunset Heights' },
+    });
+    (prisma.property.findFirst as jest.Mock).mockResolvedValue({
+      id: 'prop-sunset',
+      name: 'Sunset Heights',
+      projectId: 'proj-sunset',
+      status: 'available',
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'book-visit-prop-sunset',
+    });
+
+    expect(result?.action).toBe('book-visit-same-property');
+  });
+
+  test('mergeInteractiveNewState legacy path when flag OFF', () => {
+    config.features.buyerFocusStack = false;
+    const merged = mergeInteractiveNewState(
+      { selectedPropertyId: null, commitments: {} },
+      { selectedPropertyId: 'prop-1', stage: 'shortlist' },
+    );
+    expect(merged.newState).toEqual({ stage: 'shortlist', selectedPropertyId: 'prop-1' });
+    expect(merged.prismaData.selectedPropertyId).toBe('prop-1');
+  });
+
+  test('mergeInteractiveNewState writes focus commitments when flag ON', () => {
+    config.features.buyerFocusStack = true;
+    const merged = mergeInteractiveNewState(
+      { selectedPropertyId: null, recommendedPropertyIds: [], commitments: {} },
+      {
+        focusedProjectId: 'proj-a',
+        focusedPropertyId: 'prop-1',
+        recommendedPropertyIds: ['prop-1', 'prop-2'],
+        stage: 'shortlist',
+      },
+    );
+    expect(merged.newState.selectedPropertyId).toBe('prop-1');
+    expect(merged.prismaData.commitments).toMatchObject({
+      focusedProjectId: 'proj-a',
+      selectedProjectId: 'proj-a',
+    });
+    expect(merged.prismaData.recommendedPropertyIds).toEqual(['prop-1', 'prop-2']);
   });
 });
