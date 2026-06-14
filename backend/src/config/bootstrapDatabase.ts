@@ -418,6 +418,17 @@ async function applyCompatibilityPatches(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS call_requests_agent_scheduled_idx ON call_requests (agent_id, scheduled_at)`,
   );
 
+  // VisitStatus.pending_approval — approval-first visits (dashboard, calendar, WhatsApp).
+  // Migration 20260609000000 may not have run on older prod DBs; patch idempotently on boot.
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TYPE "VisitStatus" ADD VALUE IF NOT EXISTS 'pending_approval'`,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('VisitStatus pending_approval enum patch skipped', { error: message });
+  }
+
   // booking_approval_requests — source of truth for buyer-initiated visit/call approvals.
   await prisma.$executeRawUnsafe(`
     DO $$ BEGIN

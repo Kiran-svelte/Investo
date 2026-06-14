@@ -8,6 +8,11 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { cacheGet, cacheSet, getCacheType } from '../config/redis';
+import {
+  isInvalidPostgresEnumValueError,
+  UPCOMING_VISIT_STATUSES_LEGACY,
+  UPCOMING_VISIT_STATUSES_WITH_PENDING,
+} from '../utils/prismaEnum.util';
 
 const router = Router();
 
@@ -291,8 +296,14 @@ router.get(
         take: 10,
       });
 
-      const data = leads.map(({ assignedAgent, ...l }) => ({
-        ...l,
+      const data = leads.map(({ assignedAgent, customerName, createdAt, propertyType, phone, status, source, id }) => ({
+        id,
+        customer_name: customerName,
+        phone,
+        status,
+        source,
+        created_at: createdAt instanceof Date ? createdAt.toISOString() : String(createdAt),
+        property_type: propertyType,
         agent_name: assignedAgent?.name || null,
       }));
 
@@ -314,39 +325,78 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const where: any = {
+      const baseWhere: Record<string, unknown> = {
         companyId,
-        status: { in: ['pending_approval', 'scheduled', 'confirmed'] },
         scheduledAt: { gte: new Date() },
       };
 
       if (req.user!.role === 'sales_agent') {
-        where.agentId = req.user!.id;
+        baseWhere.agentId = req.user!.id;
       }
 
-      const visits = await prisma.visit.findMany({
-        where,
-        select: {
-          id: true, scheduledAt: true, status: true, durationMinutes: true,
-          lead: { select: { customerName: true, phone: true } },
-          property: { select: { name: true, locationArea: true } },
-          agent: { select: { name: true } },
-        },
-        orderBy: { scheduledAt: 'asc' },
-        take: 10,
-      });
+      const select = {
+        id: true,
+        scheduledAt: true,
+        status: true,
+        durationMinutes: true,
+        lead: { select: { customerName: true, phone: true } },
+        property: { select: { name: true, locationArea: true } },
+        agent: { select: { name: true } },
+      } as const;
 
-      const data = visits.map(({ lead, property, agent, scheduledAt, durationMinutes, ...v }) => ({
-        id: v.id,
-        status: v.status,
-        scheduled_at: scheduledAt.toISOString(),
-        duration_minutes: durationMinutes,
-        customer_name: lead?.customerName || null,
-        customer_phone: lead?.phone || null,
-        property_name: property?.name || null,
-        location_area: property?.locationArea || null,
-        agent_name: agent?.name || null,
-      }));
+      const mapVisitRows = (
+        visits: Array<{
+          id: string;
+          scheduledAt: Date;
+          status: string;
+          durationMinutes: number;
+          lead: { customerName: string | null; phone: string } | null;
+          property: { name: string; locationArea: string | null } | null;
+          agent: { name: string } | null;
+        }>,
+      ) =>
+        visits.map(({ lead, property, agent, scheduledAt, durationMinutes, ...v }) => ({
+          id: v.id,
+          status: v.status,
+          scheduled_at: scheduledAt.toISOString(),
+          duration_minutes: durationMinutes,
+          customer_name: lead?.customerName || null,
+          customer_phone: lead?.phone || null,
+          property_name: property?.name || null,
+          location_area: property?.locationArea || null,
+          agent_name: agent?.name || null,
+        }));
+
+      let visits;
+      try {
+        visits = await prisma.visit.findMany({
+          where: {
+            ...baseWhere,
+            status: { in: [...UPCOMING_VISIT_STATUSES_WITH_PENDING] },
+          },
+          select,
+          orderBy: { scheduledAt: 'asc' },
+          take: 10,
+        });
+      } catch (err: unknown) {
+        if (!isInvalidPostgresEnumValueError(err, 'pending_approval')) {
+          throw err;
+        }
+        logger.warn('VisitStatus.pending_approval missing — falling back to scheduled/confirmed only', {
+          companyId,
+        });
+        visits = await prisma.visit.findMany({
+          where: {
+            ...baseWhere,
+            status: { in: [...UPCOMING_VISIT_STATUSES_LEGACY] },
+          },
+          select,
+          orderBy: { scheduledAt: 'asc' },
+          take: 10,
+        });
+      }
+
+      const data = mapVisitRows(visits);
 
       res.json({ data });
     } catch (err: any) {

@@ -235,6 +235,9 @@ async function applyCompatibilityPatches() {
     ALTER TABLE properties ADD COLUMN IF NOT EXISTS project_id UUID NULL REFERENCES property_projects(id) ON DELETE SET NULL
   `);
     await prisma_1.default.$executeRawUnsafe(`
+    ALTER TABLE properties ADD COLUMN IF NOT EXISTS extended_attributes JSONB NOT NULL DEFAULT '{}'::jsonb
+  `);
+    await prisma_1.default.$executeRawUnsafe(`
     ALTER TABLE property_import_drafts ADD COLUMN IF NOT EXISTS project_id UUID NULL REFERENCES property_projects(id) ON DELETE SET NULL
   `);
     // Agent action log — AI transparency / audit trail (90-day TTL via cron purge).
@@ -372,6 +375,15 @@ async function applyCompatibilityPatches() {
   `);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS call_requests_company_lead_idx ON call_requests (company_id, lead_id, scheduled_at DESC)`);
     await prisma_1.default.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS call_requests_agent_scheduled_idx ON call_requests (agent_id, scheduled_at)`);
+    // VisitStatus.pending_approval — approval-first visits (dashboard, calendar, WhatsApp).
+    // Migration 20260609000000 may not have run on older prod DBs; patch idempotently on boot.
+    try {
+        await prisma_1.default.$executeRawUnsafe(`ALTER TYPE "VisitStatus" ADD VALUE IF NOT EXISTS 'pending_approval'`);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger_1.default.warn('VisitStatus pending_approval enum patch skipped', { error: message });
+    }
     // booking_approval_requests — source of truth for buyer-initiated visit/call approvals.
     await prisma_1.default.$executeRawUnsafe(`
     DO $$ BEGIN

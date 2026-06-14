@@ -5,6 +5,7 @@ import { dashboardPath, getRoleCapabilities } from '../../config/navigation.conf
 import { useAuth } from '../../context/AuthContext';
 import useCompanyFeatures from '../../hooks/useCompanyFeatures';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
 import { ensureArray } from '../../utils/safeApiData';
@@ -96,18 +97,39 @@ const DashboardPage: React.FC = () => {
 
     try {
       setLoadError(null);
-      const [statsRes, trendsRes, leadsRes, visitsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get('/analytics/dashboard'),
         api.get(`/analytics/trends?period=${period}`),
         api.get('/analytics/recent-leads'),
         api.get('/analytics/upcoming-visits'),
       ]);
-      setStats(statsRes.data?.data ?? null);
-      setTrends(trendsRes.data?.data ?? null);
-      setRecentLeads(ensureArray<RecentLead>(leadsRes.data?.data));
-      setUpcomingVisits(ensureArray<UpcomingVisit>(visitsRes.data?.data));
-    } catch {
-      setLoadError('Could not load dashboard data. Try refreshing the page.');
+
+      const labels = ['dashboard stats', 'trends', 'recent leads', 'upcoming visits'];
+      const failures: string[] = [];
+
+      const statsRes = results[0].status === 'fulfilled' ? results[0].value : null;
+      const trendsRes = results[1].status === 'fulfilled' ? results[1].value : null;
+      const leadsRes = results[2].status === 'fulfilled' ? results[2].value : null;
+      const visitsRes = results[3].status === 'fulfilled' ? results[3].value : null;
+
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          failures.push(`${labels[index]} (${getApiErrorMessage(result.reason, 'request failed')})`);
+        }
+      });
+
+      setStats(statsRes?.data?.data ?? null);
+      setTrends(trendsRes?.data?.data ?? null);
+      setRecentLeads(ensureArray<RecentLead>(leadsRes?.data?.data));
+      setUpcomingVisits(ensureArray<UpcomingVisit>(visitsRes?.data?.data));
+
+      if (failures.length === results.length) {
+        setLoadError('Could not load dashboard data. Try refreshing the page.');
+      } else if (failures.length > 0) {
+        setLoadError(`Some dashboard sections failed to load: ${failures.join('; ')}`);
+      }
+    } catch (err: unknown) {
+      setLoadError(getApiErrorMessage(err, 'Could not load dashboard data. Try refreshing the page.'));
       setStats(null);
       setTrends(null);
       setRecentLeads([]);
