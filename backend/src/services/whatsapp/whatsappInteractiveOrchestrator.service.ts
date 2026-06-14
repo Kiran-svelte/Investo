@@ -41,6 +41,8 @@ import {
   buildActiveVisitActionButtons,
 } from '../projectBrowse.service';
 import { buyerButtonTitle, buyerFilterButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
+import config from '../../config';
+import { evaluateSecondVisitPolicy } from '../buyer/buyerEnterpriseUx.service';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -337,6 +339,52 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
       action: 'book-visit-invalid-property',
       turnResult: buyerTurn(tBuyer(lang, 'interactive_book_visit_invalid_property')),
     };
+  }
+
+  if (config.features.secondVisitPolicy) {
+    const activeVisitForPolicy = await prisma.visit.findFirst({
+      where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] } },
+      orderBy: { scheduledAt: 'asc' },
+      include: { property: { select: { projectId: true, name: true } } },
+    });
+    if (activeVisitForPolicy) {
+      const decision = evaluateSecondVisitPolicy({
+        hasActiveVisit: true,
+        activeVisitPropertyId: activeVisitForPolicy.propertyId,
+        activeVisitProjectId: activeVisitForPolicy.property?.projectId ?? null,
+        targetPropertyId: property.id,
+        targetProjectId: property.projectId,
+        explicitCrossProjectIntent: true,
+      });
+      if ('clarify' in decision && decision.clarify) {
+        return {
+          handled: true,
+          action: 'book-visit-clarify',
+          turnResult: buyerTurn(tBuyer(lang, decision.messageKey, {
+            existingProperty: activeVisitForPolicy.property?.name ?? 'your booked property',
+            targetProperty: property.name,
+          })),
+        };
+      }
+      if ('allow' in decision && !decision.allow && decision.reason === 'same_property_already_booked') {
+        const visitDate = formatISTDateTimeLong(new Date(activeVisitForPolicy.scheduledAt));
+        const visitButtons = buildActiveVisitActionButtons(
+          activeVisitForPolicy.property?.projectId ?? property.projectId,
+          lang,
+        );
+        return {
+          handled: true,
+          action: 'book-visit-same-property',
+          turnResult: buyerTurn(
+            tBuyer(lang, 'visit_booked_property_reminder', {
+              property: activeVisitForPolicy.property?.name ?? property.name,
+              date: visitDate,
+            }),
+            visitButtons.kind === 'buttons' ? [visitButtons] : [],
+          ),
+        };
+      }
+    }
   }
 
   if (lead.assignedAgentId) {

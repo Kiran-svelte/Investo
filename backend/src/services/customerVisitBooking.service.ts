@@ -24,10 +24,12 @@ import {
   resolveBuyerPropertyReference,
   resolveBuyerPropertyReferenceEnterprise,
 } from './buyerPropertyContext.service';
+import { evaluateSecondVisitPolicy } from './buyer/buyerEnterpriseUx.service';
+import { tBuyer } from '../utils/buyerI18n.util';
+import config from '../config';
 import { formatBuyerVisitScheduled, formatBuyerVisitPendingApprovalReply } from '../utils/visitFormat.util';
 import { isConversationAwaitingCallTime } from '../utils/conversationCallContext.util';
 import { isVisitAutoConfirmEnabled } from './visitAutoConfirm.service';
-import config from '../config';
 import { buildVisitIdempotencyKey, scheduleVisit } from './visitBooking.service';
 import type { WorkflowId } from '../constants/workflow.constants';
 import type { WorkflowParams } from './workflow/workflow.types';
@@ -56,7 +58,7 @@ export interface CommitCustomerVisitInput {
 
 export interface CommitCustomerVisitResult {
   committed: boolean;
-  mode?: 'scheduled' | 'pending_approval' | 'already_booked' | 'rescheduled' | 'cancelled';
+  mode?: 'scheduled' | 'pending_approval' | 'already_booked' | 'rescheduled' | 'cancelled' | 'confirmed' | 'disambiguate';
   scheduledAt?: Date;
   visitId?: string;
   customerReply?: string;
@@ -362,6 +364,7 @@ export async function tryCustomerVisitCancelReschedule(
     companyId: input.companyId,
     message: input.customerMessage,
     leadId: input.lead.id,
+    conversationId: input.conversation.id,
     // Customer initiated this reschedule via WhatsApp. The main handler sends
     // visitCommit.customerReply as the primary response. Suppress the duplicate
     // WhatsApp confirmation that notificationEngine.onVisitRescheduled would otherwise send.
@@ -374,7 +377,7 @@ export async function tryCustomerVisitCancelReschedule(
     scheduledAt: mutation.scheduledAt,
     visitId: mutation.visitId,
     customerReply: mutation.reply,
-    leadStatus: mutation.mode === 'cancelled' ? 'contacted' : 'visit_scheduled',
+    leadStatus: mutation.mode === 'cancelled' || mutation.mode === 'disambiguate' ? 'contacted' : 'visit_scheduled',
   };
 }
 
@@ -420,7 +423,7 @@ export async function tryCommitCustomerVisitBooking(
       orderBy: { scheduledAt: 'asc' },
       select: { id: true },
     });
-    if (activeVisit && process.env.BUYER_VISIT_WORKFLOW_ENABLED !== '0') {
+    if (activeVisit && process.env.BUYER_VISIT_WORKFLOW_ENABLED !== '0' && !config.features.visitDisambiguation) {
       const workflowId: WorkflowId = /\b(cancel|call\s+off)\b/i.test(customerMessage)
         ? 'cancel_visit'
         : 'reschedule_visit';
@@ -554,6 +557,47 @@ export async function tryCommitCustomerVisitBooking(
     propertyId = fallbackProperty.id;
   }
 
+  if (config.features.secondVisitPolicy) {
+    const activeVisitForPolicy = await prisma.visit.findFirst({
+      where: {
+        companyId,
+        leadId: lead.id,
+        status: { in: ['scheduled', 'confirmed'] },
+        scheduledAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      include: { property: { select: { projectId: true, name: true } } },
+    });
+    if (activeVisitForPolicy) {
+      const targetProperty = await prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { projectId: true, name: true },
+      });
+      const lang = lead.language ?? 'en';
+      const decision = evaluateSecondVisitPolicy({
+        hasActiveVisit: true,
+        activeVisitPropertyId: activeVisitForPolicy.propertyId,
+        activeVisitProjectId: activeVisitForPolicy.property?.projectId ?? null,
+        targetPropertyId: propertyId,
+        targetProjectId: targetProperty?.projectId ?? null,
+        explicitCrossProjectIntent:
+          propertyId !== activeVisitForPolicy.propertyId
+          || /\b(book|schedule)\s+(a\s+)?(visit|site visit)/i.test(customerMessage),
+      });
+      if ('clarify' in decision && decision.clarify) {
+        return {
+          committed: false,
+          customerReply: tBuyer(lang, decision.messageKey, {
+            existingProperty: activeVisitForPolicy.property?.name ?? 'your booked property',
+            targetProperty: targetProperty?.name ?? 'this property',
+          }),
+        };
+      }
+      if ('allow' in decision && !decision.allow && decision.reason === 'same_property_already_booked') {
+        return { committed: false, customerReply: tBuyer(lang, 'visit_same_property_already') };
+      }
+    }
+  }
 
   const existing = await prisma.visit.findFirst({
     where: {
@@ -588,6 +632,7 @@ export async function tryCommitCustomerVisitBooking(
         companyId,
         message: customerMessage,
         leadId: lead.id,
+        conversationId: conversation.id,
         // Customer initiated this reschedule via WhatsApp; suppress duplicate notification.
         suppressCustomerNotification: true,
       });
@@ -598,7 +643,7 @@ export async function tryCommitCustomerVisitBooking(
           scheduledAt: mutation.scheduledAt,
           visitId: mutation.visitId,
           customerReply: mutation.reply,
-          leadStatus: mutation.mode === 'cancelled' ? 'contacted' : 'visit_scheduled',
+          leadStatus: mutation.mode === 'cancelled' || mutation.mode === 'disambiguate' ? 'contacted' : 'visit_scheduled',
         };
       }
     }

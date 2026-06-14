@@ -1,9 +1,9 @@
 /**
  * Enterprise buyer UX — single source of truth for visit-aware buttons,
- * CRM button flags, and greeting language policy. All buyer-facing orchestrators
- * should use this module instead of duplicating visit/booking guards.
+ * CRM button flags, and greeting language policy.
  */
 
+import config from '../../config';
 import type { WhatsAppComponent } from '../../types/whatsapp-turn.types';
 import type { LiveLeadContext } from '../liveLeadContext.service';
 import { isPostVisitBuyer } from '../../utils/buyerLeadProgress.util';
@@ -14,7 +14,6 @@ import {
 } from '../../utils/buyerI18n.util';
 import { buildActiveVisitActionButtons } from '../projectBrowse.service';
 
-/** CRM snapshot used for contextual WhatsApp buttons on every buyer turn. */
 export type BuyerCrmButtonFlags = {
   hasActiveVisit: boolean;
   hasActiveCall: boolean;
@@ -28,17 +27,24 @@ export type BuyerCrmButtonFlags = {
   liveLeadSnapshot: Pick<LiveLeadContext, 'activeVisit' | 'recentCompletedVisit' | 'leadStatus'>;
 };
 
-const VISIT_SITUATIONS = new Set([
-  'visit_scheduled',
-  'visit_confirmed',
-  'visit_pending_approval',
-  'visit_time_prompt',
-]);
+export type SecondVisitPolicyInput = {
+  hasActiveVisit: boolean;
+  activeVisitPropertyId: string | null;
+  activeVisitProjectId: string | null;
+  targetPropertyId: string | null;
+  targetProjectId: string | null;
+  explicitCrossProjectIntent?: boolean;
+  hasActiveCall?: boolean;
+};
 
-/**
- * Build CRM button flags from live lead context — used by turn orchestrator,
- * button policy, and legacy whatsapp.service paths.
- */
+export type SecondVisitDecision =
+  | { allow: true; reason: 'no_active_visit' | 'different_project' | 'different_property' }
+  | { allow: false; reason: 'same_property_already_booked' | 'active_call' | 'pending_same_property' }
+  | { clarify: true; reason: 'cross_project_needs_confirm'; messageKey: 'second_visit_cross_project_confirm' };
+
+const VISIT_SITUATIONS = new Set(['visit_scheduled', 'visit_confirmed', 'visit_pending_approval', 'visit_time_prompt']);
+const EXPLICIT_BOOK_INTENT = /\b(book|schedule)\s+(a\s+)?(visit|site visit)/i;
+
 export function buildBuyerCrmButtonFlags(
   liveCtx: LiveLeadContext,
   leadId?: string,
@@ -46,7 +52,6 @@ export function buildBuyerCrmButtonFlags(
 ): BuyerCrmButtonFlags {
   const activeVisit = liveCtx.activeVisit;
   const recentVisit = liveCtx.recentCompletedVisit;
-
   return {
     hasActiveVisit: Boolean(activeVisit),
     hasActiveCall: Boolean(liveCtx.activeCall),
@@ -65,45 +70,80 @@ export function buildBuyerCrmButtonFlags(
   };
 }
 
-/** Language for interactive button taps — lead preference when message text is absent. */
 export function resolveInteractiveBuyerLanguage(leadLanguage?: string | null): string {
   return resolveBuyerLanguage({ leadLanguage });
 }
 
-/** Language for a buyer message turn — current message wins; basic social → English. */
 export function resolveTurnBuyerLanguage(input: {
   messageText?: string | null;
   leadLanguage?: string | null;
 }): string {
-  return resolveBuyerLanguage({
-    message: input.messageText,
-    leadLanguage: input.leadLanguage,
-  });
+  return resolveBuyerLanguage({ message: input.messageText, leadLanguage: input.leadLanguage });
 }
 
-/**
- * Enterprise rule: when buyer has an active visit, never offer Book Visit / Property Details
- * except during explicit visit-scheduling prompts.
- */
+export function evaluateSecondVisitPolicy(input: SecondVisitPolicyInput): SecondVisitDecision {
+  if (input.hasActiveCall && !input.hasActiveVisit) return { allow: false, reason: 'active_call' };
+  if (!config.features.secondVisitPolicy) {
+    if (!input.hasActiveVisit) return { allow: true, reason: 'no_active_visit' };
+    return { allow: false, reason: 'same_property_already_booked' };
+  }
+  if (!input.hasActiveVisit) return { allow: true, reason: 'no_active_visit' };
+  if (input.hasActiveCall) return { allow: false, reason: 'active_call' };
+
+  const activeProp = input.activeVisitPropertyId;
+  const targetProp = input.targetPropertyId;
+  if (!targetProp) {
+    return { clarify: true, reason: 'cross_project_needs_confirm', messageKey: 'second_visit_cross_project_confirm' };
+  }
+  if (activeProp && targetProp === activeProp) return { allow: false, reason: 'same_property_already_booked' };
+
+  const activeProject = input.activeVisitProjectId;
+  const targetProject = input.targetProjectId;
+  if (activeProject && targetProject && activeProject !== targetProject) {
+    if (input.explicitCrossProjectIntent) return { allow: true, reason: 'different_project' };
+    return { clarify: true, reason: 'cross_project_needs_confirm', messageKey: 'second_visit_cross_project_confirm' };
+  }
+  if (activeProp && targetProp !== activeProp) {
+    return { clarify: true, reason: 'cross_project_needs_confirm', messageKey: 'second_visit_cross_project_confirm' };
+  }
+  return { allow: true, reason: 'different_property' };
+}
+
 export function shouldUseVisitAwareButtonsOnly(
   hasActiveVisit: boolean | undefined,
   situation: string,
+  options?: {
+    inboundMessageText?: string;
+    explicitBookPropertyId?: string | null;
+    visitPropertyId?: string | null;
+    activeVisitProjectId?: string | null;
+    targetProjectId?: string | null;
+  },
 ): boolean {
   if (!hasActiveVisit) return false;
-  return !VISIT_SITUATIONS.has(situation);
+  if (VISIT_SITUATIONS.has(situation)) return false;
+  if (
+    config.features.secondVisitPolicy
+    && options?.explicitBookPropertyId
+    && EXPLICIT_BOOK_INTENT.test(options.inboundMessageText ?? '')
+  ) {
+    const decision = evaluateSecondVisitPolicy({
+      hasActiveVisit: true,
+      activeVisitPropertyId: options.visitPropertyId ?? null,
+      activeVisitProjectId: options.activeVisitProjectId ?? null,
+      targetPropertyId: options.explicitBookPropertyId,
+      targetProjectId: options.targetProjectId ?? null,
+      explicitCrossProjectIntent: true,
+    });
+    if ('allow' in decision && decision.allow) return false;
+  }
+  return true;
 }
 
-/** Standard visit-era action buttons (Change Time, View Listings, Call Agent). */
-export function buildVisitAwareButtonComponent(
-  projectId: string | null,
-  lang: string,
-): WhatsAppComponent {
+export function buildVisitAwareButtonComponent(projectId: string | null, lang: string): WhatsAppComponent {
   return buildActiveVisitActionButtons(projectId, lang);
 }
 
-/**
- * Append Hindi follow-up to English greetings for Hindi-preference leads (bilingual Hi policy).
- */
 export function appendHindiLeadGreetingSuffix(
   text: string,
   replyLang: string,
@@ -111,13 +151,25 @@ export function appendHindiLeadGreetingSuffix(
   company: string,
   customerName?: string | null,
 ): string {
-  if (replyLang !== 'en' || normalizeBuyerLang(leadLanguage) !== 'hi') {
-    return text;
-  }
+  if (replyLang !== 'en' || normalizeBuyerLang(leadLanguage) !== 'hi') return text;
   return text + hindiGreetingFollowupBlock(company, customerName);
 }
 
-/** Whether Book Visit / More Info actions are allowed for this CRM state. */
-export function canOfferPropertyBookingActions(flags: Pick<BuyerCrmButtonFlags, 'hasActiveVisit' | 'hasActiveCall'>): boolean {
-  return !flags.hasActiveVisit && !flags.hasActiveCall;
+export function canOfferPropertyBookingActions(
+  flags: Pick<BuyerCrmButtonFlags, 'hasActiveVisit' | 'hasActiveCall'> & Partial<BuyerCrmButtonFlags>,
+  target?: { propertyId: string | null; projectId: string | null },
+): boolean {
+  if (flags.hasActiveCall) return false;
+  if (!config.features.secondVisitPolicy || !target) return !flags.hasActiveVisit && !flags.hasActiveCall;
+  const decision = evaluateSecondVisitPolicy({
+    hasActiveVisit: flags.hasActiveVisit,
+    activeVisitPropertyId: flags.visitPropertyId ?? null,
+    activeVisitProjectId: flags.visitPropertyProjectId ?? null,
+    targetPropertyId: target.propertyId,
+    targetProjectId: target.projectId,
+    explicitCrossProjectIntent: true,
+    hasActiveCall: flags.hasActiveCall,
+  });
+  if ('clarify' in decision && decision.clarify) return false;
+  return 'allow' in decision && decision.allow;
 }

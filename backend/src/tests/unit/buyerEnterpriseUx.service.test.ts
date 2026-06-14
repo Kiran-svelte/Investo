@@ -1,8 +1,10 @@
+import config from '../../config';
 import {
   buildBuyerCrmButtonFlags,
   shouldUseVisitAwareButtonsOnly,
   canOfferPropertyBookingActions,
   appendHindiLeadGreetingSuffix,
+  evaluateSecondVisitPolicy,
 } from '../../services/buyer/buyerEnterpriseUx.service';
 import type { LiveLeadContext } from '../../services/liveLeadContext.service';
 import { resolveSituationBuyerButtons } from '../../utils/buyerSituationButtons.util';
@@ -73,6 +75,20 @@ describe('buyerEnterpriseUx.service', () => {
     const out = appendHindiLeadGreetingSuffix('Hello!', 'en', 'hi', 'Palm Realty', 'Ravi');
     expect(out).toContain('Hello!');
     expect(out).toMatch(/Namaste|swagat/i);
+  });
+
+  test('second visit policy allows different project when explicit', () => {
+    (config.features as { secondVisitPolicy: boolean }).secondVisitPolicy = true;
+    const decision = evaluateSecondVisitPolicy({
+      hasActiveVisit: true,
+      activeVisitPropertyId: 'p-a',
+      activeVisitProjectId: 'proj-a',
+      targetPropertyId: 'p-b',
+      targetProjectId: 'proj-b',
+      explicitCrossProjectIntent: true,
+    });
+    expect(decision).toEqual({ allow: true, reason: 'different_project' });
+    (config.features as { secondVisitPolicy: boolean }).secondVisitPolicy = false;
   });
 });
 
