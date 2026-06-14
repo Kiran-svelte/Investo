@@ -51,4 +51,30 @@ describe('critical-path smoke scenarios', () => {
     delete process.env.FEATURE_EXPANDED_PROPERTY_PROMPTS;
     jest.resetModules();
   });
+
+  test('multi-project enterprise flags load without throw', () => {
+    expect(() => require('../../config').default.features).not.toThrow();
+    const features = require('../../config').default.features;
+    expect(features.multiVisitContext).toBe(false);
+    expect(features.buyerFocusStack).toBe(false);
+    expect(features.scopedAiCatalog).toBe(false);
+  });
+
+  test('readBuyerConversationFocus legacy path when flag off', () => {
+    const { readBuyerConversationFocus } = require('../../services/buyer/buyerConversationFocus.service');
+    const focus = readBuyerConversationFocus({
+      selectedPropertyId: 'prop-1',
+      recommendedPropertyIds: ['prop-1'],
+      commitments: {},
+    });
+    expect(focus.focusedProjectId).toBeNull();
+    expect(focus.focusedPropertyId).toBe('prop-1');
+  });
+
+  test('getLiveLeadContext returns upcomingVisits array shape', async () => {
+    const { getLiveLeadContext } = require('../../services/liveLeadContext.service');
+    jest.spyOn(require('../../config/prisma').default.lead, 'findFirst').mockResolvedValue(null);
+    const ctx = await getLiveLeadContext('lead-x', 'co-x');
+    expect(Array.isArray(ctx.upcomingVisits)).toBe(true);
+  });
 });

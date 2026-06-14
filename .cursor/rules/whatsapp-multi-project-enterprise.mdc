@@ -1,0 +1,69 @@
+---
+description: Multi-project / multi-visit buyer UX chunk tracker and rollout flags
+globs:
+  - backend/src/services/buyer/**
+  - backend/src/services/liveLeadContext.service.ts
+  - backend/src/services/visitMutationFromChat.service.ts
+  - backend/src/services/whatsapp/whatsappTurnOrchestrator.service.ts
+  - backend/src/services/whatsapp/whatsappInteractiveOrchestrator.service.ts
+---
+
+# WhatsApp Multi-Project Enterprise Chunks
+
+Workstream: Multi-project / multi-visit buyer UX hardening.
+
+| Chunk | Scope | Flag | Status |
+|-------|-------|------|--------|
+| C1 | Multi-visit live context | `FEATURE_MULTI_VISIT_CONTEXT` | DONE |
+| C2 | Conversation focus stack | `FEATURE_BUYER_FOCUS_STACK` | DONE |
+| C3 | Project-scoped property resolve | `FEATURE_SCOPED_PROPERTY_RESOLVE` | DONE |
+| C4 | Scoped AI catalog (H9) | `FEATURE_SCOPED_AI_CATALOG` | DONE |
+| C5 | Multi-visit disambiguation | `FEATURE_VISIT_DISAMBIGUATION` | DONE |
+| C6 | Button–property binding | `FEATURE_BUTTON_SCOPE_VALIDATE` | DONE |
+| C7 | Outbound content validator | `FEATURE_OUTBOUND_PROPERTY_VALIDATE` | DONE |
+| C8 | Second-visit policy | `FEATURE_SECOND_VISIT_POLICY` | DONE |
+| C9 | Interactive orchestrator wiring | `FEATURE_BUYER_FOCUS_STACK` (master) | DONE |
+| C10 | Integration matrix + rollout | all flags | DONE |
+
+## Safety nets
+
+1. Feature flags OFF by default until staging sign-off
+2. `npm run smoke` before deploy
+3. `FEATURE_SHADOW_MODE=true` for validator/catalog compare logs
+4. Single-project parity tests in `buyerEnterpriseMultiProject.matrix.test.ts`
+
+## Key files
+
+- Focus: `buyerConversationFocus.service.ts`
+- Catalog: `buyerScopedCatalog.service.ts`
+- Validator: `buyerOutboundValidator.service.ts`
+- Buttons: `buyerButtonScope.service.ts` + `buyerSituationButtons.util.ts`
+- Visits: `liveLeadContext.service.ts` + `visitMutationFromChat.service.ts`
+- Interactive: `whatsappInteractivePersist.service.ts`
+
+## Activate in staging (all layers)
+
+```
+FEATURE_SHADOW_MODE=true
+FEATURE_MULTI_VISIT_CONTEXT=true
+FEATURE_BUYER_FOCUS_STACK=true
+FEATURE_SCOPED_PROPERTY_RESOLVE=true
+FEATURE_SCOPED_AI_CATALOG=true
+FEATURE_VISIT_DISAMBIGUATION=true
+FEATURE_BUTTON_SCOPE_VALIDATE=true
+FEATURE_OUTBOUND_PROPERTY_VALIDATE=true
+FEATURE_SECOND_VISIT_POLICY=true
+```
+
+Kill any layer instantly: set matching `FEATURE_*=false` on Railway — no redeploy required.
+
+## Enterprise stable definition
+
+| Layer | Stable when |
+|-------|-------------|
+| Context | System knows which project, property, visit(s) |
+| Actions | Book/confirm/cancel never targets wrong visit without asking |
+| Buttons | Book Visit / More Info match what was discussed |
+| AI text | No prices for properties outside shortlist |
+| Safety | Flags + tests + smoke; one layer can be turned off |
+| Single-project | Parity with enterprise v2 baseline (MP-08) |
