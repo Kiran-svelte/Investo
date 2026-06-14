@@ -32,6 +32,15 @@ describe('extractExtendedPropertyAttributes.util', () => {
     expect(text).toContain('Carpet area (sq ft): 1200');
     expect(text).toContain('Facing direction: North');
   });
+
+  test('formatExtendedAttributesForPrompt converts Excel serial possession dates', () => {
+    const text = formatExtendedAttributesForPrompt({
+      possession_date: 46357.00011574074,
+    });
+    expect(text).not.toContain('46357');
+    expect(text).toMatch(/Possession date/i);
+    expect(text).toMatch(/2026|Jun|June/i);
+  });
 });
 
 describe('shouldBlockPublishForImportReview', () => {

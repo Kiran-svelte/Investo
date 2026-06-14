@@ -69,6 +69,20 @@ function leadLang(lead: InteractiveActionParams['lead']): string {
   return resolveBuyerLanguage({ leadLanguage: lead.language });
 }
 
+async function resolveVisitPropertyName(
+  companyId: string,
+  visit: { propertyId: string | null; property?: { name?: string | null } | null },
+): Promise<string | null> {
+  const fromRelation = visit.property?.name?.trim();
+  if (fromRelation) return fromRelation;
+  if (!visit.propertyId) return null;
+  const row = await prisma.property.findFirst({
+    where: { id: visit.propertyId, companyId },
+    select: { name: true },
+  });
+  return row?.name?.trim() ?? null;
+}
+
 function localizedCallActionButtons(lang: string): WhatsAppComponent {
   return {
     kind: 'buttons',
@@ -478,12 +492,16 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       ? formatISTDateTimeLong(new Date(pendingApproval.scheduledAt))
       : null;
 
-  const isBookedPropertyTap =
-    Boolean(activeVisit?.propertyId && activeVisit.propertyId === propertyId);
+  const bookedPropertyId = activeVisit?.propertyId ?? null;
+  const isBookedPropertyTap = Boolean(bookedPropertyId && bookedPropertyId === propertyId);
+  const bookedPropertyName = activeVisit
+    ? await resolveVisitPropertyName(company.id, activeVisit)
+    : null;
 
   if (isBookedPropertyTap && visitDate) {
+    const reminderPropertyName = bookedPropertyName ?? property.name;
     const outboundText = tBuyer(lang, 'visit_booked_property_reminder', {
-      property: property.name,
+      property: reminderPropertyName,
       date: visitDate,
     });
     const buttonComponent = buildActiveVisitActionButtons(property.projectId, lang);
@@ -527,14 +545,26 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   let outboundText = details;
   let buttonComponent: WhatsAppComponent;
 
-  if (activeVisit && visitDate) {
-    const visitPropName = (activeVisit.property as { name?: string })?.name ?? property.name;
-    const visitAlreadyConfirmed = activeVisit.status === 'confirmed';
-    const prefixKey = visitAlreadyConfirmed ? 'visit_detail_confirmed_prefix' : 'visit_detail_scheduled_prefix';
-    outboundText =
-      `${tBuyer(lang, prefixKey, { property: visitPropName, date: visitDate })}\n\n` + details;
+  if (activeVisit && visitDate && !isBookedPropertyTap) {
+    const visitProjectId =
+      (activeVisit.property as { projectId?: string | null })?.projectId ?? null;
+    const noteKey =
+      activeVisit.status === 'confirmed'
+        ? 'visit_browsing_other_confirmed_note'
+        : 'visit_browsing_other_scheduled_note';
+    const visitNote = bookedPropertyName
+      ? tBuyer(lang, noteKey, {
+          viewing: property.name,
+          booked: bookedPropertyName,
+          date: visitDate,
+        })
+      : tBuyer(lang, 'visit_browsing_other_date_only_note', {
+          viewing: property.name,
+          date: visitDate,
+        });
+    outboundText = `${details}\n\n${visitNote}`;
     buttonComponent = buildActiveVisitActionButtons(
-      property.projectId ?? (activeVisit.property as { projectId?: string | null })?.projectId ?? null,
+      property.projectId ?? visitProjectId,
       lang,
     );
   } else if (pendingApproval && visitDate) {

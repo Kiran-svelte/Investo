@@ -560,5 +560,18 @@ class StorageService {
         }));
         return { storageKey };
     }
+    /** Direct server-side upload for property hero images / brochures (project board assign flow). */
+    async uploadPropertyMediaBuffer(input) {
+        const uploadMeta = await this.createPropertyUploadUrl({
+            companyId: input.companyId,
+            propertyId: input.propertyId,
+            fileName: input.fileName,
+            mimeType: input.mimeType,
+            fileSize: input.buffer.length,
+            assetType: input.assetType,
+        });
+        const { publicUrl } = await this.putObjectBytes(uploadMeta.key, input.buffer, input.mimeType);
+        return { publicUrl, storageKey: uploadMeta.key };
+    }
 }
 exports.storageService = new StorageService();

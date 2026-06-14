@@ -37,6 +37,44 @@ function isFilledValue(value: unknown): boolean {
   return true;
 }
 
+/** Import fields that may arrive as Excel serial numbers from spreadsheet imports. */
+const DATE_LIKE_FIELD_KEYS = new Set([
+  'possession_date',
+  'registration_date',
+  'launch_date',
+  'completion_date',
+  'handover_date',
+]);
+
+function isExcelSerialNumber(value: number): boolean {
+  return value > 20_000 && value < 80_000;
+}
+
+function formatExcelSerialDate(serial: number): string {
+  const date = new Date((serial - 25_569) * 86_400_000);
+  if (!Number.isFinite(date.getTime())) return String(serial);
+  return date.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function formatAttributeValue(key: string, value: unknown): string {
+  if (typeof value === 'number' && DATE_LIKE_FIELD_KEYS.has(key) && isExcelSerialNumber(value)) {
+    return formatExcelSerialDate(value);
+  }
+  if (typeof value === 'string' && DATE_LIKE_FIELD_KEYS.has(key)) {
+    const trimmed = value.trim();
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      const asNum = Number(trimmed);
+      if (isExcelSerialNumber(asNum)) return formatExcelSerialDate(asNum);
+    }
+  }
+  return String(value);
+}
+
 /**
  * Non-catalog import fields for JSON storage on Property.extended_attributes.
  */
@@ -64,7 +102,7 @@ export function formatExtendedAttributesForPrompt(
     .filter(([, value]) => isFilledValue(value))
     .map(([key, value]) => {
       const label = PROPERTY_IMPORT_FIELD_LABELS[key] ?? key.replace(/_/g, ' ');
-      return `${label}: ${String(value)}`;
+      return `${label}: ${formatAttributeValue(key, value)}`;
     });
 
   return lines.length > 0 ? lines.join('\n') : '';

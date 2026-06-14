@@ -370,7 +370,40 @@ class WhatsAppService {
             };
         }
         if (msg.messageId && !msg.queuedReplay) {
-            const inboundClaimed = await (0, inboundMessageGuard_service_1.claimInboundMessageFull)(companyId, msg.messageId, customerPhone);
+            let inboundClaimed = await (0, inboundMessageGuard_service_1.claimInboundMessageFull)(companyId, msg.messageId, customerPhone);
+            if (!inboundClaimed) {
+                const lacksReply = await (0, inboundMessageGuard_service_1.inboundCustomerMessageLacksAiReply)(msg.messageId);
+                if (lacksReply) {
+                    await (0, inboundMessageGuard_service_1.releaseInboundMessageFull)(companyId, msg.messageId);
+                    inboundClaimed = await (0, inboundMessageGuard_service_1.claimInboundMessageFull)(companyId, msg.messageId, customerPhone);
+                }
+                else {
+                    const recovered = await this.tryResendStoredBuyerReply({
+                        companyId,
+                        customerPhone,
+                        messageId: msg.messageId,
+                        whatsappConfig: whatsappConfig,
+                    });
+                    if (recovered) {
+                        return {
+                            status: 'processed',
+                            reason: 'outbound_recovery_resend',
+                            companyId,
+                            propagation: notAttempted,
+                        };
+                    }
+                    logger_1.default.info('Skipping duplicate inbound WhatsApp message', {
+                        whatsappMessageId: msg.messageId,
+                        companyId,
+                    });
+                    return {
+                        status: 'skipped',
+                        reason: 'duplicate_message_id',
+                        companyId,
+                        propagation: notAttempted,
+                    };
+                }
+            }
             if (!inboundClaimed) {
                 logger_1.default.info('Skipping duplicate inbound WhatsApp message', {
                     whatsappMessageId: msg.messageId,
@@ -577,6 +610,7 @@ class WhatsAppService {
         // the inbound claim on failure (to allow Meta's retry to succeed).
         let processingSucceeded = false;
         let pendingBuyerOutbound;
+        let buyerTypingSession = null;
         try {
             // 2. Find or create lead + conversation for prospects (phones not on any active user profile)
             let lead = (await prisma_1.default.lead.findFirst({
@@ -747,17 +781,48 @@ class WhatsAppService {
                     select: { id: true },
                 });
                 if (existingMessage) {
-                    logger_1.default.info('Skipping duplicate webhook message', {
-                        whatsappMessageId: msg.messageId,
-                        existingMessageId: existingMessage.id,
-                    });
-                    return {
-                        status: 'skipped',
-                        companyId,
-                        leadId: lead.id,
-                        conversationId: conversation?.id,
-                        propagation: null,
-                    };
+                    const lacksReply = await (0, inboundMessageGuard_service_1.inboundCustomerMessageLacksAiReply)(msg.messageId);
+                    if (lacksReply) {
+                        logger_1.default.warn('Duplicate webhook customer row without AI reply — continuing processing', {
+                            whatsappMessageId: msg.messageId,
+                            existingMessageId: existingMessage.id,
+                        });
+                    }
+                    else {
+                        const recovered = await this.tryResendStoredBuyerReply({
+                            companyId,
+                            customerPhone,
+                            messageId: msg.messageId,
+                            whatsappConfig: whatsappConfig,
+                        });
+                        if (recovered) {
+                            processingSucceeded = true;
+                            return {
+                                status: 'processed',
+                                reason: 'outbound_recovery_resend',
+                                companyId,
+                                leadId: lead.id,
+                                conversationId: conversation.id,
+                                propagation: await this.propagateConversationUpdate({
+                                    companyId,
+                                    conversationId: conversation.id,
+                                    leadId: lead.id,
+                                    trigger: 'outbound_recovery',
+                                }),
+                            };
+                        }
+                        logger_1.default.info('Skipping duplicate webhook message', {
+                            whatsappMessageId: msg.messageId,
+                            existingMessageId: existingMessage.id,
+                        });
+                        return {
+                            status: 'skipped',
+                            companyId,
+                            leadId: lead.id,
+                            conversationId: conversation?.id,
+                            propagation: null,
+                        };
+                    }
                 }
             }
             // Store incoming message — P0-1: If the @@unique constraint fires (concurrent retry),
@@ -912,6 +977,7 @@ class WhatsAppService {
             }
             // 3.5. Handle interactive button/list responses
             if (msg.interactiveId && conversation.status === 'ai_active' && conversation.aiEnabled) {
+                buyerTypingSession = (0, whatsappPresence_service_1.startTypingDuringProcessing)(customerPhone, whatsappConfig, msg.messageId);
                 const actionResult = await this.handleInteractiveAction({
                     interactiveId: msg.interactiveId,
                     interactiveType: msg.interactiveType,
@@ -973,15 +1039,23 @@ class WhatsAppService {
                                     error: sendErr instanceof Error ? sendErr.message : String(sendErr),
                                     conversationId: conversation.id,
                                 });
+                                await (0, inboundMessageGuard_service_1.releaseOutboundAiReply)(companyId, msg.messageId);
+                                await (0, inboundMessageGuard_service_1.releaseInboundMessageFull)(companyId, msg.messageId).catch(() => undefined);
                             }
                         }
                         else {
-                            logger_1.default.warn('Interactive outbound dedup blocked — still persisting AI reply in transcript', {
+                            logger_1.default.warn('Interactive outbound dedup blocked — attempting transcript resend', {
                                 companyId,
                                 messageId: msg.messageId,
                                 interactiveId: msg.interactiveId,
                             });
-                            deliveryOk = Boolean(outboundText);
+                            deliveryOk = await this.tryResendStoredBuyerReply({
+                                companyId,
+                                customerPhone,
+                                messageId: msg.messageId,
+                                whatsappConfig: whatsappConfig,
+                                turnResult: actionResult.turnResult,
+                            });
                         }
                         if (pendingMsgId) {
                             await prisma_1.default.message.update({
@@ -1029,6 +1103,8 @@ class WhatsAppService {
                         },
                     });
                     processingSucceeded = true;
+                    buyerTypingSession?.stop();
+                    buyerTypingSession = null;
                     return {
                         status: 'processed',
                         companyId,
@@ -1056,6 +1132,9 @@ class WhatsAppService {
             }
             const { orchestrateWhatsAppBuyerTurn } = await Promise.resolve().then(() => __importStar(require('./whatsapp/whatsappTurnOrchestrator.service')));
             const buyerTurnStartedAt = Date.now();
+            if (!buyerTypingSession) {
+                buyerTypingSession = (0, whatsappPresence_service_1.startTypingDuringProcessing)(customerPhone, whatsappConfig, msg.messageId);
+            }
             const turnResult = await orchestrateWhatsAppBuyerTurn({
                 input: {
                     companyId,
@@ -1097,7 +1176,13 @@ class WhatsAppService {
                 let fallbackText;
                 if ((0, buyerVisitQuery_service_1.isBuyerVisitStatusQuery)(msg.messageText)) {
                     const { buildBuyerVisitStatusReply: bvsr } = await Promise.resolve().then(() => __importStar(require('./buyerVisitQuery.service')));
-                    fallbackText = await bvsr({ leadId: lead.id, companyId, companyName: company.name });
+                    fallbackText = await bvsr({
+                        leadId: lead.id,
+                        companyId,
+                        companyName: company.name,
+                        customerMessage: msg.messageText,
+                        leadLanguage: lead.language,
+                    });
                 }
                 else {
                     fallbackText = buildAiFallbackMessage({
@@ -1141,6 +1226,7 @@ class WhatsAppService {
                     turnResult,
                     conversationId: conversation.id,
                     leadId: lead.id,
+                    customerName: lead.customerName,
                     propagation,
                 };
             }
@@ -1176,8 +1262,21 @@ class WhatsAppService {
             });
         }
         if (pendingBuyerOutbound?.turnResult.text?.trim()) {
-            const { turnResult, conversationId } = pendingBuyerOutbound;
+            const { turnResult, conversationId, leadId, customerName } = pendingBuyerOutbound;
+            if ((0, safeBuyerFallback_util_1.shouldNotifyStaffForBuyerAiFailure)(turnResult.text ?? '')) {
+                const { notifyBuyerAiFailure } = await Promise.resolve().then(() => __importStar(require('./buyerAgentAssist.service')));
+                notifyBuyerAiFailure({
+                    companyId,
+                    leadId,
+                    conversationId,
+                    customerMessage: msg.messageText,
+                    detail: 'Buyer received AI failure fallback reply',
+                    customerName,
+                    customerPhone,
+                });
+            }
             const orchestratorClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(companyId, msg.messageId);
+            let outboundDelivered = false;
             if (orchestratorClaimed) {
                 const pacingStartedAt = Date.now();
                 await (0, whatsappPresence_service_1.simulateHumanReplyPacing)({
@@ -1195,6 +1294,7 @@ class WhatsAppService {
                 });
                 try {
                     await this.sendTurnResult(customerPhone, turnResult, whatsappConfig);
+                    outboundDelivered = true;
                     (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
                     await prisma_1.default.message.updateMany({
                         where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
@@ -1210,8 +1310,33 @@ class WhatsAppService {
                         where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
                         data: { status: 'failed' },
                     }).catch(() => undefined);
+                    await (0, inboundMessageGuard_service_1.releaseOutboundAiReply)(companyId, msg.messageId);
+                    await (0, inboundMessageGuard_service_1.releaseInboundMessageFull)(companyId, msg.messageId).catch(() => undefined);
                 }
             }
+            else {
+                logger_1.default.warn('Outbound dedup blocked — attempting transcript resend', {
+                    companyId,
+                    messageId: msg.messageId,
+                    conversationId,
+                });
+                outboundDelivered = await this.tryResendStoredBuyerReply({
+                    companyId,
+                    customerPhone,
+                    messageId: msg.messageId,
+                    whatsappConfig: whatsappConfig,
+                    turnResult,
+                });
+            }
+            buyerTypingSession?.stop();
+            buyerTypingSession = null;
+            if (!outboundDelivered && msg.messageId) {
+                await (0, inboundMessageGuard_service_1.releaseInboundMessageFull)(companyId, msg.messageId).catch(() => undefined);
+            }
+        }
+        else {
+            buyerTypingSession?.stop();
+            buyerTypingSession = null;
         }
         if (pendingBuyerOutbound) {
             return {
@@ -1221,6 +1346,60 @@ class WhatsAppService {
                 conversationId: pendingBuyerOutbound.conversationId,
                 propagation: pendingBuyerOutbound.propagation,
             };
+        }
+    }
+    /**
+     * Re-deliver a stored AI reply when inbound dedup blocked re-processing but WhatsApp never got the message.
+     */
+    async tryResendStoredBuyerReply(input) {
+        const inboundId = input.messageId?.trim();
+        if (!inboundId)
+            return false;
+        let text = input.turnResult?.text?.trim();
+        let components = input.turnResult?.components;
+        if (!text) {
+            const customerMsg = await prisma_1.default.message.findFirst({
+                where: { whatsappMessageId: inboundId },
+                select: { conversationId: true, createdAt: true },
+            });
+            if (!customerMsg)
+                return false;
+            const aiMsg = await prisma_1.default.message.findFirst({
+                where: {
+                    conversationId: customerMsg.conversationId,
+                    senderType: { in: ['ai', 'agent'] },
+                    createdAt: { gte: customerMsg.createdAt },
+                },
+                orderBy: { createdAt: 'asc' },
+                select: { content: true },
+            });
+            text = aiMsg?.content?.trim();
+            if (!text)
+                return false;
+        }
+        const outboundClaimed = await (0, inboundMessageGuard_service_1.claimOutboundAiReply)(input.companyId, inboundId);
+        if (!outboundClaimed)
+            return false;
+        try {
+            await this.sendTurnResult(input.customerPhone, {
+                audience: 'buyer',
+                handled: true,
+                terminal: true,
+                text,
+                components,
+                replyPacing: 'none',
+            }, input.whatsappConfig);
+            (0, opsMetrics_service_1.incrementOpsMetric)('whatsapp_outbound');
+            return true;
+        }
+        catch (err) {
+            logger_1.default.error('tryResendStoredBuyerReply failed', {
+                companyId: input.companyId,
+                messageId: inboundId,
+                error: err instanceof Error ? err.message : String(err),
+            });
+            await (0, inboundMessageGuard_service_1.releaseOutboundAiReply)(input.companyId, inboundId);
+            return false;
         }
     }
     /**
@@ -1927,10 +2106,13 @@ class WhatsAppService {
      */
     async sendContextualQuickReplies(to, stage, context, whatsappConfig) {
         let browseFilters = context.browseFilters;
+        const lang = context.leadLanguage
+            ? (await Promise.resolve().then(() => __importStar(require('../utils/buyerI18n.util')))).resolveBuyerLanguage({ leadLanguage: context.leadLanguage })
+            : 'en';
         if (!browseFilters && context.companyId) {
             const { getCompanyBrowseSnapshot, buildDiscoveryButtonSet } = await Promise.resolve().then(() => __importStar(require('./companyInventoryBrowse.service')));
             const snapshot = await getCompanyBrowseSnapshot(context.companyId);
-            browseFilters = buildDiscoveryButtonSet(snapshot);
+            browseFilters = buildDiscoveryButtonSet(snapshot, lang);
         }
         const components = (0, buyerButtonPolicy_service_1.resolveBuyerComponents)({
             stage,
@@ -1944,7 +2126,10 @@ class WhatsAppService {
             visitStatus: context.visitStatus,
             visitProperty: context.visitProperty,
             visitTime: context.visitTime,
+            visitPropertyProjectId: context.visitPropertyProjectId,
+            visitPropertyId: context.visitPropertyId,
             browseFilters,
+            language: lang,
         });
         await this.sendTurnComponents(to, components, whatsappConfig, context.outboundText);
     }

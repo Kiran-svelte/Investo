@@ -173,6 +173,9 @@ type BuyerCopyKey =
   | 'showing_listings_truncated'
   | 'visit_detail_confirmed_prefix'
   | 'visit_detail_scheduled_prefix'
+  | 'visit_browsing_other_confirmed_note'
+  | 'visit_browsing_other_scheduled_note'
+  | 'visit_browsing_other_date_only_note'
   | 'property_not_selected_yet'
   | 'property_no_longer_available'
   | 'browse_list_title'
@@ -963,6 +966,18 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   visit_detail_scheduled_prefix: langPack(
     'You already have a visit for *{property}* on {date} 🗓️',
     '*{property}* के लिए {date} की विज़िट पहले से है 🗓️',
+  ),
+  visit_browsing_other_confirmed_note: langPack(
+    'You\'re viewing *{viewing}*. Your confirmed visit is for *{booked}* on {date}.',
+    'आप *{viewing}* देख रहे हैं। आपकी पुष्ट विज़िट *{booked}* के लिए {date} को है।',
+  ),
+  visit_browsing_other_scheduled_note: langPack(
+    'You\'re viewing *{viewing}*. Your scheduled visit is for *{booked}* on {date}.',
+    'आप *{viewing}* देख रहे हैं। आपकी निर्धारित विज़िट *{booked}* के लिए {date} को है।',
+  ),
+  visit_browsing_other_date_only_note: langPack(
+    'You\'re viewing *{viewing}*. You have a visit on {date} — reply *Talk to agent* if you need the property name.',
+    'आप *{viewing}* देख रहे हैं। {date} को विज़िट है — संपत्ति का नाम चाहिए तो *Talk to agent* लिखें।',
   ),
   visit_pending_approval_prefix: langPack(
     'Your visit request for *{property}* on {date} is awaiting team approval ⏳',

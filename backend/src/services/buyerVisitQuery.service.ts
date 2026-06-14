@@ -16,7 +16,8 @@ function formatVisitWhen(date: Date): string {
   return formatDateIST(date);
 }
 
-const BUYER_VISIT_STATUS_PATTERN = /\b(any\s+visits?|visits?\s+(booked|scheduled|for\s+me|for\s+(?:today|tomorrow|this\s+week)|today|tomorrow|this\s+week|on\b)|(do\s+i|have\s+i|did\s+i)\s+(have\s+)?(any\s+)?(a\s+)?(visit|booking)s?|when\s+(is|was|am\s+i)\s+(my\s+)?(visit|site\s+visit|appointment|booking)|what\s+time\s+(am\s+i|is\s+my\s+visit)|my\s+visit\s+details?|show\s+(my\s+)?visits?|list\s+(my\s+)?visits?|get\s+(my\s+)?visits?|check\s+(my\s+)?visits?|visit\s+status|upcoming\s+visits?|booked\s+for\s+me)\b/i;
+const BUYER_VISIT_STATUS_PATTERN =
+  /\b(any\s+visits?|visits?\s+(booked|scheduled|for\s+me|for\s+(?:today|tomorrow|this\s+week)|today|tomorrow|this\s+week|on\b)|(do\s+i|have\s+i|did\s+i)\s+(have\s+)?(any\s+)?(a\s+)?(visit|booking)s?|when\s+(is|was|am\s+i)\s+(my\s+)?(visit|site\s+visit|appointment|booking)|what\s+time\s+(am\s+i|is\s+my\s+visit)|my\s+visit\s+details?|show\s+(my\s+)?visits?|list\s+(my\s+)?visits?|get\s+(my\s+)?visits?|check\s+(my\s+)?visits?|visit\s+status|upcoming\s+visits?|booked\s+for\s+me|(for\s+)?which\s+(property|unit|flat|apartment|listing|home)\s+(is\s+)?(my\s+)?(visit|site\s+visit|booking|appointment)|(what|which)\s+(property|unit|flat|apartment|listing)\s+(is\s+)?(my\s+visit|the\s+visit|my\s+booking|my\s+appointment)\b|(what|which)\s+(property|unit)\s+(am\s+i|is\s+my\s+visit|my\s+visit\s+is)\b|visit\s+(is\s+)?(scheduled|booked|confirmed|set)\s+for\s+(which|what)\b)\b/i;
 
 /** Buyer asking whether an existing visit is already set — not a new booking request. */
 const BUYER_EXISTING_VISIT_INQUIRY_PATTERN =

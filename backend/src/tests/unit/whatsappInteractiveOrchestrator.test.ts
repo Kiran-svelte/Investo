@@ -26,6 +26,23 @@ jest.mock('../../services/alternativeInventory.service', () => ({
   searchAlternativeTiers: jest.fn(async () => []),
 }));
 
+jest.mock('../../services/propertyKnowledge.service', () => ({
+  getPropertyKnowledgeForProperty: jest.fn(async () => []),
+}));
+
+jest.mock('../../services/propertyAiContext.service', () => {
+  const actual = jest.requireActual('../../services/propertyAiContext.service');
+  return {
+    ...actual,
+    enrichAiPropertiesFromKnowledge: jest.fn(async (_companyId: string, props: unknown[]) => props),
+  };
+});
+
+jest.mock('../../services/visitPendingApproval.service', () => ({
+  findPendingVisitApprovalForLead: jest.fn(async () => null),
+  createVisitApprovalRequest: jest.fn(),
+}));
+
 jest.mock('../../services/projectBrowse.service', () => ({
   companyUsesProjectBrowse: jest.fn(async () => false),
   listProjectsForBuyerBrowse: jest.fn(async () => []),
@@ -37,6 +54,14 @@ jest.mock('../../services/projectBrowse.service', () => ({
   resolveProjectBrochureMediaComponent: jest.fn(async () => null),
   resolveProjectHeroImageComponent: jest.fn(async () => null),
   formatProjectSelectedIntro: jest.fn(() => ''),
+  buildActiveVisitActionButtons: jest.fn(() => ({
+    kind: 'buttons',
+    buttons: [
+      { id: 'visit-reschedule', title: 'Change Time' },
+      { id: 'browse-projects', title: 'View Listings' },
+      { id: 'call-me', title: 'Call Agent' },
+    ],
+  })),
 }));
 
 jest.mock('../../services/companyInventoryBrowse.service', () => ({
@@ -188,5 +213,52 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     expect(result?.action).toBe('filter-duplicate-prevented');
     expect(result?.turnResult?.text).toContain('Great choice');
     expect(result?.turnResult?.replyPacing).toBe('none');
+  });
+
+  test('more-info with active visit for different property shows booked visit name not selected property', async () => {
+    const lakeVista = {
+      id: 'prop-lake',
+      name: 'Lake Vista 801',
+      companyId: 'co-1',
+      status: 'available',
+      priceMin: 13200000,
+      priceMax: 13800000,
+      propertyType: 'apartment',
+      bedrooms: 3,
+      locationArea: 'Sarjapur Road',
+      locationCity: 'Bengaluru',
+      builder: 'Sobha Limited',
+      reraNumber: 'PRM/KA/RERA/1251/446/PR/190618/002341',
+      brochureUrl: null,
+      projectId: 'proj-lake',
+      amenities: ['Lake view', 'Pool'],
+      description: 'Premium lake-facing unit',
+      extendedAttributes: {},
+    };
+    (prisma.property.findFirst as jest.Mock).mockImplementation(async (args: { where: { id?: string } }) => {
+      if (args.where.id === 'prop-lake') return lakeVista;
+      if (args.where.id === 'prop-sunset') return { id: 'prop-sunset', name: 'Sunset Heights 1102' };
+      return null;
+    });
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue({
+      id: 'visit-1',
+      propertyId: 'prop-sunset',
+      status: 'confirmed',
+      scheduledAt: new Date('2026-06-17T04:30:00.000Z'),
+      property: null,
+    });
+    (resolveHeroMediaComponentFromPropertyIds as jest.Mock).mockResolvedValue(null);
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'more-info-prop-lake',
+    });
+
+    expect(result?.action).toBe('more-info-sent');
+    const text = result?.turnResult?.text ?? '';
+    expect(text).toContain('Lake Vista 801');
+    expect(text).toContain('Sunset Heights 1102');
+    expect(text).not.toMatch(/Your visit for \*Lake Vista 801\* on .* is confirmed/i);
+    expect(text).toMatch(/confirmed visit is for \*Sunset Heights 1102\*/i);
   });
 });

@@ -185,6 +185,39 @@ export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssist
   });
 }
 
+export type NotifyBuyerAiFailureInput = {
+  companyId: string;
+  leadId: string;
+  conversationId?: string | null;
+  customerMessage?: string | null;
+  detail?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+};
+
+/**
+ * Notifies staff when the buyer AI could not respond or complete an action.
+ * Fire-and-forget — does not change conversation status.
+ */
+export function notifyBuyerAiFailure(input: NotifyBuyerAiFailureInput): void {
+  void notifyBuyerAgentAssistNeeded({
+    companyId: input.companyId,
+    leadId: input.leadId,
+    conversationId: input.conversationId,
+    reason: 'ai_action_blocked',
+    summary: 'Buyer AI could not respond — customer needs agent follow-up',
+    detail: input.detail ?? null,
+    customerMessage: input.customerMessage,
+    customerName: input.customerName,
+    customerPhone: input.customerPhone,
+  }).catch((err: unknown) => {
+    logger.warn('notifyBuyerAiFailure failed', {
+      leadId: input.leadId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
 /**
  * Clears auto-escalation state on a buyer conversation so AI resumes immediately.
  * Manual dashboard takeover (recent agent reply) is preserved by the caller.

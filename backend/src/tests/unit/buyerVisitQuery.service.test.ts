@@ -10,6 +10,8 @@ describe('buyerVisitQuery.service', () => {
     expect(isBuyerVisitStatusQuery('When is my visit?')).toBe(true);
     expect(isBuyerVisitStatusQuery('Do I have any visits?')).toBe(true);
     expect(isBuyerVisitStatusQuery('Show my visits')).toBe(true);
+    expect(isBuyerVisitStatusQuery('For which property my visit is scheduled for ?')).toBe(true);
+    expect(isBuyerVisitStatusQuery('Which property is my visit for?')).toBe(true);
     expect(isBuyerVisitStatusQuery('hello')).toBe(false);
   });
 

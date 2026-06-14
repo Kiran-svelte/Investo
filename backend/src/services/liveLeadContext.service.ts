@@ -151,7 +151,7 @@ export async function getLiveLeadContext(
 
     const toVisitContext = (v: (typeof lead.visits)[number]): ActiveVisitContext => ({
       visitId: v.id,
-      propertyId: v.property?.id ?? null,
+      propertyId: v.propertyId ?? v.property?.id ?? null,
       propertyName: v.property?.name ?? null,
       projectId: v.property?.projectId ?? null,
       status: v.status,

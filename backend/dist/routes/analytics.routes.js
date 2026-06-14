@@ -13,6 +13,7 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const redis_1 = require("../config/redis");
+const prismaEnum_util_1 = require("../utils/prismaEnum.util");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use((req, res, next) => {
@@ -249,8 +250,14 @@ router.get('/recent-leads', (0, rbac_1.authorize)('analytics', 'read'), async (r
             orderBy: { createdAt: 'desc' },
             take: 10,
         });
-        const data = leads.map(({ assignedAgent, ...l }) => ({
-            ...l,
+        const data = leads.map(({ assignedAgent, customerName, createdAt, propertyType, phone, status, source, id }) => ({
+            id,
+            customer_name: customerName,
+            phone,
+            status,
+            source,
+            created_at: createdAt instanceof Date ? createdAt.toISOString() : String(createdAt),
+            property_type: propertyType,
             agent_name: assignedAgent?.name || null,
         }));
         res.json({ data });
@@ -267,26 +274,23 @@ router.get('/recent-leads', (0, rbac_1.authorize)('analytics', 'read'), async (r
 router.get('/upcoming-visits', (0, rbac_1.authorize)('analytics', 'read'), async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
-        const where = {
+        const baseWhere = {
             companyId,
-            status: { in: ['pending_approval', 'scheduled', 'confirmed'] },
             scheduledAt: { gte: new Date() },
         };
         if (req.user.role === 'sales_agent') {
-            where.agentId = req.user.id;
+            baseWhere.agentId = req.user.id;
         }
-        const visits = await prisma_1.default.visit.findMany({
-            where,
-            select: {
-                id: true, scheduledAt: true, status: true, durationMinutes: true,
-                lead: { select: { customerName: true, phone: true } },
-                property: { select: { name: true, locationArea: true } },
-                agent: { select: { name: true } },
-            },
-            orderBy: { scheduledAt: 'asc' },
-            take: 10,
-        });
-        const data = visits.map(({ lead, property, agent, scheduledAt, durationMinutes, ...v }) => ({
+        const select = {
+            id: true,
+            scheduledAt: true,
+            status: true,
+            durationMinutes: true,
+            lead: { select: { customerName: true, phone: true } },
+            property: { select: { name: true, locationArea: true } },
+            agent: { select: { name: true } },
+        };
+        const mapVisitRows = (visits) => visits.map(({ lead, property, agent, scheduledAt, durationMinutes, ...v }) => ({
             id: v.id,
             status: v.status,
             scheduled_at: scheduledAt.toISOString(),
@@ -297,6 +301,36 @@ router.get('/upcoming-visits', (0, rbac_1.authorize)('analytics', 'read'), async
             location_area: property?.locationArea || null,
             agent_name: agent?.name || null,
         }));
+        let visits;
+        try {
+            visits = await prisma_1.default.visit.findMany({
+                where: {
+                    ...baseWhere,
+                    status: { in: [...prismaEnum_util_1.UPCOMING_VISIT_STATUSES_WITH_PENDING] },
+                },
+                select,
+                orderBy: { scheduledAt: 'asc' },
+                take: 10,
+            });
+        }
+        catch (err) {
+            if (!(0, prismaEnum_util_1.isInvalidPostgresEnumValueError)(err, 'pending_approval')) {
+                throw err;
+            }
+            logger_1.default.warn('VisitStatus.pending_approval missing — falling back to scheduled/confirmed only', {
+                companyId,
+            });
+            visits = await prisma_1.default.visit.findMany({
+                where: {
+                    ...baseWhere,
+                    status: { in: [...prismaEnum_util_1.UPCOMING_VISIT_STATUSES_LEGACY] },
+                },
+                select,
+                orderBy: { scheduledAt: 'asc' },
+                take: 10,
+            });
+        }
+        const data = mapVisitRows(visits);
         res.json({ data });
     }
     catch (err) {

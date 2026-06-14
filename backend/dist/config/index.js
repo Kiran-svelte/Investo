@@ -349,7 +349,7 @@ const config = {
         claudeApiKey: process.env.CLAUDE_API_KEY || '',
         claudeModel: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
         openaiApiKey: (process.env.OPENAI_API_KEY || '').trim(),
-        openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
+        openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
     },
     agentAi: {
@@ -376,7 +376,7 @@ const config = {
          */
         copilotEnabled: process.env.AGENT_AI_COPILOT_ENABLED !== 'false',
         provider: (process.env.AGENT_AI_PROVIDER || 'openai').toLowerCase(),
-        model: process.env.AGENT_AI_MODEL || 'gpt-4o',
+        model: process.env.AGENT_AI_MODEL || 'gpt-4o-mini',
         maxToolCalls: parseInt(process.env.AGENT_AI_MAX_TOOL_CALLS || '10', 10),
         threadTtlHours: parseInt(process.env.AGENT_AI_THREAD_TTL_HOURS || '24', 10),
         confirmationTtlMinutes: parseInt(process.env.AGENT_AI_CONFIRMATION_TTL_MINUTES || '5', 10),
@@ -508,8 +508,8 @@ const config = {
          * ON by default — set FEATURE_EXTENDED_PROPERTY_ATTRS=false to disable.
          */
         extendedPropertyAttrs: process.env.FEATURE_EXTENDED_PROPERTY_ATTRS !== 'false',
-        /** Bulk publish: enforce knowledge gate + rollback on index failure (I7/I8). */
-        bulkPublishStrict: process.env.FEATURE_BULK_PUBLISH_STRICT !== 'false',
+        /** Bulk publish: enforce knowledge gate + rollback on index failure (opt-in). */
+        bulkPublishStrict: process.env.FEATURE_BULK_PUBLISH_STRICT === 'true',
         /** Skip human mapping review for bulk/spreadsheet imports (I12). */
         bulkImportSkipReview: process.env.FEATURE_BULK_IMPORT_SKIP_REVIEW !== 'false',
         /** Staff copilot: vector searchPropertyKnowledge tool (T1). */

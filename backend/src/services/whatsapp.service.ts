@@ -51,7 +51,7 @@ import {
 } from './outboundTurnDebug.service';
 
 import { scheduleVisitFromWhatsApp } from './visitBooking.service';
-import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
+import { buildSafeBuyerFallback, shouldNotifyStaffForBuyerAiFailure } from '../utils/safeBuyerFallback.util';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { notifyAgentOfNewLead } from './leadAssignment.service';
 import { assignLeadWithRouting } from './leadRouting.service';
@@ -784,7 +784,13 @@ export class WhatsAppService {
     // the inbound claim on failure (to allow Meta's retry to succeed).
     let processingSucceeded = false;
     let pendingBuyerOutbound:
-      | { turnResult: TurnResult; conversationId: string; leadId: string; propagation: InboundPropagationResult }
+      | {
+          turnResult: TurnResult;
+          conversationId: string;
+          leadId: string;
+          customerName: string | null;
+          propagation: InboundPropagationResult;
+        }
       | undefined;
     let buyerTypingSession: TypingSession | null = null;
 
@@ -1440,6 +1446,7 @@ export class WhatsAppService {
         turnResult,
         conversationId: conversation.id,
         leadId: lead.id,
+        customerName: lead.customerName,
         propagation,
       };
     }
@@ -1475,7 +1482,19 @@ export class WhatsAppService {
     }
 
     if (pendingBuyerOutbound?.turnResult.text?.trim()) {
-      const { turnResult, conversationId } = pendingBuyerOutbound;
+      const { turnResult, conversationId, leadId, customerName } = pendingBuyerOutbound;
+      if (shouldNotifyStaffForBuyerAiFailure(turnResult.text ?? '')) {
+        const { notifyBuyerAiFailure } = await import('./buyerAgentAssist.service');
+        notifyBuyerAiFailure({
+          companyId,
+          leadId,
+          conversationId,
+          customerMessage: msg.messageText,
+          detail: 'Buyer received AI failure fallback reply',
+          customerName,
+          customerPhone,
+        });
+      }
       const orchestratorClaimed = await claimOutboundAiReply(companyId, msg.messageId);
       let outboundDelivered = false;
       if (orchestratorClaimed) {

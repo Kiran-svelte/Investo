@@ -46,6 +46,7 @@ const agent_action_log_service_1 = require("./agent-action-log.service");
 const dateTime_util_1 = require("../utils/dateTime.util");
 const featureRollout_util_1 = require("../utils/featureRollout.util");
 const featureShadow_util_1 = require("../utils/featureShadow.util");
+const buyerI18n_util_1 = require("../utils/buyerI18n.util");
 function isVisitEligibleForCustomerReminder(status, leadId) {
     if (status === 'confirmed')
         return true;
@@ -337,14 +338,25 @@ class AutomationService {
     nurtureMessage(lead, reason) {
         const name = lead.customerName || 'there';
         const area = lead.locationPreference || 'your preferred area';
-        const templates = {
-            '48h_no_activity': `Hi ${name}!\n\nWe noticed you were looking at properties with us. Have you found what you need?\n\nReply YES for fresh recommendations.`,
-            '3d_reengage': `Hi ${name}! Still exploring? I have new options that may fit your criteria in ${area}. Reply YES to see your top 3 matches.`,
-            '7d_urgency': `Hi ${name}! Quick update: demand in ${area} has been strong. If you're still interested, I can hold a visit slot this week. Reply VISIT to book.`,
-            '30d_reengage': `Hi ${name}! It's been a while. Want a quick update on what is available now in ${area}? Reply YES and I will share it.`,
-            visit_post_feedback: `Hi ${name}!\n\nHow was your site visit yesterday? Reply with your feedback: loved it, need more options, or want to negotiate.`,
-        };
-        return templates[reason] || templates['48h_no_activity'];
+        const lang = (0, buyerI18n_util_1.resolveBuyerLanguage)({ leadLanguage: lead.language });
+        return (0, buyerI18n_util_1.nurtureMessageForReason)(lang, reason, { name, area });
+    }
+    async hadRecentWhatsAppActivity(leadId, withinMs = 2 * 60 * 60 * 1000) {
+        const conversation = await prisma_1.default.conversation.findFirst({
+            where: { leadId },
+            orderBy: { updatedAt: 'desc' },
+            select: { id: true },
+        });
+        if (!conversation)
+            return false;
+        const lastMessage = await prisma_1.default.message.findFirst({
+            where: { conversationId: conversation.id },
+            orderBy: { createdAt: 'desc' },
+            select: { createdAt: true },
+        });
+        if (!lastMessage?.createdAt)
+            return false;
+        return Date.now() - lastMessage.createdAt.getTime() < withinMs;
     }
     async sendFollowUpMessage(lead, reason) {
         try {
@@ -359,6 +371,13 @@ class AutomationService {
                     });
                     return;
                 }
+            }
+            if (await this.hadRecentWhatsAppActivity(lead.id)) {
+                logger_1.default.debug('Follow-up suppressed — buyer had recent WhatsApp activity', {
+                    leadId: lead.id,
+                    reason,
+                });
+                return;
             }
             const message = this.nurtureMessage(lead, reason);
             if (!lead.phone) {
