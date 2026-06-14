@@ -4,6 +4,7 @@ jest.mock('../../services/storage.service', () => ({
   storageService: {
     getPresignedDownloadUrl: jest.fn(async (ref: string) => `https://signed.example/${encodeURIComponent(ref)}`),
   },
+  storageUrlRequiresPresignedAccess: (url: string) => /amazonaws\.com|\.s3\./i.test(url),
 }));
 
 describe('resolveFirstPropertyHeroMediaComponent', () => {
@@ -22,5 +23,14 @@ describe('resolveFirstPropertyHeroMediaComponent', () => {
 
   it('returns null when images array is empty', async () => {
     expect(await resolveFirstPropertyHeroMediaComponent({ images: [] })).toBeNull();
+  });
+
+  it('does not send raw private S3 URLs when presign fails', async () => {
+    const { storageService } = await import('../../services/storage.service');
+    (storageService.getPresignedDownloadUrl as jest.Mock).mockRejectedValueOnce(new Error('denied'));
+    const media = await resolveFirstPropertyHeroMediaComponent({
+      images: ['https://biginvesto.s3.eu-north-1.amazonaws.com/investo/companies/x/properties/y/image/photo.jpg'],
+    });
+    expect(media).toBeNull();
   });
 });

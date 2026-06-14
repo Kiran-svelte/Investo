@@ -2518,9 +2518,21 @@ export class WhatsAppService {
     // Media-only turn (e.g. brochure PDF as the sole payload)
     if (!hasText && media?.kind === 'media' && media.url) {
       if (media.mime.startsWith('image/')) {
-        await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig).catch(() => undefined);
+        const imgResult = await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig);
+        if (!imgResult.success) {
+          logger.warn('WhatsApp sendImage failed (media-only turn)', {
+            error: imgResult.error,
+            urlPrefix: media.url.slice(0, 80),
+          });
+        }
       } else {
-        await this.sendDocument(to, media.url, 'document.pdf', media.caption ?? null, whatsappConfig).catch(() => undefined);
+        const docResult = await this.sendDocument(to, media.url, 'document.pdf', media.caption ?? null, whatsappConfig);
+        if (!docResult.success) {
+          logger.warn('WhatsApp sendDocument failed (media-only turn)', {
+            error: docResult.error,
+            urlPrefix: media.url.slice(0, 80),
+          });
+        }
       }
       return;
     }
@@ -2531,9 +2543,21 @@ export class WhatsAppService {
       for (const media of mediaItems) {
         if (!media.url) continue;
         if (media.mime.startsWith('image/')) {
-          await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig).catch(() => undefined);
+          const imgResult = await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig);
+          if (!imgResult.success) {
+            logger.warn('WhatsApp sendImage failed in turn', {
+              error: imgResult.error,
+              urlPrefix: media.url.slice(0, 80),
+            });
+          }
         } else {
-          await this.sendDocument(to, media.url, 'brochure.pdf', media.caption ?? null, whatsappConfig).catch(() => undefined);
+          const docResult = await this.sendDocument(to, media.url, 'brochure.pdf', media.caption ?? null, whatsappConfig);
+          if (!docResult.success) {
+            logger.warn('WhatsApp sendDocument failed in turn', {
+              error: docResult.error,
+              urlPrefix: media.url.slice(0, 80),
+            });
+          }
         }
       }
       await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);

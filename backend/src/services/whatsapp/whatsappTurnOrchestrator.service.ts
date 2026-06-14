@@ -23,7 +23,7 @@ import {
 } from '../visitIntentFromMessage.service';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
 import { buildSafeBuyerFallback } from '../../utils/safeBuyerFallback.util';
-import { resolveFirstPropertyHeroMediaComponent } from '../brochureDelivery.service';
+import { resolveFirstPropertyHeroMediaComponent, resolveHeroMediaForBuyerTurn } from '../brochureDelivery.service';
 import {
   buildAdvancedReturningReply,
   buildPostVisitWelcomeReply,
@@ -168,18 +168,7 @@ export async function resolveHeroMediaComponentFromPropertyIds(
   companyId: string,
   propertyIds: string[],
 ): Promise<WhatsAppComponent | undefined> {
-  if (!propertyIds.length) return undefined;
-
-  const prop = await prisma.property.findFirst({
-    where: { companyId, id: propertyIds[0] },
-    select: { id: true, name: true, images: true },
-  });
-  if (!prop) return undefined;
-
-  const media = await resolveFirstPropertyHeroMediaComponent({
-    images: prop.images,
-    caption: prop.name,
-  });
+  const media = await resolveHeroMediaForBuyerTurn({ companyId, propertyIds });
   return media ?? undefined;
 }
 
@@ -1773,15 +1762,24 @@ async function handleFullAiTurn(
     }),
   });
 
-  const heroMedia = resolveHeroMediaComponent(
-    properties,
-    brochureResolution,
-    aiResponse.newState?.stage ?? conversationState.stage,
-  );
+  const heroPropertyIds = [
+    ...new Set([
+      ...(resolvedPropertyId ? [resolvedPropertyId] : []),
+      ...(componentPropertyId ? [componentPropertyId] : []),
+      ...properties.map((p) => p.id),
+    ]),
+  ].filter(Boolean);
+
+  const heroMediaComponent = await resolveHeroMediaForBuyerTurn({
+    companyId: ctx.companyId,
+    propertyIds: heroPropertyIds,
+    brochureMedia: brochureResolution.mediaComponent,
+    stage: aiResponse.newState?.stage ?? conversationState.stage,
+  });
 
   const components = enforceTurnComponentBudget([
     ...interactiveComponents,
-    ...(heroMedia ? [heroMedia] : []),
+    ...(heroMediaComponent ? [heroMediaComponent] : []),
   ]);
 
   fireMemoryExtraction({
@@ -1797,7 +1795,7 @@ async function handleFullAiTurn(
     conversationId: ctx.input.conversationId,
     stage: aiResponse.newState?.stage,
     action: aiResponse.nextAction?.action,
-    hasMedia: Boolean(heroMedia),
+    hasMedia: Boolean(heroMediaComponent),
   });
 
   return {

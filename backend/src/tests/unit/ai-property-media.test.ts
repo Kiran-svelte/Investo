@@ -53,10 +53,9 @@ describe('Hero media component (one-outbound-per-turn)', () => {
       });
     });
 
-    it('returns undefined for rapport stage', () => {
-      expect(
-        resolveHeroMediaComponent([mockProperty], { mediaComponent: null }, 'rapport'),
-      ).toBeUndefined();
+    it('returns hero image for rapport stage when no brochure', () => {
+      const result = resolveHeroMediaComponent([mockProperty], { mediaComponent: null }, 'rapport');
+      expect(result?.kind).toBe('media');
     });
 
     it('returns undefined when no https images', () => {
@@ -66,14 +65,15 @@ describe('Hero media component (one-outbound-per-turn)', () => {
   });
 
   describe('enforceTurnComponentBudget', () => {
-    it('prefers interactive over separate media bubble', () => {
+    it('keeps hero media with interactive buttons in one turn', () => {
       const result = enforceTurnComponentBudget([
         { kind: 'buttons', buttons: [{ id: 'a', title: 'A' }] },
         { kind: 'media', url: 'https://x.jpg', mime: 'image/jpeg' },
         { kind: 'buttons', buttons: [{ id: 'b', title: 'B' }] },
       ]);
-      expect(result).toHaveLength(1);
-      expect(result[0].kind).toBe('buttons');
+      expect(result).toHaveLength(2);
+      expect(result.some((c) => c.kind === 'media')).toBe(true);
+      expect(result.some((c) => c.kind === 'buttons')).toBe(true);
     });
   });
 

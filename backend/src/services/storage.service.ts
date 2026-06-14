@@ -249,7 +249,12 @@ export function isR2StorageConfigured(): boolean {
   }
 }
 
-class StorageService {
+/** True when Meta cannot fetch the URL without a presigned GET (private object storage). */
+export function storageUrlRequiresPresignedAccess(url: string): boolean {
+  return /amazonaws\.com|\.s3\.|cloudflarestorage\.com|X-Amz-|AWSAccessKeyId=/i.test(url);
+}
+
+export class StorageService {
   private awsClient: S3Client | null = null;
   private r2Client: S3Client | null = null;
 
@@ -320,24 +325,45 @@ class StorageService {
   }
 
   /**
-   * Presigned GET for WhatsApp/Meta document fetch (works with private buckets).
+   * Presigned GET for WhatsApp/Meta media fetch (works with private AWS S3 / R2 buckets).
    */
   async getPresignedDownloadUrl(reference: string, expiresInSeconds = 3600): Promise<string> {
-    const objectKey = extractAwsObjectKeyFromReference(reference);
-    if (!objectKey) {
-      throw new Error('Could not resolve S3 object key for download');
+    const trimmed = reference.trim();
+    if (!trimmed) {
+      throw new Error('Empty storage reference');
     }
 
-    ensureAwsConfig();
-    const url = await getSignedUrl(
-      this.getAwsClient(),
-      new GetObjectCommand({
-        Bucket: config.storage.awsBucket!,
-        Key: objectKey,
-      }),
-      { expiresIn: expiresInSeconds },
-    );
-    return url;
+    const awsKey = extractAwsObjectKeyFromReference(trimmed);
+    if (awsKey && isAwsStorageConfigured()) {
+      ensureAwsConfig();
+      return getSignedUrl(
+        this.getAwsClient(),
+        new GetObjectCommand({
+          Bucket: config.storage.awsBucket!,
+          Key: awsKey,
+        }),
+        { expiresIn: expiresInSeconds },
+      );
+    }
+
+    const r2Key = parseR2StorageKey(trimmed);
+    if (r2Key && isR2StorageConfigured()) {
+      ensureR2Config();
+      return getSignedUrl(
+        this.getR2Client(),
+        new GetObjectCommand({
+          Bucket: config.storage.r2Bucket!,
+          Key: r2Key,
+        }),
+        { expiresIn: expiresInSeconds },
+      );
+    }
+
+    if (trimmed.startsWith('https://') && !storageUrlRequiresPresignedAccess(trimmed)) {
+      return trimmed;
+    }
+
+    throw new Error('Could not resolve object storage key for download');
   }
 
   private getR2PublicUrl(key: string): string {

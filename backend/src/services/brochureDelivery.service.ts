@@ -1,6 +1,6 @@
 import logger from '../config/logger';
-import { storageService } from './storage.service';
-import { extractAwsObjectKeyFromReference } from './storageTargets';
+import prisma from '../config/prisma';
+import { storageService, storageUrlRequiresPresignedAccess } from './storage.service';
 import type { WhatsAppService } from './whatsapp.service';
 import type { CompanyWhatsAppConfig } from './whatsapp.service';
 
@@ -36,6 +36,37 @@ export async function resolvePropertyImageUrlForWhatsApp(storedUrl: string): Pro
   return resolveBrochureUrlForWhatsApp(storedUrl);
 }
 
+function imageMimeFromUrl(url: string): string {
+  if (/\.webp(?:\?|$)/i.test(url)) return 'image/webp';
+  if (/\.png(?:\?|$)/i.test(url)) return 'image/png';
+  if (/\.gif(?:\?|$)/i.test(url)) return 'image/gif';
+  return 'image/jpeg';
+}
+
+/** Normalize property.images JSON — strings, aws:// keys, or { url } objects. */
+export function extractPropertyImageUrls(images: unknown): string[] {
+  if (!Array.isArray(images)) return [];
+
+  const out: string[] = [];
+  for (const raw of images) {
+    if (typeof raw === 'string' && raw.trim()) {
+      out.push(raw.trim());
+      continue;
+    }
+    if (raw && typeof raw === 'object' && 'url' in raw) {
+      const url = (raw as { url?: unknown }).url;
+      if (typeof url === 'string' && url.trim()) {
+        out.push(url.trim());
+      }
+    }
+  }
+  return out;
+}
+
+function isDirectFetchablePublicUrl(url: string): boolean {
+  return url.startsWith('https://') && !storageUrlRequiresPresignedAccess(url);
+}
+
 export type WhatsAppMediaComponent = {
   kind: 'media';
   url: string;
@@ -48,21 +79,89 @@ export async function resolveFirstPropertyHeroMediaComponent(input: {
   images: unknown;
   caption?: string;
 }): Promise<WhatsAppMediaComponent | null> {
-  if (!Array.isArray(input.images)) return null;
+  const candidates = extractPropertyImageUrls(input.images);
+  if (!candidates.length) return null;
 
-  for (const raw of input.images) {
-    if (typeof raw !== 'string' || !raw.trim()) continue;
-
-    const presigned = await resolvePropertyImageUrlForWhatsApp(raw);
-    if (presigned) {
-      const mime = /\.png(?:\?|$)/i.test(raw) ? 'image/png' : 'image/jpeg';
-      return { kind: 'media', url: presigned, mime, caption: input.caption };
+  for (const raw of candidates) {
+    try {
+      const presigned = await resolvePropertyImageUrlForWhatsApp(raw);
+      if (presigned) {
+        return {
+          kind: 'media',
+          url: presigned,
+          mime: imageMimeFromUrl(raw),
+          caption: input.caption,
+        };
+      }
+    } catch (err: unknown) {
+      logger.warn('Hero image presign failed', {
+        urlPrefix: raw.slice(0, 80),
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
-    if (raw.startsWith('https://')) {
-      const mime = /\.png(?:\?|$)/i.test(raw) ? 'image/png' : 'image/jpeg';
-      return { kind: 'media', url: raw, mime, caption: input.caption };
+    if (isDirectFetchablePublicUrl(raw)) {
+      return {
+        kind: 'media',
+        url: raw,
+        mime: imageMimeFromUrl(raw),
+        caption: input.caption,
+      };
     }
+  }
+
+  return null;
+}
+
+/** Resolve hero image for a buyer turn — presigned, stage-aware, focused property first. */
+export async function resolveHeroMediaForBuyerTurn(input: {
+  companyId: string;
+  propertyIds: string[];
+  brochureMedia?: WhatsAppMediaComponent | null;
+  stage?: string;
+}): Promise<WhatsAppMediaComponent | null> {
+  if (input.brochureMedia) return input.brochureMedia;
+
+  const mediaStages = new Set([
+    'rapport',
+    'qualify',
+    'shortlist',
+    'commitment',
+    'confirmation',
+    'visit_booking',
+  ]);
+  if (input.stage && !mediaStages.has(input.stage) && input.propertyIds.length === 0) {
+    return null;
+  }
+
+  const seen = new Set<string>();
+  for (const propertyId of input.propertyIds) {
+    if (!propertyId || seen.has(propertyId)) continue;
+    seen.add(propertyId);
+
+    const prop = await prisma.property.findFirst({
+      where: { id: propertyId, companyId: input.companyId },
+      select: { id: true, name: true, images: true, extendedAttributes: true },
+    });
+    if (!prop) continue;
+
+    const imageRefs = extractPropertyImageUrls(prop.images);
+    const heroFromExtended =
+      prop.extendedAttributes
+      && typeof prop.extendedAttributes === 'object'
+      && !Array.isArray(prop.extendedAttributes)
+      && typeof (prop.extendedAttributes as Record<string, unknown>).hero_image_url === 'string'
+        ? String((prop.extendedAttributes as Record<string, unknown>).hero_image_url).trim()
+        : '';
+    if (heroFromExtended && !imageRefs.includes(heroFromExtended)) {
+      imageRefs.unshift(heroFromExtended);
+    }
+
+    const media = await resolveFirstPropertyHeroMediaComponent({
+      images: imageRefs,
+      caption: prop.name,
+    });
+    if (media) return media;
   }
 
   return null;
