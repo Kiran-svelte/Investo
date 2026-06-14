@@ -139,6 +139,10 @@ export type BuyerTurnInput = {
   conversationSelectedPropertyId: string | null;
   conversationProposedVisitTime: Date | null;
   conversationRecommendedPropertyIds: readonly string[];
+  /** Raw commitments JSON — used by focus stack (Chunk 02). */
+  conversationCommitments?: unknown;
+  /** Focus model when FEATURE_BUYER_FOCUS_STACK is ON. */
+  conversationFocus?: import('../services/buyer/buyerConversationFocus.service').BuyerConversationFocus;
   conversationStage: string;
   /** True when conversation.status === 'agent_active' || !conversation.aiEnabled */
   humanTakeover: boolean;

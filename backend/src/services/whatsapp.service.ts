@@ -1368,6 +1368,7 @@ export class WhatsAppService {
           conversationSelectedPropertyId: conversation.selectedPropertyId,
           conversationProposedVisitTime: conversation.proposedVisitTime,
           conversationRecommendedPropertyIds: (conversation.recommendedPropertyIds ?? []) as string[],
+          conversationCommitments: conversation.commitments,
           conversationStage: conversationState.stage,
           humanTakeover:
             conversation.status === 'agent_active' && conversation.aiEnabled === false,

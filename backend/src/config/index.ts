@@ -570,6 +570,8 @@ const config = {
     skipVectorOnDegradedEmbeddings: process.env.FEATURE_SKIP_VECTOR_ON_DEGRADED_EMBEDDINGS !== 'false',
     /** Multi-visit live context registry — upcomingVisits[] + multi-visit prompt (Chunk 01). */
     multiVisitContext: process.env.FEATURE_MULTI_VISIT_CONTEXT === 'true',
+    /** Conversation focus stack — project + property memory (Chunk 02). */
+    buyerFocusStack: process.env.FEATURE_BUYER_FOCUS_STACK === 'true',
   },
 };
 

@@ -74,6 +74,11 @@ import {
   buildDiscoveryButtonSet,
   getCompanyBrowseSnapshot,
 } from '../companyInventoryBrowse.service';
+import {
+  logBuyerFocusUpdated,
+  patchBuyerConversationFocus,
+  readBuyerConversationFocus,
+} from '../buyer/buyerConversationFocus.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -1712,11 +1717,43 @@ async function handleFullAiTurn(
   }
 
   if (propertyContextPatch.recommendedPropertyIds?.length) {
+    const focusPatch = config.features.buyerFocusStack
+      ? patchBuyerConversationFocus(
+        ctx.input.conversationFocus ?? readBuyerConversationFocus({
+          selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+          recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
+          commitments: ctx.input.conversationCommitments,
+        }),
+        {
+          focusedPropertyId: propertyContextPatch.selectedPropertyId ?? undefined,
+          recommendedPropertyIds: propertyContextPatch.recommendedPropertyIds,
+        },
+      )
+      : null;
+
+    if (focusPatch) {
+      ctx.input.conversationFocus = focusPatch.focus;
+      logBuyerFocusUpdated({ conversationId: ctx.input.conversationId, focus: focusPatch.focus });
+    }
+
     await prisma.conversation.update({
       where: { id: ctx.input.conversationId },
       data: {
-        recommendedPropertyIds: propertyContextPatch.recommendedPropertyIds,
-        selectedPropertyId: propertyContextPatch.selectedPropertyId ?? null,
+        recommendedPropertyIds: focusPatch?.columnPatch.recommendedPropertyIds
+          ?? propertyContextPatch.recommendedPropertyIds,
+        selectedPropertyId: focusPatch?.columnPatch.selectedPropertyId !== undefined
+          ? focusPatch.columnPatch.selectedPropertyId
+          : propertyContextPatch.selectedPropertyId ?? null,
+        ...(focusPatch
+          ? {
+            commitments: {
+              ...(typeof ctx.input.conversationCommitments === 'object' && ctx.input.conversationCommitments
+                ? ctx.input.conversationCommitments as object
+                : {}),
+              ...focusPatch.commitmentsPatch,
+            } as unknown as Prisma.InputJsonValue,
+          }
+          : {}),
       },
     });
   }
@@ -2037,6 +2074,46 @@ async function persistNewConversationState(
 
   const shouldNotifyAgents = aiResponse.nextAction?.action === 'escalate';
 
+  let focusColumnPatch: {
+    selectedPropertyId?: string | null;
+    recommendedPropertyIds?: string[];
+  } = {};
+  let focusCommitmentsPatch: Record<string, unknown> = {};
+  if (config.features.buyerFocusStack) {
+    const current = ctx.input.conversationFocus ?? readBuyerConversationFocus({
+      selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+      recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
+      commitments: ctx.input.conversationCommitments,
+    });
+    const hasPropertyUpdate = newState.selectedPropertyId !== undefined
+      || (Array.isArray(newState.recommendedProperties) && newState.recommendedProperties.length > 0);
+    if (hasPropertyUpdate) {
+      const { focus, commitmentsPatch, columnPatch } = patchBuyerConversationFocus(current, {
+        focusedPropertyId: newState.selectedPropertyId ?? current.focusedPropertyId,
+        recommendedPropertyIds: Array.isArray(newState.recommendedProperties)
+          ? (newState.recommendedProperties as string[])
+          : undefined,
+      });
+      ctx.input.conversationFocus = focus;
+      focusColumnPatch = columnPatch;
+      focusCommitmentsPatch = commitmentsPatch;
+      logBuyerFocusUpdated({ conversationId: ctx.input.conversationId, focus });
+    }
+  }
+  const stateCommitments =
+    newState.commitments && typeof newState.commitments === 'object'
+      ? newState.commitments as Record<string, unknown>
+      : {};
+  const existingCommitments =
+    config.features.buyerFocusStack
+      && ctx.input.conversationCommitments
+      && typeof ctx.input.conversationCommitments === 'object'
+      ? ctx.input.conversationCommitments as Record<string, unknown>
+      : {};
+  const mergedCommitments = config.features.buyerFocusStack
+    ? { ...existingCommitments, ...stateCommitments, ...focusCommitmentsPatch }
+    : stateCommitments;
+
   await prisma.conversation.update({
     where: { id: ctx.input.conversationId },
     data: {
@@ -2045,18 +2122,28 @@ async function persistNewConversationState(
       stage: newState.stage,
       stageEnteredAt: newState.stageEnteredAt,
       stageMessageCount: newState.messageCount,
-      commitments: newState.commitments as unknown as Prisma.InputJsonValue,
+      commitments: mergedCommitments as unknown as Prisma.InputJsonValue,
       objectionCount: newState.objectionCount,
       lastObjectionType: newState.lastObjectionType,
       consecutiveObjections: newState.consecutiveObjections,
       urgencyScore: newState.urgencyScore,
       valueScore: newState.valueScore,
       escalationReason: shouldNotifyAgents ? (aiResponse.nextAction?.escalationReason ?? newState.escalationReason) : null,
-      recommendedPropertyIds: newState.recommendedProperties as string[],
-      selectedPropertyId: newState.selectedPropertyId,
+      recommendedPropertyIds: focusColumnPatch.recommendedPropertyIds
+        ?? (newState.recommendedProperties as string[]),
+      selectedPropertyId: focusColumnPatch.selectedPropertyId !== undefined
+        ? focusColumnPatch.selectedPropertyId
+        : newState.selectedPropertyId,
       proposedVisitTime: newState.proposedVisitTime,
     },
   });
+  ctx.input.conversationCommitments = mergedCommitments;
+  if (focusColumnPatch.selectedPropertyId !== undefined) {
+    ctx.input.conversationSelectedPropertyId = focusColumnPatch.selectedPropertyId;
+  }
+  if (focusColumnPatch.recommendedPropertyIds) {
+    ctx.input.conversationRecommendedPropertyIds = focusColumnPatch.recommendedPropertyIds;
+  }
 
   await syncLeadScoreFromConversation(ctx.input.leadId, newState.urgencyScore, newState.valueScore);
 
@@ -2164,6 +2251,17 @@ export async function orchestrateWhatsAppBuyerTurn(
   conversationState: ConversationState,
 ): Promise<TurnResult> {
   let activeState = conversationState;
+
+  const conversationFocus = readBuyerConversationFocus({
+    selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+    recommendedPropertyIds: ctx.input.conversationRecommendedPropertyIds,
+    commitments: ctx.input.conversationCommitments ?? conversationState.commitments,
+  });
+  ctx.input.conversationFocus = conversationFocus;
+  if (config.features.buyerFocusStack) {
+    ctx.input.conversationSelectedPropertyId = conversationFocus.focusedPropertyId;
+  }
+
   const browseLang = resolveBuyerLanguage({
     message: ctx.input.messageText,
     leadLanguage: ctx.input.leadLanguage,
