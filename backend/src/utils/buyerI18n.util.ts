@@ -136,6 +136,8 @@ type BuyerCopyKey =
   | 'visit_status_single_footer'
   | 'visit_status_multi_header'
   | 'visit_status_multi_footer'
+  | 'visit_disambiguate_prompt'
+  | 'visit_disambiguate_option'
   | 'nurture_48h'
   | 'nurture_3d'
   | 'nurture_7d'
@@ -239,7 +241,12 @@ type BuyerCopyKey =
   | 'interactive_visit_no_agent'
   | 'interactive_visit_confirmed_change'
   | 'interactive_generic_slot_no_property'
-  | 'greeting_hindi_followup';
+  | 'greeting_hindi_followup'
+  | 'out_of_scope_property_clarify'
+  | 'scoped_browse_offer'
+  | 'second_visit_cross_project_confirm'
+  | 'second_visit_allowed_note'
+  | 'visit_same_property_already';
 
 type CopyVars = Record<string, string | number | null | undefined>;
 
@@ -798,6 +805,32 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     pa: 'Property name naal visit *Confirm*, *Reschedule*, ya *Cancel* karo.',
     or: 'Property name lekhiki visit *Confirm*, *Reschedule*, ba *Cancel* karantu.',
   },
+  visit_disambiguate_prompt: {
+    en: 'You have {count} upcoming visits:\n{options}\nReply 1 or 2, or name the project.',
+    hi: 'Aapki {count} upcoming visits hain:\n{options}\n1 ya 2 reply karein, ya project ka naam likhein.',
+    kn: 'Nimge {count} upcoming visits ide:\n{options}\n1 athava 2 reply maadi, athava project hesaru helisi.',
+    te: 'Mee {count} upcoming visits unnayi:\n{options}\n1 leda 2 reply cheyandi, leda project peru cheppandi.',
+    ta: 'Ungal {count} upcoming visits irukku:\n{options}\n1 or 2 reply pannunga, illa project peyar sollunga.',
+    ml: 'Ninak {count} upcoming visits undu:\n{options}\n1 atho 2 reply cheyyuka, atho project peru parayuka.',
+    mr: 'Tumchya {count} upcoming visits aahet:\n{options}\n1 kiva 2 reply kara, kiva project nav sangaa.',
+    bn: 'Apnar {count} upcoming visits ache:\n{options}\n1 ba 2 reply korun, ba project er naam likhun.',
+    gu: 'Tamari {count} upcoming visits che:\n{options}\n1 ke 2 reply karo, ke project nu naam lakho.',
+    pa: 'Tuhadiyan {count} upcoming visits han:\n{options}\n1 ya 2 reply karo, ya project da naam likho.',
+    or: 'Apananka {count} upcoming visits achhi:\n{options}\n1 ba 2 reply karantu, ba project ra naam lekhantu.',
+  },
+  visit_disambiguate_option: {
+    en: '{index}. {property} — {when} ({status})',
+    hi: '{index}. {property} — {when} ({status})',
+    kn: '{index}. {property} — {when} ({status})',
+    te: '{index}. {property} — {when} ({status})',
+    ta: '{index}. {property} — {when} ({status})',
+    ml: '{index}. {property} — {when} ({status})',
+    mr: '{index}. {property} — {when} ({status})',
+    bn: '{index}. {property} — {when} ({status})',
+    gu: '{index}. {property} — {when} ({status})',
+    pa: '{index}. {property} — {when} ({status})',
+    or: '{index}. {property} — {when} ({status})',
+  },
   nurture_48h: {
     en: 'Hi {name}!\n\nWe noticed you were looking at properties with us. Have you found what you need?\n\nReply YES for fresh recommendations.',
     hi: 'Hi {name}!\n\nHumne dekha aap properties dekh rahe the. Kya aapko mil gaya jo chahiye tha?\n\nFresh recommendations ke liye YES likhein.',
@@ -1175,6 +1208,26 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   interactive_generic_slot_no_property: langPack(
     "Which property would you like to visit? Share the project name and I'll get you some time slots.",
     'Kaun si property visit karni hai? Project ka naam batayein — time slots bhejunga.',
+  ),
+  out_of_scope_property_clarify: langPack(
+    'I want to stay accurate — which property did you mean?',
+    'Sahi jaankari ke liye — aap kis property ki baat kar rahe hain?',
+  ),
+  scoped_browse_offer: langPack(
+    'I can share details on the options we discussed. Tap Browse Projects to see all.',
+    'Main discuss ki gayi options share kar sakta hoon. Sab dekhne ke liye Browse Projects tap karein.',
+  ),
+  second_visit_cross_project_confirm: langPack(
+    'You already have a visit for *{existingProperty}*. Book a second visit for *{targetProperty}*?',
+    'Aapki *{existingProperty}* ki visit pehle se hai. *{targetProperty}* ki second visit book karein?',
+  ),
+  second_visit_allowed_note: langPack(
+    'Note: You also have a visit for *{otherProperty}* on *{date}*.',
+    'Note: *{otherProperty}* ki visit *{date}* par bhi booked hai.',
+  ),
+  visit_same_property_already: langPack(
+    'You already have a visit booked for this property. Use Change Time if you want a different slot.',
+    'Is property ki visit pehle se booked hai. Slot badalne ke liye Change Time use karein.',
   ),
   greeting_hindi_followup: langPack(
     '\n\n*Namaste{name}!* 🙏\n\n*{company}* mein aapka swagat hai — aap bilkul sahi jagah aaye hain. 🏡\n\nAap kis area mein ghar dekhna chahte hain, aur budget roughly kitna hai?',

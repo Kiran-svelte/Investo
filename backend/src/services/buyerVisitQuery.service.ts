@@ -4,6 +4,7 @@
  */
 
 import prisma from '../config/prisma';
+import config from '../config';
 import { formatDateIST } from './agent/tools/format-helpers';
 import {
   tBuyer,
@@ -125,6 +126,22 @@ export async function buildBuyerVisitStatusReply(input: {
       '',
       tBuyer(lang, 'visit_status_single_footer'),
     ].join('\n');
+  }
+
+  if (upcoming.length > 1 && config.features.visitDisambiguation) {
+    const options = upcoming.map((v, i) =>
+      tBuyer(lang, 'visit_disambiguate_option', {
+        index: String(i + 1),
+        property: v.property?.name ?? 'Property TBD',
+        when: formatVisitWhen(v.scheduledAt),
+        status: statusLabel(v.status, lang),
+      }),
+    ).join('\n');
+
+    return tBuyer(lang, 'visit_disambiguate_prompt', {
+      count: String(upcoming.length),
+      options,
+    });
   }
 
   const lines = upcoming.map((v, i) => {
