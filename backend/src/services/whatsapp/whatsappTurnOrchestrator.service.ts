@@ -33,6 +33,7 @@ import {
 import { isFeatureEnabledForLead } from '../../utils/featureRollout.util';
 import { shadowCompare } from '../../utils/featureShadow.util';
 import { loadBuyerAiSettings } from '../../utils/buyerAiSettings.util';
+import { resolveBuyerLanguage, normalizeBuyerLang } from '../../utils/buyerI18n.util';
 import { mergeGreetingMediaComponents } from '../../utils/greetingMedia.util';
 import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
 import {
@@ -213,11 +214,6 @@ async function handleInteractiveSafetyTurn(ctx: BuyerTurnRuntimeContext): Promis
   if (!actionResult?.handled) {
     const { buildSafeBuyerFallback } = await import('../../utils/safeBuyerFallback.util');
     return { audience: 'buyer', handled: true, terminal: true, text: buildSafeBuyerFallback() };
-  }
-
-  if (actionResult.turnResult?.text?.trim()) {
-    const { persistInteractiveAiTranscript } = await import('./whatsappInteractiveOrchestrator.service');
-    await persistInteractiveAiTranscript(ctx.input.conversationId, actionResult.turnResult.text);
   }
 
   try {
@@ -514,6 +510,7 @@ async function resolveRapportOutbound(
     aiSettings,
     conversationHistory: ctx.history,
     conversationStage: input.conversationStage,
+    leadLanguage: ctx.input.leadLanguage,
     upcomingVisit: input.liveCtx.activeVisit,
     upcomingCall: input.liveCtx.activeCall,
   });
@@ -525,22 +522,48 @@ async function resolveRapportOutbound(
     input.postVisit
     && BARE_GREETING_INBOUND.test(ctx.input.messageText.trim())
   ) {
-    safeReply = buildPostVisitWelcomeReply({
-      customerName: ctx.input.leadCustomerName,
-      companyName: ctx.companyName,
-      propertyName: input.liveCtx.recentCompletedVisit?.propertyName ?? input.liveCtx.activeVisit?.propertyName,
+    const { wasRecentBareGreetingWelcomeSent, tBuyer, resolveBuyerLanguage } =
+      await import('../../utils/buyerI18n.util');
+    const lang = resolveBuyerLanguage({
+      message: ctx.input.messageText,
+      leadLanguage: ctx.input.leadLanguage,
+      defaultLanguage: aiSettings?.defaultLanguage,
     });
+    if (wasRecentBareGreetingWelcomeSent(ctx.history)) {
+      const name = ctx.input.leadCustomerName ? ` ${ctx.input.leadCustomerName}` : '';
+      safeReply = tBuyer(lang, 'post_visit_compact_greeting', { name });
+    } else {
+      safeReply = buildPostVisitWelcomeReply({
+        customerName: ctx.input.leadCustomerName,
+        companyName: ctx.companyName,
+        propertyName: input.liveCtx.recentCompletedVisit?.propertyName ?? input.liveCtx.activeVisit?.propertyName,
+      });
+    }
   } else if (input.isReturning) {
+    const { resolveBuyerLanguage } = await import('../../utils/buyerI18n.util');
+    const lang = resolveBuyerLanguage({
+      message: ctx.input.messageText,
+      leadLanguage: ctx.input.leadLanguage,
+      defaultLanguage: aiSettings?.defaultLanguage,
+    });
     safeReply = buildReturningBuyerWelcomeReply({
       companyName: ctx.companyName,
       customerName: ctx.input.leadCustomerName,
       locationPreference,
       greetingTemplate: aiSettings?.greetingTemplate ?? null,
+      lang,
+      conversationHistory: ctx.history,
       liveCtx: input.liveCtx,
     });
   } else {
     const { buildBuyerRapportReply } = await import('../buyerQualification.service');
-    safeReply = buildBuyerRapportReply(ctx.companyName);
+    const { resolveBuyerLanguage } = await import('../../utils/buyerI18n.util');
+    const lang = resolveBuyerLanguage({
+      message: ctx.input.messageText,
+      leadLanguage: ctx.input.leadLanguage,
+      defaultLanguage: aiSettings?.defaultLanguage,
+    });
+    safeReply = buildBuyerRapportReply(ctx.companyName, { lang });
   }
 
   return {
@@ -569,7 +592,12 @@ function resolveRapportComponents(
   return resolveBuyerComponents({
     stage,
     outboundText: input.safeReply,
+    inboundMessageText: ctx.input.messageText,
     isReturningGreeting: false,
+    language: resolveBuyerLanguage({
+      message: ctx.input.messageText,
+      leadLanguage: ctx.input.leadLanguage,
+    }),
     propertyId: input.liveCtx.recentCompletedVisit?.propertyId ?? ctx.input.conversationSelectedPropertyId,
     ...buttonFlags,
   });
@@ -716,6 +744,18 @@ async function handleRapportTurn(
 
   const { safeReply, components } = rapportPayload;
 
+  const resolvedLang = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+  });
+  if (resolvedLang !== normalizeBuyerLang(ctx.input.leadLanguage)) {
+    await prisma.lead.update({ where: { id: leadId }, data: { language: resolvedLang } }).catch(() => undefined);
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: { language: resolvedLang },
+    }).catch(() => undefined);
+  }
+
   await prisma.message.create({
     data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
   });
@@ -748,8 +788,12 @@ async function handleReturningBuyerPivotTurn(
     messagePreview: ctx.input.messageText.slice(0, 40),
   });
 
+  const pivotLang = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+  });
   const pivotReply = stripBuyerInternalMetadata(
-    buildReturningBuyerPivotReply(ctx.companyName),
+    buildReturningBuyerPivotReply(ctx.companyName, pivotLang),
   );
 
   await prisma.message.create({
@@ -1042,15 +1086,24 @@ async function handleVisitStatusTurn(
   if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
   if (!isBuyerVisitStatusQuery(ctx.input.messageText)) return null;
 
+  const visitLang = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+  });
   const visitReply = await buildBuyerVisitStatusReply({
     leadId: ctx.input.leadId,
     companyId: ctx.companyId,
     companyName: ctx.companyName,
+    customerMessage: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+    lang: visitLang,
   });
 
   const components = resolveBuyerComponents({
     stage: 'confirmation',
     outboundText: visitReply,
+    inboundMessageText: ctx.input.messageText,
+    language: visitLang,
     propertyId: ctx.input.conversationSelectedPropertyId,
     ...buyerButtonContextFromTurn(ctx, liveCtx),
   });
@@ -1225,6 +1278,7 @@ async function handleClassifierWorkflowTurn(
     propertyId: resolvedPropertyId ?? undefined,
     companyName: ctx.companyName,
     sessionVisitId: liveCtx.activeVisit?.visitId ?? null,
+    leadLanguage: ctx.input.leadLanguage,
     activeVisit: liveCtx.activeVisit
       ? { visitId: liveCtx.activeVisit.visitId, propertyName: liveCtx.activeVisit.propertyName }
       : null,

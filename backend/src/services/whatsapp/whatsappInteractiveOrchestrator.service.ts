@@ -27,6 +27,7 @@ import { confirmVisitById } from '../visitState.service';
 import { maskPhone } from '../agent/tools/format-helpers';
 import { logAgentAction } from '../agent-action-log.service';
 import { getCompanyBrowseSnapshot, isFilterInCompanyInventory, buildDiscoveryButtonSet } from '../companyInventoryBrowse.service';
+import { buyerButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
 
 export type InteractiveActionParams = {
   interactiveId: string;
@@ -41,6 +42,7 @@ export type InteractiveActionParams = {
     locationPreference?: string | null;
     notes?: string | null;
     status?: string;
+    language?: string | null;
   };
   conversation: {
     id: string;
@@ -414,6 +416,7 @@ async function handleCallReschedule(params: InteractiveActionParams): Promise<In
 
 async function handleMoreInfo(params: InteractiveActionParams): Promise<InteractiveActionResult | null> {
   const { interactiveId, lead, conversation, company } = params;
+  const lang = resolveBuyerLanguage({ leadLanguage: lead.language });
   const propertyId =
     interactiveId.replace('more-info-', '') !== 'more-info'
       ? interactiveId.replace('more-info-', '')
@@ -461,7 +464,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     .filter((content) => content && !details.toLowerCase().includes(content.slice(0, 60).toLowerCase()))
     .slice(0, promptLimits.moreInfoKnowledgeAppend);
   if (extraFacts.length > 0) {
-    details = `${details}\n\n📌 *More from our records:*\n${extraFacts.join('\n\n')}`;
+    details = `${details}\n\n${tBuyer(lang, 'more_from_records')}\n${extraFacts.join('\n\n')}`;
   }
 
   const activeVisit = await prisma.visit.findFirst({
@@ -488,14 +491,14 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       kind: 'buttons',
       buttons: visitAlreadyConfirmed
         ? [
-            { id: 'visit-reschedule', title: '📅 Change Time' },
-            { id: `more-info-${propertyId}`, title: '🏗️ Property Details' },
-            { id: 'call-me', title: '📞 Call Agent' },
+            { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'change_time') },
+            { id: `more-info-${propertyId}`, title: buyerButtonTitle(lang, 'property_details') },
+            { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
           ]
         : [
-            { id: 'visit-confirm', title: '✅ Confirm Visit' },
-            { id: 'visit-reschedule', title: '📅 Reschedule' },
-            { id: 'call-me', title: '📞 Call Agent' },
+            { id: 'visit-confirm', title: buyerButtonTitle(lang, 'confirm_visit') },
+            { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'reschedule') },
+            { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
           ],
     };
   } else if (pendingApproval) {
@@ -506,17 +509,17 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
     buttonComponent = {
       kind: 'buttons',
       buttons: [
-        { id: 'visit-reschedule', title: '📅 Change Time' },
-        { id: `more-info-${propertyId}`, title: '🏗️ Property Details' },
-        { id: 'call-me', title: '📞 Call Agent' },
+        { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'change_time') },
+        { id: `more-info-${propertyId}`, title: buyerButtonTitle(lang, 'property_details') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
       ],
     };
   } else {
     buttonComponent = {
       kind: 'buttons',
       buttons: [
-        { id: `book-visit-${propertyId}`, title: 'Book Visit' },
-        { id: 'call-me', title: 'Call Me' },
+        { id: `book-visit-${propertyId}`, title: buyerButtonTitle(lang, 'book_visit') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'call_me') },
         { id: `location-${propertyId}`, title: 'Show Location' },
       ],
     };

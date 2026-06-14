@@ -106,9 +106,15 @@ async function bookBuyerVisit(ctx: ActionContext, scheduledAtRaw: unknown) {
     const customerMessage = ctx.run.messageText ?? '';
     const { isBuyerVisitStatusQuery, buildBuyerVisitStatusReply } = await import('../../buyerVisitQuery.service');
     if (isBuyerVisitStatusQuery(customerMessage)) {
+      const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+        select: { language: true },
+      });
       const reply = await buildBuyerVisitStatusReply({
         leadId,
         companyId: ctx.run.toolContext.companyId,
+        customerMessage,
+        leadLanguage: lead?.language,
       });
       return ok(reply, { leadId });
     }

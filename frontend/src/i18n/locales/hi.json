@@ -117,7 +117,18 @@
     "rera": "RERA नंबर",
     "status": "स्थिति",
     "description": "विवरण",
-    "delete_confirm": "इस प्रॉपर्टी को हटाएं? यह पूर्ववत नहीं किया जा सकता।"
+    "delete_confirm": "इस प्रॉपर्टी को हटाएं? यह पूर्ववत नहीं किया जा सकता।",
+    "media_assign_title": "प्रॉपर्टी से जोड़ें",
+    "media_assign_project": "प्रोजेक्ट",
+    "media_assign_no_listings": "इस प्रोजेक्ट में अभी कोई लिस्टिंग नहीं। पहले प्रॉपर्टी इम्पोर्ट या पब्लिश करें, फिर सही यूनिट से स्क्रीनशॉट और ब्रोशर जोड़ें।",
+    "media_assign_which_property": "यह किस प्रॉपर्टी के लिए है?",
+    "media_assign_select_property": "प्रॉपर्टी चुनें…",
+    "media_assign_use_as": "इस रूप में उपयोग",
+    "media_assign_screenshot": "स्क्रीनशॉट / हीरो इमेज",
+    "media_assign_brochure": "ब्रोशर (PDF)",
+    "media_assign_choose_property": "चुनें यह फ़ाइल किस प्रॉपर्टी की है।",
+    "media_assign_upload": "फ़ाइल जोड़ें",
+    "media_assign_uploading": "अपलोड हो रहा है…"
   },
   "calendar": {
     "title": "कैलेंडर",

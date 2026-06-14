@@ -1272,6 +1272,7 @@ export async function tryRunBuyerWorkflow(input: {
   propertyId?: string;
   companyName?: string;
   sessionVisitId?: string | null;
+  leadLanguage?: string | null;
 }): Promise<string | null> {
   if (shouldBypassBuyerWorkflowForRichPropertyLlm(input.messageText)) return null;
 
@@ -1310,6 +1311,8 @@ export async function tryRunBuyerWorkflow(input: {
       leadId: input.leadId,
       companyId: input.companyId,
       companyName: input.companyName,
+      customerMessage: input.messageText,
+      leadLanguage: input.leadLanguage,
     });
   }
 
@@ -1427,6 +1430,7 @@ export async function classifyAndRunBuyerWorkflow(
     propertyId?: string;
     companyName: string;
     sessionVisitId?: string | null;
+    leadLanguage?: string | null;
     activeVisit?: BuyerActiveVisitContext | null;
   },
   deps?: { llm?: WorkflowLlmCaller },
@@ -1446,6 +1450,8 @@ export async function classifyAndRunBuyerWorkflow(
       leadId: input.leadId,
       companyId: input.companyId,
       companyName: input.companyName,
+      customerMessage: input.messageText,
+      leadLanguage: input.leadLanguage,
     });
   }
 

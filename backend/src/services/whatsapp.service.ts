@@ -1309,7 +1309,13 @@ export class WhatsAppService {
       let fallbackText: string;
       if (isBuyerVisitStatusQuery(msg.messageText)) {
         const { buildBuyerVisitStatusReply: bvsr } = await import('./buyerVisitQuery.service');
-        fallbackText = await bvsr({ leadId: lead.id, companyId, companyName: company.name });
+        fallbackText = await bvsr({
+          leadId: lead.id,
+          companyId,
+          companyName: company.name,
+          customerMessage: msg.messageText,
+          leadLanguage: lead.language,
+        });
       } else {
         fallbackText = buildAiFallbackMessage({
           customerName: lead.customerName,

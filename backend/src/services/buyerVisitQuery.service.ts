@@ -5,6 +5,12 @@
 
 import prisma from '../config/prisma';
 import { formatDateIST } from './agent/tools/format-helpers';
+import {
+  tBuyer,
+  visitStatusLabel,
+  resolveBuyerLanguage,
+  nurtureMessageForReason,
+} from '../utils/buyerI18n.util';
 
 function formatVisitWhen(date: Date): string {
   return formatDateIST(date);
@@ -34,16 +40,8 @@ export function isBuyerVisitStatusQuery(message: string): boolean {
   return BUYER_VISIT_STATUS_PATTERN.test(t);
 }
 
-function statusLabel(status: string): string {
-  const map: Record<string, string> = {
-    scheduled: 'Scheduled',
-    confirmed: 'Confirmed',
-    completed: 'Completed',
-    cancelled: 'Cancelled',
-    no_show: 'No-show',
-    rescheduled: 'Rescheduled',
-  };
-  return map[status] ?? status;
+function statusLabel(status: string, lang = 'en'): string {
+  return visitStatusLabel(lang, status);
 }
 
 /**
@@ -54,7 +52,15 @@ export async function buildBuyerVisitStatusReply(input: {
   leadId: string;
   companyId: string;
   companyName?: string;
+  lang?: string;
+  customerMessage?: string | null;
+  leadLanguage?: string | null;
 }): Promise<string> {
+  const lang = resolveBuyerLanguage({
+    message: input.customerMessage,
+    leadLanguage: input.leadLanguage ?? input.lang,
+    defaultLanguage: input.lang,
+  });
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
@@ -88,19 +94,17 @@ export async function buildBuyerVisitStatusReply(input: {
   if (upcoming.length === 0) {
     const recent = visits.filter((v) => !['scheduled', 'confirmed'].includes(v.status));
     if (recent.length === 0) {
-      return (
-        `You don't have any upcoming visits right now.\n\n` +
-        `Would you like to *book a free site visit*? Reply with a property name and preferred date/time.`
-      );
+      return tBuyer(lang, 'visit_status_none');
     }
 
     const last = recent[recent.length - 1];
     const prop = last.property?.name ?? 'your property';
     const when = formatVisitWhen(last.scheduledAt);
-    return (
-      `Your most recent visit was to *${prop}* (${when}) - status: *${statusLabel(last.status)}*\n\n` +
-      `You don't have an upcoming visit scheduled. Would you like to *book a new site visit*?`
-    );
+    return tBuyer(lang, 'visit_status_recent', {
+      property: prop,
+      when,
+      status: statusLabel(last.status, lang),
+    });
   }
 
   if (upcoming.length === 1) {
@@ -112,27 +116,27 @@ export async function buildBuyerVisitStatusReply(input: {
       : '';
 
     return [
-      `*YOUR VISIT*`,
+      tBuyer(lang, 'visit_status_header'),
       '',
       `Property: *${prop}*`,
       `When: ${when}`,
-      `Status: *${statusLabel(v.status)}*${agentLine}`,
+      `Status: *${statusLabel(v.status, lang)}*${agentLine}`,
       '',
-      `Tap a button below to *confirm*, *reschedule*, or *call your agent*.`,
+      tBuyer(lang, 'visit_status_single_footer'),
     ].join('\n');
   }
 
   const lines = upcoming.map((v, i) => {
     const prop = v.property?.name ?? 'Property TBD';
     const when = formatVisitWhen(v.scheduledAt);
-    return `${i + 1}. *${prop}* - ${when} (${statusLabel(v.status)})`;
+    return `${i + 1}. *${prop}* - ${when} (${statusLabel(v.status, lang)})`;
   });
 
   return [
-    `You have *${upcoming.length} upcoming visits*:`,
+    tBuyer(lang, 'visit_status_multi_header', { count: upcoming.length }),
     '',
     ...lines,
     '',
-    `Reply with the property name to *Confirm*, *Reschedule*, or *Cancel* a specific visit.`,
+    tBuyer(lang, 'visit_status_multi_footer'),
   ].join('\n');
 }

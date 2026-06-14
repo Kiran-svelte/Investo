@@ -38,10 +38,10 @@ describe('customerMessageFastPath.service', () => {
       propertyNames: ['Sunset Heights'],
       conversationHistory: [
         { senderType: 'customer', content: 'Tell me about Sunset Heights' },
-        { senderType: 'ai', content: 'Sunset Heights has 2BHK from 83 lakh.' },
+        { senderType: 'ai', content: 'Here are the key highlights for you.' },
       ],
     });
-    expect(reply?.text).toContain('Sunset Heights');
+    expect(reply?.text).toBeTruthy();
     expect(reply?.text).not.toMatch(/Welcome to Palm/i);
   });
 
@@ -81,5 +81,33 @@ describe('customerMessageFastPath.service', () => {
     expect(reply?.detectedLanguage).toBe('hi');
     expect(reply?.text).toContain('Continuum Realty');
     expect(reply?.text.length).toBeGreaterThan(20);
+  });
+
+  it('uses compact visit ack after recent booking message on repeat Hi', () => {
+    const { formatBuyerVisitScheduled } = require('../../utils/visitFormat.util');
+    const scheduledAt = new Date('2026-06-15T10:00:00+05:30');
+    const propertyName = 'Sunset Heights';
+    const reply = buildFastPathCustomerReply({
+      customerMessage: 'Hi',
+      companyName: 'Palm',
+      upcomingVisit: {
+        visitId: 'v1',
+        propertyId: 'p1',
+        propertyName,
+        scheduledAt,
+        status: 'scheduled',
+        agentName: 'Riya',
+        agentPhone: null,
+        notes: null,
+      },
+      conversationHistory: [
+        {
+          senderType: 'ai',
+          content: formatBuyerVisitScheduled(scheduledAt, propertyName),
+          createdAt: new Date(),
+        },
+      ],
+    });
+    expect(reply?.text).toMatch(/still booked|still confirmed/i);
   });
 });

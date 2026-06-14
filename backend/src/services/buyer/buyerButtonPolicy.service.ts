@@ -27,6 +27,8 @@ export type BuyerButtonContext = {
   liveLeadSnapshot?: Pick<LiveLeadContext, 'activeVisit' | 'recentCompletedVisit' | 'leadStatus'>;
   /** Company-specific inventory filters — loaded from DB, never hardcoded types. */
   browseFilters?: BrowseFilterButton[];
+  /** Buyer language for localized button titles. */
+  language?: string;
 };
 
 const BARE_GREETING_OUTBOUND =
@@ -79,6 +81,7 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
     hasCompletedVisit,
     visitStatus: ctx.visitStatus,
     browseFilters: ctx.browseFilters,
+    language: ctx.language,
   });
 
   if (!buttons?.length) {

@@ -49,8 +49,9 @@ import { extractDateTimeIso } from '../utils/parseDateTimeFromMessage.util';
 import { AI_GLOBAL_RULES_BLOCK } from '../constants/aiGlobalRules.constants';
 import { withBuyerLlmSafeParams } from '../constants/llmSafeParams.constants';
 import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
-import { getBuyerLlmTimeoutMs } from '../utils/whatsappReplySpeed.util';
+import { resolveBuyerLanguage } from '../utils/buyerI18n.util';
 import { withRetry } from '../utils/retry';
+import { getBuyerLlmTimeoutMs } from '../utils/whatsappReplySpeed.util';
 import { getCircuitBreaker } from '../utils/circuit-breaker';
 import {
   formatPropertyCatalogLine,
@@ -267,14 +268,22 @@ export class AIService {
       && request.companyId
       && request.lead?.id
     ) {
+      const buyerLang = resolveBuyerLanguage({
+        message: request.customerMessage,
+        leadLanguage: request.lead?.language,
+        defaultLanguage: request.aiSettings?.defaultLanguage,
+      });
       const visitReply = await buildBuyerVisitStatusReply({
         leadId: request.lead.id,
         companyId: request.companyId,
         companyName: request.companyName,
+        customerMessage: request.customerMessage,
+        leadLanguage: request.lead?.language,
+        lang: buyerLang,
       });
       return {
         text: visitReply,
-        detectedLanguage: resolveAdminLanguageCode(request.aiSettings),
+        detectedLanguage: buyerLang,
         newState: {
           ...newState,
           stage: newState.stage === 'human_escalated' ? 'confirmation' : newState.stage,
@@ -312,8 +321,7 @@ export class AIService {
       conversationHistory: request.conversationHistory,
       propertyNames: request.properties?.map((p: { name?: string }) => p.name).filter(Boolean),
       conversationStage: newState.stage,
-      // Visit-aware greeting: if the client has an active visit, the fast path
-      // returns visit summary instead of the first-time-buyer welcome message.
+      leadLanguage: request.lead?.language,
       upcomingVisit: request.activeVisit ?? null,
     });
     if (fastPath) {

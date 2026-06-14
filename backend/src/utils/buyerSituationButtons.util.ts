@@ -3,6 +3,8 @@
  * not hardcoded conversation stage menus.
  */
 
+import { buyerButtonTitle } from './buyerI18n.util';
+
 export type BuyerButtonSituation =
   | 'active_call'
   | 'visit_pending_approval'
@@ -33,6 +35,8 @@ export type SituationButtonInput = {
   hasActiveCall?: boolean;
   hasCompletedVisit?: boolean;
   visitStatus?: string;
+  /** Buyer language for button titles. */
+  language?: string;
   /** Company inventory filters — never show apartment/villa buttons the company does not list. */
   browseFilters?: BrowseFilterButton[];
 };
@@ -89,16 +93,19 @@ function withPropertyId(buttonId: string, propertyId: string): string {
 
 function inventoryFilterButtons(
   browseFilters: BrowseFilterButton[] | undefined,
-  options: { includeCallMe?: boolean; maxFilters?: number },
+  options: { includeCallMe?: boolean; maxFilters?: number; language?: string },
 ): Array<{ id: string; title: string }> {
+  const lang = options.language ?? 'en';
   const maxFilters = options.maxFilters ?? (options.includeCallMe ? 2 : 3);
   const filterOnly = (browseFilters ?? []).filter((f) => f.id !== 'call-me');
   if (!filterOnly.length) {
-    return options.includeCallMe ? [{ id: 'call-me', title: 'Call Me' }] : [{ id: 'call-me', title: 'Call Agent' }];
+    return options.includeCallMe
+      ? [{ id: 'call-me', title: buyerButtonTitle(lang, 'call_me') }]
+      : [{ id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') }];
   }
   const buttons = filterOnly.slice(0, maxFilters).map((f) => ({ id: f.id, title: f.title }));
   if (options.includeCallMe && buttons.length < 3) {
-    buttons.push({ id: 'call-me', title: 'Call Me' });
+    buttons.push({ id: 'call-me', title: buyerButtonTitle(lang, 'call_me') });
   }
   return buttons.slice(0, 3);
 }
@@ -165,38 +172,39 @@ export function resolveButtonsForBuyerSituation(
 ): Array<{ id: string; title: string }> | null {
   const primaryId = pickPrimaryPropertyId(input);
   const mentioned = propertiesMentionedInText(input.outboundText, input.properties ?? []);
+  const lang = input.language ?? 'en';
 
   switch (situation) {
     case 'active_call':
       return [
-        { id: 'call-reschedule', title: 'Change Time' },
-        { id: 'call-cancel', title: 'Cancel Call' },
-        { id: 'call-me', title: 'Call Agent' },
+        { id: 'call-reschedule', title: buyerButtonTitle(lang, 'change_time') },
+        { id: 'call-cancel', title: buyerButtonTitle(lang, 'cancel_call') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
       ];
 
     case 'visit_pending_approval':
     case 'visit_confirmed':
       return [
-        { id: 'visit-reschedule', title: 'Change Time' },
-        { id: withPropertyId('more-info', primaryId), title: 'Property Details' },
-        { id: 'call-me', title: 'Call Agent' },
+        { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'change_time') },
+        { id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'property_details') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
       ];
 
     case 'visit_scheduled':
       return [
-        { id: 'visit-confirm', title: 'Confirm Visit' },
-        { id: 'visit-reschedule', title: 'Reschedule' },
-        { id: 'call-me', title: 'Call Agent' },
+        { id: 'visit-confirm', title: buyerButtonTitle(lang, 'confirm_visit') },
+        { id: 'visit-reschedule', title: buyerButtonTitle(lang, 'reschedule') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
       ];
 
     case 'post_visit': {
       const browseMore = firstBrowseFilter(input.browseFilters);
       const buttons: Array<{ id: string; title: string }> = [
-        { id: 'share-visit-feedback', title: 'Share Feedback' },
-        { id: 'call-me', title: 'Talk to Agent' },
+        { id: 'share-visit-feedback', title: buyerButtonTitle(lang, 'share_feedback') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'talk_agent') },
       ];
       if (primaryId) {
-        buttons.push({ id: withPropertyId('more-info', primaryId), title: 'See More Options' });
+        buttons.push({ id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'see_options') });
       } else if (browseMore) {
         buttons.push({ id: browseMore.id, title: browseMore.title });
       }
@@ -204,17 +212,17 @@ export function resolveButtonsForBuyerSituation(
     }
 
     case 'catalog_empty':
-      return inventoryFilterButtons(input.browseFilters, { includeCallMe: false, maxFilters: 3 });
+      return inventoryFilterButtons(input.browseFilters, { includeCallMe: false, maxFilters: 3, language: lang });
 
     case 'multi_property_list': {
       const narrow = firstBrowseFilter(input.browseFilters);
       const buttons: Array<{ id: string; title: string }> = [];
-      if (narrow) buttons.push({ id: narrow.id, title: 'Narrow Search' });
-      buttons.push({ id: 'call-me', title: 'Call Me' });
+      if (narrow) buttons.push({ id: narrow.id, title: buyerButtonTitle(lang, 'narrow_search') });
+      buttons.push({ id: 'call-me', title: buyerButtonTitle(lang, 'call_me') });
       buttons.push(
         primaryId
-          ? { id: withPropertyId('book-visit', primaryId), title: 'Book Visit' }
-          : { id: 'book-visit', title: 'Book Visit' },
+          ? { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') }
+          : { id: 'book-visit', title: buyerButtonTitle(lang, 'book_visit') },
       );
       return buttons.slice(0, 3);
     }
@@ -223,39 +231,39 @@ export function resolveButtonsForBuyerSituation(
     case 'general_followup': {
       const buttons: Array<{ id: string; title: string }> = [];
       if (primaryId) {
-        buttons.push({ id: withPropertyId('book-visit', primaryId), title: 'Book Visit' });
-        buttons.push({ id: withPropertyId('more-info', primaryId), title: 'Property Details' });
+        buttons.push({ id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') });
+        buttons.push({ id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'property_details') });
       } else {
-        buttons.push({ id: 'book-visit', title: 'Book Visit' });
-        buttons.push({ id: 'more-info', title: 'Property Details' });
+        buttons.push({ id: 'book-visit', title: buyerButtonTitle(lang, 'book_visit') });
+        buttons.push({ id: 'more-info', title: buyerButtonTitle(lang, 'property_details') });
       }
       if (mentioned.length > 1 && mentioned[1]?.id) {
         buttons.push({ id: withPropertyId('more-info', mentioned[1].id), title: mentioned[1].name.slice(0, 12) });
       } else {
-        buttons.push({ id: 'call-me', title: 'Call Me' });
+        buttons.push({ id: 'call-me', title: buyerButtonTitle(lang, 'call_me') });
       }
       return buttons.slice(0, 3);
     }
 
     case 'price_discussed':
       return [
-        { id: withPropertyId('book-visit', primaryId), title: 'Book Visit' },
-        { id: 'emi-calculator', title: 'EMI Calculator' },
-        { id: 'call-me', title: 'Call Me' },
+        { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') },
+        { id: 'emi-calculator', title: buyerButtonTitle(lang, 'emi') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'call_me') },
       ];
 
     case 'brochure_or_location':
       return [
-        { id: withPropertyId('book-visit', primaryId), title: 'Book Visit' },
-        { id: withPropertyId('more-info', primaryId), title: 'More Details' },
-        { id: 'call-me', title: 'Call Agent' },
+        { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') },
+        { id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'more_details') },
+        { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
       ];
 
     case 'inventory_summary':
-      return inventoryFilterButtons(input.browseFilters, { includeCallMe: true });
+      return inventoryFilterButtons(input.browseFilters, { includeCallMe: true, language: lang });
 
     case 'discovery_welcome':
-      return inventoryFilterButtons(input.browseFilters, { includeCallMe: true });
+      return inventoryFilterButtons(input.browseFilters, { includeCallMe: true, language: lang });
 
     case 'visit_time_prompt':
     case 'none':

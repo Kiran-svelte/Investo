@@ -11,7 +11,16 @@ import type { LiveLeadContext } from './liveLeadContext.service';
 import {
   buildCallAwareGreeting,
   buildVisitAwareGreeting,
+  buildCompactActiveVisitAck,
+  buildCompactConfirmedCallAck,
 } from './liveLeadContext.service';
+import {
+  resolveBuyerLanguage,
+  tBuyer,
+  wasRecentBareGreetingWelcomeSent,
+  wasRecentVisitWelcomeSent,
+  wasRecentCallWelcomeSent,
+} from '../utils/buyerI18n.util';
 
 function isRapportPhrase(message: string): boolean {
   return (
@@ -70,11 +79,8 @@ export function isReturningBuyerPivotReply(message: string): boolean {
   return RETURNING_PIVOT_PATTERN.test(message.trim());
 }
 
-export function buildReturningBuyerPivotReply(companyName: string): string {
-  return (
-    `Great — let's start fresh! 🏡\n\n` +
-    `Share your *budget*, preferred *area*, and *BHK* (or property type) and I'll shortlist the best matches from *${companyName}*.`
-  );
+export function buildReturningBuyerPivotReply(companyName: string, lang = 'en'): string {
+  return tBuyer(lang, 'returning_pivot', { company: companyName.trim() || 'our team' });
 }
 
 export function isBuyerQualificationStatement(message: string): boolean {
@@ -98,12 +104,15 @@ function formatBudgetLine(budget: LeadMemory['budget']): string | null {
 
 export function buildBuyerRapportReply(
   companyName: string,
-  opts?: { isReturning?: boolean; locationPreference?: string | null },
+  opts?: { isReturning?: boolean; locationPreference?: string | null; lang?: string },
 ): string {
+  const lang = opts?.lang ?? 'en';
   if (opts?.isReturning) {
     const area = opts.locationPreference?.trim();
-    const areaHint = area ? `Still looking at *${area}*, or something new?` : 'Still exploring options, or something new?';
-    return `Welcome back! ${areaHint}`;
+    const hint = area
+      ? tBuyer(lang, 'returning_area_hint', { area })
+      : tBuyer(lang, 'returning_explore_hint');
+    return `${tBuyer(lang, 'returning_welcome_back')} ${hint}`;
   }
   return buildFirstTimeBuyerWelcome(companyName);
 }
@@ -167,18 +176,28 @@ export function buildReturningBuyerWelcomeReply(input: {
   customerName?: string | null;
   locationPreference?: string | null;
   greetingTemplate?: string | null;
+  lang?: string;
+  conversationHistory?: Array<{ senderType?: string; content?: string; createdAt?: Date | string }>;
   liveCtx: Pick<
     LiveLeadContext,
     'activeVisit' | 'activeCall' | 'recentCompletedVisit' | 'recentCancelledVisit' | 'leadStatus'
   >;
 }): string {
   const company = input.companyName.trim() || 'our team';
+  const lang = input.lang ?? 'en';
 
   if (input.liveCtx.activeVisit) {
+    const visit = input.liveCtx.activeVisit;
+    const propertyName = visit.propertyName ?? '';
+    const history = input.conversationHistory ?? [];
+    if (wasRecentVisitWelcomeSent(history, propertyName)) {
+      return buildCompactActiveVisitAck(input.customerName ?? null, visit, lang);
+    }
     return buildVisitAwareGreeting(
       input.customerName ?? null,
-      input.liveCtx.activeVisit,
+      visit,
       company,
+      lang,
     );
   }
 
@@ -187,6 +206,10 @@ export function buildReturningBuyerWelcomeReply(input: {
     recentCompletedVisit: input.liveCtx.recentCompletedVisit,
     leadStatus: input.liveCtx.leadStatus,
   })) {
+    if (wasRecentBareGreetingWelcomeSent(input.conversationHistory ?? [])) {
+      const name = input.customerName ? ` ${input.customerName}` : '';
+      return tBuyer(lang, 'post_visit_compact_greeting', { name });
+    }
     return buildPostVisitWelcomeReply({
       customerName: input.customerName,
       companyName: company,
@@ -195,11 +218,24 @@ export function buildReturningBuyerWelcomeReply(input: {
   }
 
   if (input.liveCtx.activeCall) {
+    const call = input.liveCtx.activeCall;
+    if (
+      call.status === 'confirmed'
+      && wasRecentCallWelcomeSent(input.conversationHistory ?? [])
+    ) {
+      return buildCompactConfirmedCallAck(input.customerName ?? null, call, lang);
+    }
     return buildCallAwareGreeting(
       input.customerName ?? null,
-      input.liveCtx.activeCall,
+      call,
       company,
+      lang,
     );
+  }
+
+  if (wasRecentBareGreetingWelcomeSent(input.conversationHistory ?? [])) {
+    const name = input.customerName ? ` ${input.customerName}` : '';
+    return tBuyer(lang, 'returning_compact_greeting', { name });
   }
 
   let text = resolveWelcomeShell(company, input.customerName, input.greetingTemplate);

@@ -11,7 +11,17 @@
 import config from '../config';
 import { isVisitSchedulingMessage } from './visitIntentFromMessage.service';
 import type { ActiveVisitContext, ActiveCallContext } from './liveLeadContext.service';
-import { buildVisitAwareGreeting, buildCallAwareGreeting } from './liveLeadContext.service';
+import {
+  buildVisitAwareGreeting,
+  buildCallAwareGreeting,
+  buildCompactActiveVisitAck,
+  buildCompactConfirmedCallAck,
+} from './liveLeadContext.service';
+import {
+  resolveBuyerLanguage,
+  wasRecentVisitWelcomeSent,
+  wasRecentCallWelcomeSent,
+} from '../utils/buyerI18n.util';
 
 /**
  * Minimum number of prior conversation messages that qualifies a user as
@@ -184,9 +194,10 @@ export function buildFastPathCustomerReply(input: {
   companyName: string;
   customerName?: string | null;
   aiSettings?: { defaultLanguage?: string | null; greetingTemplate?: string | null } | null;
-  conversationHistory?: Array<{ senderType?: string; content?: string }>;
+  conversationHistory?: Array<{ senderType?: string; content?: string; createdAt?: Date | string }>;
   propertyNames?: string[];
   conversationStage?: string | null;
+  leadLanguage?: string | null;
   /** If provided and client sends a greeting, returns a visit-aware reply instead. */
   upcomingVisit?: ActiveVisitContext | null;
   /** Scheduled callback — second priority after visit-aware greeting. */
@@ -197,7 +208,11 @@ export function buildFastPathCustomerReply(input: {
     return null;
   }
 
-  const lang = resolveAdminLanguageCode(input.aiSettings);
+  const lang = resolveBuyerLanguage({
+    message: trimmed,
+    leadLanguage: input.leadLanguage,
+    defaultLanguage: input.aiSettings?.defaultLanguage,
+  });
   const name = (input.customerName || '').trim();
   const company = input.companyName.trim() || 'our team';
 
@@ -212,17 +227,31 @@ export function buildFastPathCustomerReply(input: {
     }
 
     // Priority 1: Visit-aware greeting whenever the client has an active visit.
-    // Per ai.md — returning clients with a booking should see visit context, not onboarding.
     if (input.upcomingVisit) {
+      const visit = input.upcomingVisit;
+      const propertyName = visit.propertyName ?? '';
+      const history = input.conversationHistory ?? [];
+      const useCompact = wasRecentVisitWelcomeSent(history, propertyName);
+
       return {
-        text: buildVisitAwareGreeting(input.customerName ?? null, input.upcomingVisit, company),
+        text: useCompact
+          ? buildCompactActiveVisitAck(input.customerName ?? null, visit, lang)
+          : buildVisitAwareGreeting(input.customerName ?? null, visit, company, lang),
         detectedLanguage: lang,
       };
     }
 
     if (input.upcomingCall) {
+      const call = input.upcomingCall;
+      const history = input.conversationHistory ?? [];
+      const useCompact =
+        call.status === 'confirmed'
+        && wasRecentCallWelcomeSent(history);
+
       return {
-        text: buildCallAwareGreeting(input.customerName ?? null, input.upcomingCall, company),
+        text: useCompact
+          ? buildCompactConfirmedCallAck(input.customerName ?? null, call, lang)
+          : buildCallAwareGreeting(input.customerName ?? null, call, company, lang),
         detectedLanguage: lang,
       };
     }

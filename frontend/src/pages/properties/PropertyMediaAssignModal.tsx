@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FileText, ImageIcon, Loader2, X } from 'lucide-react';
 import {
   attachPropertyMedia,
@@ -53,6 +54,7 @@ export default function PropertyMediaAssignModal({
   onClose,
   onSuccess,
 }: PropertyMediaAssignModalProps) {
+  const { t } = useTranslation();
   const [propertyId, setPropertyId] = useState('');
   const [mediaRole, setMediaRole] = useState<PropertyMediaRole>('screenshot');
   const [uploading, setUploading] = useState(false);
@@ -91,7 +93,7 @@ export default function PropertyMediaAssignModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propertyId) {
-      setError('Choose which property this file belongs to.');
+      setError(t('properties.media_assign_choose_property'));
       return;
     }
 
@@ -130,10 +132,10 @@ export default function PropertyMediaAssignModal({
         <div className="flex items-center justify-between border-b p-4">
           <div>
             <h2 id="property-media-assign-title" className="text-lg font-semibold text-ink-primary">
-              Attach to a property
+              {t('properties.media_assign_title')}
             </h2>
             <p className="text-xs text-ink-muted">
-              Project: {projectName}
+              {t('properties.media_assign_project')}: {projectName}
             </p>
           </div>
           <button
@@ -174,14 +176,13 @@ export default function PropertyMediaAssignModal({
 
           {sortedProperties.length === 0 ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              No listings in this project yet. Import or publish properties first, then attach
-              screenshots and brochures to the right unit.
+              {t('properties.media_assign_no_listings')}
             </p>
           ) : (
             <>
               <div>
                 <label htmlFor="property-media-target" className="mb-1 block text-sm font-medium text-ink-secondary">
-                  Which property is this for?
+                  {t('properties.media_assign_which_property')}
                 </label>
                 <select
                   id="property-media-target"
@@ -190,7 +191,7 @@ export default function PropertyMediaAssignModal({
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                   required
                 >
-                  <option value="">Select a property…</option>
+                  <option value="">{t('properties.media_assign_select_property')}</option>
                   {sortedProperties.map((p) => (
                     <option key={p.id} value={p.id}>
                       {propertyLabel(p)}
@@ -200,7 +201,7 @@ export default function PropertyMediaAssignModal({
               </div>
 
               <fieldset>
-                <legend className="mb-2 text-sm font-medium text-ink-secondary">Use as</legend>
+                <legend className="mb-2 text-sm font-medium text-ink-secondary">{t('properties.media_assign_use_as')}</legend>
                 <div className="flex flex-wrap gap-3">
                   <label className="flex cursor-pointer items-center gap-2 text-sm">
                     <input
@@ -211,7 +212,7 @@ export default function PropertyMediaAssignModal({
                       onChange={() => setMediaRole('screenshot')}
                       disabled={!isImageFile(file)}
                     />
-                    Screenshot / hero image
+                    {t('properties.media_assign_screenshot')}
                   </label>
                   <label className="flex cursor-pointer items-center gap-2 text-sm">
                     <input
@@ -222,7 +223,7 @@ export default function PropertyMediaAssignModal({
                       onChange={() => setMediaRole('brochure')}
                       disabled={file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)}
                     />
-                    Brochure (PDF)
+                    {t('properties.media_assign_brochure')}
                   </label>
                 </div>
               </fieldset>
@@ -242,7 +243,7 @@ export default function PropertyMediaAssignModal({
               disabled={uploading}
               className="rounded-lg border px-4 py-2 text-sm hover:bg-surface-muted disabled:opacity-50"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
@@ -250,7 +251,7 @@ export default function PropertyMediaAssignModal({
               className="investo-btn-primary flex items-center gap-2 text-sm disabled:opacity-50"
             >
               {uploading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Upload & attach
+              {uploading ? t('properties.media_assign_uploading') : t('properties.media_assign_upload')}
             </button>
           </div>
         </form>

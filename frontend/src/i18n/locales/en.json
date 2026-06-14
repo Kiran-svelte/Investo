@@ -155,7 +155,18 @@
     "rera": "RERA Number",
     "status": "Status",
     "description": "Description",
-    "delete_confirm": "Delete this property? This cannot be undone."
+    "delete_confirm": "Delete this property? This cannot be undone.",
+    "media_assign_title": "Attach to a property",
+    "media_assign_project": "Project",
+    "media_assign_no_listings": "No listings in this project yet. Import or publish properties first, then attach screenshots and brochures to the right unit.",
+    "media_assign_which_property": "Which property is this for?",
+    "media_assign_select_property": "Select a property…",
+    "media_assign_use_as": "Use as",
+    "media_assign_screenshot": "Screenshot / hero image",
+    "media_assign_brochure": "Brochure (PDF)",
+    "media_assign_choose_property": "Choose which property this file belongs to.",
+    "media_assign_upload": "Attach file",
+    "media_assign_uploading": "Uploading…"
   },
   "calendar": {
     "title": "Calendar",

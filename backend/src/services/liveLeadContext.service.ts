@@ -17,6 +17,7 @@ import logger from '../config/logger';
 import { findPendingVisitApprovalForLead } from './visitPendingApproval.service';
 import { findActiveCallRequest } from './callRequest.service';
 import { isPostVisitLeadStatus } from '../utils/buyerLeadProgress.util';
+import { tBuyer } from '../utils/buyerI18n.util';
 
 /** Represents an upcoming or recent visit for CTA and prompt injection. */
 export interface ActiveVisitContext {
@@ -368,6 +369,7 @@ export function buildVisitAwareGreeting(
   customerName: string | null,
   visit: ActiveVisitContext,
   companyName: string,
+  lang = 'en',
 ): string {
   const name = customerName ? ` ${customerName}` : '';
   const visitDate = toISTString(visit.scheduledAt);
@@ -376,26 +378,67 @@ export function buildVisitAwareGreeting(
 
   const statusPreamble =
     visit.status === 'confirmed'
-      ? 'Your site visit is *confirmed* ✅'
+      ? tBuyer(lang, 'visit_status_confirmed')
       : visit.status === 'pending_approval'
-        ? 'Your site visit request is *awaiting team approval* ⏳'
-      : visit.status === 'scheduled'
-        ? 'You have an upcoming site visit 🗓️'
-        : `Your visit status: *${visit.status}*`;
+        ? tBuyer(lang, 'visit_status_pending')
+        : visit.status === 'scheduled'
+          ? tBuyer(lang, 'visit_status_scheduled')
+          : tBuyer(lang, 'visit_status_generic', { status: visit.status });
+
+  const menuKey =
+    visit.status === 'confirmed'
+      ? 'visit_menu_confirmed'
+      : visit.status === 'pending_approval'
+        ? 'visit_menu_pending'
+        : 'visit_menu_scheduled';
 
   return [
-    `Hello${name}! Welcome back to *${companyName}* 👋`,
+    tBuyer(lang, 'visit_welcome_back', { name, company: companyName }),
     '',
     `${statusPreamble}:`,
     `🏠 *${property}*`,
     `📅 ${visitDate}${agentLine}`,
     '',
-    `Would you like to:`,
-    `✅ Confirm the visit`,
-    `📅 Reschedule`,
-    `❌ Cancel`,
-    `📞 Call agent`,
+    tBuyer(lang, menuKey),
   ].join('\n');
+}
+
+/** Short ack when buyer sends another bare greeting within hours of the same confirmed visit. */
+export function buildCompactConfirmedVisitAck(
+  customerName: string | null,
+  visit: ActiveVisitContext,
+  lang = 'en',
+): string {
+  const name = customerName ? ` ${customerName}` : '';
+  const when = toISTString(visit.scheduledAt);
+  const property = visit.propertyName ?? 'the property';
+  return tBuyer(lang, 'visit_compact_confirmed', { name, property, when });
+}
+
+/** Short ack after a recent visit booking/confirmation message — any active visit status. */
+export function buildCompactActiveVisitAck(
+  customerName: string | null,
+  visit: ActiveVisitContext,
+  lang = 'en',
+): string {
+  if (visit.status === 'confirmed') {
+    return buildCompactConfirmedVisitAck(customerName, visit, lang);
+  }
+  const name = customerName ? ` ${customerName}` : '';
+  const when = toISTString(visit.scheduledAt);
+  const property = visit.propertyName ?? 'the property';
+  return tBuyer(lang, 'visit_compact_scheduled', { name, property, when });
+}
+
+/** Short ack when buyer sends another bare greeting within hours of the same confirmed callback. */
+export function buildCompactConfirmedCallAck(
+  customerName: string | null,
+  call: ActiveCallContext,
+  lang = 'en',
+): string {
+  const name = customerName ? ` ${customerName}` : '';
+  const when = toISTString(call.scheduledAt);
+  return tBuyer(lang, 'call_compact_confirmed', { name, when });
 }
 
 /**
@@ -405,23 +448,24 @@ export function buildCallAwareGreeting(
   customerName: string | null,
   call: ActiveCallContext,
   companyName: string,
+  lang = 'en',
 ): string {
   const name = customerName ? ` ${customerName}` : '';
   const when = toISTString(call.scheduledAt);
   const agentLine = call.agentName ? `\n👤 Agent: *${call.agentName}*` : '';
   const statusPreamble =
     call.status === 'confirmed'
-      ? 'Your callback is *confirmed* ✅'
+      ? tBuyer(lang, 'call_status_confirmed')
       : call.status === 'pending_approval'
-        ? 'Your callback request is *awaiting approval* ⏳'
-        : 'You have an upcoming callback 📞';
+        ? tBuyer(lang, 'call_status_pending')
+        : tBuyer(lang, 'call_status_scheduled');
 
   return [
-    `Hello${name}! Welcome back to *${companyName}* 👋`,
+    tBuyer(lang, 'call_welcome_back', { name, company: companyName }),
     '',
     `${statusPreamble}:`,
     `📅 ${when}${agentLine}`,
     '',
-    'Would you like to change the time, cancel, or explore more projects while you wait?',
+    tBuyer(lang, 'call_menu'),
   ].join('\n');
 }
