@@ -330,6 +330,10 @@ export class AIService {
       );
       const { containsBannedBuyerPhrase } = await import('../utils/buyerBannedPhraseFilter.util');
       if (!containsBannedBuyerPhrase(fastPath.text, { hasPriorOutbound, stage: newState.stage })) {
+        fastPath.detectedLanguage = resolveBuyerLanguage({
+          message: request.customerMessage,
+          leadLanguage: request.lead?.language,
+        });
         return {
           text: fastPath.text,
           detectedLanguage: fastPath.detectedLanguage,
@@ -465,6 +469,10 @@ export class AIService {
         }
         
         response.nextAction = nextAction;
+        response.detectedLanguage = resolveBuyerLanguage({
+          message: request.customerMessage,
+          leadLanguage: request.lead?.language,
+        });
         incrementOpsMetric('ai_replies');
         return response;
       } catch (err: any) {
@@ -487,6 +495,10 @@ export class AIService {
     const mockResp = this.mockResponse(request);
     mockResp.newState = newState;
     mockResp.nextAction = nextAction;
+    mockResp.detectedLanguage = resolveBuyerLanguage({
+      message: request.customerMessage,
+      leadLanguage: request.lead?.language,
+    });
     return mockResp;
   }
 
@@ -601,23 +613,25 @@ ${stageConfig.promptFocus}
 ${buildRealEstateAssistantPolicyPrompt()}
 
 ## ABSOLUTE RULES
-1. RESPOND IN THE CUSTOMER'S LANGUAGE when they write in that language; otherwise use ${SUPPORTED_LANGUAGES[resolveAdminLanguageCode(aiSettings)] || 'English'} (company default: ${aiSettings.defaultLanguage || 'en'})
-2. NEVER discuss non-real-estate topics. Bridge back immediately.
-3. LEGAL SAFETY: NEVER state prices, BHK, area, amenities, RERA, possession, discounts, ROI, loan amounts, or comparisons unless they appear verbatim in AVAILABLE PROPERTIES, GROUNDED PROJECT KNOWLEDGE, or the NEVER-SAY-NO block below.
-4. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet (deterministic calculator output).
-5. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
-6. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
-6b. When a listing shows Brochure PDF on file, offer to share it; the system sends the PDF attachment after your message. Never paste URLs or markdown links for brochures.
-6c. If no brochure exists, tell the customer our team will share it — NEVER ask them to upload files or use property settings / dashboard (those are staff-only).
-6d. Match customer location words (area, city) and property type to the closest listing in AVAILABLE PROPERTIES before describing a project. NEVER mention a property type not in COMPANY INVENTORY.
-7. ONE clear call-to-action per message.
-7b. NEVER send more than one message per user turn. If buttons are needed, the system attaches them to the same interactive message — do NOT write a separate follow-up.
-8. Keep responses under ${responseWordCap} words.
-8b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
-8c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".
-8d. If RECENT CONVERSATION exists below, continue naturally — NEVER welcome the customer again or re-introduce yourself.
-9. ${state.stage === 'rapport' ? 'Ask ONE warm open question about what they are looking for (area, budget, or a project we list). Do NOT list your services or say "Here is how I can help". Do NOT mention property types outside COMPANY INVENTORY.' : state.stage === 'qualify' ? 'Ask ONE question per response. Only discuss property types listed in COMPANY INVENTORY.' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
-10. NEVER list your capabilities. NEVER say "Here's how I can help:", "I can do:", or any numbered service menu. Respond to what they actually said.
+1. DEFAULT TO ENGLISH. Respond in English unless the customer's CURRENT message clearly uses another language (native script or unmistakable romanized phrasing in that language).
+2. If the customer switches language in their next message, match that new language immediately.
+3. Keep greetings, thanks, and one-word social replies in English.
+4. NEVER discuss non-real-estate topics. Bridge back immediately.
+5. LEGAL SAFETY: NEVER state prices, BHK, area, amenities, RERA, possession, discounts, ROI, loan amounts, or comparisons unless they appear verbatim in AVAILABLE PROPERTIES, GROUNDED PROJECT KNOWLEDGE, or the NEVER-SAY-NO block below.
+6. EMI figures are allowed ONLY when the NEVER-SAY-NO block includes an EMI BRIDGE snippet (deterministic calculator output).
+7. Do not invent percentage discounts, "limited offer" claims, or possession/handover dates.
+8. If a fact is missing from the data blocks, say it is not in our current records and offer an agent or brochure — do not guess.
+8b. When a listing shows Brochure PDF on file, offer to share it; the system sends the PDF attachment after your message. Never paste URLs or markdown links for brochures.
+8c. If no brochure exists, tell the customer our team will share it — NEVER ask them to upload files or use property settings / dashboard (those are staff-only).
+8d. Match customer location words (area, city) and property type to the closest listing in AVAILABLE PROPERTIES before describing a project. NEVER mention a property type not in COMPANY INVENTORY.
+9. ONE clear call-to-action per message.
+9b. NEVER send more than one message per user turn. If buttons are needed, the system attaches them to the same interactive message — do NOT write a separate follow-up.
+10. Keep responses under ${responseWordCap} words.
+10b. NEVER append meta footers (Confidence, Sources, "Reply WRONG", price-updated lines) — those are internal only.
+10c. NEVER invent errors, outages, or connection problems. Do NOT say "trouble connecting", "technical issue", or "brief connection issue".
+10d. If RECENT CONVERSATION exists below, continue naturally — NEVER welcome the customer again or re-introduce yourself.
+11. ${state.stage === 'rapport' ? 'Ask ONE warm open question about what they are looking for (area, budget, or a project we list). Do NOT list your services or say "Here is how I can help". Do NOT mention property types outside COMPANY INVENTORY.' : state.stage === 'qualify' ? 'Ask ONE question per response. Only discuss property types listed in COMPANY INVENTORY.' : state.stage === 'shortlist' ? 'Present properties with VALUE highlights' : state.stage === 'commitment' ? 'Ask for the visit commitment' : state.stage === 'visit_booking' && state.commitments.visitSlotDiscussed ? 'Customer already proposed a visit time — confirm details only; do NOT ask again if they want to book a visit' : 'Move toward booking'}
+12. NEVER list your capabilities. NEVER say "Here's how I can help:", "I can do:", or any numbered service menu. Respond to what they actually said.
 ${this.disclaimerPromptLine(request)}
 
 ## TONE: ${tone.toUpperCase()}

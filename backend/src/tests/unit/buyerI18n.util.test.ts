@@ -43,19 +43,36 @@ describe('buyerI18n.util', () => {
     })).toBe('hi');
   });
 
-  it('falls back to lead language when message is neutral English', () => {
+  it('uses English for neutral English input even when lead prefers another language', () => {
     expect(resolveBuyerLanguage({
       message: 'book a visit',
       leadLanguage: 'kn',
-      defaultLanguage: 'en',
-    })).toBe('kn');
+      defaultLanguage: 'te',
+    })).toBe('en');
   });
 
-  it('falls back to company default when no message or lead language', () => {
+  it('defaults to English when message is neutral and no lead language', () => {
     expect(resolveBuyerLanguage({
       message: 'hello',
       defaultLanguage: 'te',
-    })).toBe('te');
+    })).toBe('en');
+  });
+
+  it('basic social messages always resolve to English', () => {
+    expect(resolveBuyerLanguage({ message: 'namaste', leadLanguage: 'hi' })).toBe('en');
+    expect(resolveBuyerLanguage({ message: 'thanks', leadLanguage: 'hi' })).toBe('en');
+    expect(resolveBuyerLanguage({ message: 'नमस्ते', leadLanguage: 'hi' })).toBe('en');
+  });
+
+  it('uses lead language for interactive taps without message text', () => {
+    expect(resolveBuyerLanguage({ leadLanguage: 'hi' })).toBe('hi');
+    expect(resolveBuyerLanguage({ leadLanguage: 'kn' })).toBe('kn');
+    expect(resolveBuyerLanguage({})).toBe('en');
+  });
+
+  it('switches language when user changes script in next message', () => {
+    expect(resolveBuyerLanguage({ message: 'ಮನೆ ಬೇಕು', leadLanguage: 'hi' })).toBe('kn');
+    expect(resolveBuyerLanguage({ message: 'show me properties', leadLanguage: 'hi' })).toBe('en');
   });
 
   it('confirmed visit greeting does not offer confirm-the-visit menu', () => {

@@ -1606,9 +1606,17 @@ async function handleFullAiTurn(
             }
           : null,
       }),
-      detectedLanguage: lead.language || 'en',
+      detectedLanguage: resolveBuyerLanguage({
+        message: ctx.input.messageText,
+        leadLanguage: lead.language,
+      }),
     };
   }
+
+  aiResponse.detectedLanguage = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: lead.language,
+  });
 
   const groundedProperties = allRawProperties.map((p) => propertyToCompletenessInput(p));
   const groundedFactsBlock = buildGroundedFactsBlock(groundedProperties, neverSayNoCtx.promptBlock);
@@ -1702,7 +1710,7 @@ async function handleFullAiTurn(
     });
   }
 
-  if (aiResponse.detectedLanguage && aiResponse.detectedLanguage !== lead.language) {
+  if (aiResponse.detectedLanguage !== lead.language) {
     await prisma.lead.update({ where: { id: lead.id }, data: { language: aiResponse.detectedLanguage } });
     await prisma.conversation.update({ where: { id: ctx.input.conversationId }, data: { language: aiResponse.detectedLanguage } });
   }

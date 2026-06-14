@@ -72,13 +72,13 @@ describe('customerMessageFastPath.service', () => {
     expect(reply).toBeNull();
   });
 
-  it('builds identity reply in admin default language', () => {
+  it('builds identity reply in English for English identity question', () => {
     const reply = buildFastPathCustomerReply({
       customerMessage: 'who are you',
       companyName: 'Continuum Realty',
       aiSettings: { defaultLanguage: 'hi' },
     });
-    expect(reply?.detectedLanguage).toBe('hi');
+    expect(reply?.detectedLanguage).toBe('en');
     expect(reply?.text).toContain('Continuum Realty');
     expect(reply?.text.length).toBeGreaterThan(20);
   });

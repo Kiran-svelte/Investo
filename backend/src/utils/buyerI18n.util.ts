@@ -1,6 +1,11 @@
 /**
  * Buyer-facing WhatsApp copy — multi-language templates.
- * Priority: customer message script/words → lead.language → company defaultLanguage → en.
+ *
+ * Reply language policy:
+ * - Default is always English.
+ * - Match the customer's CURRENT message language when they clearly write in it.
+ * - Basic social messages (hi, thanks, namaste alone) always get English replies.
+ * - Button taps (no message text) use the lead's last message language.
  */
 
 export const SUPPORTED_BUYER_LANGS = [
@@ -36,6 +41,19 @@ const TELUGU_LATIN =
 const TAMIL_LATIN =
   /\b(vanakkam|varaverppu|paarkureerkal|enna|engae|sollunga)\b/i;
 
+/** Greetings, thanks, and one-word social replies — always answered in English. */
+const BASIC_SOCIAL_EN =
+  /^(hi|hello|hey|hii|hola|thanks|thank you|thankyou|thank\s*u|ok|okay|yes|no|sure|bye|goodbye|good\s*(morning|afternoon|evening)|namaste|dhanyavad|dhanyawad|shukriya|start)\b[!.,?\s\u00a0🙏]*$/i;
+
+const BASIC_SOCIAL_DEVANAGARI =
+  /^(?:नमस्ते|नमस्कार|धन्यवाद|शुक्रिया|हैलो|हां|हाँ|ठीक)[!.,?\s🙏]*$/u;
+
+export function isBasicSocialMessage(message: string): boolean {
+  const t = message.trim();
+  if (!t || t.length > 48) return false;
+  return BASIC_SOCIAL_EN.test(t) || BASIC_SOCIAL_DEVANAGARI.test(t);
+}
+
 export function normalizeBuyerLang(code: string | null | undefined): BuyerLang {
   const c = typeof code === 'string' ? code.trim().toLowerCase() : '';
   return LANG_SET.has(c) ? (c as BuyerLang) : 'en';
@@ -61,19 +79,19 @@ export function detectLanguageFromMessage(message: string): BuyerLang | null {
 export function resolveBuyerLanguage(input: {
   message?: string | null;
   leadLanguage?: string | null;
+  /** @deprecated Ignored — default is always English unless the message signals another language. */
   defaultLanguage?: string | null;
 }): BuyerLang {
-  const fromMessage = input.message ? detectLanguageFromMessage(input.message) : null;
-  if (fromMessage) return fromMessage;
+  const message = typeof input.message === 'string' ? input.message.trim() : '';
 
-  const lead = normalizeBuyerLang(input.leadLanguage);
-  if (lead !== 'en' || input.leadLanguage?.trim()) {
-    if (LANG_SET.has((input.leadLanguage ?? '').trim().toLowerCase())) {
-      return lead;
-    }
+  if (message) {
+    if (isBasicSocialMessage(message)) return 'en';
+    const fromMessage = detectLanguageFromMessage(message);
+    if (fromMessage) return fromMessage;
+    return 'en';
   }
 
-  return normalizeBuyerLang(input.defaultLanguage);
+  return normalizeBuyerLang(input.leadLanguage);
 }
 
 type BuyerCopyKey =
