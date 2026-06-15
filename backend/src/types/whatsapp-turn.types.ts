@@ -76,6 +76,15 @@ export type TurnResult = {
    * Deterministic fast paths should use `'minimal'` or `'none'`.
    */
   replyPacing?: ReplyPacingMode;
+  /**
+   * When set, whatsapp.service notifies assigned Investo staff (in-app + WhatsApp)
+   * with the customer message and AI reply for transparency.
+   */
+  staffAssist?: {
+    reason: import('../services/buyerAgentAssist.service').BuyerAssistReason;
+    summary: string;
+    detail?: string | null;
+  };
 };
 
 /**

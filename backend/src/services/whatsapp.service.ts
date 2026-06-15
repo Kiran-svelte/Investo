@@ -51,7 +51,8 @@ import {
 } from './outboundTurnDebug.service';
 
 import { scheduleVisitFromWhatsApp } from './visitBooking.service';
-import { buildSafeBuyerFallback, shouldNotifyStaffForBuyerAiFailure } from '../utils/safeBuyerFallback.util';
+import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
+import { detectBuyerAiStaffAssist } from '../utils/buyerAiTransparency.util';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { notifyAgentOfNewLead } from './leadAssignment.service';
 import { assignLeadWithRouting } from './leadRouting.service';
@@ -1484,14 +1485,30 @@ export class WhatsAppService {
 
     if (pendingBuyerOutbound?.turnResult.text?.trim()) {
       const { turnResult, conversationId, leadId, customerName } = pendingBuyerOutbound;
-      if (shouldNotifyStaffForBuyerAiFailure(turnResult.text ?? '')) {
+      const assistDetection = turnResult.staffAssist
+        ? detectBuyerAiStaffAssist({
+          outboundText: turnResult.text ?? '',
+          customerMessage: msg.messageText,
+          explicitReason: turnResult.staffAssist.reason,
+          explicitSummary: turnResult.staffAssist.summary,
+          explicitDetail: turnResult.staffAssist.detail,
+        })
+        : detectBuyerAiStaffAssist({
+          outboundText: turnResult.text ?? '',
+          customerMessage: msg.messageText,
+        });
+      if (assistDetection) {
         const { notifyBuyerAiFailure } = await import('./buyerAgentAssist.service');
         notifyBuyerAiFailure({
           companyId,
           leadId,
           conversationId,
           customerMessage: msg.messageText,
-          detail: 'Buyer received AI failure fallback reply',
+          aiReplyText: turnResult.text,
+          inboundMessageId: msg.messageId,
+          reason: assistDetection.reason,
+          summary: assistDetection.summary,
+          detail: assistDetection.detail ?? 'Buyer received AI failure or fallback reply',
           customerName,
           customerPhone,
         });

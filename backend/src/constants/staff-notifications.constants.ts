@@ -17,6 +17,7 @@ export const STAFF_WHATSAPP_NOTIFICATIONS = [
   { id: 'morning_briefing', recipient: 'sales_agent', trigger: 'Daily cron + CHECK IN reply', sender: 'cron-scheduler.sendMorningBriefings / staffShiftBriefing' },
   { id: 'eod_summary', recipient: 'sales_agent', trigger: 'Daily cron + CHECK OUT reply', sender: 'cron-scheduler.sendEndOfDaySummaries / staffShiftBriefing' },
   { id: 'follow_up_due_reminder', recipient: 'sales_agent', trigger: 'Every 15 min cron', sender: 'cron-scheduler.processDueFollowUps' },
+  { id: 'buyer_ai_assist', recipient: 'assigned_agent or all agents', trigger: 'AI failure / escalation / workflow block', sender: 'buyerAgentAssist.notifyBuyerAgentAssistNeeded' },
   { id: 'follow_up_alert', recipient: 'sales_agent', trigger: 'Stale leads cron', sender: 'cron-scheduler.sendFollowUpAlerts' },
   { id: 'copilot_reply', recipient: 'staff user', trigger: 'Staff WhatsApp inbound', sender: 'agent-router.routeIfInternalUserForCompany' },
   { id: 'visit_confirmation_customer', recipient: 'customer', trigger: 'sendVisitConfirmation workflow step', sender: 'visit-actions.sendVisitConfirmation' },

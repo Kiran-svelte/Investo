@@ -20,7 +20,7 @@ describe('safeBuyerFallback.util', () => {
     ).toBe(true);
   });
 
-  test('shouldNotifyStaffForBuyerAiFailure skips visit-aware delay message', () => {
+  test('shouldNotifyStaffForBuyerAiFailure includes visit-aware delay for staff transparency', () => {
     const visitAware = buildSafeBuyerFallback({
       activeVisit: {
         propertyName: 'Sunset Heights',
@@ -28,6 +28,6 @@ describe('safeBuyerFallback.util', () => {
         status: 'confirmed',
       },
     });
-    expect(shouldNotifyStaffForBuyerAiFailure(visitAware)).toBe(false);
+    expect(shouldNotifyStaffForBuyerAiFailure(visitAware)).toBe(true);
   });
 });

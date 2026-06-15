@@ -2,6 +2,7 @@ const mockPrisma = {
   lead: { findUnique: jest.fn() },
   user: { findUnique: jest.fn(), findMany: jest.fn() },
   conversation: { findUnique: jest.fn(), update: jest.fn() },
+  agentActionLog: { findMany: jest.fn() },
 };
 
 jest.mock('../../config/prisma', () => ({
@@ -26,6 +27,7 @@ import { notificationEngine } from '../../services/notification.engine';
 describe('buyerAgentAssist.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.agentActionLog.findMany.mockResolvedValue([]);
     mockPrisma.lead.findUnique.mockResolvedValue({
       id: 'lead-1',
       customerName: 'Test Buyer',
@@ -38,6 +40,34 @@ describe('buyerAgentAssist.service', () => {
       phone: '919900001111',
       status: 'active',
     });
+  });
+
+  it('notifyBuyerAgentAssistNeeded includes customer message and AI reply in WhatsApp alert', async () => {
+    await notifyBuyerAgentAssistNeeded({
+      companyId: 'co-1',
+      leadId: 'lead-1',
+      conversationId: 'conv-1',
+      reason: 'ai_action_blocked',
+      summary: 'Buyer AI could not respond',
+      customerMessage: 'book visit tomorrow 4pm',
+      aiReplyText: "I'm sorry, I'm temporarily unable to respond.",
+    });
+
+    expect(notificationEngine.notifyAgentByWhatsApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Customer wrote'),
+      }),
+    );
+    expect(notificationEngine.notifyAgentByWhatsApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('book visit tomorrow 4pm'),
+      }),
+    );
+    expect(notificationEngine.notifyAgentByWhatsApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringMatching(/AI replied/i),
+      }),
+    );
   });
 
   it('notifyBuyerAgentAssistNeeded notifies assigned agent without changing conversation', async () => {

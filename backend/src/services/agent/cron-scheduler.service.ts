@@ -50,11 +50,19 @@ async function sendMorningBriefings(): Promise<CronRunResult> {
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
   for (const agent of agents) {
     if (!agent.phone) continue;
-    if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_morning_briefing')) continue;
-    const message = await buildAgentMorningBriefing(agent.id, agent.companyId, agent.name);
-    await sendNotification(agent.phone, agent.companyId, message);
-    await logCronBriefingSent(agent.id, agent.companyId, 'cron_morning_briefing');
-    affected.add(agent.companyId);
+    try {
+      if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_morning_briefing')) continue;
+      const message = await buildAgentMorningBriefing(agent.id, agent.companyId, agent.name);
+      await sendNotification(agent.phone, agent.companyId, message);
+      await logCronBriefingSent(agent.id, agent.companyId, 'cron_morning_briefing');
+      affected.add(agent.companyId);
+    } catch (agentErr: unknown) {
+      logger.warn('sendMorningBriefings: agent failed', {
+        agentId: agent.id,
+        companyId: agent.companyId,
+        error: agentErr instanceof Error ? agentErr.message : String(agentErr),
+      });
+    }
   }
   return affected.result();
 }
@@ -101,11 +109,19 @@ async function sendEndOfDaySummaries(): Promise<CronRunResult> {
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
   for (const agent of agents) {
     if (!agent.phone) continue;
-    if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_eod_summary')) continue;
-    const message = await buildAgentEndOfDaySummary(agent.id, agent.companyId, agent.name);
-    await sendNotification(agent.phone, agent.companyId, message);
-    await logCronBriefingSent(agent.id, agent.companyId, 'cron_eod_summary');
-    affected.add(agent.companyId);
+    try {
+      if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_eod_summary')) continue;
+      const message = await buildAgentEndOfDaySummary(agent.id, agent.companyId, agent.name);
+      await sendNotification(agent.phone, agent.companyId, message);
+      await logCronBriefingSent(agent.id, agent.companyId, 'cron_eod_summary');
+      affected.add(agent.companyId);
+    } catch (agentErr: unknown) {
+      logger.warn('sendEndOfDaySummaries: agent failed', {
+        agentId: agent.id,
+        companyId: agent.companyId,
+        error: agentErr instanceof Error ? agentErr.message : String(agentErr),
+      });
+    }
   }
   return affected.result();
 }

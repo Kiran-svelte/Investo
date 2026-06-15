@@ -10,7 +10,9 @@ import { isStaffCheckIn, isStaffCheckOut } from '../../utils/staffShiftGreeting.
 import {
   buildAgentEndOfDaySummary,
   buildAgentMorningBriefing,
+  buildShiftThrottleAck,
   logStaffShiftAction,
+  wasStaffShiftActionRecently,
 } from './staffShiftBriefing.service';
 import { resolveCopilotInboundCommand, type CopilotReplyKind } from '../../utils/copilotShortcut.util';
 import { resolveCopilotComponents } from '../copilot/copilotButtonPolicy.service';
@@ -132,10 +134,19 @@ async function handleAgentMessage(
 
   // FAST PATH: Check-in / check-out — day-start and day-end briefings without LLM.
   if (!isViewer && isStaffCheckIn(normalizedText)) {
-    const text = await buildAgentMorningBriefing(user.userId, user.companyId, user.userName);
     const { getOrCreateAgentSession } = await import('./agent-memory.service');
     const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
     const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
+    if (await wasStaffShiftActionRecently(user.userId, user.companyId, 'staff_check_in')) {
+      const text = buildShiftThrottleAck(user.userName, 'staff_check_in');
+      await recordAgentCopilotExchange({
+        sessionId: agentSession.id,
+        inboundText: resolvedCommand || messageText,
+        outboundText: text,
+      });
+      return { text, replyKind: 'welcome' };
+    }
+    const text = await buildAgentMorningBriefing(user.userId, user.companyId, user.userName);
     await logStaffShiftAction(user.userId, user.companyId, 'staff_check_in');
     await recordAgentCopilotExchange({
       sessionId: agentSession.id,
@@ -145,10 +156,19 @@ async function handleAgentMessage(
     return { text, replyKind: 'welcome' };
   }
   if (!isViewer && isStaffCheckOut(normalizedText)) {
-    const text = await buildAgentEndOfDaySummary(user.userId, user.companyId, user.userName);
     const { getOrCreateAgentSession } = await import('./agent-memory.service');
     const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
     const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
+    if (await wasStaffShiftActionRecently(user.userId, user.companyId, 'staff_check_out')) {
+      const text = buildShiftThrottleAck(user.userName, 'staff_check_out');
+      await recordAgentCopilotExchange({
+        sessionId: agentSession.id,
+        inboundText: resolvedCommand || messageText,
+        outboundText: text,
+      });
+      return { text, replyKind: 'welcome' };
+    }
+    const text = await buildAgentEndOfDaySummary(user.userId, user.companyId, user.userName);
     await logStaffShiftAction(user.userId, user.companyId, 'staff_check_out');
     await recordAgentCopilotExchange({
       sessionId: agentSession.id,

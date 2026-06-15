@@ -217,7 +217,18 @@ async function handleInteractiveSafetyTurn(ctx: BuyerTurnRuntimeContext): Promis
 
   if (!actionResult?.handled) {
     const { buildSafeBuyerFallback } = await import('../../utils/safeBuyerFallback.util');
-    return { audience: 'buyer', handled: true, terminal: true, text: buildSafeBuyerFallback() };
+    const text = buildSafeBuyerFallback();
+    return {
+      audience: 'buyer',
+      handled: true,
+      terminal: true,
+      text,
+      staffAssist: {
+        reason: 'ai_action_blocked',
+        summary: 'Unhandled interactive button — buyer received safe fallback',
+        detail: `interactiveId=${interactiveId ?? 'unknown'}`,
+      },
+    };
   }
 
   try {
@@ -239,7 +250,18 @@ async function handleInteractiveSafetyTurn(ctx: BuyerTurnRuntimeContext): Promis
   }
 
   const { buildSafeBuyerFallback } = await import('../../utils/safeBuyerFallback.util');
-  return { audience: 'buyer', handled: true, terminal: true, text: buildSafeBuyerFallback() };
+  const text = buildSafeBuyerFallback();
+  return {
+    audience: 'buyer',
+    handled: true,
+    terminal: true,
+    text,
+    staffAssist: {
+      reason: 'ai_action_blocked',
+      summary: 'Interactive action missing turn result — buyer received safe fallback',
+      detail: `action=${actionResult.action ?? 'unknown'}`,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1670,6 +1692,7 @@ async function handleFullAiTurn(
   // Source-proof anchor: getBuyerLlmTimeoutMs falls back to 28_000 when fast replies are disabled.
   const buyerLlmTimeoutMs = getBuyerLlmTimeoutMs();
   let aiResponse: AiTurnResponse;
+  let h9FailureMode = false;
   try {
     aiResponse = await Promise.race([
       aiService.generateResponse({
@@ -1721,6 +1744,7 @@ async function handleFullAiTurn(
         leadLanguage: lead.language,
       }),
     };
+    h9FailureMode = true;
   }
 
   aiResponse.detectedLanguage = resolveBuyerLanguage({
@@ -1955,6 +1979,17 @@ async function handleFullAiTurn(
     text: outboundText,
     components,
     replyPacing: resolveLlmReplyPacing(),
+    ...(h9FailureMode
+      ? {
+        staffAssist: {
+          reason: liveCtx.activeVisit
+            ? 'visit_booking_failure' as const
+            : 'ai_action_blocked' as const,
+          summary: 'Buyer AI timed out or failed — customer received safe fallback',
+          detail: 'H9 LLM timeout or generation failure',
+        },
+      }
+      : {}),
   };
 }
 

@@ -2,6 +2,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from './notification.engine';
 import { logAgentAction } from './agent-action-log.service';
+import { formatDateIST, formatTimeIST } from './agent/response-formatter.service';
 
 export type BuyerAssistReason =
   | 'escalation_request'
@@ -29,6 +30,10 @@ export interface NotifyBuyerAgentAssistInput {
   failedStep?: string | null;
   customerName?: string | null;
   customerPhone?: string | null;
+  /** Exact text the buyer saw from the AI this turn. */
+  aiReplyText?: string | null;
+  /** WhatsApp inbound message id — used for dedup across Meta retries. */
+  inboundMessageId?: string | null;
 }
 
 const REASON_LABELS: Record<BuyerAssistReason, string> = {
@@ -46,33 +51,72 @@ const REASON_LABELS: Record<BuyerAssistReason, string> = {
   unknown: 'AI needs agent assistance',
 };
 
+const ASSIST_DEDUP_MS = 15 * 60 * 1000;
+
 function buildWhatsAppAlert(input: NotifyBuyerAgentAssistInput, label: string): string {
+  const nowIst = `${formatDateIST(new Date())} ${formatTimeIST(new Date())} IST`;
   const lines = [
     `🔔 *AI needs your help*`,
     ``,
     `Reason: *${label}*`,
+    `Time: ${nowIst}`,
     input.customerName ? `Customer: *${input.customerName}*` : null,
     input.customerPhone ? `Phone: ${input.customerPhone}` : null,
-    input.leadId ? `Lead: ${input.leadId}` : null,
+    input.leadId ? `Lead ID: ${input.leadId}` : null,
+    input.conversationId ? `Conversation: ${input.conversationId}` : null,
     input.workflowId ? `Workflow: ${input.workflowId}` : null,
     input.failedStep ? `Failed step: ${input.failedStep}` : null,
     ``,
     `Summary: ${input.summary}`,
   ];
 
-  if (input.detail?.trim()) {
-    lines.push(``, `Details: ${input.detail.trim().slice(0, 400)}`);
-  }
   if (input.customerMessage?.trim()) {
-    lines.push(``, `Customer said: "${input.customerMessage.trim().slice(0, 250)}"`);
+    lines.push(``, `*Customer wrote:*`, `"${input.customerMessage.trim().slice(0, 300)}"`);
+  }
+  if (input.aiReplyText?.trim()) {
+    lines.push(``, `*AI replied:*`, `"${input.aiReplyText.trim().slice(0, 300)}"`);
+  }
+  if (input.detail?.trim()) {
+    lines.push(``, `Technical detail: ${input.detail.trim().slice(0, 400)}`);
   }
 
   lines.push(
     ``,
-    `The AI is still helping the customer on WhatsApp. Reply in your Investo dashboard when you can.`,
+    `The AI is still active on WhatsApp for this customer.`,
+    `Open *Investo dashboard → Conversations* to take over, or use CRM copilot to update the lead.`,
   );
 
   return lines.filter((line): line is string => line !== null).join('\n');
+}
+
+async function wasAssistRecentlySent(input: NotifyBuyerAgentAssistInput): Promise<boolean> {
+  const since = new Date(Date.now() - ASSIST_DEDUP_MS);
+  const recent = await prisma.agentActionLog.findMany({
+    where: {
+      companyId: input.companyId,
+      action: 'buyer_ai_agent_assist',
+      resourceType: 'lead',
+      resourceId: input.leadId,
+      createdAt: { gte: since },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+    select: { inputs: true },
+  });
+
+  const msgKey = (input.customerMessage ?? '').trim().slice(0, 120).toLowerCase();
+  const inboundKey = input.inboundMessageId?.trim();
+
+  for (const row of recent) {
+    const data = (row.inputs ?? {}) as Record<string, unknown>;
+    if (data.reason !== input.reason) continue;
+    if (inboundKey && data.inboundMessageId === inboundKey) return true;
+    const priorMsg = typeof data.customerMessage === 'string'
+      ? data.customerMessage.trim().slice(0, 120).toLowerCase()
+      : '';
+    if (msgKey && priorMsg === msgKey) return true;
+  }
+  return false;
 }
 
 /**
@@ -104,6 +148,14 @@ export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssist
     return;
   }
 
+  if (await wasAssistRecentlySent(input)) {
+    logger.info('notifyBuyerAgentAssistNeeded: deduped recent assist alert', {
+      leadId: input.leadId,
+      reason: input.reason,
+    });
+    return;
+  }
+
   const customerName = input.customerName ?? lead.customerName;
   const customerPhone = input.customerPhone ?? lead.phone;
   const notifyPayload = {
@@ -121,6 +173,8 @@ export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssist
     workflowId: input.workflowId ?? null,
     failedStep: input.failedStep ?? null,
     customerMessage: input.customerMessage?.slice(0, 500) ?? null,
+    aiReplyText: input.aiReplyText?.slice(0, 500) ?? null,
+    inboundMessageId: input.inboundMessageId ?? null,
   };
 
   const recipients: Array<{ id: string; phone: string | null }> = [];
@@ -147,6 +201,7 @@ export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssist
     recipients.push(...agents);
   }
 
+  const notifiedPhones = new Set<string>();
   await Promise.all(
     recipients.map(async (agent) => {
       await notificationEngine.notify({
@@ -157,7 +212,8 @@ export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssist
         message: inAppMessage,
         data,
       });
-      if (agent.phone) {
+      if (agent.phone && !notifiedPhones.has(agent.phone)) {
+        notifiedPhones.add(agent.phone);
         await notificationEngine.notifyAgentByWhatsApp({
           agentPhone: agent.phone,
           companyId: input.companyId,
@@ -182,6 +238,8 @@ export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssist
     leadId: input.leadId,
     reason: input.reason,
     recipientCount: recipients.length,
+    hasCustomerMessage: Boolean(input.customerMessage?.trim()),
+    hasAiReply: Boolean(input.aiReplyText?.trim()),
   });
 }
 
@@ -193,6 +251,10 @@ export type NotifyBuyerAiFailureInput = {
   detail?: string | null;
   customerName?: string | null;
   customerPhone?: string | null;
+  aiReplyText?: string | null;
+  inboundMessageId?: string | null;
+  reason?: BuyerAssistReason;
+  summary?: string;
 };
 
 /**
@@ -204,12 +266,14 @@ export function notifyBuyerAiFailure(input: NotifyBuyerAiFailureInput): void {
     companyId: input.companyId,
     leadId: input.leadId,
     conversationId: input.conversationId,
-    reason: 'ai_action_blocked',
-    summary: 'Buyer AI could not respond — customer needs agent follow-up',
+    reason: input.reason ?? 'ai_action_blocked',
+    summary: input.summary ?? 'Buyer AI could not respond — customer needs agent follow-up',
     detail: input.detail ?? null,
     customerMessage: input.customerMessage,
     customerName: input.customerName,
     customerPhone: input.customerPhone,
+    aiReplyText: input.aiReplyText,
+    inboundMessageId: input.inboundMessageId,
   }).catch((err: unknown) => {
     logger.warn('notifyBuyerAiFailure failed', {
       leadId: input.leadId,

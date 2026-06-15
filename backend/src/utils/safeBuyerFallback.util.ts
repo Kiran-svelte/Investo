@@ -1,4 +1,8 @@
 import { formatDateIST } from '../services/agent/tools/format-helpers';
+import {
+  isGenericSafeBuyerFallback,
+  shouldNotifyStaffForBuyerAiFailure,
+} from './buyerAiTransparency.util';
 
 export type SafeBuyerFallbackContext = {
   activeVisit?: {
@@ -8,26 +12,7 @@ export type SafeBuyerFallbackContext = {
   } | null;
 };
 
-const GENERIC_FALLBACK_SNIPPET = "I'm sorry, I'm temporarily unable to respond";
-
-/** Buyer-visible replies that mean the AI failed and staff should follow up. */
-const STAFF_ESCALATION_SNIPPETS = [
-  GENERIC_FALLBACK_SNIPPET,
-  'Sorry, I had a brief issue',
-  "I couldn't fetch your visit details just now",
-] as const;
-
-/** True when the buyer sees the generic AI failure message (not visit-aware fallback). */
-export function isGenericSafeBuyerFallback(text: string): boolean {
-  return text.includes(GENERIC_FALLBACK_SNIPPET);
-}
-
-/** True when outbound text indicates AI could not help — staff should be notified. */
-export function shouldNotifyStaffForBuyerAiFailure(text: string): boolean {
-  const t = text.trim();
-  if (!t) return false;
-  return STAFF_ESCALATION_SNIPPETS.some((snippet) => t.includes(snippet));
-}
+export { isGenericSafeBuyerFallback, shouldNotifyStaffForBuyerAiFailure };
 
 /**
  * Safe fallback when LLM fails, times out, or post-filter rejects output (fix.md §9).
