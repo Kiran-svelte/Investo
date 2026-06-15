@@ -1951,9 +1951,35 @@ async function handleFullAiTurn(
     stage: aiResponse.newState?.stage ?? conversationState.stage,
   });
 
+  const detailPropertyId = componentPropertyId ?? resolvedPropertyId ?? null;
+  let propertyDetailMedia: WhatsAppComponent[] = [];
+  if (detailPropertyId) {
+    const { isBuyerPropertyDetailOutbound } = await import('../../utils/buyerSituationButtons.util');
+    if (isBuyerPropertyDetailOutbound(outboundText)) {
+      const detailProp = allRawProperties.find((p) => p.id === detailPropertyId)
+        ?? await prisma.property.findFirst({
+          where: { id: detailPropertyId, companyId: ctx.companyId },
+          select: { id: true, name: true, brochureUrl: true, images: true },
+        });
+      if (detailProp) {
+        const { resolvePropertyDetailMediaComponents } = await import('../brochureDelivery.service');
+        propertyDetailMedia = await resolvePropertyDetailMediaComponents({
+          companyId: ctx.companyId,
+          property: {
+            id: detailProp.id,
+            name: detailProp.name,
+            brochureUrl: detailProp.brochureUrl ?? null,
+            images: detailProp.images,
+          },
+        });
+      }
+    }
+  }
+
   const components = enforceTurnComponentBudget([
+    ...propertyDetailMedia,
     ...interactiveComponents,
-    ...(heroMediaComponent ? [heroMediaComponent] : []),
+    ...(heroMediaComponent && propertyDetailMedia.length === 0 ? [heroMediaComponent] : []),
   ]);
 
   fireMemoryExtraction({

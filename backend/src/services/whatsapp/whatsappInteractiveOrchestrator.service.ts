@@ -671,9 +671,20 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       },
     );
     const hero = await resolveHeroMediaComponentFromPropertyIds(company.id, [property.id]);
+    const { resolvePropertyDetailMediaComponents } = await import('../brochureDelivery.service');
+    const detailMedia = await resolvePropertyDetailMediaComponents({
+      companyId: company.id,
+      property: {
+        id: property.id,
+        name: property.name,
+        brochureUrl: property.brochureUrl,
+        images: property.images,
+      },
+    });
     const components = enforceTurnComponentBudget([
+      ...detailMedia,
       buttonComponent,
-      ...(hero ? [hero] : []),
+      ...(detailMedia.length === 0 && hero ? [hero] : []),
     ]);
     return {
       handled: true,
@@ -712,7 +723,15 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   }
 
   let outboundText = details;
-  let buttonComponent: WhatsAppComponent;
+  const buttonComponent = scopeValidateButtons(
+    buildPropertyDetailButtons(propertyId, property.projectId, lang),
+    {
+      conversation,
+      visitPropertyId: activeVisit?.propertyId,
+      hasActiveVisit: Boolean(activeVisit),
+      language: lang,
+    },
+  );
 
   if (activeVisit && visitDate && !isBookedPropertyTap) {
     const visitProjectId =
@@ -732,41 +751,26 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
           date: visitDate,
         });
     outboundText = `${details}\n\n${visitNote}`;
-    buttonComponent = buildActiveVisitActionButtons(
-      property.projectId ?? visitProjectId,
-      lang,
-    );
   } else if (pendingApproval && visitDate) {
     const visitPropName = pendingApproval.propertyName ?? 'the property';
     outboundText =
       `${tBuyer(lang, 'visit_pending_approval_prefix', { property: visitPropName, date: visitDate })}\n\n` + details;
-    buttonComponent = buildActiveVisitActionButtons(property.projectId, lang);
-  } else {
-    buttonComponent = scopeValidateButtons(
-      buildPropertyDetailButtons(propertyId, property.projectId, lang),
-      {
-        conversation,
-        visitPropertyId: activeVisit?.propertyId,
-        hasActiveVisit: Boolean(activeVisit),
-        language: lang,
-      },
-    );
   }
 
-  const brochure = await resolveInteractiveBrochure({
-    customerMessage: 'brochure',
-    aiText: outboundText,
-    properties: [{ id: property.id, name: property.name, brochureUrl: property.brochureUrl }],
+  const { resolvePropertyDetailMediaComponents } = await import('../brochureDelivery.service');
+  const detailMedia = await resolvePropertyDetailMediaComponents({
+    companyId: company.id,
+    property: {
+      id: property.id,
+      name: property.name,
+      brochureUrl: property.brochureUrl,
+      images: property.images,
+    },
   });
-  outboundText = brochure.cleanedText || outboundText;
-
-  const hero =
-    brochure.mediaComponent ??
-    (await resolveHeroMediaComponentFromPropertyIds(company.id, [property.id]));
 
   const components = enforceTurnComponentBudget([
+    ...detailMedia,
     buttonComponent,
-    ...(brochure.mediaComponent ?? hero ? [brochure.mediaComponent ?? hero!] : []),
   ]);
 
   return {

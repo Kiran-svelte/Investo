@@ -59,8 +59,10 @@ describe('buyerEnterpriseUx.service', () => {
     expect(flags.visitPropertyProjectId).toBe('proj-lake');
   });
 
-  test('shouldUseVisitAwareButtonsOnly blocks book actions during active visit', () => {
-    expect(shouldUseVisitAwareButtonsOnly(true, 'price_discussed')).toBe(true);
+  test('shouldUseVisitAwareButtonsOnly blocks generic follow-up but not property detail', () => {
+    expect(shouldUseVisitAwareButtonsOnly(true, 'general_followup')).toBe(true);
+    expect(shouldUseVisitAwareButtonsOnly(true, 'single_property_focus')).toBe(false);
+    expect(shouldUseVisitAwareButtonsOnly(true, 'price_discussed')).toBe(false);
     expect(shouldUseVisitAwareButtonsOnly(true, 'visit_confirmed')).toBe(false);
     expect(shouldUseVisitAwareButtonsOnly(false, 'price_discussed')).toBe(false);
   });

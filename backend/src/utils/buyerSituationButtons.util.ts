@@ -4,7 +4,7 @@
  */
 
 import { buyerButtonTitle } from './buyerI18n.util';
-import { buildActiveVisitActionButtons } from '../services/projectBrowse.service';
+import { buildActiveVisitActionButtons, buildPropertyDetailButtons } from '../services/projectBrowse.service';
 import { shouldUseVisitAwareButtonsOnly } from '../services/buyer/buyerEnterpriseUx.service';
 import config from '../config';
 import { validateBuyerButtonSet } from '../services/buyer/buyerButtonScope.service';
@@ -132,17 +132,49 @@ function firstBrowseFilter(browseFilters: BrowseFilterButton[] | undefined): Bro
   return filterOnly[0] ?? null;
 }
 
+const OUTBOUND_PROPERTY_DETAIL =
+  /(\*Amenities\*|✨|📋 \*|More from our records|📌|🏠 \*)/i;
+
+function isPropertyDetailOutbound(text: string): boolean {
+  return OUTBOUND_PROPERTY_DETAIL.test(text);
+}
+
+export function isBuyerPropertyDetailOutbound(text: string): boolean {
+  return isPropertyDetailOutbound(text);
+}
+
+function isViewingDifferentPropertyThanVisit(input: SituationButtonInput): boolean {
+  const focusId = input.propertyId
+    ?? propertiesMentionedInText(input.outboundText, input.properties ?? [])[0]?.id;
+  return Boolean(
+    focusId
+    && input.visitPropertyId
+    && focusId !== input.visitPropertyId,
+  );
+}
+
 export function detectBuyerButtonSituation(input: SituationButtonInput): BuyerButtonSituation {
   if (input.hasActiveCall) return 'active_call';
   if (input.hasCompletedVisit && !input.hasActiveVisit) return 'post_visit';
 
+  const text = input.outboundText.trim();
+
   if (input.hasActiveVisit) {
+    const propertyContext = Boolean(
+      input.propertyId
+      || propertiesMentionedInText(text, input.properties ?? []).length
+      || (input.recommendedPropertyIds?.length ?? 0) > 0,
+    );
+    if (
+      propertyContext
+      && (isPropertyDetailOutbound(text) || isViewingDifferentPropertyThanVisit(input))
+    ) {
+      return 'single_property_focus';
+    }
     if (input.visitStatus === 'pending_approval') return 'visit_pending_approval';
     if (input.visitStatus === 'confirmed') return 'visit_confirmed';
     return 'visit_scheduled';
   }
-
-  const text = input.outboundText.trim();
   if (!text) return 'none';
 
   if (input.stage === 'visit_booking' && OUTBOUND_VISIT_TIME.test(text)) {
@@ -278,30 +310,27 @@ export function resolveButtonsForBuyerSituation(
 
     case 'single_property_focus':
     case 'general_followup': {
-      if (input.hasActiveVisit) {
-        const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
-        return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
-      }
-      const buttons: Array<{ id: string; title: string }> = [];
       if (primaryId) {
-        buttons.push({ id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') });
-        buttons.push({ id: withPropertyId('more-info', primaryId), title: buyerButtonTitle(lang, 'property_details') });
-      } else {
-        buttons.push({ id: 'book-visit', title: buyerButtonTitle(lang, 'book_visit') });
-        buttons.push({ id: 'more-info', title: buyerButtonTitle(lang, 'property_details') });
+        const projectId = input.focusedProjectId ?? input.visitPropertyProjectId ?? null;
+        const component = buildPropertyDetailButtons(primaryId, projectId, lang);
+        return component.kind === 'buttons' ? component.buttons : null;
       }
-      if (mentioned.length > 1 && mentioned[1]?.id) {
-        buttons.push({ id: withPropertyId('more-info', mentioned[1].id), title: mentioned[1].name.slice(0, 12) });
-      } else {
-        buttons.push({ id: 'call-me', title: buyerButtonTitle(lang, 'call_me') });
-      }
-      return buttons.slice(0, 3);
+      const buttons: Array<{ id: string; title: string }> = [
+        { id: 'book-visit', title: buyerButtonTitle(lang, 'book_visit') },
+        { id: 'more-info', title: buyerButtonTitle(lang, 'property_details') },
+        { id: 'browse-projects', title: buyerButtonTitle(lang, 'browse_projects') },
+      ];
+      return buttons;
     }
 
     case 'price_discussed': {
-      if (input.hasActiveVisit) {
-        const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
-        return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+      if (primaryId) {
+        const component = buildPropertyDetailButtons(
+          primaryId,
+          input.focusedProjectId ?? input.visitPropertyProjectId ?? null,
+          lang,
+        );
+        return component.kind === 'buttons' ? component.buttons : null;
       }
       return [
         { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') },
@@ -311,9 +340,13 @@ export function resolveButtonsForBuyerSituation(
     }
 
     case 'brochure_or_location': {
-      if (input.hasActiveVisit) {
-        const visitButtons = buildActiveVisitActionButtons(input.visitPropertyProjectId ?? null, lang);
-        return visitButtons.kind === 'buttons' ? visitButtons.buttons : null;
+      if (primaryId) {
+        const component = buildPropertyDetailButtons(
+          primaryId,
+          input.focusedProjectId ?? input.visitPropertyProjectId ?? null,
+          lang,
+        );
+        return component.kind === 'buttons' ? component.buttons : null;
       }
       return [
         { id: withPropertyId('book-visit', primaryId), title: buyerButtonTitle(lang, 'book_visit') },

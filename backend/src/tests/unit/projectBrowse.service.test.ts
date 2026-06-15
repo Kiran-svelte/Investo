@@ -50,13 +50,13 @@ describe('projectBrowse.service', () => {
     expect(list.sections[0].rows[0].title).toBe('Lake Vista 801');
   });
 
-  it('buildPropertyDetailButtons includes view listings when projectId set', () => {
+  it('buildPropertyDetailButtons includes book visit, view listing, and project listings', () => {
     const buttons = buildPropertyDetailButtons('prop-1', 'proj-investo', 'en');
     expect(buttons.kind).toBe('buttons');
     if (buttons.kind !== 'buttons') throw new Error('expected buttons');
     expect(buttons.buttons.map((b) => b.id)).toEqual([
       'book-visit-prop-1',
-      'call-me',
+      'more-info-prop-1',
       'project-properties-proj-investo',
     ]);
   });

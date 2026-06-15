@@ -284,6 +284,38 @@ export async function deliverBrochuresForAiTurn(input: {
   return { cleanedText, sent, failed };
 }
 
+/** Proactive hero image + brochure for property detail / More Info turns (no brochure keyword required). */
+export async function resolvePropertyDetailMediaComponents(input: {
+  companyId: string;
+  property: { id: string; name: string; brochureUrl: string | null; images?: unknown };
+}): Promise<WhatsAppMediaComponent[]> {
+  const out: WhatsAppMediaComponent[] = [];
+
+  const hero = await resolveFirstPropertyHeroMediaComponent({
+    images: input.property.images,
+    caption: input.property.name,
+  });
+  if (hero) out.push(hero);
+
+  if (input.property.brochureUrl) {
+    const pdfUrl = await resolveBrochureUrlForWhatsApp(input.property.brochureUrl);
+    if (pdfUrl) {
+      out.push({
+        kind: 'media',
+        url: pdfUrl,
+        mime: 'application/pdf',
+        caption: `📎 ${input.property.name} — Brochure`,
+      });
+    } else {
+      logger.warn('resolvePropertyDetailMediaComponents: brochure presign failed', {
+        propertyId: input.property.id,
+      });
+    }
+  }
+
+  return out.slice(0, 2);
+}
+
 /**
  * Pure brochure resolution — strips brochure links from `aiText` and returns an
  * optional WhatsApp media component for the orchestrator to include in `TurnResult`.

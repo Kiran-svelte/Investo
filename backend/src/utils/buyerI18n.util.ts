@@ -520,7 +520,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     or: '📅 Time Badle',
   },
   btn_property_details: {
-    en: '🏗️ Property Details',
+    en: '📋 View Listing',
     hi: '🏗️ संपत्ति विवरण',
     kn: '🏗️ Property Details',
     te: '🏗️ Property Details',
@@ -663,7 +663,7 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     or: 'Adhika Options',
   },
   btn_view_project_listings: {
-    en: 'View Listings',
+    en: '🏘️ View Project Listings',
     hi: 'लिस्टिंग देखें',
     kn: 'Listings Nodi',
     te: 'Listings Chudandi',

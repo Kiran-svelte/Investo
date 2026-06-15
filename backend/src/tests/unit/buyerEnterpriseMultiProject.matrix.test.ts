@@ -246,12 +246,12 @@ describe('multi-project enterprise matrix MP-01..MP-08', () => {
     );
   });
 
-  test('MP-05 active visit A + more-info B keeps visit-era buttons on price reply', () => {
+  test('MP-05 active visit A + price on property B shows property CTAs not visit reschedule', () => {
     expect(
       shouldUseVisitAwareButtonsOnly(true, 'price_discussed', {
         inboundMessageText: 'What is the price?',
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     const buttons = resolveSituationBuyerButtons({
       stage: 'shortlist',
@@ -261,12 +261,13 @@ describe('multi-project enterprise matrix MP-01..MP-08', () => {
       visitStatus: 'confirmed',
       visitPropertyProjectId: projA,
       visitPropertyId: propA1,
+      focusedProjectId: projB,
       allowedPropertyIds: [propB1],
       language: 'en',
     });
     const ids = buttons?.map((b) => b.id) ?? [];
-    expect(ids).toContain('visit-reschedule');
-    expect(ids.some((id) => id.startsWith('book-visit'))).toBe(false);
+    expect(ids).toContain(`book-visit-${propB1}`);
+    expect(ids).not.toContain('visit-reschedule');
   });
 
   test('MP-06 active visit A + explicit book B allows different project', () => {

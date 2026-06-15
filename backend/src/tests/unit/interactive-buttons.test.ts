@@ -138,6 +138,7 @@ jest.mock('../../services/brochureDelivery.service', () => ({
     cleanedText: aiText,
     mediaComponent: null,
   })),
+  resolvePropertyDetailMediaComponents: jest.fn(async () => []),
 }));
 
 jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => {

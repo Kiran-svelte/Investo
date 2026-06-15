@@ -321,12 +321,12 @@ export function buildPropertyDetailButtons(
 ): WhatsAppComponent {
   const buttons = [
     { id: `book-visit-${propertyId}`, title: buyerButtonTitle(lang, 'book_visit') },
-    { id: 'call-me', title: buyerButtonTitle(lang, 'call_agent') },
+    { id: `more-info-${propertyId}`, title: buyerButtonTitle(lang, 'property_details') },
   ];
   if (projectId) {
     buttons.push({ id: `project-properties-${projectId}`, title: buyerButtonTitle(lang, 'view_project_listings') });
   } else {
-    buttons.push({ id: `more-info-${propertyId}`, title: buyerButtonTitle(lang, 'property_details') });
+    buttons.push({ id: 'browse-projects', title: buyerButtonTitle(lang, 'browse_projects') });
   }
   return { kind: 'buttons', buttons: buttons.slice(0, 3) };
 }

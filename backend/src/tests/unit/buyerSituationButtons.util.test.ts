@@ -47,7 +47,7 @@ describe('buyerSituationButtons.util', () => {
     expect(buttons?.map((b) => b.id)).not.toContain('filter-villa');
   });
 
-  test('single property focus gets book/details/call', () => {
+  test('single property focus gets book, view listing, and browse', () => {
     const buttons = resolveSituationBuyerButtons({
       stage: 'shortlist',
       outboundText: 'Lake Vista in Whitefield starts from ₹1.2Cr.',
@@ -57,11 +57,11 @@ describe('buyerSituationButtons.util', () => {
     expect(buttons?.map((b) => b.id)).toEqual([
       'book-visit-prop-lake',
       'more-info-prop-lake',
-      'call-me',
+      'browse-projects',
     ]);
   });
 
-  test('price reply gets EMI path', () => {
+  test('price reply with property id uses property detail buttons', () => {
     const situation = detectBuyerButtonSituation({
       stage: 'shortlist',
       outboundText: 'Pricing for Sunset Heights is ₹95L – ₹1.1Cr.',
@@ -72,7 +72,12 @@ describe('buyerSituationButtons.util', () => {
       stage: 'shortlist',
       outboundText: 'Pricing for Sunset Heights is ₹95L – ₹1.1Cr.',
       propertyId: 'p1',
-    })?.map((b) => b.id)).toContain('emi-calculator');
+      language: 'en',
+    })?.map((b) => b.id)).toEqual([
+      'book-visit-p1',
+      'more-info-p1',
+      'browse-projects',
+    ]);
   });
 
   test('active visit confirmed gets reschedule buttons', () => {
@@ -135,17 +140,52 @@ describe('buyerSituationButtons.util', () => {
     ]);
   });
 
-  test('price_discussed with active visit uses visit action buttons', () => {
+  test('property detail outbound with active visit on another unit keeps property CTAs', () => {
+    const situation = detectBuyerButtonSituation({
+      stage: 'shortlist',
+      outboundText: '🏠 *Sunset Heights 1201*\n\n✨ Amenities: Pool\n\n📋 *Details:*\nBHK: 2',
+      propertyId: 'prop-1201',
+      visitPropertyId: 'prop-other',
+      hasActiveVisit: true,
+      visitStatus: 'confirmed',
+      visitPropertyProjectId: 'proj-sunset',
+      focusedProjectId: 'proj-sunset',
+      language: 'en',
+    });
+    expect(situation).toBe('single_property_focus');
+    const buttons = resolveSituationBuyerButtons({
+      stage: 'shortlist',
+      outboundText: '🏠 *Sunset Heights 1201*\n\n✨ Amenities: Pool',
+      propertyId: 'prop-1201',
+      visitPropertyId: 'prop-other',
+      hasActiveVisit: true,
+      visitStatus: 'confirmed',
+      visitPropertyProjectId: 'proj-sunset',
+      focusedProjectId: 'proj-sunset',
+      language: 'en',
+    });
+    expect(buttons?.map((b) => b.id)).toEqual([
+      'book-visit-prop-1201',
+      'more-info-prop-1201',
+      'project-properties-proj-sunset',
+    ]);
+  });
+
+  test('price_discussed with active visit uses property detail buttons', () => {
     const buttons = resolveButtonsForBuyerSituation('price_discussed', {
       stage: 'shortlist',
       outboundText: 'Pricing for Sunset Heights is ₹95L.',
       propertyId: 'p1',
       hasActiveVisit: true,
       visitPropertyProjectId: 'proj-sunset',
+      focusedProjectId: 'proj-sunset',
       language: 'en',
     });
-    expect(buttons?.map((b) => b.id)).toContain('visit-reschedule');
-    expect(buttons?.map((b) => b.id)).not.toContain('book-visit-p1');
+    expect(buttons?.map((b) => b.id)).toEqual([
+      'book-visit-p1',
+      'more-info-p1',
+      'project-properties-proj-sunset',
+    ]);
   });
 
   test('flag ON multi-property list does not attach Book Visit for multiple allowed properties', () => {

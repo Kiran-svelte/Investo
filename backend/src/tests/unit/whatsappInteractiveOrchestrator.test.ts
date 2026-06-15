@@ -32,6 +32,7 @@ jest.mock('../../services/brochureDelivery.service', () => ({
     cleanedText: aiText,
     mediaComponent: null,
   })),
+  resolvePropertyDetailMediaComponents: jest.fn(async () => []),
 }));
 
 jest.mock('../../services/alternativeInventory.service', () => ({
@@ -62,7 +63,14 @@ jest.mock('../../services/projectBrowse.service', () => ({
   buildProjectSelectListComponent: jest.fn(() => ({ kind: 'list', title: 'Choose project', sections: [] })),
   loadProjectProperties: jest.fn(async () => null),
   buildProjectPropertyListComponent: jest.fn(),
-  buildPropertyDetailButtons: jest.fn(),
+  buildPropertyDetailButtons: jest.fn(() => ({
+    kind: 'buttons',
+    buttons: [
+      { id: 'book-visit-prop-x', title: 'Book Visit' },
+      { id: 'more-info-prop-x', title: 'View Listing' },
+      { id: 'project-properties-proj-x', title: 'View Project Listings' },
+    ],
+  })),
   resolveProjectBrochureMediaComponent: jest.fn(async () => null),
   resolveProjectHeroImageComponent: jest.fn(async () => null),
   formatProjectSelectedIntro: jest.fn(() => ''),

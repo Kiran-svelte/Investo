@@ -109,6 +109,12 @@ export function evaluateSecondVisitPolicy(input: SecondVisitPolicyInput): Second
   return { allow: true, reason: 'different_property' };
 }
 
+const PROPERTY_DETAIL_SITUATIONS = new Set([
+  'single_property_focus',
+  'brochure_or_location',
+  'price_discussed',
+]);
+
 export function shouldUseVisitAwareButtonsOnly(
   hasActiveVisit: boolean | undefined,
   situation: string,
@@ -122,6 +128,9 @@ export function shouldUseVisitAwareButtonsOnly(
 ): boolean {
   if (!hasActiveVisit) return false;
   if (VISIT_SITUATIONS.has(situation)) return false;
+  if (PROPERTY_DETAIL_SITUATIONS.has(situation)) {
+    return false;
+  }
   if (
     config.features.secondVisitPolicy
     && options?.explicitBookPropertyId
