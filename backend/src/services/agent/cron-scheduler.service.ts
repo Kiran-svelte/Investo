@@ -6,7 +6,14 @@ import { CRON_SCHEDULES } from '../../constants/agent-ai.constants';
 import { logAgentAction, purgeOldActionLogs } from '../agent-action-log.service';
 import { recordDailyOpsRollup, DAILY_OPS_ROLLUP_CRON } from '../opsMetrics.service';
 import { cleanupExpiredConfirmations } from './confirmation.service';
-import { formatDateIST, formatTimeIST, maskPhone, visitStatusEmoji } from './response-formatter.service';
+import { formatDateIST, formatTimeIST, maskPhone } from './response-formatter.service';
+import {
+  buildAgentEndOfDaySummary,
+  buildAgentMorningBriefing,
+  istDayBounds,
+  logCronBriefingSent,
+  wasCronBriefingSentToday,
+} from './staffShiftBriefing.service';
 
 type ScheduledTask = cron.ScheduledTask;
 const tasks: ScheduledTask[] = [];
@@ -38,35 +45,15 @@ async function sendNotification(phone: string, companyId: string, message: strin
   await whatsappService.sendCompanyTextMessage(phone, message, companyId);
 }
 
-function istDayBounds(): [Date, Date] {
-  const now = new Date();
-  const offset = 5.5 * 60 * 60 * 1000;
-  const ist = new Date(now.getTime() + offset);
-  const start = new Date(ist.getFullYear(), ist.getMonth(), ist.getDate());
-  const utcStart = new Date(start.getTime() - offset);
-  return [utcStart, new Date(utcStart.getTime() + 24 * 60 * 60 * 1000 - 1)];
-}
-
 async function sendMorningBriefings(): Promise<CronRunResult> {
   const affected = trackCompanyIds();
-  const [start, end] = istDayBounds();
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
   for (const agent of agents) {
     if (!agent.phone) continue;
-    const visits = await prisma.visit.findMany({
-      where: { companyId: agent.companyId, agentId: agent.id, scheduledAt: { gte: start, lte: end }, status: { in: ['scheduled', 'confirmed'] } },
-      include: { lead: true, property: true },
-      orderBy: { scheduledAt: 'asc' },
-    });
-    const newLeads = await prisma.lead.count({ where: { companyId: agent.companyId, assignedAgentId: agent.id, status: 'new' } });
-    const lines = [`Good morning ${agent.name}.`, '', `*Today's Visits (${visits.length})*`];
-    if (visits.length) {
-      visits.forEach((visit, i) => lines.push(`${i + 1}. ${visit.lead?.customerName ?? 'Unknown'} -> ${visit.property?.name ?? 'TBD'} at ${formatTimeIST(visit.scheduledAt)} (${visitStatusEmoji(visit.status)} ${visit.status})`));
-    } else {
-      lines.push('No visits scheduled.');
-    }
-    lines.push('', `New leads assigned: ${newLeads}`, 'Reply with any CRM question.');
-    await sendNotification(agent.phone, agent.companyId, lines.join('\n'));
+    if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_morning_briefing')) continue;
+    const message = await buildAgentMorningBriefing(agent.id, agent.companyId, agent.name);
+    await sendNotification(agent.phone, agent.companyId, message);
+    await logCronBriefingSent(agent.id, agent.companyId, 'cron_morning_briefing');
     affected.add(agent.companyId);
   }
   return affected.result();
@@ -111,16 +98,13 @@ async function sendVisitReminders(): Promise<CronRunResult> {
 
 async function sendEndOfDaySummaries(): Promise<CronRunResult> {
   const affected = trackCompanyIds();
-  const [start, end] = istDayBounds();
   const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
   for (const agent of agents) {
     if (!agent.phone) continue;
-    const [total, completed, newLeads] = await Promise.all([
-      prisma.visit.count({ where: { companyId: agent.companyId, agentId: agent.id, scheduledAt: { gte: start, lte: end } } }),
-      prisma.visit.count({ where: { companyId: agent.companyId, agentId: agent.id, status: 'completed', updatedAt: { gte: start, lte: end } } }),
-      prisma.lead.count({ where: { companyId: agent.companyId, assignedAgentId: agent.id, createdAt: { gte: start, lte: end } } }),
-    ]);
-    await sendNotification(agent.phone, agent.companyId, [`Good evening ${agent.name}.`, `*Today's Summary*`, `Visits completed: ${completed}/${total}`, `New leads: ${newLeads}`].join('\n'));
+    if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_eod_summary')) continue;
+    const message = await buildAgentEndOfDaySummary(agent.id, agent.companyId, agent.name);
+    await sendNotification(agent.phone, agent.companyId, message);
+    await logCronBriefingSent(agent.id, agent.companyId, 'cron_eod_summary');
     affected.add(agent.companyId);
   }
   return affected.result();
@@ -898,6 +882,78 @@ async function expireStalePendingApprovals(): Promise<CronRunResult> {
   return affected.result();
 }
 
+type FollowUpDueInputs = { dueAt?: string; note?: string };
+
+/**
+ * Picks up agent-tool `follow_up_due` action logs whose dueAt has passed
+ * and sends WhatsApp reminders to the agent who scheduled them.
+ */
+async function processDueFollowUps(): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
+  const now = new Date();
+  const pending = await prisma.agentActionLog.findMany({
+    where: { action: 'follow_up_due', status: 'success' },
+    orderBy: { createdAt: 'asc' },
+    take: 100,
+  });
+
+  for (const row of pending) {
+    const inputs = (row.inputs ?? {}) as FollowUpDueInputs;
+    const dueAtRaw = inputs.dueAt;
+    if (!dueAtRaw || !row.resourceId || !row.actorId) continue;
+    const dueAt = new Date(dueAtRaw);
+    if (Number.isNaN(dueAt.getTime()) || dueAt > now) continue;
+
+    const alreadySent = await prisma.agentActionLog.findFirst({
+      where: {
+        companyId: row.companyId,
+        action: 'follow_up_reminder_sent',
+        resourceType: 'lead',
+        resourceId: row.resourceId,
+        createdAt: { gte: row.createdAt },
+      },
+      select: { id: true },
+    });
+    if (alreadySent) continue;
+
+    const [agent, lead] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: row.actorId },
+        select: { phone: true, name: true },
+      }),
+      prisma.lead.findUnique({
+        where: { id: row.resourceId },
+        select: { customerName: true, phone: true, status: true },
+      }),
+    ]);
+    if (!agent?.phone || !lead) continue;
+
+    const noteLine = inputs.note ? `\nNote: ${inputs.note}` : '';
+    const message = [
+      '*Follow-up Reminder*',
+      `Lead: ${lead.customerName ?? 'Unknown'} (${lead.status ?? 'active'})`,
+      `Scheduled follow-up is due now.${noteLine}`,
+      'Reply with a CRM command to update this lead.',
+    ].join('\n');
+
+    await sendNotification(agent.phone, row.companyId, message);
+    void logAgentAction({
+      companyId: row.companyId,
+      triggeredBy: 'cron',
+      action: 'follow_up_reminder_sent',
+      actorId: row.actorId,
+      resourceType: 'lead',
+      resourceId: row.resourceId,
+      inputs: { sourceLogId: row.id, dueAt: dueAtRaw },
+      status: 'success',
+      result: `Follow-up reminder sent to ${agent.name ?? 'agent'}`,
+    });
+    affected.add(row.companyId);
+  }
+
+  return affected.result();
+}
+
 export function startCronScheduler(): void {
   if (!config.agentAi.cronEnabled || tasks.length) return;
   tasks.push(
@@ -923,6 +979,7 @@ export function startCronScheduler(): void {
     cron.schedule(CRON_SCHEDULES.NIGHTLY_CONVERSATION_SUMMARY, wrap('refreshNightlyConversationSummaries', refreshNightlyConversationSummaries)),
     // Auto-expire pending visit/call approvals older than 4 hours — every 30 minutes.
     cron.schedule(CRON_SCHEDULES.PENDING_APPROVAL_EXPIRE, wrap('expireStalePendingApprovals', expireStalePendingApprovals)),
+    cron.schedule(CRON_SCHEDULES.FOLLOW_UP_DUE_CHECK, wrap('processDueFollowUps', processDueFollowUps)),
     cron.schedule(DAILY_OPS_ROLLUP_CRON, wrap('recordDailyOpsRollup', async () => {
       await recordDailyOpsRollup();
       return {};

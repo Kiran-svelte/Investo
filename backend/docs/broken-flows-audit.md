@@ -26,6 +26,8 @@ Benchmark: `npm run benchmark:reply-speed`
 | ID | Flow | Symptom | Fix target |
 |----|------|---------|------------|
 | F-03 | Staff attendance **No** | Works but customer reschedule is passive | Already sends invite; ensure buyer AI picks up slot | `customerVisitBooking` + metadata |
+| F-11 | Staff **check-in / check-out** | No shift greeting or EOD reminder on demand | CHECK IN / CHECK OUT fast path + enhanced cron briefings | `staffShiftBriefing.service.ts` | **Done** |
+| F-12 | Agent tool `follow_up_due` | Logged but never fired | `processDueFollowUps` cron every 15 min | `cron-scheduler.service.ts` | **Done** |
 | F-04 | Visit approval **Decline** (2 buttons) | Customer gets generic text only | Agent should get reschedule shortcut too | `visitPendingApproval.resolveVisitApproval` |
 | F-05 | Post-visit `visit_post_follow_up` cron | Generic nurture, no situational buttons | Wire `buyerSituationButtons` post-visit | `automation.service` + orchestrator |
 | F-06 | Agent 15m notification | May duplicate after reschedule | Cancel/re-enqueue on `rescheduleVisitReminderJobs` | `visitLifecycle` + automation queue |

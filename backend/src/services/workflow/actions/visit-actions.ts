@@ -497,7 +497,7 @@ export async function logFeedback(ctx: ActionContext) {
 
 /**
  * Queues a real follow-up task by writing a dated agent action log entry.
- * The cron scheduler picks up 'follow_up_due' actions and sends reminders.
+ * The cron scheduler picks up 'follow_up_due' actions via processDueFollowUps (every 15 min).
  */
 export async function scheduleFollowUp(ctx: ActionContext) {
   const leadId = requireLeadId(ctx);

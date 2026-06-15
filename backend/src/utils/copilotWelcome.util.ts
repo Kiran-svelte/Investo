@@ -12,6 +12,7 @@ const COPILOT_WELCOME_BY_LANG: Record<string, (name: string, company: string) =>
     `- *Properties* - "list properties", "property details"\n` +
     `- *Analytics* - "dashboard stats", "my performance"\n` +
     `- *Actions* - "confirm visit", "mark lead visited", "send brochure"\n\n` +
+    `Type *CHECK IN* at start of day or *CHECK OUT* at end of day for your briefing.\n` +
     `Just type your command or tap a shortcut below.`,
   hi: (name, company) =>
     `*नमस्ते ${name}!* *${company}* के लिए *Investo Copilot* में आपका स्वागत है।\n\n` +

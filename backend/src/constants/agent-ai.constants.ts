@@ -101,6 +101,8 @@ export const CRON_SCHEDULES = {
    * Owner: G13 in AI_MASTER_REALITY_AND_A_PLUS_PLAN.md
    */
   NIGHTLY_CONVERSATION_SUMMARY: '40 20 * * *',
+  /** Agent-tool scheduled lead follow-ups — every 15 minutes */
+  FOLLOW_UP_DUE_CHECK: '*/15 * * * *',
 } as const;
 
 // ─── Emoji Maps ─────────────────────────────────────────────────────

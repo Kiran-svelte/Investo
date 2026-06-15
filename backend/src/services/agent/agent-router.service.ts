@@ -6,6 +6,12 @@ import type { CompanyUserMatch } from '../inboundWhatsAppRouting.service';
 import { ToolContext } from './agent-state';
 
 import { isCopilotGreeting, normalizeCopilotInboundText } from '../../utils/copilotGreeting.util';
+import { isStaffCheckIn, isStaffCheckOut } from '../../utils/staffShiftGreeting.util';
+import {
+  buildAgentEndOfDaySummary,
+  buildAgentMorningBriefing,
+  logStaffShiftAction,
+} from './staffShiftBriefing.service';
 import { resolveCopilotInboundCommand, type CopilotReplyKind } from '../../utils/copilotShortcut.util';
 import { resolveCopilotComponents } from '../copilot/copilotButtonPolicy.service';
 import {
@@ -123,6 +129,34 @@ async function handleAgentMessage(
     ?? resolveCopilotInboundCommand({ interactiveId, messageText });
   const normalizedText = normalizeCopilotInboundText(resolvedCommand);
   const isViewer = user.userRole === 'viewer';
+
+  // FAST PATH: Check-in / check-out — day-start and day-end briefings without LLM.
+  if (!isViewer && isStaffCheckIn(normalizedText)) {
+    const text = await buildAgentMorningBriefing(user.userId, user.companyId, user.userName);
+    const { getOrCreateAgentSession } = await import('./agent-memory.service');
+    const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
+    const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
+    await logStaffShiftAction(user.userId, user.companyId, 'staff_check_in');
+    await recordAgentCopilotExchange({
+      sessionId: agentSession.id,
+      inboundText: resolvedCommand || messageText,
+      outboundText: text,
+    });
+    return { text, replyKind: 'welcome' };
+  }
+  if (!isViewer && isStaffCheckOut(normalizedText)) {
+    const text = await buildAgentEndOfDaySummary(user.userId, user.companyId, user.userName);
+    const { getOrCreateAgentSession } = await import('./agent-memory.service');
+    const { recordAgentCopilotExchange } = await import('./agent-intent-orchestrator.service');
+    const agentSession = await getOrCreateAgentSession(user.userId, user.phone, user.companyId);
+    await logStaffShiftAction(user.userId, user.companyId, 'staff_check_out');
+    await recordAgentCopilotExchange({
+      sessionId: agentSession.id,
+      inboundText: resolvedCommand || messageText,
+      outboundText: text,
+    });
+    return { text, replyKind: 'welcome' };
+  }
 
   // FAST PATH: Greetings and help commands — deterministic, never hits LLM.
   if (isCopilotGreeting(normalizedText)) {
