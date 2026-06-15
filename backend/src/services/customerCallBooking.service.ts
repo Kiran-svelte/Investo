@@ -10,6 +10,7 @@ import {
 import {
   clearConversationAwaitingCallTime,
   isConversationAwaitingCallTime,
+  isConversationInVisitSchedulingFlow,
   setConversationAwaitingCallTime,
 } from '../utils/conversationCallContext.util';
 import {
@@ -152,16 +153,25 @@ export async function tryCommitCustomerCallBooking(
 
   if (!isCallBookingIntent(msg)) {
     let awaitingCallTime = false;
+    let inVisitSchedulingFlow = false;
     if (input.conversationId) {
       const conversation = await prisma.conversation.findUnique({
         where: { id: input.conversationId },
-        select: { commitments: true },
+        select: { commitments: true, stage: true },
       });
       awaitingCallTime = isConversationAwaitingCallTime(conversation?.commitments);
+      inVisitSchedulingFlow = isConversationInVisitSchedulingFlow({
+        stage: conversation?.stage,
+        commitments: conversation?.commitments,
+      });
     }
 
     const bareTimeReply = isBareSchedulingTimeReply(msg);
     if (!awaitingCallTime && !active) {
+      return { committed: false };
+    }
+    // Active callback must not steal bare time while buyer is booking a site visit.
+    if (inVisitSchedulingFlow && bareTimeReply && !awaitingCallTime) {
       return { committed: false };
     }
     if (!bareTimeReply) {

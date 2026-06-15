@@ -1096,8 +1096,9 @@ async function handleQualificationTurn(
 async function handleCallCommitReplyTurn(
   ctx: BuyerTurnRuntimeContext,
   callCommit: Awaited<ReturnType<typeof tryCommitCustomerCallBooking>>,
-  _visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
 ): Promise<TurnResult | null> {
+  if (visitCommit.committed) return null;
   if (!callCommit.committed || !callCommit.customerReply) return null;
 
   logOutboundBranch('H-call', 'whatsappTurnOrchestrator:callCommit', 'buyer_call_commit_reply', {

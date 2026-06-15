@@ -201,6 +201,14 @@ describe('whatsappTurnOrchestrator handlers (chunk 09)', () => {
     expect(block).not.toContain('hasActiveCall: true,');
   });
 
+  it('H-call defers to visit commit when visit booking already committed', () => {
+    const block = readOrchestrator().slice(
+      readOrchestrator().indexOf('async function handleCallCommitReplyTurn'),
+      readOrchestrator().indexOf('async function handleVisitStatusTurn'),
+    );
+    expect(block).toContain('if (visitCommit.committed) return null');
+  });
+
   it('orchestrator invokes tryCommitCustomerCallBooking before H-call handler', () => {
     const body = readOrchestrator().slice(
       readOrchestrator().indexOf('export async function orchestrateWhatsAppBuyerTurn'),

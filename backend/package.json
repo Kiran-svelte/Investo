@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.15",
-    "deployNote": "v0.1.15-returning-buyer-unified-welcome-ux",
+    "version": "0.1.16",
+    "deployNote": "v0.1.16-fix-call-visit-scheduling-collision",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {

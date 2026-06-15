@@ -34,6 +34,14 @@ jest.mock('../../utils/conversationCallContext.util', () => ({
       && !Array.isArray(commitments)
       && (commitments as Record<string, unknown>).awaitingCallTime === true,
     ),
+  isConversationInVisitSchedulingFlow: (input: { stage?: string | null; commitments?: unknown }) =>
+    input.stage === 'visit_booking'
+    || Boolean(
+      input.commitments
+      && typeof input.commitments === 'object'
+      && !Array.isArray(input.commitments)
+      && (input.commitments as Record<string, unknown>).visitSlotDiscussed === true,
+    ),
   setConversationAwaitingCallTime: (...args: unknown[]) => mockSetAwaitingCallTime(...args),
 }));
 
@@ -171,5 +179,51 @@ describe('customerCallBooking.service', () => {
     expect(result.committed).toBe(true);
     expect(result.hasActiveCall).toBe(true);
     expect(result.customerReply).toContain('YOUR CALLBACK');
+  });
+
+  it('does not treat bare time as callback change during visit_booking stage', async () => {
+    mockFindActiveCallRequest.mockResolvedValue({
+      id: 'call-1',
+      status: 'confirmed',
+      scheduled_at: new Date(Date.now() + 60 * 60 * 1000),
+      agent_id: 'agent-1',
+    });
+    (prisma.conversation.findUnique as jest.Mock).mockResolvedValue({
+      stage: 'visit_booking',
+      commitments: {},
+    });
+
+    const result = await tryCommitCustomerCallBooking({
+      companyId: 'company-1',
+      customerMessage: 'Today at 2pm',
+      conversationId: 'conv-1',
+      lead: { id: 'lead-1', assignedAgentId: 'agent-1' },
+    });
+
+    expect(result.committed).toBe(false);
+    expect(mockNotifyAgentCallChangeRequested).not.toHaveBeenCalled();
+    expect(mockRescheduleCallRequest).not.toHaveBeenCalled();
+  });
+
+  it('still accepts bare time for callback when awaitingCallTime is set', async () => {
+    (prisma.conversation.findUnique as jest.Mock).mockResolvedValue({
+      stage: 'visit_booking',
+      commitments: { awaitingCallTime: true },
+    });
+    mockScheduleCallRequest.mockResolvedValue({
+      success: true,
+      call: { id: 'call-2', agent_id: 'agent-1', status: 'pending_approval' },
+    });
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue({ name: 'Agent' });
+
+    const result = await tryCommitCustomerCallBooking({
+      companyId: 'company-1',
+      customerMessage: '9 pm today',
+      conversationId: 'conv-1',
+      lead: { id: 'lead-1', assignedAgentId: 'agent-1' },
+    });
+
+    expect(result.committed).toBe(true);
+    expect(mockScheduleCallRequest).toHaveBeenCalled();
   });
 });

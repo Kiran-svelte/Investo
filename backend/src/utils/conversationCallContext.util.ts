@@ -8,6 +8,21 @@ export function isConversationAwaitingCallTime(commitments: unknown): boolean {
   return (commitments as Record<string, unknown>).awaitingCallTime === true;
 }
 
+/**
+ * Buyer is actively scheduling a site visit — bare time replies must not mutate callbacks.
+ * Mirrors visitIntentFromMessage VisitSchedulingContext.visitBookingStage.
+ */
+export function isConversationInVisitSchedulingFlow(input: {
+  stage?: string | null;
+  commitments?: unknown;
+}): boolean {
+  if (input.stage === 'visit_booking') return true;
+  if (!input.commitments || typeof input.commitments !== 'object' || Array.isArray(input.commitments)) {
+    return false;
+  }
+  return (input.commitments as Record<string, unknown>).visitSlotDiscussed === true;
+}
+
 export async function setConversationAwaitingCallTime(conversationId: string): Promise<void> {
   const row = await prisma.conversation.findUnique({
     where: { id: conversationId },
