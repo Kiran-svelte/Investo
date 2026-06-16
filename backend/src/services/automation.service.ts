@@ -1,12 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
+import { getRedis } from '../config/redis';
 import { whatsappService } from './whatsapp.service';
 import { automationQueueService, AutomationJobType } from './automationQueue.service';
 import { logAgentAction } from './agent-action-log.service';
 import { formatISTDateLong, formatISTTime } from '../utils/dateTime.util';
 import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
-import { shadowCompare } from '../utils/featureShadow.util';
 import { nurtureMessageForReason, resolveBuyerLanguage } from '../utils/buyerI18n.util';
 
 function isVisitEligibleForCustomerReminder(
@@ -18,29 +18,33 @@ function isVisitEligibleForCustomerReminder(
   return Boolean(leadId && isFeatureEnabledForLead(leadId, 'reliableCustomerNotifications'));
 }
 
+/**
+ * Sends one customer automation WhatsApp — never dual-path / shadow execution.
+ * Side-effect sends must not use shadowCompare (that runs old+new when comparing rollout).
+ */
 async function sendCustomerAutomationWhatsApp(input: {
   leadId: string;
   companyId: string;
   phone: string;
   message: string;
 }): Promise<boolean> {
-  return shadowCompare({
-    featureName: 'customerAutomationWhatsApp',
-    featureKey: 'reliableCustomerNotifications',
-    leadId: input.leadId,
-    oldFn: async () => {
-      const whatsappConfig = await whatsappService.resolveCompanyWhatsAppConfig(input.companyId);
-      if (!whatsappConfig?.phoneNumberId || !whatsappConfig?.accessToken) {
-        return false;
-      }
-      return whatsappService.sendMessage(input.phone, input.message, whatsappConfig);
-    },
-    newFn: async () => whatsappService.sendCompanyTextMessage(
+  if (isFeatureEnabledForLead(input.leadId, 'reliableCustomerNotifications')) {
+    return whatsappService.sendCompanyTextMessage(
       input.phone,
       input.message,
       input.companyId,
-    ),
-  });
+    );
+  }
+
+  const whatsappConfig = await whatsappService.resolveCompanyWhatsAppConfig(input.companyId);
+  if (!whatsappConfig?.phoneNumberId || !whatsappConfig?.accessToken) {
+    return whatsappService.sendCompanyTextMessage(
+      input.phone,
+      input.message,
+      input.companyId,
+    );
+  }
+  return whatsappService.sendMessage(input.phone, input.message, whatsappConfig);
 }
 
 /**
@@ -170,14 +174,38 @@ export class AutomationService {
    */
   private async sendVisitReminder(visit: any, timing: '24h' | '1h'): Promise<void> {
     try {
+      const action = `visit_reminder_${timing}`;
+      const alreadySent = await prisma.agentActionLog.findFirst({
+        where: {
+          companyId: visit.companyId,
+          action,
+          resourceType: 'visit',
+          resourceId: visit.id,
+          status: 'success',
+        },
+        select: { id: true },
+      });
+      if (alreadySent) {
+        logger.debug('Visit reminder skipped — already sent', { visitId: visit.id, timing });
+        return;
+      }
+
       const visitTime = new Date(visit.scheduledAt);
       const timeStr = formatISTTime(visitTime);
       const dateStr = formatISTDateLong(visitTime);
 
       const customerName = visit.lead?.customerName;
-      const propertyName = visit.property?.name;
-      const locationArea = visit.property?.locationArea;
-      const visitLabel = [propertyName || 'Property', locationArea || ''].filter(Boolean).join(', ');
+      let propertyName = visit.property?.name;
+      let locationArea = visit.property?.locationArea;
+      if (!propertyName && visit.propertyId) {
+        const property = await prisma.property.findFirst({
+          where: { id: visit.propertyId, companyId: visit.companyId },
+          select: { name: true, locationArea: true },
+        });
+        propertyName = property?.name ?? propertyName;
+        locationArea = locationArea || property?.locationArea;
+      }
+      const visitLabel = [propertyName, locationArea].filter(Boolean).join(', ') || 'your selected property';
       const message = timing === '24h'
         ? `Hi ${customerName || 'there'}!\n\nReminder: Your property visit is scheduled for tomorrow.\n\nDate: ${dateStr}\nTime: ${timeStr}\nProperty: ${visitLabel}\n\nReply YES to confirm or RESCHEDULE to change the time.`
         : `Hi ${customerName || 'there'}!\n\nYour property visit is in 1 hour.\n\nProperty: ${visitLabel}\nTime: ${timeStr}\n\nSee you soon.`;
@@ -566,6 +594,21 @@ export class AutomationService {
   }
 
   private async withRecipientLock<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
+    const redis = getRedis();
+    const lockKey = `automation:recipient-lock:${key}`;
+    if (redis) {
+      const claimed = await redis.set(lockKey, '1', { nx: true, ex: 120 });
+      if (claimed === null) {
+        logger.debug('Automation recipient lock: skipping overlapping job (Redis)', { key });
+        return undefined;
+      }
+      try {
+        return await fn();
+      } finally {
+        await redis.del(lockKey).catch(() => undefined);
+      }
+    }
+
     if (this.recipientLocks.has(key)) {
       logger.debug('Automation recipient lock: skipping overlapping job', { key });
       return undefined;

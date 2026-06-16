@@ -2,15 +2,23 @@ jest.mock('../../config/redis', () => ({
   getRedis: jest.fn(() => null),
 }));
 
+jest.mock('../../utils/featureRollout.util', () => ({
+  isFeatureEnabledForLead: jest.fn(() => false),
+  isGlobalFeatureEnabled: jest.fn(() => true),
+}));
+
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
   default: {
     lead: { findUnique: jest.fn(), update: jest.fn() },
-    visit: { findUnique: jest.fn(), update: jest.fn() },
+    visit: { findUnique: jest.fn(), update: jest.fn(), findFirst: jest.fn() },
+    property: { findFirst: jest.fn() },
     notification: { create: jest.fn() },
     conversation: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
-    message: { create: jest.fn() },
+    message: { create: jest.fn(), findFirst: jest.fn() },
+    agentActionLog: { findFirst: jest.fn() },
     $queryRaw: jest.fn(),
+    $executeRaw: jest.fn(),
   },
 }));
 
@@ -38,6 +46,7 @@ describe('automation post-visit follow-up', () => {
     jest.setSystemTime(new Date('2026-04-08T10:00:00.000Z'));
     await automationQueueService.clearAll();
     jest.clearAllMocks();
+    (prisma.agentActionLog.findFirst as jest.Mock).mockResolvedValue(null);
   });
 
   afterEach(() => {

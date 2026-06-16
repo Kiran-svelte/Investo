@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.16",
-    "deployNote": "v0.1.16-fix-call-visit-scheduling-collision",
+    "version": "0.1.17",
+    "deployNote": "v0.1.17-fix-duplicate-automation-whatsapp-sends",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {

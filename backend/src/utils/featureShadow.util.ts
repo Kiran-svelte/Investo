@@ -74,6 +74,10 @@ export function shadowCompareSync<T>(params: ShadowCompareSyncParams<T>): T {
 /**
  * Runs old/new logic for flagged features. Returns old result unless the lead is
  * in the rollout bucket; logs mismatches when shadow mode is active or rollout excludes the lead.
+ *
+ * WARNING: Do not use for side-effect paths (WhatsApp send, DB writes). When the lead is
+ * outside the rollout bucket, both oldFn and newFn execute for comparison — that doubles sends.
+ * Use isFeatureEnabledForLead to pick one path for outbound automation instead.
  */
 export async function shadowCompare<T>(params: ShadowCompareParams<T>): Promise<T> {
   const { featureName, featureKey, leadId, oldFn, newFn } = params;
