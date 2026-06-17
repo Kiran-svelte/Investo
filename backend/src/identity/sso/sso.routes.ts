@@ -1,11 +1,18 @@
 import { Router, Request, Response } from 'express';
 
+import config from '../../config';
 import { ssoService } from '../sso/sso.service';
 import { normalizeAuthEmail } from '../../services/auth.service';
 import { setAuthSessionCookies, authSessionResponseMeta } from '../../utils/authSessionCookies.util';
 import prisma from '../../config/prisma';
 
 const router = Router();
+
+function redirectSsoError(res: Response, message: string): void {
+  const url = new URL(`${config.frontend.baseUrl}/auth/sso`);
+  url.searchParams.set('error', message.slice(0, 240));
+  res.redirect(url.toString());
+}
 
 router.get('/start', async (req: Request, res: Response) => {
   try {
@@ -22,9 +29,21 @@ router.get('/start', async (req: Request, res: Response) => {
 });
 
 router.get('/callback', async (req: Request, res: Response) => {
+  const wantsJson = req.headers.accept?.includes('application/json')
+    || req.query.format === 'json';
+
   try {
     if (req.query.test === '1') {
       const email = typeof req.query.email === 'string' ? req.query.email : '';
+      if (!email) {
+        if (wantsJson) {
+          res.status(400).json({ error: 'email required' });
+          return;
+        }
+        redirectSsoError(res, 'SSO callback missing email');
+        return;
+      }
+
       const name = typeof req.query.name === 'string' ? req.query.name : email.split('@')[0];
       const externalId = typeof req.query.external_id === 'string' ? req.query.external_id : `test:${email}`;
       const tokens = await ssoService.completeCallback({ email, name, external_id: externalId });
@@ -33,11 +52,8 @@ router.get('/callback', async (req: Request, res: Response) => {
         where: { email: normalizeAuthEmail(email), status: 'active' },
         select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
       });
-      const wantsJson = req.headers.accept?.includes('application/json')
-        || req.query.format === 'json';
       if (!wantsJson) {
-        const frontendBase = process.env.FRONTEND_URL || 'http://localhost:5173';
-        res.redirect(`${frontendBase.replace(/\/+$/, '')}/auth/sso/complete`);
+        res.redirect(`${config.frontend.baseUrl}/auth/sso/complete`);
         return;
       }
       res.json({
@@ -62,9 +78,18 @@ router.get('/callback', async (req: Request, res: Response) => {
       return;
     }
 
-    res.status(501).json({ error: 'Non-test OIDC callback exchange not configured in this environment' });
+    if (wantsJson) {
+      res.status(501).json({ error: 'Non-test OIDC callback exchange not configured in this environment' });
+      return;
+    }
+    redirectSsoError(res, 'Production OIDC SSO is not configured yet. Use password login or test SSO.');
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'SSO callback failed' });
+    const message = err.message || 'SSO callback failed';
+    if (wantsJson) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    redirectSsoError(res, message);
   }
 });
 
