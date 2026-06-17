@@ -39,7 +39,6 @@ import { countPropertyKnowledgeBackfillCandidates } from '../services/propertyKn
 import { authenticate } from '../middleware/auth';
 import { hasRole } from '../middleware/rbac';
 import { platformConfig } from '../config/platform.config';
-import { buildEnterpriseBaselineReport } from '../services/platformMaturity.service';
 import { getPlatformRedisStatus } from '../services/platformRuntime.service';
 import { buildSloSnapshot } from '../services/observability/slo.service';
 import { drHealthService } from '../dr/drHealth.service';
@@ -154,8 +153,17 @@ router.get('/ready', async (_req: Request, res: Response) => {
 router.get('/enterprise', authenticate, hasRole('super_admin'), async (_req: Request, res: Response) => {
   const redisStatus = await getPlatformRedisStatus();
   const dr = drHealthService.buildSnapshot(readOnlyModeService.isEnabled());
+  const { loadChunkStatusFile, buildEnterpriseBaselineReport, resolveEffectiveWorkerMode } = await import('../services/platformMaturity.service');
   res.status(200).json({
-    ...buildEnterpriseBaselineReport({ redisStatus }),
+    ...buildEnterpriseBaselineReport({
+      redisStatus,
+      workerMode: resolveEffectiveWorkerMode(),
+      signals: {
+        quotaMiddlewareWired: true,
+        retentionPurgeScheduled: false,
+        oidcSsoProductionReady: config.identity.ssoTestIdp !== true,
+      },
+    }),
     backup_age_hours: dr.backup_age_hours,
     backup_last_success_at: dr.backup_last_success_at,
     read_only_mode: dr.read_only_mode,
