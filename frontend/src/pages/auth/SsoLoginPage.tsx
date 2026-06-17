@@ -9,6 +9,13 @@ const SsoLoginPage: React.FC = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
+  const queryError = new URLSearchParams(window.location.search).get('error');
+
+  useEffect(() => {
+    if (queryError) {
+      setError(queryError);
+    }
+  }, [queryError]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
