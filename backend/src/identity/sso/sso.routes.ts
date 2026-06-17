@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 
+import config from '../../config';
 import { ssoService } from '../sso/sso.service';
 import { normalizeAuthEmail } from '../../services/auth.service';
 import { setAuthSessionCookies, authSessionResponseMeta } from '../../utils/authSessionCookies.util';
@@ -36,8 +37,7 @@ router.get('/callback', async (req: Request, res: Response) => {
       const wantsJson = req.headers.accept?.includes('application/json')
         || req.query.format === 'json';
       if (!wantsJson) {
-        const frontendBase = process.env.FRONTEND_URL || 'http://localhost:5173';
-        res.redirect(`${frontendBase.replace(/\/+$/, '')}/auth/sso/complete`);
+        res.redirect(`${config.frontend.baseUrl}/auth/sso/complete`);
         return;
       }
       res.json({

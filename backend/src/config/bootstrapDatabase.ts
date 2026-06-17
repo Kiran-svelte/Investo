@@ -1,5 +1,6 @@
 import logger from './logger';
 import prisma from './prisma';
+import { runPrismaMigrateDeploy } from './prismaMigrate';
 import { seedDatabase } from './seed';
 
 interface BootstrapOptions {
@@ -502,11 +503,22 @@ async function applyCompatibilityPatches(): Promise<void> {
 export async function bootstrapDatabase(options: BootstrapOptions): Promise<void> {
   const { autoMigrate, autoSeed } = options;
 
+  if (autoMigrate) {
+    try {
+      await runPrismaMigrateDeploy();
+    } catch (err: unknown) {
+      logger.error('Prisma migrate deploy failed during bootstrap', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  }
+
   try {
     await applyCompatibilityPatches();
   } catch (err: any) {
     logger.error('Compatibility schema patch failed', { error: err.message });
-    return;
+    throw err;
   }
 
   if (!autoMigrate && !autoSeed) {

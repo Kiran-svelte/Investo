@@ -33,22 +33,36 @@ function normalizeConfig(row: any): CompanyIdentityConfigView {
   };
 }
 
+const DEFAULT_IDENTITY_CONFIG: CompanyIdentityConfigView = {
+  sso_enabled: false,
+  sso_provider: null,
+  scim_enabled: false,
+  mfa_required: false,
+  mfa_methods: ['totp'],
+  allowed_domains: [],
+  ip_allowlist_enabled: false,
+  ip_allowlist: [],
+  has_scim_token: false,
+};
+
+function isMissingIdentityTableError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('company_identity_configs') && message.includes('does not exist');
+}
+
 export async function getCompanyIdentityConfig(companyId: string): Promise<CompanyIdentityConfigView> {
-  const row = await prismaClient().companyIdentityConfig.findUnique({ where: { companyId } });
-  if (!row) {
-    return {
-      sso_enabled: false,
-      sso_provider: null,
-      scim_enabled: false,
-      mfa_required: false,
-      mfa_methods: ['totp'],
-      allowed_domains: [],
-      ip_allowlist_enabled: false,
-      ip_allowlist: [],
-      has_scim_token: false,
-    };
+  try {
+    const row = await prismaClient().companyIdentityConfig.findUnique({ where: { companyId } });
+    if (!row) {
+      return { ...DEFAULT_IDENTITY_CONFIG };
+    }
+    return normalizeConfig(row);
+  } catch (err: unknown) {
+    if (isMissingIdentityTableError(err)) {
+      return { ...DEFAULT_IDENTITY_CONFIG };
+    }
+    throw err;
   }
-  return normalizeConfig(row);
 }
 
 export async function upsertCompanyIdentityConfig(
@@ -101,10 +115,18 @@ export async function resolveCompanyByEmailDomain(email: string): Promise<{ comp
   const domain = email.split('@')[1]?.toLowerCase();
   if (!domain) return null;
 
-  const rows = await prismaClient().companyIdentityConfig.findMany({
-    where: { ssoEnabled: true },
-    include: { company: { select: { id: true, status: true } } },
-  });
+  let rows: any[];
+  try {
+    rows = await prismaClient().companyIdentityConfig.findMany({
+      where: { ssoEnabled: true },
+      include: { company: { select: { id: true, status: true } } },
+    });
+  } catch (err: unknown) {
+    if (isMissingIdentityTableError(err)) {
+      return null;
+    }
+    throw err;
+  }
 
   for (const row of rows) {
     const allowed = Array.isArray(row.allowedDomains) ? row.allowedDomains.map((d: string) => d.toLowerCase()) : [];
