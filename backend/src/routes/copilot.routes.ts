@@ -22,6 +22,7 @@ import { Router, Response } from 'express';
 import config from '../config';
 import logger from '../config/logger';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireQuota } from '../middleware/tenantQuota';
 import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 
 /** Roles permitted to call the dashboard copilot. Viewer gets read-only pipeline. */
@@ -62,7 +63,7 @@ router.use(strictTenantIsolation);
  * @throws 403 - Role not permitted.
  * @throws 500 - Internal error (details not exposed).
  */
-router.post('/chat', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/chat', requireQuota('ai_call_hour'), async (req: AuthRequest, res: Response): Promise<void> => {
   const user = req.user;
   if (!user) {
     res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required', details: null, requestId: (req as any).requestId } });

@@ -2,7 +2,7 @@ import config from '../config';
 
 export class ReadOnlyModeService {
   isEnabled(): boolean {
-    return config.features.readOnlyMode === true;
+    return config.features?.readOnlyMode === true;
   }
 
   getReason(): string {
