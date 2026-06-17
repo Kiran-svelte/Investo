@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Backend typecheck
+        working-directory: backend
+        run: |
+          npm ci
+          npx tsc --noEmit
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: |
+          npm ci
+          npx tsc --noEmit
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: typecheck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Enterprise unit subset
+        working-directory: backend
+        run: |
+          npm ci
+          npx jest \
+            src/tests/unit/tenantQuota.service.test.ts \
+            src/tests/unit/mfa.service.test.ts \
+            src/tests/unit/sso.service.test.ts \
+            src/tests/unit/dsr.service.test.ts \
+            src/tests/unit/apiKey.service.test.ts \
+            src/tests/unit/aiReviewQueue.service.test.ts \
+            src/tests/unit/impersonation.service.test.ts \
+            src/tests/unit/slo.service.test.ts \
+            src/tests/unit/platformMaturity.service.test.ts \
+            src/tests/integration/tenantIsolation.matrix.test.ts \
+            --runInBand --no-cache --forceExit
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Smoke critical paths
+        working-directory: backend
+        run: |
+          npm ci
+          npm run smoke
+
+  frontend-nav:
+    runs-on: ubuntu-latest
+    needs: typecheck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Navigation config tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- navigation.config.test.ts

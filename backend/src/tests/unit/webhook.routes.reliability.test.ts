@@ -137,7 +137,25 @@ function createTestApp(params: {
       $connect: jest.fn(),
       message: { findFirst: jest.fn(), create: jest.fn() },
       lead: { findFirst: jest.fn() },
-      company: { findUnique: jest.fn() },
+      company: {
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'company-1',
+            slug: 'tenant-one',
+            settings: {
+              whatsapp: {
+                meta: {
+                  phoneNumberId: 'pnid-1',
+                  appSecret: params.appSecret,
+                  verifyToken: 'verify-token',
+                  accessToken: 'tenant-token',
+                },
+              },
+            },
+          },
+        ]),
+      },
     },
   }));
 

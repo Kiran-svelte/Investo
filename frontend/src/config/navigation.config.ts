@@ -23,10 +23,23 @@ export type NavRouteKey =
   | 'ai_action_logs'
   | 'copilot'
   | 'companies'
+  | 'platform_health'
+  | 'observability'
+  | 'message_failures'
   | 'emi_calculator'
   | 'audit_logs'
   | 'error_logs'
   | 'notifications'
+  | 'usage'
+  | 'security'
+  | 'security_dashboard'
+  | 'branches'
+  | 'compliance'
+  | 'integrations'
+  | 'ai_governance'
+  | 'tenant_health'
+  | 'support_tools'
+  | 'dr_status'
   | 'settings';
 
 export interface NavItemSpec {
@@ -63,8 +76,21 @@ export const NAV_ITEM_GROUP: Record<NavRouteKey, NavGroupKey> = {
   notifications: 'admin',
   settings: 'admin',
   companies: 'platform',
+  platform_health: 'platform',
+  observability: 'platform',
+  message_failures: 'platform',
   audit_logs: 'platform',
   error_logs: 'admin',
+  usage: 'admin',
+  security: 'admin',
+  security_dashboard: 'platform',
+  branches: 'admin',
+  compliance: 'admin',
+  integrations: 'admin',
+  ai_governance: 'admin',
+  tenant_health: 'platform',
+  support_tools: 'platform',
+  dr_status: 'platform',
 };
 
 export interface NavGroupSpec {
@@ -144,9 +170,33 @@ export const NAV_ITEMS: NavItemSpec[] = [
     labelFallback: 'Copilot',
   },
   {
+    key: 'security_dashboard',
+    path: dashboardPath('/security-dashboard'),
+    roles: ['super_admin'],
+    labelFallback: 'Security Dashboard',
+  },
+  {
     key: 'companies',
     path: dashboardPath('/companies'),
     roles: ['super_admin'],
+  },
+  {
+    key: 'platform_health',
+    path: dashboardPath('/platform-health'),
+    roles: ['super_admin'],
+    labelFallback: 'Platform Health',
+  },
+  {
+    key: 'observability',
+    path: dashboardPath('/observability'),
+    roles: ['super_admin'],
+    labelFallback: 'Observability',
+  },
+  {
+    key: 'message_failures',
+    path: dashboardPath('/message-failures'),
+    roles: ['super_admin'],
+    labelFallback: 'Message Failures',
   },
   {
     key: 'emi_calculator',
@@ -171,6 +221,60 @@ export const NAV_ITEMS: NavItemSpec[] = [
     path: dashboardPath('/notifications'),
     roles: ['company_admin', 'sales_agent', 'operations'],
     featureKey: 'notifications',
+  },
+  {
+    key: 'usage',
+    path: dashboardPath('/usage'),
+    roles: ['company_admin'],
+    labelFallback: 'Usage & Limits',
+  },
+  {
+    key: 'security',
+    path: dashboardPath('/security'),
+    roles: ['company_admin'],
+    labelFallback: 'Security & Identity',
+  },
+  {
+    key: 'branches',
+    path: dashboardPath('/branches'),
+    roles: ['company_admin'],
+    labelFallback: 'Branches',
+  },
+  {
+    key: 'compliance',
+    path: dashboardPath('/compliance'),
+    roles: ['company_admin'],
+    labelFallback: 'Compliance',
+  },
+  {
+    key: 'integrations',
+    path: dashboardPath('/integrations'),
+    roles: ['company_admin'],
+    labelFallback: 'Integrations',
+  },
+  {
+    key: 'ai_governance',
+    path: dashboardPath('/ai-governance'),
+    roles: ['company_admin', 'super_admin'],
+    labelFallback: 'AI Governance',
+  },
+  {
+    key: 'tenant_health',
+    path: dashboardPath('/tenant-health'),
+    roles: ['super_admin'],
+    labelFallback: 'Tenant Health',
+  },
+  {
+    key: 'support_tools',
+    path: dashboardPath('/support-tools'),
+    roles: ['super_admin'],
+    labelFallback: 'Support Tools',
+  },
+  {
+    key: 'dr_status',
+    path: dashboardPath('/dr-status'),
+    roles: ['super_admin'],
+    labelFallback: 'DR Status',
   },
   {
     key: 'settings',
@@ -225,6 +329,19 @@ export function resolveDashboardPath(pathname: string): string {
     'settings',
     'notifications',
     'companies',
+    'platform-health',
+    'observability',
+    'message-failures',
+    'usage',
+    'security',
+    'security-dashboard',
+    'branches',
+    'compliance',
+    'integrations',
+    'ai-governance',
+    'tenant-health',
+    'support-tools',
+    'dr-status',
     'emi-calculator',
     'audit-logs',
     'error-logs',

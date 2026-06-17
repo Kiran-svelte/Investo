@@ -36,6 +36,14 @@ import {
 
 import { getOpsMetricsSnapshot } from '../services/opsMetrics.service';
 import { countPropertyKnowledgeBackfillCandidates } from '../services/propertyKnowledgeBackfill.service';
+import { authenticate } from '../middleware/auth';
+import { hasRole } from '../middleware/rbac';
+import { platformConfig } from '../config/platform.config';
+import { buildEnterpriseBaselineReport } from '../services/platformMaturity.service';
+import { getPlatformRedisStatus } from '../services/platformRuntime.service';
+import { buildSloSnapshot } from '../services/observability/slo.service';
+import { drHealthService } from '../dr/drHealth.service';
+import { readOnlyModeService } from '../dr/readOnlyMode.service';
 
 
 
@@ -143,6 +151,18 @@ router.get('/ready', async (_req: Request, res: Response) => {
 
 });
 
+router.get('/enterprise', authenticate, hasRole('super_admin'), async (_req: Request, res: Response) => {
+  const redisStatus = await getPlatformRedisStatus();
+  const dr = drHealthService.buildSnapshot(readOnlyModeService.isEnabled());
+  res.status(200).json({
+    ...buildEnterpriseBaselineReport({ redisStatus }),
+    backup_age_hours: dr.backup_age_hours,
+    backup_last_success_at: dr.backup_last_success_at,
+    read_only_mode: dr.read_only_mode,
+    primary_region: dr.primary_region,
+  });
+});
+
 
 
 /**
@@ -157,7 +177,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
     await prisma.$queryRaw`SELECT 1`;
 
-    const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound, knowledgeBackfillQueue] = await Promise.all([
+    const [propertyKnowledgeEmbeddings, openai, mail, whatsappInbound, knowledgeBackfillQueue, platformRedisStatus, sloSnapshot] = await Promise.all([
 
       getPropertyKnowledgeEmbeddingHealth(),
 
@@ -168,6 +188,10 @@ router.get('/', async (_req: Request, res: Response) => {
       getProductionWhatsAppInboundHealth(),
 
       countPropertyKnowledgeBackfillCandidates().catch(() => -1),
+
+      getPlatformRedisStatus(),
+
+      buildSloSnapshot().catch(() => null),
 
     ]);
 
@@ -213,7 +237,26 @@ router.get('/', async (_req: Request, res: Response) => {
               : 'unknown',
         },
 
+        platform: {
+          worker_mode: platformConfig.workerMode,
+          redis_status: platformRedisStatus,
+          redis_ok: platformRedisStatus === 'ok',
+        },
+
       },
+
+      slo: sloSnapshot
+        ? {
+            status: sloSnapshot.overall_status,
+            indicators: sloSnapshot.indicators.map((indicator) => ({
+              id: indicator.id,
+              value: indicator.value,
+              target: indicator.target,
+              status: indicator.status,
+              burn_rate: indicator.burn_rate,
+            })),
+          }
+        : { status: 'unknown', indicators: [] },
 
     });
 

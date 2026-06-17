@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import { platformConfig } from './platform.config';
 
 const envPath = path.resolve(__dirname, '../../.env');
 dotenv.config({ path: envPath });
@@ -488,6 +489,34 @@ const config = {
     whatsappAiPerMinute: parseInt(process.env.RATE_LIMIT_WHATSAPP_AI || '60', 10),
     sensitivePerMinute: parseInt(process.env.RATE_LIMIT_SENSITIVE || '10', 10),
   },
+  platform: platformConfig,
+  whatsappQueue: {
+    inboundWorkerIntervalMs: parseInt(process.env.WHATSAPP_INBOUND_WORKER_INTERVAL_MS || '1000', 10),
+    inboundWorkerBatchSize: parseInt(process.env.WHATSAPP_INBOUND_WORKER_BATCH_SIZE || '10', 10),
+    inboundMaxAttempts: parseInt(process.env.WHATSAPP_INBOUND_MAX_ATTEMPTS || '3', 10),
+  },
+  observability: {
+    metricsEnabled: process.env.METRICS_ENABLED !== 'false',
+    grafanaBaseUrl: (process.env.GRAFANA_BASE_URL || '').replace(/\/+$/, ''),
+    statusPageUrl: (process.env.STATUS_PAGE_URL || '').replace(/\/+$/, ''),
+    sloAlertWebhook: (process.env.SLO_ALERT_WEBHOOK || process.env.PAGERDUTY_EVENTS_WEBHOOK || '').trim(),
+    syntheticBaseUrl: (
+      process.env.SYNTHETIC_BASE_URL
+      || process.env.BACKEND_PUBLIC_URL
+      || process.env.API_PUBLIC_BASE_URL
+      || ''
+    ).replace(/\/+$/, ''),
+    siemLogDrain: (process.env.SIEM_LOG_DRAIN || process.env.LOG_DRAIN_URL || '').trim(),
+  },
+  identity: {
+    ssoTestIdp: process.env.SSO_TEST_IDP === 'true',
+    ssoCallbackBaseUrl: (
+      process.env.SSO_CALLBACK_BASE_URL
+      || process.env.BACKEND_PUBLIC_URL
+      || process.env.API_PUBLIC_BASE_URL
+      || 'http://127.0.0.1:3001'
+    ).replace(/\/+$/, ''),
+  },
   langgraph: {
     enabled: process.env.LANGGRAPH_ENABLED === 'true',
     url: (process.env.LANGGRAPH_URL || 'http://localhost:8000').replace(/\/+$/, ''),
@@ -584,6 +613,57 @@ const config = {
     outboundPropertyValidate: process.env.FEATURE_OUTBOUND_PROPERTY_VALIDATE === 'true',
     /** Second visit on different project — clarify, don't blanket block (Chunk 08). */
     secondVisitPolicy: process.env.FEATURE_SECOND_VISIT_POLICY === 'true',
+    asyncWhatsAppPipeline: process.env.FEATURE_ASYNC_WHATSAPP_PIPELINE === 'true',
+    outboundRetry:
+      process.env.FEATURE_OUTBOUND_RETRY !== undefined
+        ? process.env.FEATURE_OUTBOUND_RETRY === 'true'
+        : process.env.FEATURE_ASYNC_WHATSAPP_PIPELINE === 'true',
+    metaCircuitBreaker:
+      process.env.FEATURE_META_CIRCUIT_BREAKER !== undefined
+        ? process.env.FEATURE_META_CIRCUIT_BREAKER === 'true'
+        : process.env.FEATURE_ASYNC_WHATSAPP_PIPELINE === 'true',
+    messageStatusWebhooks: process.env.FEATURE_MESSAGE_STATUS_WEBHOOKS === 'true',
+    enterpriseBaselineApi: process.env.FEATURE_ENTERPRISE_BASELINE_API !== 'false',
+    prometheusMetrics: process.env.FEATURE_PROMETHEUS_METRICS !== 'false',
+    sloAlerts: process.env.FEATURE_SLO_ALERTS === 'true',
+    publicStatusApi: process.env.FEATURE_PUBLIC_STATUS_API === 'true',
+    /** Per-tenant usage quotas (chunk 03). Default OFF until staging sign-off. */
+    tenantQuotas: process.env.FEATURE_TENANT_QUOTAS === 'true',
+    /** When true with tenantQuotas, return 429 on exceed; otherwise warn-only headers. */
+    quotaHardEnforce: process.env.FEATURE_QUOTA_HARD_ENFORCE === 'true',
+    quotaAdminOverrides: process.env.FEATURE_QUOTA_ADMIN_OVERRIDES !== 'false',
+    sso: process.env.FEATURE_SSO === 'true',
+    mfa: process.env.FEATURE_MFA === 'true',
+    scim: process.env.FEATURE_SCIM === 'true',
+    orgBranches: process.env.FEATURE_ORG_BRANCHES === 'true',
+    piiEncryption: process.env.FEATURE_PII_ENCRYPTION === 'true',
+    secretsVault: process.env.FEATURE_SECRETS_VAULT === 'true',
+    ipAllowlist: process.env.FEATURE_IP_ALLOWLIST === 'true',
+    securityHeadersStrict: process.env.FEATURE_SECURITY_HEADERS_STRICT !== 'false',
+    /** Chunk 06 — data subject requests (export/delete). Default OFF. */
+    dsr: process.env.FEATURE_DSR === 'true',
+    complianceRetention: process.env.FEATURE_COMPLIANCE_RETENTION === 'true',
+    complianceLegalHold: process.env.FEATURE_COMPLIANCE_LEGAL_HOLD === 'true',
+    complianceDpa: process.env.FEATURE_COMPLIANCE_DPA === 'true',
+    /** Chunk 08 — disaster recovery read-only mode. Default OFF. */
+    readOnlyMode: process.env.FEATURE_READ_ONLY_MODE === 'true',
+    /** Chunk 09 — transactional outbox + tenant search. Default OFF. */
+    outboxEvents: process.env.FEATURE_OUTBOX_EVENTS === 'true',
+    tenantSearch: process.env.FEATURE_TENANT_SEARCH === 'true',
+    /** Chunk 10 — public API keys + outbound webhooks. Default OFF. */
+    publicApi: process.env.FEATURE_PUBLIC_API === 'true',
+    /** Chunk 11 — usage metering invoices. Default OFF. */
+    billingOps: process.env.FEATURE_BILLING_OPS === 'true',
+    /** Chunk 12 — support impersonation + tenant health. Default OFF. */
+    supportOps: process.env.FEATURE_SUPPORT_OPS === 'true',
+    /** Chunk 13 — sandbox tenants + approval chains. Default OFF. */
+    sandboxTenants: process.env.FEATURE_SANDBOX_TENANTS === 'true',
+    sandboxNoRealPii: process.env.FEATURE_SANDBOX_NO_REAL_PII === 'true',
+    approvalChains: process.env.FEATURE_APPROVAL_CHAINS === 'true',
+    /** Chunk 14 — AI governance. Default OFF. */
+    promptVersioning: process.env.FEATURE_PROMPT_VERSIONING === 'true',
+    aiReviewQueue: process.env.FEATURE_AI_REVIEW_QUEUE === 'true',
+    messageArchive: process.env.FEATURE_MESSAGE_ARCHIVE === 'true',
   },
 };
 

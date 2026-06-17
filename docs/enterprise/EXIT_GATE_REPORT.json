@@ -1,0 +1,62 @@
+{
+  "ready": false,
+  "generated_at": "2026-06-17T06:42:46.129Z",
+  "finished_at": "2026-06-17T06:44:11.823Z",
+  "base_url": "https://investo-backend-production.up.railway.app",
+  "run_k6": false,
+  "chunks_complete": false,
+  "gates": [
+    {
+      "id": "load",
+      "passed": true,
+      "detail": "k6 script present at infra/k6/load-test.js"
+    },
+    {
+      "id": "reliability",
+      "passed": false,
+      "detail": "fetch failed"
+    },
+    {
+      "id": "isolation",
+      "passed": true,
+      "detail": "src/tests/integration/tenantIsolation.matrix.test.ts passed"
+    },
+    {
+      "id": "iam",
+      "passed": true,
+      "detail": "MFA + SSO unit tests passed"
+    },
+    {
+      "id": "compliance",
+      "passed": true,
+      "detail": "src/tests/unit/dsr.service.test.ts passed"
+    },
+    {
+      "id": "observability",
+      "passed": false,
+      "detail": "Status API disabled (FEATURE_PUBLIC_STATUS_API=false) — enable for exit gate"
+    },
+    {
+      "id": "integrations",
+      "passed": false,
+      "detail": "src/tests/unit/apiKey.service.test.ts passed; public API health HTTP 404"
+    },
+    {
+      "id": "ai_governance",
+      "passed": true,
+      "detail": "src/tests/unit/aiReviewQueue.service.test.ts passed"
+    },
+    {
+      "id": "support",
+      "passed": true,
+      "detail": "src/tests/unit/impersonation.service.test.ts passed"
+    }
+  ],
+  "failed_gates": [
+    "reliability",
+    "observability",
+    "integrations",
+    "chunks_incomplete"
+  ],
+  "chunk_status_path": "docs/enterprise/CHUNK_STATUS.json"
+}

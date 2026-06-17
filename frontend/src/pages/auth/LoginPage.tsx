@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
+import { isMfaPending } from '../../services/identity';
 import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
 import { AxiosError } from 'axios';
 import { isTransientAuthError } from '../../services/api';
@@ -30,9 +31,17 @@ const LoginPage: React.FC = () => {
     setLoginStatus('');
     try {
       setLoginStatus('Signing in…');
-      const loggedInUser = await login(email, password);
+      const result = await login(email, password);
+      if (isMfaPending(result)) {
+        const target = result.mfa_purpose === 'mfa_enroll' ? '/auth/mfa/enroll' : '/auth/mfa/verify';
+        navigate(target, {
+          replace: true,
+          state: { mfa_token: result.mfa_token, email: result.user.email },
+        });
+        return;
+      }
       setLoginStatus('Opening your workspace…');
-      const nextPath = await resolvePostAuthPath(loggedInUser);
+      const nextPath = await resolvePostAuthPath(result);
       navigate(nextPath, { replace: true });
     } catch (err) {
       if (isTransientAuthError(err)) {
@@ -140,6 +149,11 @@ const LoginPage: React.FC = () => {
                   t('auth.login_button')
                 )}
               </button>
+              <p className="text-center text-sm text-ink-muted">
+                <Link to="/auth/sso" className="font-medium text-brand-700 hover:underline">
+                  Sign in with company SSO
+                </Link>
+              </p>
               {isSubmitting && loginStatus ? (
                 <p className="text-center text-xs text-ink-muted">{loginStatus}</p>
               ) : null}

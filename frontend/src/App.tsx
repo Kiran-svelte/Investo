@@ -9,6 +9,10 @@ import InvestoLoading from './components/loading/InvestoLoading';
 import { CompanyFeaturesProvider } from './context/CompanyFeaturesContext';
 import { TenantProvider } from './context/TenantContext';
 import LoginPage from './pages/auth/LoginPage';
+import SsoLoginPage from './pages/auth/SsoLoginPage';
+import SsoCompletePage from './pages/auth/SsoCompletePage';
+import MfaEnrollPage from './pages/auth/MfaEnrollPage';
+import MfaVerifyPage from './pages/auth/MfaVerifyPage';
 import ChangePasswordPage from './pages/auth/ChangePasswordPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
@@ -31,6 +35,19 @@ import NotificationsPage from './pages/notifications/NotificationsPage';
 import OnboardingPage from './pages/onboarding/OnboardingPage';
 import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage';
 import CompaniesPage from './pages/companies/CompaniesPage';
+import PlatformHealthPage from './pages/admin/PlatformHealthPage';
+import ObservabilityPage from './pages/admin/ObservabilityPage';
+import SecurityDashboardPage from './pages/admin/SecurityDashboardPage';
+import DeadLetterPage from './pages/admin/DeadLetterPage';
+import UsageQuotaPage from './pages/settings/UsageQuotaPage';
+import SecuritySettingsPage from './pages/settings/SecuritySettingsPage';
+import BranchesPage from './pages/settings/BranchesPage';
+import CompliancePage from './pages/settings/CompliancePage';
+import IntegrationsPage from './pages/settings/IntegrationsPage';
+import AiGovernancePage from './pages/admin/AiGovernancePage';
+import TenantHealthPage from './pages/admin/TenantHealthPage';
+import SupportToolsPage from './pages/admin/SupportToolsPage';
+import DrStatusPage from './pages/admin/DrStatusPage';
 import AuditLogsPage from './pages/audit-logs/AuditLogsPage';
 import AIActionLogsPage from './pages/ai-action-logs/AIActionLogsPage';
 import CopilotPage from './pages/copilot/CopilotPage';
@@ -372,6 +389,10 @@ const App: React.FC = () => {
 
             <Route element={<PublicRoute />}>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/auth/sso" element={<SsoLoginPage />} />
+              <Route path="/auth/sso/complete" element={<SsoCompletePage />} />
+              <Route path="/auth/mfa/enroll" element={<MfaEnrollPage />} />
+              <Route path="/auth/mfa/verify" element={<MfaVerifyPage />} />
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -447,6 +468,33 @@ const App: React.FC = () => {
                   <Route element={<RoleRoute path="/settings" />}>
                     <Route path="settings" element={<SettingsPage />} />
                   </Route>
+                  <Route element={<RoleRoute path="/usage" />}>
+                    <Route path="usage" element={<UsageQuotaPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/security" />}>
+                    <Route path="security" element={<SecuritySettingsPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/branches" />}>
+                    <Route path="branches" element={<BranchesPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/compliance" />}>
+                    <Route path="compliance" element={<CompliancePage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/integrations" />}>
+                    <Route path="integrations" element={<IntegrationsPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/ai-governance" />}>
+                    <Route path="ai-governance" element={<AiGovernancePage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/tenant-health" />}>
+                    <Route path="tenant-health" element={<TenantHealthPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/support-tools" />}>
+                    <Route path="support-tools" element={<SupportToolsPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/dr-status" />}>
+                    <Route path="dr-status" element={<DrStatusPage />} />
+                  </Route>
                   <Route element={<RoleRoute path="/notifications" />}>
                     <Route element={<FeatureRoute featureKey="notifications" />}>
                       <Route path="notifications" element={<NotificationsPage />} />
@@ -454,6 +502,18 @@ const App: React.FC = () => {
                   </Route>
                   <Route element={<RoleRoute path="/companies" />}>
                     <Route path="companies" element={<CompaniesPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/platform-health" />}>
+                    <Route path="platform-health" element={<PlatformHealthPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/observability" />}>
+                    <Route path="observability" element={<ObservabilityPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/security-dashboard" />}>
+                    <Route path="security-dashboard" element={<SecurityDashboardPage />} />
+                  </Route>
+                  <Route element={<RoleRoute path="/message-failures" />}>
+                    <Route path="message-failures" element={<DeadLetterPage />} />
                   </Route>
                   {/* Billing is not available in this version — redirect to dashboard */}
                   <Route path="billing" element={<Navigate to={DASHBOARD_BASE} replace />} />
@@ -483,6 +543,15 @@ const App: React.FC = () => {
               <Route path="/settings/*" element={<LegacyDashboardRedirect />} />
               <Route path="/notifications/*" element={<LegacyDashboardRedirect />} />
               <Route path="/companies/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/platform-health/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/message-failures/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/branches/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/compliance/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/integrations/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/ai-governance/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/tenant-health/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/support-tools/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/dr-status/*" element={<LegacyDashboardRedirect />} />
               <Route path="/emi-calculator/*" element={<LegacyDashboardRedirect />} />
               <Route path="/audit-logs/*" element={<LegacyDashboardRedirect />} />
             </Route>

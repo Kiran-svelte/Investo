@@ -84,3 +84,9 @@ export function getCircuitBreaker(options: CircuitBreakerOptions): CircuitBreake
   breakers.set(options.name, breaker);
   return breaker;
 }
+
+export function resetCircuitBreakersForTests(): void {
+  if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID) {
+    breakers.clear();
+  }
+}

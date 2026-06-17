@@ -1,0 +1,30 @@
+{
+  "uid": "investo-tenant-health",
+  "title": "Investo — Tenant Health",
+  "tags": ["investo", "tenant", "chunk-07"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Top tenant API volume (hashed)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "topk(10, sum(rate(investo_http_requests_total[5m])) by (company_id_hash))",
+        "legendFormat": "{{company_id_hash}}"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Tenant 5xx rate (hashed)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "topk(10, sum(rate(investo_http_requests_total{status_code=~\"5..\"}[5m])) by (company_id_hash))",
+        "legendFormat": "{{company_id_hash}}"
+      }]
+    }
+  ]
+}

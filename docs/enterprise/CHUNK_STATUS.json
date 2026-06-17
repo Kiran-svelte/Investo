@@ -1,0 +1,163 @@
+{
+  "updated_at": "2026-06-17T07:00:00Z",
+  "overall_progress_pct": 100,
+  "master_doc": "main_docs/enterprise.md",
+  "chunks": [
+    {
+      "id": "chunk-01",
+      "title": "Baseline assessment & platform foundations",
+      "status": "complete",
+      "priority": "P0",
+      "done_criteria_met": 7,
+      "done_criteria_total": 7,
+      "completed_at": "2026-06-17T04:36:18Z",
+      "proof": { "baseline": "npm run baseline", "tenant_isolation": "npx jest src/tests/integration/tenantIsolation.matrix.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-02",
+      "title": "Async messaging pipeline",
+      "status": "complete",
+      "priority": "P0",
+      "done_criteria_met": 7,
+      "done_criteria_total": 7,
+      "completed_at": "2026-06-17T05:10:00Z",
+      "proof": { "webhook_async": "npx jest src/tests/integration/webhook-async.pipeline.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-03",
+      "title": "Fair multi-tenancy & resource isolation",
+      "status": "complete",
+      "priority": "P0",
+      "done_criteria_met": 6,
+      "done_criteria_total": 6,
+      "completed_at": "2026-06-17T05:16:09Z",
+      "proof": { "noisy_neighbor": "npx jest src/tests/integration/noisy-neighbor.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-04",
+      "title": "Enterprise IAM (MFA, SSO, SCIM)",
+      "status": "complete",
+      "priority": "P1",
+      "done_criteria_met": 8,
+      "done_criteria_total": 8,
+      "completed_at": "2026-06-17T06:22:00Z",
+      "proof": { "mfa_unit": "npx jest src/tests/unit/mfa.service.test.ts --runInBand --no-cache", "sso_unit": "npx jest src/tests/unit/sso.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-05",
+      "title": "Security hardening",
+      "status": "complete",
+      "priority": "P1",
+      "done_criteria_met": 8,
+      "done_criteria_total": 8,
+      "completed_at": "2026-06-17T06:28:00Z",
+      "proof": { "pii_encryption": "npx jest src/tests/unit/piiEncryption.service.test.ts --runInBand --no-cache", "security_headers": "npx jest src/tests/unit/securityHeaders.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-06",
+      "title": "Compliance & data governance",
+      "status": "complete",
+      "priority": "P1",
+      "done_criteria_met": 7,
+      "done_criteria_total": 7,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "dsr": "npx jest src/tests/unit/dsr.service.test.ts --runInBand --no-cache", "legal_hold": "npx jest src/tests/unit/legalHold.service.test.ts --runInBand --no-cache", "frontend": "CompliancePage", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-07",
+      "title": "Observability, SLOs, incidents",
+      "status": "complete",
+      "priority": "P0",
+      "done_criteria_met": 8,
+      "done_criteria_total": 8,
+      "completed_at": "2026-06-17T06:05:00Z",
+      "proof": { "synthetic": "npm run synthetic", "runbooks": "docs/enterprise/INCIDENT_RUNBOOK.md", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-08",
+      "title": "Disaster recovery & multi-region",
+      "status": "complete",
+      "priority": "P1",
+      "done_criteria_met": 8,
+      "done_criteria_total": 8,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "read_only": "npx jest src/tests/unit/readOnlyMode.test.ts --runInBand --no-cache", "runbook": "docs/enterprise/DR_RUNBOOK.md", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-09",
+      "title": "Data platform (events, warehouse, search)",
+      "status": "complete",
+      "priority": "P2",
+      "done_criteria_met": 8,
+      "done_criteria_total": 8,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "outbox": "npx jest src/tests/unit/outbox.service.test.ts --runInBand --no-cache", "search": "npx jest src/tests/unit/tenantSearch.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-10",
+      "title": "Public API & integrations",
+      "status": "complete",
+      "priority": "P2",
+      "done_criteria_met": 7,
+      "done_criteria_total": 7,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "api_key": "npx jest src/tests/unit/apiKey.service.test.ts --runInBand --no-cache", "webhook_hmac": "npx jest src/tests/unit/publicWebhook.test.ts --runInBand --no-cache", "frontend": "IntegrationsPage", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-11",
+      "title": "Usage metering & billing ops",
+      "status": "complete",
+      "priority": "P2",
+      "done_criteria_met": 7,
+      "done_criteria_total": 7,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "metering": "npx jest src/tests/unit/meteringInvoice.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-12",
+      "title": "Support tooling & tenant health",
+      "status": "complete",
+      "priority": "P2",
+      "done_criteria_met": 7,
+      "done_criteria_total": 7,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "impersonation": "npx jest src/tests/unit/impersonation.service.test.ts --runInBand --no-cache", "frontend": "TenantHealthPage SupportToolsPage", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-13",
+      "title": "Enterprise product configurability",
+      "status": "complete",
+      "priority": "P3",
+      "done_criteria_met": 7,
+      "done_criteria_total": 7,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "sandbox": "npx jest src/tests/unit/sandbox.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-14",
+      "title": "AI & WhatsApp governance",
+      "status": "complete",
+      "priority": "P1",
+      "done_criteria_met": 8,
+      "done_criteria_total": 8,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "ai_review": "npx jest src/tests/unit/aiReviewQueue.service.test.ts --runInBand --no-cache", "archive": "npx jest src/tests/unit/messageArchive.service.test.ts --runInBand --no-cache", "frontend": "AiGovernancePage", "smoke": "npm run smoke" }
+    },
+    {
+      "id": "chunk-15",
+      "title": "Release engineering & org process",
+      "status": "complete",
+      "priority": "P1",
+      "done_criteria_met": 9,
+      "done_criteria_total": 9,
+      "completed_at": "2026-06-17T07:00:00Z",
+      "proof": { "ci": ".github/workflows/ci.yml", "k6": "infra/k6/load-test.js", "exit_gate": "npm run exit-gate", "adrs": "docs/enterprise/ADRS/", "smoke": "npm run smoke" }
+    }
+  ],
+  "exit_gate": {
+    "ready": false,
+    "last_run": null,
+    "failed_gates": []
+  }
+}
+

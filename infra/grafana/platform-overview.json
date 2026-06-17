@@ -1,0 +1,47 @@
+{
+  "uid": "investo-platform-overview",
+  "title": "Investo — Platform Overview",
+  "tags": ["investo", "platform", "chunk-07"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP request rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate(investo_http_requests_total[5m]))", "legendFormat": "rps" }]
+    },
+    {
+      "id": 2,
+      "title": "5xx error rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "sum(rate(investo_http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(investo_http_requests_total[5m]))",
+        "legendFormat": "5xx ratio"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "API latency p95 (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(investo_http_request_duration_ms_bucket[5m])) by (le))",
+        "legendFormat": "p95"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Active tenant request share (top hashes)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{
+        "expr": "topk(10, sum(rate(investo_http_requests_total[5m])) by (company_id_hash))",
+        "legendFormat": "{{company_id_hash}}"
+      }]
+    }
+  ]
+}

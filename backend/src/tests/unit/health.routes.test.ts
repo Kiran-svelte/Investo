@@ -76,6 +76,38 @@ function createHealthApp(prismaBehavior: 'ok' | 'fail'): { app: Express; mockPri
     },
   }));
 
+  jest.doMock('../../middleware/auth', () => ({
+    __esModule: true,
+    authenticate: (req: any, _res: any, next: any) => {
+      const role = req.header('x-test-role') || 'company_admin';
+      req.user = {
+        id: `${role}-user`,
+        company_id: role === 'super_admin' ? 'platform-company' : 'tenant-company',
+        companyId: role === 'super_admin' ? 'platform-company' : 'tenant-company',
+        role,
+        email: `${role}@investo.test`,
+        name: role,
+      };
+      next();
+    },
+  }));
+
+  jest.doMock('../../middleware/rbac', () => ({
+    __esModule: true,
+    hasRole: (...roles: string[]) => (req: any, res: any, next: any) => {
+      if (roles.includes(req.user?.role)) {
+        next();
+        return;
+      }
+      res.status(403).json({ error: 'Insufficient role' });
+    },
+  }));
+
+  jest.doMock('../../services/platformRuntime.service', () => ({
+    __esModule: true,
+    getPlatformRedisStatus: jest.fn().mockResolvedValue('ok'),
+  }));
+
   let router: express.Router;
   jest.isolateModules(() => {
     router = require('../../routes/health.routes').default;
@@ -119,5 +151,18 @@ describe('GET /api/health', () => {
     expect(response.body.error).toBe('db_unreachable');
     expect(response.body.dependencies?.db?.status).toBe('down');
     expect(response.body).not.toHaveProperty('message');
+  });
+
+  test('enterprise baseline is super-admin only and scores all domains', async () => {
+    const { app } = createHealthApp('ok');
+
+    await request(app).get('/api/health/enterprise').set('x-test-role', 'company_admin').expect(403);
+
+    const response = await request(app).get('/api/health/enterprise').set('x-test-role', 'super_admin').expect(200);
+
+    expect(response.body.baseline_version).toBe('chunk-01');
+    expect(response.body.domains).toHaveLength(12);
+    expect(response.body.redis_status).toBe('ok');
+    expect(response.body.overall_score).toBeGreaterThan(0);
   });
 });

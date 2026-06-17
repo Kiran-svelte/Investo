@@ -55,6 +55,9 @@ function mapMessageToDTO(msg: any) {
     content: msg.content,
     language: msg.language,
     whatsapp_message_id: msg.whatsappMessageId,
+    delivery_status: msg.deliveryStatus || null,
+    meta_message_id: msg.metaMessageId || null,
+    failed_reason: msg.failedReason || null,
     status: msg.status,
     created_at: msg.createdAt?.toISOString?.() || msg.createdAt,
   };

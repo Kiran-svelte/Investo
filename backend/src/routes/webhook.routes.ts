@@ -9,6 +9,7 @@ import { whatsappIpWhitelist } from '../middleware/whatsappSecurity';
 import { whatsappHealthService } from '../services/whatsappHealth.service';
 import { maskPhoneNumberForLogs } from '../utils/maskPhoneNumberForLogs';
 import { extractCustomerMessage } from '../services/whatsapp/metaInboundParser.service';
+import { whatsappInboundQueueService } from '../services/queue/whatsappInboundQueue.service';
 import {
   matchesWebhookVerifyToken,
   resolveWebhookAppSecrets,
@@ -88,6 +89,44 @@ router.post(
       env: config.env,
     });
     res.status(403).json({ status: 'rejected', reason: signatureCheck.reason });
+    return;
+  }
+
+  if (config.features?.asyncWhatsAppPipeline) {
+    res.sendStatus(200);
+
+    whatsappInboundQueueService.enqueueWebhookPayload(req.body, async (input) => {
+        if (!input.phoneNumberId) return null;
+        return whatsappService.getCompanyByPhoneNumberId(
+          input.phoneNumberId,
+          'meta',
+          undefined,
+          undefined,
+          input.customerPhoneE164 || undefined,
+          input.displayPhoneNumber || undefined,
+        );
+      })
+      .then((enqueueResult) => {
+      logger.info('Async WhatsApp webhook enqueue result', {
+        status: enqueueResult.status,
+        reason: enqueueResult.reason,
+        jobId: enqueueResult.jobId,
+        companyId: enqueueResult.companyId,
+        messageCount: enqueueResult.messageIds.length,
+      });
+      })
+      .catch((err: any) => {
+      logger.error('Async WhatsApp webhook enqueue failed; falling back to in-process processing', {
+        error: err.message,
+      });
+      processWebhook(req.body)
+        .then((summary) => {
+          logger.info('Webhook processing summary', { summary: redactWebhookSummaryForLogs(summary) });
+        })
+        .catch((processErr) => {
+          logger.error('Webhook processing failed after async enqueue fallback', { error: processErr.message });
+        });
+      });
     return;
   }
 

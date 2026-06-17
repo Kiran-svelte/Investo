@@ -11,7 +11,7 @@ import Pagination from '../../components/common/Pagination';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   Search, MessageSquare, User, Bot, UserCheck,
-  ArrowRight, Trash2, Loader2,
+  ArrowRight, Trash2, Loader2, CheckCheck, AlertCircle, Clock3,
 } from 'lucide-react';
 import { deleteConversation } from '../../services/resourceDelete';
 
@@ -37,6 +37,8 @@ interface Message {
   content: string;
   language: string;
   created_at: string;
+  delivery_status?: 'sent' | 'delivered' | 'read' | 'failed' | null;
+  failed_reason?: string | null;
 }
 
 type ComposerMode = 'text' | 'document' | 'quick_reply';
@@ -117,6 +119,8 @@ const ConversationsPage: React.FC = () => {
     content: raw.content,
     language: raw.language || 'en',
     created_at: raw.created_at || raw.createdAt || new Date().toISOString(),
+    delivery_status: raw.delivery_status || raw.deliveryStatus || raw.status || null,
+    failed_reason: raw.failed_reason || raw.failedReason || null,
   });
 
   const loadConversations = async () => {
@@ -379,6 +383,33 @@ const ConversationsPage: React.FC = () => {
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   };
 
+  const renderDeliveryStatus = (msg: Message, isCustomer: boolean) => {
+    if (isCustomer) return null;
+    const status = msg.delivery_status || 'sent';
+    if (status === 'failed') {
+      return (
+        <span className="inline-flex items-center gap-1" title={msg.failed_reason || 'Failed'}>
+          <AlertCircle className="h-3 w-3" />
+          Failed
+        </span>
+      );
+    }
+    if (status === 'read' || status === 'delivered') {
+      return (
+        <span className="inline-flex items-center gap-1">
+          <CheckCheck className="h-3 w-3" />
+          {status === 'read' ? 'Read' : 'Delivered'}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Clock3 className="h-3 w-3" />
+        Sent
+      </span>
+    );
+  };
+
   const isHumanTakeover = Boolean(
     selectedConv && (selectedConv.status === 'agent_active' || !selectedConv.ai_enabled),
   );
@@ -614,16 +645,19 @@ const ConversationsPage: React.FC = () => {
                         </span>
                       </div>
                       <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                      <p
-                        className={`text-xs mt-1 ${
+                      <div
+                        className={`mt-1 flex flex-wrap items-center gap-2 text-xs ${
                           isCustomer ? 'text-ink-faint' : 'opacity-75'
                         }`}
                       >
-                        {new Date(msg.created_at).toLocaleTimeString('en-IN', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </p>
+                        <span>
+                          {new Date(msg.created_at).toLocaleTimeString('en-IN', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                        {renderDeliveryStatus(msg, isCustomer)}
+                      </div>
                     </div>
                   </div>
                 );

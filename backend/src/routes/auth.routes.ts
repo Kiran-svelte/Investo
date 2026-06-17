@@ -12,6 +12,7 @@ import { registerSelfServiceTenant } from '../services/selfServiceSignup.service
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { normalizeAuthEmail } from '../services/auth.service';
+import { mfaService } from '../identity/mfa/mfa.service';
 import { emailService } from '../services/email.service';
 import {
   authSessionResponseMeta,
@@ -125,23 +126,34 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
   try {
     const { email, password } = req.body;
     const normalizedEmail = normalizeAuthEmail(email);
-    const tokens = await authService.login(normalizedEmail, password);
-    const user = await prisma.user.findFirst({
-      where: { email: normalizedEmail, status: 'active' },
-      select: {
-        id: true,
-        companyId: true,
-        email: true,
-        role: true,
-        name: true,
-        phone: true,
-        mustChangePassword: true,
-      },
-    });
-    if (!user) {
-      res.status(401).json({ message: 'Invalid credentials' });
+    const user = await authService.validatePasswordLogin(normalizedEmail, password);
+    const gate = await mfaService.evaluateLoginGate(user);
+
+    if (gate.mfa_required) {
+      const decoded = mfaService.decodeMfaToken(gate.mfa_token!);
+      res.json({
+        success: true,
+        message: decoded.purpose === 'mfa_enroll' ? 'MFA enrollment required' : 'MFA verification required',
+        data: {
+          mfa_required: true,
+          mfa_token: gate.mfa_token,
+          mfa_purpose: decoded.purpose,
+          user: {
+            id: user.id,
+            company_id: user.companyId,
+            email: user.email,
+            role: user.role,
+            name: user.name,
+            phone: user.phone,
+            profile_complete: isStaffProfilePhoneComplete(user.phone),
+            must_change_password: user.mustChangePassword,
+          },
+        },
+      });
       return;
     }
+
+    const tokens = gate.tokens!;
     setAuthSessionCookies(res, tokens);
     res.json({
       success: true,

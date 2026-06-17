@@ -84,19 +84,23 @@ export class AuthService {
   }
 
   /**
-   * Login with email and password. Returns JWT token pair.
+   * Validate email/password and return the active user without issuing tokens.
    */
-  async login(email: string, password: string): Promise<TokenPair> {
+  async validatePasswordLogin(email: string, password: string): Promise<{
+    id: string;
+    companyId: string;
+    email: string;
+    role: string;
+    name: string;
+    phone: string | null;
+    mustChangePassword: boolean;
+  }> {
     const normalizedEmail = normalizeAuthEmail(email);
     const user = await prisma.user.findFirst({
       where: { email: normalizedEmail, status: 'active' },
     });
 
-    if (!user) {
-      throw new Error('Invalid credentials');
-    }
-
-    if (!user.passwordHash) {
+    if (!user || !user.passwordHash) {
       throw new Error('Invalid credentials');
     }
 
@@ -105,7 +109,6 @@ export class AuthService {
       throw new Error('Invalid credentials');
     }
 
-    // Check company is active (unless super_admin)
     if (user.role !== 'super_admin') {
       const company = await prisma.company.findFirst({
         where: { id: user.companyId, status: 'active' },
@@ -115,16 +118,57 @@ export class AuthService {
       }
     }
 
-    // Update last login
+    return {
+      id: user.id,
+      companyId: user.companyId,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      phone: user.phone,
+      mustChangePassword: user.mustChangePassword,
+    };
+  }
+
+  /**
+   * Login with email and password. Returns JWT token pair.
+   */
+  async login(email: string, password: string): Promise<TokenPair> {
+    const user = await this.validatePasswordLogin(email, password);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
+    const tokens = await this.generateTokens(user);
+    logger.info('User logged in', { userId: user.id });
+    return tokens;
+  }
+
+  /**
+   * Issue tokens for an already-authenticated user (SSO/MFA completion).
+   */
+  async issueTokensForUser(userId: string): Promise<TokenPair> {
+    const user = await prisma.user.findFirst({
+      where: { id: userId, status: 'active' },
+    });
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (user.role !== 'super_admin') {
+      const company = await prisma.company.findFirst({
+        where: { id: user.companyId, status: 'active' },
+      });
+      if (!company) {
+        throw new Error('Company is inactive');
+      }
+    }
+
     await prisma.user.update({
       where: { id: user.id },
       data: { lastLogin: new Date() },
     });
 
-    const tokens = await this.generateTokens(user);
-
-    logger.info('User logged in', { userId: user.id });
-    return tokens;
+    return this.generateTokens(user);
   }
 
   /**

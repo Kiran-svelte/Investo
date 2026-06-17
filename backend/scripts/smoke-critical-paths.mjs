@@ -34,6 +34,67 @@ async function checkHealth() {
   }
 }
 
+function runEnterpriseBaselineSmoke() {
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/enterprise-baseline.mjs'],
+    {
+      cwd: backendRoot,
+      encoding: 'utf8',
+      env: process.env,
+    },
+  );
+
+  if (result.status !== 0) {
+    failures.push(`Enterprise baseline CLI failed: ${(result.stderr || result.stdout || '').slice(0, 500)}`);
+    return;
+  }
+
+  try {
+    const report = JSON.parse(result.stdout);
+    if (!Array.isArray(report.domains) || report.domains.length !== 12) {
+      failures.push(`Enterprise baseline expected 12 domains, got ${report.domains?.length ?? 'unknown'}`);
+      return;
+    }
+    if (typeof report.overall_score !== 'number') {
+      failures.push('Enterprise baseline missing numeric overall_score');
+      return;
+    }
+    console.log(`OK enterprise baseline CLI domains=${report.domains.length} score=${report.overall_score}`);
+  } catch (err) {
+    failures.push(`Enterprise baseline JSON parse failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function checkEnterpriseHealthEndpoint() {
+  const token = process.env.SMOKE_SUPER_ADMIN_TOKEN;
+  if (!token) {
+    console.log('SKIP /api/health/enterprise live probe (SMOKE_SUPER_ADMIN_TOKEN not set)');
+    return;
+  }
+
+  const url = `${baseUrl}/api/health/enterprise`;
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = await res.text();
+    if (!res.ok) {
+      failures.push(`Enterprise health endpoint failed: ${res.status} ${body.slice(0, 200)}`);
+      return;
+    }
+    const report = JSON.parse(body);
+    if (!Array.isArray(report.domains) || report.domains.length !== 12) {
+      failures.push(`Enterprise health endpoint expected 12 domains, got ${report.domains?.length ?? 'unknown'}`);
+      return;
+    }
+    console.log(`OK enterprise health ${url}`);
+  } catch (err) {
+    failures.push(`Enterprise health endpoint unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function runDeterministicSmoke() {
   const result = spawnSync(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
@@ -67,6 +128,30 @@ console.log('  - When is my visit?: buyer visit status query → buildBuyerVisit
 console.log('');
 
 await checkHealth();
+runEnterpriseBaselineSmoke();
+await checkEnterpriseHealthEndpoint();
+
+async function runSyntheticHttpChecks() {
+  const checks = [
+    { id: 'api_live', path: '/api/health/live' },
+    { id: 'db_ready', path: '/api/health' },
+  ];
+  for (const check of checks) {
+    const url = `${baseUrl}${check.path}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) {
+        failures.push(`Synthetic ${check.id} failed: HTTP ${res.status} ${url}`);
+      } else {
+        console.log(`OK synthetic ${check.id} ${url}`);
+      }
+    } catch (err) {
+      failures.push(`Synthetic ${check.id} unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
+await runSyntheticHttpChecks();
 runDeterministicSmoke();
 
 if (failures.length) {

@@ -1,0 +1,40 @@
+{
+  "uid": "investo-ai-usage",
+  "title": "Investo — AI Usage",
+  "tags": ["investo", "ai", "chunk-07"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "LLM calls / min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "sum(rate(investo_ai_llm_calls_total[5m])) by (provider)",
+        "legendFormat": "{{provider}}"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Token rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "sum(rate(investo_ai_tokens_total[5m])) by (provider)",
+        "legendFormat": "{{provider}}"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Fallback rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [{
+        "expr": "sum(rate(investo_ai_fallbacks_total[5m])) by (reason)",
+        "legendFormat": "{{reason}}"
+      }]
+    }
+  ]
+}

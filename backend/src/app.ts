@@ -2,11 +2,12 @@
 import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
+import { securityHeadersMiddleware } from './middleware/securityHeaders';
 import cookieParser from 'cookie-parser';
 import config from './config';
 import logger from './config/logger';
 import { requestLogger } from './middleware/requestLogger';
+import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { sanitizeInput } from './middleware/sanitizeInput';
 import {
   userRateLimiter,
@@ -32,6 +33,25 @@ import webhookRoutes from './routes/webhook.routes';
 import healthRoutes from './routes/health.routes';
 import metricsRoutes from './routes/metrics.routes';
 import readinessRoutes from './routes/readiness.routes';
+import platformRoutes from './routes/platform.routes';
+import deadLetterRoutes from './routes/dead-letter.routes';
+import quotaRoutes from './routes/quota.routes';
+import adminQuotaRoutes from './routes/admin-quota.routes';
+import statusRoutes from './routes/status.routes';
+import identitySettingsRoutes from './routes/identity-settings.routes';
+import ssoRoutes from './identity/sso/sso.routes';
+import mfaRoutes from './identity/mfa/mfa.routes';
+import scimRoutes from './identity/scim/scim.routes';
+import branchRoutes from './identity/org/branch.routes';
+import securityRoutes from './routes/security.routes';
+import complianceRoutes from './compliance/compliance.routes';
+import governanceRoutes from './governance/governance.routes';
+import publicApiRoutes from './publicApi/publicApi.routes';
+import billingOpsRoutes from './billingOps/billingOps.routes';
+import supportOpsRoutes from './supportOps/supportOps.routes';
+import dataPlatformRoutes from './dataPlatform/dataPlatform.routes';
+import enterpriseConfigRoutes from './enterpriseConfig/enterpriseConfig.routes';
+import { readOnlyMiddleware } from './dr/readOnly.middleware';
 import analyticsRoutes from './routes/analytics.routes';
 import notificationRoutes from './routes/notification.routes';
 import subscriptionRoutes from './routes/subscription.routes';
@@ -59,10 +79,11 @@ const app = express();
 app.set('trust proxy', 1);
 
 // Security headers
-app.use(helmet());
+app.use(securityHeadersMiddleware);
 
 // Structured request logging + ops counters
 app.use(requestLogger);
+app.use(metricsMiddleware);
 
 // CORS
 app.use(
@@ -83,6 +104,10 @@ app.use(
 app.use('/api/health', healthRoutes);
 app.use('/api/readiness', readinessRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/status', statusRoutes);
+app.use('/api/auth/sso', ssoRoutes);
+app.use('/api/auth/mfa', mfaRoutes);
+app.use('/scim/v2', scimRoutes);
 
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
@@ -92,6 +117,9 @@ app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitizeInput);
+
+// DR read-only mode — blocks mutating requests when FEATURE_READ_ONLY_MODE=true
+app.use(readOnlyMiddleware);
 
 // Global rate limiting (per user: 100 req/min)
 app.use('/api/', userRateLimiter);
@@ -121,6 +149,20 @@ app.use('/api/analytics', authenticate, companyRateLimiter, analyticsRoutes);
 app.use('/api/notifications', authenticate, companyRateLimiter, notificationRoutes);
 app.use('/api/subscriptions', authenticate, companyRateLimiter, subscriptionRoutes);
 app.use('/api/admin', authenticate, companyRateLimiter, adminRoutes);
+app.use('/api/platform', authenticate, companyRateLimiter, platformRoutes);
+app.use('/api/security', authenticate, companyRateLimiter, securityRoutes);
+app.use('/api/compliance', authenticate, companyRateLimiter, complianceRoutes);
+app.use('/api/governance', authenticate, companyRateLimiter, governanceRoutes);
+app.use('/api/v1', publicApiRoutes);
+app.use('/api/billing-ops', authenticate, companyRateLimiter, billingOpsRoutes);
+app.use('/api/support-ops', authenticate, companyRateLimiter, supportOpsRoutes);
+app.use('/api/data-platform', authenticate, companyRateLimiter, dataPlatformRoutes);
+app.use('/api/enterprise-config', authenticate, companyRateLimiter, enterpriseConfigRoutes);
+app.use('/api/dead-letter', authenticate, companyRateLimiter, deadLetterRoutes);
+app.use('/api/quota', authenticate, companyRateLimiter, quotaRoutes);
+app.use('/api/admin/quota', authenticate, companyRateLimiter, adminQuotaRoutes);
+app.use('/api/settings', authenticate, companyRateLimiter, identitySettingsRoutes);
+app.use('/api/branches', authenticate, companyRateLimiter, branchRoutes);
 app.use('/api/roles', authenticate, companyRateLimiter, roleRoutes);
 app.use('/api/features', authenticate, companyRateLimiter, featureRoutes);
 app.use('/api/onboarding', authenticate, companyRateLimiter, onboardingRoutes);

@@ -1,0 +1,29 @@
+{
+  "uid": "investo-slo-burn",
+  "title": "Investo — SLO Burn",
+  "tags": ["investo", "slo", "chunk-07"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "SLO burn rate by indicator",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "investo_slo_burn_rate",
+        "legendFormat": "{{slo}}"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Error budget threshold lines",
+      "type": "text",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 10 },
+      "options": {
+        "content": "Alert at burn rate ≥ 2 (P2) and ≥ 5 (P1). Monthly API availability target: 99.9%."
+      }
+    }
+  ]
+}

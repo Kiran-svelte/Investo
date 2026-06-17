@@ -62,10 +62,159 @@ model Company {
   agentSessions            AgentSession[]
   agentActionLogs          AgentActionLog[]
   inboundWhatsappDedups    InboundWhatsappDedup[]
+  whatsappJobs             WhatsAppJob[]
+  whatsappDeadLetters      WhatsAppDeadLetter[]
   workflowRunRecords       WorkflowRunRecord[]
   workflowIdempotencyKeys  WorkflowIdempotencyKey[]
+  quotaOverride            CompanyQuotaOverride?
+  tenantUsageDaily         TenantUsageDaily[]
+  identityConfig           CompanyIdentityConfig?
+  branches                 CompanyBranch[]
+  scimProvisioningEvents   ScimProvisioningEvent[]
+  encryptedFields          EncryptedField[]
+  dataSubjectRequests      DataSubjectRequest[]
+  retentionPolicy          RetentionPolicy?
+  legalHolds               LegalHold[]
+  dpaAcceptances           DpaAcceptance[]
+  outboxEvents             OutboxEvent[]
+  apiKeys                  ApiKey[]
+  webhookSubscriptions     WebhookSubscription[]
+  usageInvoices            UsageInvoice[]
+  supportImpersonations    SupportImpersonation[]
+  tenantHealthScores       TenantHealthScore[]
+  sandboxTenant            SandboxTenant?
+  aiReviewQueueItems       AiReviewQueueItem[]
+  messageArchives          MessageArchive[]
 
   @@map("companies")
+}
+
+model CompanyQuotaOverride {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @unique @map("company_id") @db.Uuid
+  quotas    Json      @default("{}")
+  reason    String?   @db.Text
+  expiresAt DateTime? @map("expires_at")
+  createdBy String    @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_quota_overrides")
+}
+
+model TenantUsageDaily {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  date      DateTime @db.Date
+  metrics   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, date])
+  @@index([date])
+  @@map("tenant_usage_daily")
+}
+
+model CompanyIdentityConfig {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @unique @map("company_id") @db.Uuid
+  ssoEnabled       Boolean  @default(false) @map("sso_enabled")
+  ssoProvider      String?  @map("sso_provider") @db.VarChar(50)
+  ssoConnectionId  String?  @map("sso_connection_id") @db.VarChar(255)
+  ssoOidcIssuer    String?  @map("sso_oidc_issuer") @db.VarChar(500)
+  ssoOidcClientId  String?  @map("sso_oidc_client_id") @db.VarChar(255)
+  scimEnabled      Boolean  @default(false) @map("scim_enabled")
+  scimTokenHash    String?  @map("scim_token_hash") @db.VarChar(255)
+  mfaRequired      Boolean  @default(false) @map("mfa_required")
+  mfaMethods       Json     @default("[\"totp\"]") @map("mfa_methods")
+  allowedDomains   Json     @default("[]") @map("allowed_domains")
+  ipAllowlistEnabled Boolean @default(false) @map("ip_allowlist_enabled")
+  ipAllowlist      Json     @default("[]") @map("ip_allowlist")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_identity_configs")
+}
+
+model UserMfaDevice {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  method       String   @db.VarChar(20)
+  secretEnc    String?  @map("secret_enc") @db.Text
+  webauthnCred Json?    @map("webauthn_cred")
+  verified     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, method])
+  @@map("user_mfa_devices")
+}
+
+model CompanyBranch {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String   @db.VarChar(255)
+  parentId  String?  @map("parent_id") @db.Uuid
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   CompanyBranch?  @relation("BranchHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children CompanyBranch[] @relation("BranchHierarchy")
+  users    User[]
+
+  @@index([companyId])
+  @@index([companyId, parentId])
+  @@map("company_branches")
+}
+
+model ScimProvisioningEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  action    String   @db.VarChar(50)
+  externalId String? @map("external_id") @db.VarChar(255)
+  userId    String?  @map("user_id") @db.Uuid
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@map("scim_provisioning_events")
+}
+
+model EncryptedField {
+  id         String @id @default(uuid()) @db.Uuid
+  companyId  String @map("company_id") @db.Uuid
+  entityType String @map("entity_type") @db.VarChar(50)
+  entityId   String @map("entity_id") @db.Uuid
+  fieldName  String @map("field_name") @db.VarChar(100)
+  ciphertext String @db.Text
+  keyVersion Int    @default(1) @map("key_version")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([entityType, entityId, fieldName])
+  @@index([companyId, entityType])
+  @@map("encrypted_fields")
+}
+
+model SecretRotationLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  secretName String   @map("secret_name") @db.VarChar(100)
+  rotatedAt  DateTime @default(now()) @map("rotated_at")
+  rotatedBy  String   @map("rotated_by") @db.VarChar(100)
+
+  @@index([secretName, rotatedAt])
+  @@map("secret_rotation_logs")
 }
 
 // ─── Users ──────────────────────────────────────────────────────────
@@ -80,11 +229,16 @@ model User {
   role              UserRole   @default(viewer)
   status            UserStatus @default(active)
   mustChangePassword Boolean   @default(false) @map("must_change_password")
+  branchId          String?    @map("branch_id") @db.Uuid
+  authProvider      String     @default("local") @map("auth_provider") @db.VarChar(20)
+  externalId        String?    @map("external_id") @db.VarChar(255)
   lastLogin         DateTime?  @map("last_login")
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
 
   company             Company    @relation(fields: [companyId], references: [id])
+  branch              CompanyBranch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  mfaDevices          UserMfaDevice[]
   assignedLeads       Lead[]     @relation("AgentLeads")
   visits              Visit[]
   notifications       Notification[]
@@ -99,6 +253,7 @@ model User {
   agentActionLogs     AgentActionLog[]
 
   @@index([companyId, role])
+  @@unique([companyId, externalId])
   @@map("users")
 }
 
@@ -303,6 +458,9 @@ model Message {
   content           String        @db.Text
   language          String?       @db.VarChar(5)
   whatsappMessageId String?       @map("whatsapp_message_id") @db.VarChar(255)
+  deliveryStatus    String?       @map("delivery_status") @db.VarChar(50)
+  metaMessageId     String?       @map("meta_message_id") @db.VarChar(255)
+  failedReason      String?       @map("failed_reason") @db.Text
   status            MessageStatus @default(sent)
   createdAt         DateTime      @default(now()) @map("created_at")
 
@@ -331,6 +489,44 @@ model InboundWhatsappDedup {
 }
 
 // ─── Property Projects (group listings + imports) ───────────────────
+model WhatsAppJob {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  jobType         String    @map("job_type") @db.VarChar(50)
+  idempotencyKey  String    @unique @map("idempotency_key") @db.VarChar(255)
+  payload         Json
+  status          String    @default("pending") @db.VarChar(30)
+  attempts        Int       @default(0)
+  maxAttempts     Int       @default(3) @map("max_attempts")
+  lastError       String?   @map("last_error") @db.Text
+  nextAttemptAt   DateTime? @map("next_attempt_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  processedAt     DateTime? @map("processed_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status])
+  @@index([status, nextAttemptAt])
+  @@index([createdAt])
+  @@map("whatsapp_jobs")
+}
+
+model WhatsAppDeadLetter {
+  id        String   @id @default(uuid()) @db.Uuid
+  jobId     String   @map("job_id") @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  payload   Json
+  error     String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([jobId])
+  @@map("whatsapp_dead_letters")
+}
+
 model PropertyProject {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String   @map("company_id") @db.Uuid
@@ -1072,4 +1268,229 @@ model AgentActionLog {
   @@index([companyId, action])
   @@index([resourceType, resourceId])
   @@map("agent_action_logs")
+}
+
+// ─── Enterprise Chunks 06–14 ─────────────────────────────────────────
+
+model DataSubjectRequest {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  requestType   String    @map("request_type") @db.VarChar(30)
+  subjectPhone  String?   @map("subject_phone") @db.VarChar(20)
+  subjectEmail  String?   @map("subject_email") @db.VarChar(255)
+  status        String    @default("pending") @db.VarChar(30)
+  requestedBy   String    @map("requested_by") @db.Uuid
+  completedAt   DateTime? @map("completed_at")
+  artifactPath  String?   @map("artifact_path") @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+  @@map("data_subject_requests")
+}
+
+model RetentionPolicy {
+  id                  String   @id @default(uuid()) @db.Uuid
+  companyId           String   @unique @map("company_id") @db.Uuid
+  leadDays            Int      @default(2555) @map("lead_days")
+  messageDays         Int      @default(1095) @map("message_days")
+  auditDays           Int      @default(2555) @map("audit_days")
+  inactiveCompanyDays Int      @default(90) @map("inactive_company_days")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("retention_policies")
+}
+
+model LegalHold {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  entityType String    @map("entity_type") @db.VarChar(50)
+  entityId   String    @map("entity_id") @db.Uuid
+  reason     String    @db.Text
+  placedBy   String    @map("placed_by") @db.Uuid
+  releasedAt DateTime? @map("released_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, entityType, entityId])
+  @@index([companyId, releasedAt])
+  @@map("legal_holds")
+}
+
+model DpaAcceptance {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  acceptedBy String   @map("accepted_by") @db.Uuid
+  version    String   @db.VarChar(50)
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, version])
+  @@map("dpa_acceptances")
+}
+
+model OutboxEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @map("company_id") @db.Uuid
+  eventType   String    @map("event_type") @db.VarChar(100)
+  payload     Json      @default("{}")
+  status      String    @default("pending") @db.VarChar(30)
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([status, createdAt])
+  @@map("outbox_events")
+}
+
+model ApiKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  name       String    @db.VarChar(100)
+  keyPrefix  String    @map("key_prefix") @db.VarChar(20)
+  keyHash    String    @map("key_hash") @db.VarChar(255)
+  scopes     Json      @default("[]")
+  lastUsedAt DateTime? @map("last_used_at")
+  expiresAt  DateTime? @map("expires_at")
+  createdBy  String    @map("created_by") @db.Uuid
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([keyPrefix])
+  @@map("api_keys")
+}
+
+model WebhookSubscription {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  url        String   @db.VarChar(500)
+  secretHash String   @map("secret_hash") @db.VarChar(255)
+  events     Json     @default("[]")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, active])
+  @@map("webhook_subscriptions")
+}
+
+model UsageInvoice {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  periodStart DateTime @map("period_start") @db.Date
+  periodEnd   DateTime @map("period_end") @db.Date
+  totalInr    Decimal  @map("total_inr") @db.Decimal(14, 2)
+  lineItems   Json     @default("[]") @map("line_items")
+  status      String   @default("draft") @db.VarChar(30)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, periodStart, periodEnd])
+  @@index([companyId, status])
+  @@map("usage_invoices")
+}
+
+model SupportImpersonation {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  supportUserId String    @map("support_user_id") @db.Uuid
+  targetUserId  String    @map("target_user_id") @db.Uuid
+  ticketId      String    @map("ticket_id") @db.VarChar(100)
+  expiresAt     DateTime  @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, expiresAt])
+  @@index([supportUserId])
+  @@map("support_impersonations")
+}
+
+model TenantHealthScore {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  score      Int
+  signals    Json     @default("{}")
+  computedAt DateTime @map("computed_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, computedAt])
+  @@map("tenant_health_scores")
+}
+
+model SandboxTenant {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @unique @map("company_id") @db.Uuid
+  sandboxCompanyId String   @unique @map("sandbox_company_id") @db.Uuid
+  piiScrubbed      Boolean  @default(true) @map("pii_scrubbed")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("sandbox_tenants")
+}
+
+model PromptVersion {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(100)
+  version   String   @db.VarChar(50)
+  content   String   @db.Text
+  status    String   @default("draft") @db.VarChar(30)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([name, version])
+  @@map("prompt_versions")
+}
+
+model AiReviewQueueItem {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  messageId  String    @map("message_id") @db.Uuid
+  riskScore  Int       @map("risk_score")
+  status     String    @default("pending") @db.VarChar(30)
+  reviewedBy String?   @map("reviewed_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([messageId])
+  @@map("ai_review_queue_items")
+}
+
+model MessageArchive {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  messageId   String   @map("message_id") @db.Uuid
+  contentHash String   @map("content_hash") @db.VarChar(64)
+  storageKey  String   @map("storage_key") @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, messageId])
+  @@index([companyId, createdAt])
+  @@map("message_archives")
 }

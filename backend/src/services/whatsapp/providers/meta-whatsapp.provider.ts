@@ -1,15 +1,7 @@
 import { SendTextMessageResult, WhatsAppOutboundProvider, WhatsAppProviderConfig } from './whatsapp-provider';
-import { getCircuitBreaker } from '../../../utils/circuit-breaker';
 import { withRetry } from '../../../utils/retry';
 import logger from '../../../config/logger';
-
-/** Circuit breaker shared across all Meta WhatsApp outbound calls (per process). */
-const metaCircuitBreaker = getCircuitBreaker({
-  name: 'meta_whatsapp_outbound',
-  failureThreshold: 5,
-  recoveryTimeoutMs: 30_000,
-  halfOpenMaxAttempts: 2,
-});
+import { executeMetaApiWithCircuitBreaker } from '../../metaCircuitBreaker.service';
 
 export class MetaWhatsAppProvider implements WhatsAppOutboundProvider {
   private readonly apiUrl: string;
@@ -28,7 +20,7 @@ export class MetaWhatsAppProvider implements WhatsAppOutboundProvider {
     // Circuit breaker + retry for transient Meta API failures (network blips, 503s).
     // Auth errors (401, 403) and rate limits (429) are not retried.
     try {
-      return await metaCircuitBreaker.execute(() =>
+      return await executeMetaApiWithCircuitBreaker(() =>
         withRetry(
           async () => {
             const response = await fetch(`${this.apiUrl}/${phoneNumberId}/messages`, {

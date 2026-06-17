@@ -125,15 +125,14 @@ export async function cacheIncr(key: string, ttlSeconds = 60): Promise<number> {
     }
   }
 
-  const memKey = `incr:${key}`;
-  const entry = memCache.get(memKey);
+  const entry = memCache.get(key);
   const now = Date.now();
   if (!entry || entry.expiresAt <= now) {
-    memCache.set(memKey, { value: 1, expiresAt: now + ttlSeconds * 1000 });
+    memCache.set(key, { value: 1, expiresAt: now + ttlSeconds * 1000 });
     return 1;
   }
   const next = Number(entry.value) + 1;
-  memCache.set(memKey, { value: next, expiresAt: entry.expiresAt });
+  memCache.set(key, { value: next, expiresAt: entry.expiresAt });
   return next;
 }
 

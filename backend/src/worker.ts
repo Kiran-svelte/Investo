@@ -3,6 +3,8 @@ import prisma from './config/prisma';
 import { getRedis } from './config/redis';
 import { propertyImportWorkerService } from './services/propertyImportWorker.service';
 import { automationService } from './services/automation.service';
+import { whatsappInboundWorkerService } from './services/queue/whatsappInboundWorker.service';
+import { touchWorkerHeartbeat } from './services/observability/syntheticCheck.service';
 
 async function startWorker(): Promise<void> {
   try {
@@ -26,8 +28,15 @@ async function startWorker(): Promise<void> {
     // and the new retry_concurrent_inbound job queue
     automationService.start();
 
+    whatsappInboundWorkerService.start();
+
+    void touchWorkerHeartbeat();
+    setInterval(() => {
+      void touchWorkerHeartbeat();
+    }, 60_000);
+
     logger.info('Investo worker runtime started', {
-      services: ['property_import_worker', 'automation_service'],
+      services: ['property_import_worker', 'automation_service', 'whatsapp_inbound_worker'],
     });
   } catch (err: any) {
     logger.error('Failed to start worker runtime', {
@@ -39,6 +48,7 @@ async function startWorker(): Promise<void> {
 
 async function shutdown(signal: string): Promise<void> {
   logger.info('Worker runtime shutting down', { signal });
+  whatsappInboundWorkerService.stop();
   propertyImportWorkerService.stop();
   automationService.stop();
   await prisma.$disconnect();

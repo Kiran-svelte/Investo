@@ -9,7 +9,6 @@ import React, {
 import { AxiosError } from 'axios';
 import api, {
   ApiResponse,
-  AuthTokens,
   applyAuthSessionFromLoginResponse,
   clearTokens,
   getAccessToken,
@@ -19,6 +18,12 @@ import api, {
   refreshAuthTokens,
   setTokens,
 } from '../services/api';
+import {
+  isMfaPending,
+  loginWithPassword,
+  verifyMfaLogin,
+  type LoginMfaPending,
+} from '../services/identity';
 import { isProfilePhoneComplete } from '../utils/profilePhone';
 
 // ──────────────────────────────────────────────
@@ -43,7 +48,8 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   mustChangePassword: boolean;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (email: string, password: string) => Promise<AuthUser | LoginMfaPending>;
+  completeMfaLogin: (mfaToken: string, code: string) => Promise<AuthUser>;
   logout: () => void;
   refreshToken: () => Promise<void>;
   clearPasswordChangeRequirement: () => void;
@@ -148,17 +154,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const { data } = await api.post<
-          ApiResponse<{ user: AuthUser; tokens: AuthTokens; session?: { storage?: string } }>
-        >('/auth/login', { email, password });
-
-        const { user: loggedInUser, tokens } = data.data;
-        applyAuthSessionFromLoginResponse(data.data.session);
-        if (!isCookieSessionMode()) {
-          setTokens(tokens.access_token, tokens.refresh_token);
+        const result = await loginWithPassword(email, password);
+        if (isMfaPending(result)) {
+          return result;
         }
-        setUser(loggedInUser);
-        return loggedInUser;
+
+        applyAuthSessionFromLoginResponse(result.session);
+        if (!isCookieSessionMode()) {
+          setTokens(result.tokens.access_token, result.tokens.refresh_token);
+        }
+        setUser(result.user);
+        return result.user;
       } catch (err) {
         lastError = err;
         if (!isTransientAuthError(err) || attempt === maxAttempts) {
@@ -169,6 +175,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     throw lastError;
+  }, []);
+
+  const completeMfaLogin = useCallback(async (mfaToken: string, code: string) => {
+    const user = await verifyMfaLogin(mfaToken, code);
+    setUser(user);
+    return user;
   }, []);
 
   // ── Logout ───────────────────────────────────
@@ -210,6 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       mustChangePassword,
       profileComplete,
       login,
+      completeMfaLogin,
       logout,
       refreshToken,
       clearPasswordChangeRequirement,
@@ -222,6 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       mustChangePassword,
       profileComplete,
       login,
+      completeMfaLogin,
       logout,
       refreshToken,
       clearPasswordChangeRequirement,

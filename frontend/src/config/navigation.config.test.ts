@@ -22,6 +22,9 @@ describe('navigation.config', () => {
     const items = getVisibleNavItems('super_admin', allFeatures);
     expect(items.some((i) => i.key === 'leads')).toBe(false);
     expect(items.some((i) => i.key === 'companies')).toBe(true);
+    expect(items.some((i) => i.key === 'platform_health')).toBe(true);
+    expect(items.some((i) => i.key === 'observability')).toBe(true);
+    expect(items.some((i) => i.key === 'message_failures')).toBe(true);
   });
 
   it('company_admin sees full tenant nav', () => {
@@ -37,6 +40,8 @@ describe('navigation.config', () => {
   it('blocks super_admin from tenant leads URL', () => {
     expect(isPathAllowedForRole('/dashboard/leads', 'super_admin', allFeatures)).toBe(false);
     expect(isPathAllowedForRole('/dashboard/companies', 'super_admin', allFeatures)).toBe(true);
+    expect(isPathAllowedForRole('/dashboard/platform-health', 'super_admin', allFeatures)).toBe(true);
+    expect(isPathAllowedForRole('/dashboard/message-failures', 'super_admin', allFeatures)).toBe(true);
   });
 
   it('allows sales_agent leads but not agents page', () => {
@@ -65,8 +70,25 @@ describe('navigation.config', () => {
     const caps = getRoleCapabilities('company_admin');
     expect(caps.canManageTenantSettings).toBe(true);
     expect(caps.canUploadProperties).toBe(true);
-    // Billing management capability is removed in this version
     expect('canManageBilling' in caps).toBe(false);
+  });
+
+  it('company_admin sees enterprise admin nav items', () => {
+    const items = getVisibleNavItems('company_admin', allFeatures);
+    expect(items.some((i) => i.key === 'usage')).toBe(true);
+    expect(items.some((i) => i.key === 'security')).toBe(true);
+    expect(items.some((i) => i.key === 'compliance')).toBe(true);
+    expect(items.some((i) => i.key === 'integrations')).toBe(true);
+    expect(items.some((i) => i.key === 'ai_governance')).toBe(true);
+  });
+
+  it('super_admin sees platform ops nav items', () => {
+    const items = getVisibleNavItems('super_admin', allFeatures);
+    expect(items.some((i) => i.key === 'tenant_health')).toBe(true);
+    expect(items.some((i) => i.key === 'support_tools')).toBe(true);
+    expect(items.some((i) => i.key === 'dr_status')).toBe(true);
+    expect(items.some((i) => i.key === 'ai_governance')).toBe(true);
+    expect(isPathAllowedForRole('/dashboard/compliance', 'super_admin', allFeatures)).toBe(false);
   });
 
   it('hides feature-gated nav when toggle is off', () => {

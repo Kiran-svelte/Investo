@@ -1,0 +1,50 @@
+{
+  "uid": "investo-whatsapp-pipeline",
+  "title": "Investo — WhatsApp Pipeline",
+  "tags": ["investo", "whatsapp", "chunk-07"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Webhook ACK p95 (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(investo_webhook_ack_duration_ms_bucket[5m])) by (le))",
+        "legendFormat": "ack p95"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Inbound queue depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "investo_whatsapp_queue_depth",
+        "legendFormat": "{{status}}"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Worker lag (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{
+        "expr": "investo_worker_lag_ms",
+        "legendFormat": "{{queue}}"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Meta circuit breaker",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{
+        "expr": "investo_meta_circuit_state",
+        "legendFormat": "{{state}}"
+      }]
+    }
+  ]
+}

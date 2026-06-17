@@ -17,6 +17,21 @@ const SENSITIVE_KEYS = new Set([
   'api_key',
 ]);
 
+const PII_KEYS = new Set(['email', 'phone', 'buyer_phone', 'whatsapp_phone', 'contact_phone']);
+
+function maskEmail(value: string): string {
+  const [local, domain] = value.split('@');
+  if (!domain) return maskSecretValue(value);
+  const visible = local.length <= 2 ? '*' : `${local.slice(0, 2)}***`;
+  return `${visible}@${domain}`;
+}
+
+function maskPhoneLike(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length <= 4) return '****';
+  return `${'*'.repeat(Math.max(4, digits.length - 4))}${digits.slice(-4)}`;
+}
+
 function maskSecretValue(value: unknown): string {
   if (typeof value !== 'string' || !value) return '';
   if (value.length <= 4) return '****';
@@ -41,6 +56,10 @@ export function redactSensitiveData<T>(input: T, depth = 0): T {
     const normalized = key.toLowerCase();
     if (SENSITIVE_KEYS.has(normalized)) {
       result[key] = typeof value === 'string' && value.length > 0 ? maskSecretValue(value) : '[redacted]';
+      continue;
+    }
+    if (typeof value === 'string' && PII_KEYS.has(normalized)) {
+      result[key] = normalized.includes('email') ? maskEmail(value) : maskPhoneLike(value);
       continue;
     }
     result[key] = redactSensitiveData(value, depth + 1);
