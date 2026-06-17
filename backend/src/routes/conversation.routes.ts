@@ -17,8 +17,36 @@ import {
   ResourceDeleteError,
 } from '../services/resourceDelete.service';
 import { resolveCompanyWhatsAppConfigFromSettings } from '../utils/companyWhatsAppConfig.util';
+import {
+  resolveAgentUserIdsForBranch,
+  resolveEffectiveBranchId,
+  isOrgBranchesEnabled,
+} from '../identity/org/branchScope.service';
 
-const router = Router();
+const EMPTY_AGENT_SENTINEL = '00000000-0000-0000-0000-000000000000';
+
+async function applyConversationBranchScope(
+  where: Record<string, any>,
+  companyId: string,
+  user: AuthRequest['user'],
+  query: Record<string, unknown>,
+): Promise<void> {
+  if (!user || !isOrgBranchesEnabled() || user.role === 'sales_agent') {
+    return;
+  }
+  const branchId = resolveEffectiveBranchId(
+    { role: user.role, branch_id: user.branch_id },
+    typeof query.branch_id === 'string' ? query.branch_id : null,
+  );
+  if (!branchId) {
+    return;
+  }
+  const agentIds = await resolveAgentUserIdsForBranch(companyId, branchId);
+  const scope = {
+    assignedAgentId: { in: agentIds.length > 0 ? agentIds : [EMPTY_AGENT_SENTINEL] },
+  };
+  where.lead = where.lead ? { ...where.lead, ...scope } : scope;
+}
 
 function handleDeleteError(err: unknown, res: Response): void {
   if (err instanceof ResourceDeleteError) {
@@ -29,6 +57,8 @@ function handleDeleteError(err: unknown, res: Response): void {
   logger.error('Delete failed', { error: message });
   res.status(500).json({ error: message });
 }
+
+const router = Router();
 
 router.use(authenticate);
 router.use(strictTenantIsolation);
@@ -127,6 +157,8 @@ router.get(
       if (req.user!.role === 'sales_agent') {
         where.lead = { assignedAgentId: req.user!.id };
       }
+
+      await applyConversationBranchScope(where, companyId, req.user, req.query as Record<string, unknown>);
 
       const { status, search } = req.query;
       if (status) where.status = status as string;

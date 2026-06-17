@@ -18,8 +18,44 @@ import {
   ResourceDeleteError,
 } from '../services/resourceDelete.service';
 import { assertStaffPhoneAvailable, isStaffPhoneInUseError } from '../utils/staffPhoneUniqueness';
+import {
+  assertBranchBelongsToCompany,
+  isOrgBranchesEnabled,
+} from '../identity/org/branchScope.service';
 
 const router = Router();
+
+function mapUserResponse(user: {
+  id: string;
+  companyId: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  role: string;
+  status: string;
+  lastLogin?: Date | null;
+  createdAt?: Date;
+  branchId?: string | null;
+  branch?: { name: string } | null;
+  active_leads?: number;
+  sales_count?: number;
+}) {
+  return {
+    id: user.id,
+    company_id: user.companyId,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    status: user.status,
+    last_login: user.lastLogin ?? null,
+    created_at: user.createdAt ?? null,
+    branch_id: user.branchId || null,
+    branch_name: user.branch?.name || null,
+    active_leads: user.active_leads,
+    sales_count: user.sales_count,
+  };
+}
 
 router.use(authenticate);
 router.use(strictTenantIsolation);
@@ -56,9 +92,12 @@ router.get(
       }
 
       // Role filter
-      const { role } = req.query;
+      const { role, branch_id: branchFilter } = req.query;
       if (role) {
         where.role = role as string;
+      }
+      if (branchFilter && isOrgBranchesEnabled()) {
+        where.branchId = branchFilter as string;
       }
 
       const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>);
@@ -69,6 +108,8 @@ router.get(
           select: {
             id: true, companyId: true, name: true, email: true, phone: true,
             role: true, status: true, lastLogin: true, createdAt: true,
+            branchId: true,
+            branch: { select: { name: true } },
           },
           orderBy: { createdAt: 'desc' },
           skip: offset,
@@ -108,7 +149,7 @@ router.get(
 
         const salesMap = new Map(salesCounts.map((s) => [s.assignedAgentId, s._count.id]));
 
-        const enriched = users.map((u) => ({
+        const enriched = users.map((u) => mapUserResponse({
           ...u,
           active_leads: leadMap.get(u.id) || 0,
           sales_count: salesMap.get(u.id) || 0,
@@ -122,7 +163,7 @@ router.get(
       }
 
       res.json({
-        data: users,
+        data: users.map((u) => mapUserResponse(u)),
         pagination: buildPaginationMeta(page, limit, total),
       });
     } catch (err: any) {
@@ -160,6 +201,8 @@ router.get(
         select: {
           id: true, companyId: true, name: true, email: true, phone: true,
           role: true, status: true, lastLogin: true, createdAt: true,
+          branchId: true,
+          branch: { select: { name: true } },
         },
       });
 
@@ -168,7 +211,7 @@ router.get(
         return;
       }
 
-      res.json({ data: user });
+      res.json({ data: mapUserResponse(user) });
     } catch (err: any) {
       logger.error('Failed to fetch user', { error: err.message });
       res.status(500).json({ error: 'Failed to fetch user' });
@@ -189,7 +232,7 @@ router.post(
   auditLog('create', 'users'),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, email, password, phone, role, target_company_id, must_change_password } = req.body;
+      const { name, email, password, phone, role, target_company_id, must_change_password, branch_id } = req.body;
       const queryTargetCompanyId =
         typeof req.query.target_company_id === 'string' ? req.query.target_company_id : undefined;
       const resolvedTargetCompanyId = target_company_id || queryTargetCompanyId;
@@ -231,6 +274,10 @@ router.post(
         }
       }
 
+      if (branch_id && isOrgBranchesEnabled()) {
+        await assertBranchBelongsToCompany(companyId, branch_id);
+      }
+
       const result = await authService.register({
         name,
         email,
@@ -239,6 +286,7 @@ router.post(
         role,
         company_id: companyId,
         must_change_password,
+        branch_id: branch_id && isOrgBranchesEnabled() ? branch_id : null,
       });
 
       if (role === 'company_admin') {
@@ -332,7 +380,7 @@ router.put(
         });
       } else {
         // Company admin or super admin
-        const { name, phone, role, status } = req.body;
+        const { name, phone, role, status, branch_id } = req.body;
         const { normalizeStaffProfilePhone } = await import('../utils/userProfilePhone');
 
         // Cannot change to super_admin unless you are super_admin
@@ -356,6 +404,12 @@ router.put(
           }
         }
 
+        if (branch_id !== undefined && isOrgBranchesEnabled()) {
+          if (branch_id) {
+            await assertBranchBelongsToCompany(targetUser.companyId, branch_id);
+          }
+        }
+
         await prisma.user.update({
           where: { id },
           data: {
@@ -363,16 +417,29 @@ router.put(
             ...(phoneToSave !== undefined && { phone: phoneToSave }),
             ...(role && { role }),
             ...(status && { status }),
+            ...(branch_id !== undefined && isOrgBranchesEnabled()
+              ? { branchId: branch_id || null }
+              : {}),
           },
         });
       }
 
       const updated = await prisma.user.findFirst({
         where: { id },
-        select: { id: true, companyId: true, name: true, email: true, phone: true, role: true, status: true },
+        select: {
+          id: true,
+          companyId: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+          branchId: true,
+          branch: { select: { name: true } },
+        },
       });
 
-      res.json({ data: updated });
+      res.json({ data: mapUserResponse(updated!) });
     } catch (err: any) {
       if (isStaffPhoneInUseError(err)) {
         res.status(409).json({ error: err.message });

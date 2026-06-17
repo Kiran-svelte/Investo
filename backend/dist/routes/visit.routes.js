@@ -19,6 +19,7 @@ const visitBooking_service_1 = require("../services/visitBooking.service");
 const propertyCompletenessGate_1 = require("../middleware/propertyCompletenessGate");
 const automation_service_1 = require("../services/automation.service");
 const visitState_service_1 = require("../services/visitState.service");
+const branchScope_service_1 = require("../identity/org/branchScope.service");
 const pagination_1 = require("../utils/pagination");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const router = (0, express_1.Router)();
@@ -67,6 +68,10 @@ router.get('/', (0, rbac_1.authorize)('visits', 'read'), async (req, res) => {
         // Sales agent: only their visits
         if (req.user.role === 'sales_agent') {
             where.agentId = req.user.id;
+        }
+        else {
+            const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: req.user.role, branch_id: req.user.branch_id }, typeof req.query.branch_id === 'string' ? req.query.branch_id : null);
+            await (0, branchScope_service_1.applyVisitAgentBranchScope)(where, companyId, { id: req.user.id, role: req.user.role, branch_id: req.user.branch_id }, branchId);
         }
         // Date range filter
         const { from, to, status, agent_id } = req.query;
@@ -128,6 +133,14 @@ router.get('/:id', (0, rbac_1.authorize)('visits', 'read'), async (req, res) => 
         if (req.user.role === 'sales_agent' && visit.agentId !== req.user.id) {
             res.status(403).json({ error: 'Can only view assigned visits' });
             return;
+        }
+        const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: req.user.role, branch_id: req.user.branch_id }, null);
+        if (branchId && req.user.role !== 'sales_agent' && req.user.role !== 'company_admin') {
+            const scopedAgents = await (0, branchScope_service_1.resolveAgentUserIdsForBranch)(companyId, branchId);
+            if (!scopedAgents.includes(visit.agentId)) {
+                res.status(404).json({ error: 'Visit not found' });
+                return;
+            }
         }
         res.json({ data: mapVisitToSnakeCaseDTO(visit) });
     }

@@ -71,6 +71,8 @@ export interface AuthUser {
   role: string;
   name: string;
   customRoleId?: string | null;
+  branch_id?: string | null;
+  branch_name?: string | null;
 }
 
 export interface AuthRequest extends Request {
@@ -106,6 +108,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     if (legacyPayload?.userId) {
       user = await prisma.user.findFirst({
         where: { id: String(legacyPayload.userId), status: 'active' },
+        include: { branch: { select: { id: true, name: true } } },
       });
     }
 
@@ -122,6 +125,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
               email: userEmail,
               status: 'active',
             },
+            include: { branch: { select: { id: true, name: true } } },
           });
         }
       }
@@ -151,6 +155,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       role: user.role,
       name: user.name,
       customRoleId: user.customRoleId || null,
+      branch_id: user.branchId || null,
+      branch_name: user.branch?.name || null,
     };
 
     // Cache the resolved user record for AUTH_CACHE_TTL_SECONDS

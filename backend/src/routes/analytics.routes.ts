@@ -13,8 +13,62 @@ import {
   UPCOMING_VISIT_STATUSES_LEGACY,
   UPCOMING_VISIT_STATUSES_WITH_PENDING,
 } from '../utils/prismaEnum.util';
+import {
+  applyAssignedAgentBranchScope,
+  applyVisitAgentBranchScope,
+  resolveAgentUserIdsForBranch,
+  resolveEffectiveBranchId,
+} from '../identity/org/branchScope.service';
 
 const router = Router();
+
+async function buildBranchScopedLeadWhere(
+  companyId: string,
+  user: AuthRequest['user'],
+  query: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const where: Record<string, unknown> = { companyId, ...extra };
+  if (user?.role === 'sales_agent') {
+    where.assignedAgentId = user.id;
+    return where;
+  }
+  const branchId = resolveEffectiveBranchId(
+    { role: user!.role, branch_id: user!.branch_id },
+    typeof query.branch_id === 'string' ? query.branch_id : null,
+  );
+  await applyAssignedAgentBranchScope(
+    where,
+    companyId,
+    { id: user!.id, role: user!.role, branch_id: user!.branch_id },
+    branchId,
+  );
+  return where;
+}
+
+async function buildBranchScopedVisitWhere(
+  companyId: string,
+  user: AuthRequest['user'],
+  query: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const where: Record<string, unknown> = { companyId, ...extra };
+  if (user?.role === 'sales_agent') {
+    where.agentId = user.id;
+    return where;
+  }
+  const branchId = resolveEffectiveBranchId(
+    { role: user!.role, branch_id: user!.branch_id },
+    typeof query.branch_id === 'string' ? query.branch_id : null,
+  );
+  await applyVisitAgentBranchScope(
+    where,
+    companyId,
+    { id: user!.id, role: user!.role, branch_id: user!.branch_id },
+    branchId,
+  );
+  return where;
+}
 
 router.use(authenticate);
 router.use((req: AuthRequest, res: Response, next) => {
@@ -50,38 +104,45 @@ router.get(
 
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
+      const leadScope = await buildBranchScopedLeadWhere(companyId, req.user, req.query as Record<string, unknown>);
+      const visitScope = await buildBranchScopedVisitWhere(companyId, req.user, req.query as Record<string, unknown>);
+      const conversationWhere: Record<string, unknown> = { companyId };
+      if (leadScope.assignedAgentId && typeof leadScope.assignedAgentId === 'object') {
+        conversationWhere.lead = { assignedAgentId: leadScope.assignedAgentId };
+      }
+
       const [leadsToday, leadsTotal, visitsScheduled, visitsCompleted, dealsClosed, aiConversations, revenueResult] = await Promise.all([
         // Leads today
         prisma.lead.count({
-          where: { companyId, createdAt: { gte: today } },
+          where: { ...leadScope, createdAt: { gte: today } },
         }),
         // Total leads
         prisma.lead.count({
-          where: { companyId },
+          where: leadScope,
         }),
         // Visits scheduled (upcoming)
         prisma.visit.count({
           where: {
-            companyId,
+            ...visitScope,
             status: { in: ['scheduled', 'confirmed'] },
             scheduledAt: { gte: new Date() },
           },
         }),
         // Visits completed this month
         prisma.visit.count({
-          where: { companyId, status: 'completed', scheduledAt: { gte: monthStart } },
+          where: { ...visitScope, status: 'completed', scheduledAt: { gte: monthStart } },
         }),
         // Deals closed (this month)
         prisma.lead.count({
-          where: { companyId, status: 'closed_won', updatedAt: { gte: monthStart } },
+          where: { ...leadScope, status: 'closed_won', updatedAt: { gte: monthStart } },
         }),
         // AI conversations today
         prisma.conversation.count({
-          where: { companyId, updatedAt: { gte: today } },
+          where: { ...conversationWhere, updatedAt: { gte: today } },
         }),
         // Revenue: sum of budget_max from closed_won leads
         prisma.lead.aggregate({
-          where: { companyId, status: 'closed_won', updatedAt: { gte: monthStart } },
+          where: { ...leadScope, status: 'closed_won', updatedAt: { gte: monthStart } },
           _sum: { budgetMax: true },
         }),
       ]);
@@ -140,10 +201,12 @@ router.get(
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
 
+      const leadScope = await buildBranchScopedLeadWhere(companyId, req.user, req.query as Record<string, unknown>);
+
       // Leads by status
       const byStatusRaw = await prisma.lead.groupBy({
         by: ['status'],
-        where: { companyId },
+        where: leadScope,
         _count: { id: true },
       });
       const by_status = byStatusRaw.map((s) => ({ status: s.status, count: s._count.id }));
@@ -151,20 +214,52 @@ router.get(
       // Leads by source
       const bySourceRaw = await prisma.lead.groupBy({
         by: ['source'],
-        where: { companyId },
+        where: leadScope,
         _count: { id: true },
       });
       const by_source = bySourceRaw.map((s) => ({ source: s.source, count: s._count.id }));
 
       // Daily lead counts (requires raw SQL for DATE grouping)
-      const dailyLeads = await prisma.$queryRaw<any[]>`
-        SELECT DATE(created_at) as date, COUNT(id)::int as count
-        FROM leads
-        WHERE company_id = ${companyId}::uuid
-        AND created_at >= ${startDate}
-        GROUP BY DATE(created_at)
-        ORDER BY date ASC
-      `;
+      const branchId = resolveEffectiveBranchId(
+        { role: req.user!.role, branch_id: req.user!.branch_id },
+        typeof req.query.branch_id === 'string' ? req.query.branch_id : null,
+      );
+      let dailyLeads: Array<{ date: Date; count: number }>;
+      if (branchId) {
+        const agentIds = await resolveAgentUserIdsForBranch(companyId, branchId);
+        if (agentIds.length === 0) {
+          dailyLeads = [];
+        } else {
+          dailyLeads = await prisma.$queryRaw<Array<{ date: Date; count: number }>>`
+            SELECT DATE(created_at) as date, COUNT(id)::int as count
+            FROM leads
+            WHERE company_id = ${companyId}::uuid
+            AND created_at >= ${startDate}
+            AND assigned_agent_id = ANY(${agentIds}::uuid[])
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+          `;
+        }
+      } else if (req.user!.role === 'sales_agent') {
+        dailyLeads = await prisma.$queryRaw<Array<{ date: Date; count: number }>>`
+          SELECT DATE(created_at) as date, COUNT(id)::int as count
+          FROM leads
+          WHERE company_id = ${companyId}::uuid
+          AND created_at >= ${startDate}
+          AND assigned_agent_id = ${req.user!.id}::uuid
+          GROUP BY DATE(created_at)
+          ORDER BY date ASC
+        `;
+      } else {
+        dailyLeads = await prisma.$queryRaw<Array<{ date: Date; count: number }>>`
+          SELECT DATE(created_at) as date, COUNT(id)::int as count
+          FROM leads
+          WHERE company_id = ${companyId}::uuid
+          AND created_at >= ${startDate}
+          GROUP BY DATE(created_at)
+          ORDER BY date ASC
+        `;
+      }
 
       const data = { by_status, by_source, daily: dailyLeads };
       await cacheSet(cacheKey, data, 300);
@@ -195,8 +290,18 @@ router.get(
         return;
       }
 
+      const agentWhere: Record<string, unknown> = { companyId, role: 'sales_agent', status: 'active' };
+      const branchId = resolveEffectiveBranchId(
+        { role: req.user!.role, branch_id: req.user!.branch_id },
+        typeof req.query.branch_id === 'string' ? req.query.branch_id : null,
+      );
+      if (branchId) {
+        const scopedAgentIds = await resolveAgentUserIdsForBranch(companyId, branchId);
+        agentWhere.id = { in: scopedAgentIds.length > 0 ? scopedAgentIds : ['00000000-0000-0000-0000-000000000000'] };
+      }
+
       const agents = await prisma.user.findMany({
-        where: { companyId, role: 'sales_agent', status: 'active' },
+        where: agentWhere as any,
         select: { id: true, name: true, email: true },
       });
 
@@ -279,14 +384,10 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const where: any = { companyId };
-
-      if (req.user!.role === 'sales_agent') {
-        where.assignedAgentId = req.user!.id;
-      }
+      const where = await buildBranchScopedLeadWhere(companyId, req.user, req.query as Record<string, unknown>);
 
       const leads = await prisma.lead.findMany({
-        where,
+        where: where as any,
         select: {
           id: true, customerName: true, phone: true, status: true,
           source: true, createdAt: true, propertyType: true,
@@ -325,14 +426,12 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const baseWhere: Record<string, unknown> = {
+      const baseWhere = await buildBranchScopedVisitWhere(
         companyId,
-        scheduledAt: { gte: new Date() },
-      };
-
-      if (req.user!.role === 'sales_agent') {
-        baseWhere.agentId = req.user!.id;
-      }
+        req.user,
+        req.query as Record<string, unknown>,
+        { scheduledAt: { gte: new Date() } },
+      );
 
       const select = {
         id: true,

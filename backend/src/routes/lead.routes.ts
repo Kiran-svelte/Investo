@@ -32,6 +32,10 @@ import {
   exportLeadPersonalData,
   LeadGdprError,
 } from '../services/leadGdpr.service';
+import {
+  applyAssignedAgentBranchScope,
+  resolveEffectiveBranchId,
+} from '../identity/org/branchScope.service';
 
 const router = Router();
 
@@ -143,7 +147,12 @@ export function mapLeadToSnakeCaseDTO(lead: any) {
   };
 }
 
-function buildLeadExportWhere(companyId: string, query: Record<string, unknown>, userRole: string, userId: string): Record<string, unknown> {
+function buildLeadExportWhere(
+  companyId: string,
+  query: Record<string, unknown>,
+  userRole: string,
+  userId: string,
+): Record<string, unknown> {
   const where: Record<string, unknown> = { companyId };
   if (userRole === 'sales_agent') where.assignedAgentId = userId;
   if (query.status) where.status = query.status;
@@ -159,6 +168,25 @@ function buildLeadExportWhere(companyId: string, query: Record<string, unknown>,
     ];
   }
   return where;
+}
+
+async function applyLeadListBranchScope(
+  where: Record<string, unknown>,
+  companyId: string,
+  user: AuthRequest['user'],
+  query: Record<string, unknown>,
+): Promise<void> {
+  if (!user) return;
+  const branchId = resolveEffectiveBranchId(
+    { role: user.role, branch_id: user.branch_id },
+    typeof query.branch_id === 'string' ? query.branch_id : null,
+  );
+  await applyAssignedAgentBranchScope(
+    where,
+    companyId,
+    { id: user.id, role: user.role, branch_id: user.branch_id },
+    branchId,
+  );
 }
 
 function mapLeadTimelineToSnakeCaseDTO(entry: LeadTimelineRow) {
@@ -193,6 +221,8 @@ router.get(
       if (req.user!.role === 'sales_agent') {
         where.assignedAgentId = req.user!.id;
       }
+
+      await applyLeadListBranchScope(where, companyId, req.user, req.query as Record<string, unknown>);
 
       // Filters
       const { status, assigned_agent_id, property_type, search, sort_by, sort_order } = req.query;
@@ -338,6 +368,7 @@ router.get(
         return;
       }
       const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
+      await applyLeadListBranchScope(where, companyId, req.user, req.query as Record<string, unknown>);
       const leads = await prisma.lead.findMany({
         where: where as any,
         include: { assignedAgent: { select: { name: true } } },
@@ -372,6 +403,7 @@ router.get(
         return;
       }
       const where = buildLeadExportWhere(companyId, req.query, req.user!.role, req.user!.id);
+      await applyLeadListBranchScope(where, companyId, req.user, req.query as Record<string, unknown>);
       const leads = await prisma.lead.findMany({
         where: where as any,
         include: { assignedAgent: { select: { name: true } } },
@@ -403,6 +435,8 @@ router.get(
       if (req.user!.role === 'sales_agent') {
         where.assignedAgentId = req.user!.id;
       }
+
+      await applyLeadListBranchScope(where, companyId, req.user, {});
 
       const lead = await prisma.lead.findFirst({
         where,

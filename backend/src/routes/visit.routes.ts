@@ -13,6 +13,7 @@ import { scheduleVisit } from '../services/visitBooking.service';
 import { propertyCompletenessGate } from '../middleware/propertyCompletenessGate';
 import { automationService } from '../services/automation.service';
 import { cancelVisitById, markVisitAttended, markVisitNoShow } from '../services/visitState.service';
+import { applyVisitAgentBranchScope, resolveEffectiveBranchId, resolveAgentUserIdsForBranch } from '../identity/org/branchScope.service';
 import { buildPaginationMeta, parsePagination } from '../utils/pagination';
 import {
   deleteVisitPermanently,
@@ -91,6 +92,17 @@ router.get(
       // Sales agent: only their visits
       if (req.user!.role === 'sales_agent') {
         where.agentId = req.user!.id;
+      } else {
+        const branchId = resolveEffectiveBranchId(
+          { role: req.user!.role, branch_id: req.user!.branch_id },
+          typeof req.query.branch_id === 'string' ? req.query.branch_id : null,
+        );
+        await applyVisitAgentBranchScope(
+          where,
+          companyId,
+          { id: req.user!.id, role: req.user!.role, branch_id: req.user!.branch_id },
+          branchId,
+        );
       }
 
       // Date range filter
@@ -159,6 +171,18 @@ router.get(
       if (req.user!.role === 'sales_agent' && visit.agentId !== req.user!.id) {
         res.status(403).json({ error: 'Can only view assigned visits' });
         return;
+      }
+
+      const branchId = resolveEffectiveBranchId(
+        { role: req.user!.role, branch_id: req.user!.branch_id },
+        null,
+      );
+      if (branchId && req.user!.role !== 'sales_agent' && req.user!.role !== 'company_admin') {
+        const scopedAgents = await resolveAgentUserIdsForBranch(companyId, branchId);
+        if (!scopedAgents.includes(visit.agentId)) {
+          res.status(404).json({ error: 'Visit not found' });
+          return;
+        }
       }
 
       res.json({ data: mapVisitToSnakeCaseDTO(visit) });

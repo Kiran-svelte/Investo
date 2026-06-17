@@ -11,6 +11,7 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const logger_1 = __importDefault(require("../config/logger"));
 const redis_1 = require("../config/redis");
 const authSessionCookies_util_1 = require("../utils/authSessionCookies.util");
+const ipAllowlist_1 = require("./ipAllowlist");
 const AUTH_CACHE_TTL_SECONDS = 300; // 5 minutes
 const neonJwksUri = config_1.default.neonAuth.url ? `${config_1.default.neonAuth.url}/.well-known/jwks.json` : '';
 const neonJwksClient = neonJwksUri
@@ -84,6 +85,7 @@ async function authenticate(req, res, next) {
         if (legacyPayload?.userId) {
             user = await prisma_1.default.user.findFirst({
                 where: { id: String(legacyPayload.userId), status: 'active' },
+                include: { branch: { select: { id: true, name: true } } },
             });
         }
         // 2) Neon token path (new auth)
@@ -97,6 +99,7 @@ async function authenticate(req, res, next) {
                             email: userEmail,
                             status: 'active',
                         },
+                        include: { branch: { select: { id: true, name: true } } },
                     });
                 }
             }
@@ -122,10 +125,18 @@ async function authenticate(req, res, next) {
             role: user.role,
             name: user.name,
             customRoleId: user.customRoleId || null,
+            branch_id: user.branchId || null,
+            branch_name: user.branch?.name || null,
         };
         // Cache the resolved user record for AUTH_CACHE_TTL_SECONDS
         await (0, redis_1.cacheSet)(tokenCacheKey, authUser, AUTH_CACHE_TTL_SECONDS).catch(() => undefined);
         req.user = authUser;
+        await new Promise((resolve) => {
+            void (0, ipAllowlist_1.ipAllowlistMiddleware)(req, res, () => resolve());
+        });
+        if (res.headersSent) {
+            return;
+        }
         next();
     }
     catch (err) {

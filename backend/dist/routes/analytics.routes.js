@@ -14,7 +14,28 @@ const logger_1 = __importDefault(require("../config/logger"));
 const rejectPlatformAdmin_1 = require("../middleware/rejectPlatformAdmin");
 const redis_1 = require("../config/redis");
 const prismaEnum_util_1 = require("../utils/prismaEnum.util");
+const branchScope_service_1 = require("../identity/org/branchScope.service");
 const router = (0, express_1.Router)();
+async function buildBranchScopedLeadWhere(companyId, user, query, extra = {}) {
+    const where = { companyId, ...extra };
+    if (user?.role === 'sales_agent') {
+        where.assignedAgentId = user.id;
+        return where;
+    }
+    const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: user.role, branch_id: user.branch_id }, typeof query.branch_id === 'string' ? query.branch_id : null);
+    await (0, branchScope_service_1.applyAssignedAgentBranchScope)(where, companyId, { id: user.id, role: user.role, branch_id: user.branch_id }, branchId);
+    return where;
+}
+async function buildBranchScopedVisitWhere(companyId, user, query, extra = {}) {
+    const where = { companyId, ...extra };
+    if (user?.role === 'sales_agent') {
+        where.agentId = user.id;
+        return where;
+    }
+    const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: user.role, branch_id: user.branch_id }, typeof query.branch_id === 'string' ? query.branch_id : null);
+    await (0, branchScope_service_1.applyVisitAgentBranchScope)(where, companyId, { id: user.id, role: user.role, branch_id: user.branch_id }, branchId);
+    return where;
+}
 router.use(auth_1.authenticate);
 router.use((req, res, next) => {
     if ((0, rejectPlatformAdmin_1.rejectPlatformAdminTenantApi)(req, res))
@@ -42,38 +63,44 @@ router.get('/dashboard', (0, rbac_1.authorize)('analytics', 'read'), async (req,
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        const leadScope = await buildBranchScopedLeadWhere(companyId, req.user, req.query);
+        const visitScope = await buildBranchScopedVisitWhere(companyId, req.user, req.query);
+        const conversationWhere = { companyId };
+        if (leadScope.assignedAgentId && typeof leadScope.assignedAgentId === 'object') {
+            conversationWhere.lead = { assignedAgentId: leadScope.assignedAgentId };
+        }
         const [leadsToday, leadsTotal, visitsScheduled, visitsCompleted, dealsClosed, aiConversations, revenueResult] = await Promise.all([
             // Leads today
             prisma_1.default.lead.count({
-                where: { companyId, createdAt: { gte: today } },
+                where: { ...leadScope, createdAt: { gte: today } },
             }),
             // Total leads
             prisma_1.default.lead.count({
-                where: { companyId },
+                where: leadScope,
             }),
             // Visits scheduled (upcoming)
             prisma_1.default.visit.count({
                 where: {
-                    companyId,
+                    ...visitScope,
                     status: { in: ['scheduled', 'confirmed'] },
                     scheduledAt: { gte: new Date() },
                 },
             }),
             // Visits completed this month
             prisma_1.default.visit.count({
-                where: { companyId, status: 'completed', scheduledAt: { gte: monthStart } },
+                where: { ...visitScope, status: 'completed', scheduledAt: { gte: monthStart } },
             }),
             // Deals closed (this month)
             prisma_1.default.lead.count({
-                where: { companyId, status: 'closed_won', updatedAt: { gte: monthStart } },
+                where: { ...leadScope, status: 'closed_won', updatedAt: { gte: monthStart } },
             }),
             // AI conversations today
             prisma_1.default.conversation.count({
-                where: { companyId, updatedAt: { gte: today } },
+                where: { ...conversationWhere, updatedAt: { gte: today } },
             }),
             // Revenue: sum of budget_max from closed_won leads
             prisma_1.default.lead.aggregate({
-                where: { companyId, status: 'closed_won', updatedAt: { gte: monthStart } },
+                where: { ...leadScope, status: 'closed_won', updatedAt: { gte: monthStart } },
                 _sum: { budgetMax: true },
             }),
         ]);
@@ -120,29 +147,62 @@ router.get('/leads', (0, rbac_1.authorize)('analytics', 'read'), async (req, res
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0);
+        const leadScope = await buildBranchScopedLeadWhere(companyId, req.user, req.query);
         // Leads by status
         const byStatusRaw = await prisma_1.default.lead.groupBy({
             by: ['status'],
-            where: { companyId },
+            where: leadScope,
             _count: { id: true },
         });
         const by_status = byStatusRaw.map((s) => ({ status: s.status, count: s._count.id }));
         // Leads by source
         const bySourceRaw = await prisma_1.default.lead.groupBy({
             by: ['source'],
-            where: { companyId },
+            where: leadScope,
             _count: { id: true },
         });
         const by_source = bySourceRaw.map((s) => ({ source: s.source, count: s._count.id }));
         // Daily lead counts (requires raw SQL for DATE grouping)
-        const dailyLeads = await prisma_1.default.$queryRaw `
-        SELECT DATE(created_at) as date, COUNT(id)::int as count
-        FROM leads
-        WHERE company_id = ${companyId}::uuid
-        AND created_at >= ${startDate}
-        GROUP BY DATE(created_at)
-        ORDER BY date ASC
-      `;
+        const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: req.user.role, branch_id: req.user.branch_id }, typeof req.query.branch_id === 'string' ? req.query.branch_id : null);
+        let dailyLeads;
+        if (branchId) {
+            const agentIds = await (0, branchScope_service_1.resolveAgentUserIdsForBranch)(companyId, branchId);
+            if (agentIds.length === 0) {
+                dailyLeads = [];
+            }
+            else {
+                dailyLeads = await prisma_1.default.$queryRaw `
+            SELECT DATE(created_at) as date, COUNT(id)::int as count
+            FROM leads
+            WHERE company_id = ${companyId}::uuid
+            AND created_at >= ${startDate}
+            AND assigned_agent_id = ANY(${agentIds}::uuid[])
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+          `;
+            }
+        }
+        else if (req.user.role === 'sales_agent') {
+            dailyLeads = await prisma_1.default.$queryRaw `
+          SELECT DATE(created_at) as date, COUNT(id)::int as count
+          FROM leads
+          WHERE company_id = ${companyId}::uuid
+          AND created_at >= ${startDate}
+          AND assigned_agent_id = ${req.user.id}::uuid
+          GROUP BY DATE(created_at)
+          ORDER BY date ASC
+        `;
+        }
+        else {
+            dailyLeads = await prisma_1.default.$queryRaw `
+          SELECT DATE(created_at) as date, COUNT(id)::int as count
+          FROM leads
+          WHERE company_id = ${companyId}::uuid
+          AND created_at >= ${startDate}
+          GROUP BY DATE(created_at)
+          ORDER BY date ASC
+        `;
+        }
         const data = { by_status, by_source, daily: dailyLeads };
         await (0, redis_1.cacheSet)(cacheKey, data, 300);
         res.json({ data, cached: false });
@@ -165,8 +225,14 @@ router.get('/agents', (0, rbac_1.authorize)('analytics', 'read'), async (req, re
             res.json({ data: [ownStats] });
             return;
         }
+        const agentWhere = { companyId, role: 'sales_agent', status: 'active' };
+        const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: req.user.role, branch_id: req.user.branch_id }, typeof req.query.branch_id === 'string' ? req.query.branch_id : null);
+        if (branchId) {
+            const scopedAgentIds = await (0, branchScope_service_1.resolveAgentUserIdsForBranch)(companyId, branchId);
+            agentWhere.id = { in: scopedAgentIds.length > 0 ? scopedAgentIds : ['00000000-0000-0000-0000-000000000000'] };
+        }
         const agents = await prisma_1.default.user.findMany({
-            where: { companyId, role: 'sales_agent', status: 'active' },
+            where: agentWhere,
             select: { id: true, name: true, email: true },
         });
         if (agents.length === 0) {
@@ -236,12 +302,9 @@ async function getAgentStatsSingle(companyId, agentId) {
 router.get('/recent-leads', (0, rbac_1.authorize)('analytics', 'read'), async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
-        const where = { companyId };
-        if (req.user.role === 'sales_agent') {
-            where.assignedAgentId = req.user.id;
-        }
+        const where = await buildBranchScopedLeadWhere(companyId, req.user, req.query);
         const leads = await prisma_1.default.lead.findMany({
-            where,
+            where: where,
             select: {
                 id: true, customerName: true, phone: true, status: true,
                 source: true, createdAt: true, propertyType: true,
@@ -274,13 +337,7 @@ router.get('/recent-leads', (0, rbac_1.authorize)('analytics', 'read'), async (r
 router.get('/upcoming-visits', (0, rbac_1.authorize)('analytics', 'read'), async (req, res) => {
     try {
         const companyId = (0, tenant_1.getCompanyId)(req);
-        const baseWhere = {
-            companyId,
-            scheduledAt: { gte: new Date() },
-        };
-        if (req.user.role === 'sales_agent') {
-            baseWhere.agentId = req.user.id;
-        }
+        const baseWhere = await buildBranchScopedVisitWhere(companyId, req.user, req.query, { scheduledAt: { gte: new Date() } });
         const select = {
             id: true,
             scheduledAt: true,

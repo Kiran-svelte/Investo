@@ -8,6 +8,7 @@ import Pagination from '../../components/common/Pagination';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
 import { ensureArray } from '../../utils/safeApiData';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+import { listBranches, type BranchNode } from '../../services/identity';
 
 const WHATSAPP_STAFF_ROLES = new Set(['sales_agent', 'operations', 'company_admin']);
 
@@ -27,8 +28,10 @@ interface AgentUser {
   phone: string | null;
   status: string;
   role: string;
-  companyId: string;
+  company_id: string;
   created_at: string;
+  branch_id?: string | null;
+  branch_name?: string | null;
 }
 
 interface Company {
@@ -56,15 +59,33 @@ const AgentsPage: React.FC = () => {
     phone: '',
     role: 'sales_agent',
     company_id: '',
+    branch_id: '',
     must_change_password: true,
   });
+  const [branches, setBranches] = useState<BranchNode[]>([]);
+  const [branchFilter, setBranchFilter] = useState('');
+  const [branchSavingId, setBranchSavingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalUsers, setTotalUsers] = useState(0);
 
   useEffect(() => {
     loadData();
-  }, [page]);
+  }, [page, branchFilter]);
+
+  const flattenBranchOptions = (nodes: BranchNode[], depth = 0): Array<{ id: string; label: string }> => {
+    const rows: Array<{ id: string; label: string }> = [];
+    for (const node of nodes) {
+      rows.push({ id: node.id, label: `${depth > 0 ? '— '.repeat(depth) : ''}${node.name}` });
+      if (node.children?.length) {
+        rows.push(...flattenBranchOptions(node.children, depth + 1));
+      }
+    }
+    return rows;
+  };
+
+  const branchOptions = flattenBranchOptions(branches);
+  const branchesEnabled = user?.org_branches_enabled !== false;
 
   const loadData = async () => {
     try {
@@ -73,9 +94,21 @@ const AgentsPage: React.FC = () => {
       const params = new URLSearchParams();
       params.append('page', String(page));
       params.append('limit', '25');
+      if (branchFilter) {
+        params.append('branch_id', branchFilter);
+      }
 
+      if (branchesEnabled && (user?.role === 'company_admin' || user?.role === 'super_admin')) {
+        try {
+          setBranches(await listBranches());
+        } catch {
+          setBranches([]);
+        }
+      }
+
+      const analyticsParams = branchFilter ? `?branch_id=${encodeURIComponent(branchFilter)}` : '';
       try {
-        const analyticsRes = await api.get('/analytics/agents');
+        const analyticsRes = await api.get(`/analytics/agents${analyticsParams}`);
         setAgentStats(analyticsRes.data.data || []);
       } catch {
         setAgentStats([]);
@@ -130,10 +163,22 @@ const AgentsPage: React.FC = () => {
       if (user?.role === 'super_admin' && formData.company_id) {
         payload.target_company_id = formData.company_id;
       }
+      if (branchesEnabled && formData.branch_id) {
+        payload.branch_id = formData.branch_id;
+      }
 
       await api.post('/users', payload);
       setShowModal(false);
-      setFormData({ name: '', email: '', password: '', phone: '', role: 'sales_agent', company_id: '', must_change_password: true });
+      setFormData({
+        name: '',
+        email: '',
+        password: '',
+        phone: '',
+        role: 'sales_agent',
+        company_id: '',
+        branch_id: '',
+        must_change_password: true,
+      });
       loadData();
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, 'Failed to create user'));
@@ -144,6 +189,30 @@ const AgentsPage: React.FC = () => {
 
   const canCreateUsers = user?.role === 'super_admin' || user?.role === 'company_admin';
   const canDeleteUsers = canCreateUsers;
+  const canAssignBranch = canCreateUsers && branchesEnabled && branchOptions.length > 0;
+
+  const updateAgentBranch = async (agentId: string, branchId: string) => {
+    setBranchSavingId(agentId);
+    setPageError(null);
+    try {
+      await api.put(`/users/${agentId}`, { branch_id: branchId || null });
+      setAgentUsers((prev) =>
+        prev.map((member) =>
+          member.id === agentId
+            ? {
+                ...member,
+                branch_id: branchId || null,
+                branch_name: branchOptions.find((option) => option.id === branchId)?.label.replace(/^—+\s*/, '') || null,
+              }
+            : member,
+        ),
+      );
+    } catch (err: unknown) {
+      setPageError(getApiErrorMessage(err, 'Failed to update branch assignment'));
+    } finally {
+      setBranchSavingId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -160,16 +229,33 @@ const AgentsPage: React.FC = () => {
 
   return (
     <div className="investo-page space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-ink-primary">{t('agents.title') || 'Team Members'}</h1>
-        {canCreateUsers && (
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700"
-          >
-            <Plus className="h-4 w-4" /> Add Team Member
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {canAssignBranch ? (
+            <select
+              value={branchFilter}
+              onChange={(event) => {
+                setPage(1);
+                setBranchFilter(event.target.value);
+              }}
+              className="rounded-lg border border-surface-border px-3 py-2 text-sm"
+            >
+              <option value="">All branches</option>
+              {branchOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          ) : null}
+          {canCreateUsers && (
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700"
+            >
+              <Plus className="h-4 w-4" /> Add Team Member
+            </button>
+          )}
+        </div>
       </div>
 
       {pageError && (
@@ -253,8 +339,30 @@ const AgentsPage: React.FC = () => {
                         <Phone className="h-3 w-3" />{agent.phone}
                       </div>
                     )}
+                    {agent.branch_name ? (
+                      <div className="text-xs text-brand-700">{agent.branch_name}</div>
+                    ) : branchesEnabled ? (
+                      <div className="text-xs text-ink-faint">No branch assigned</div>
+                    ) : null}
                   </div>
                 </div>
+
+                {canAssignBranch ? (
+                  <div className="mb-4">
+                    <label className="mb-1 block text-xs font-medium text-ink-muted">Branch</label>
+                    <select
+                      value={agent.branch_id || ''}
+                      disabled={branchSavingId === agent.id}
+                      onChange={(event) => void updateAgentBranch(agent.id, event.target.value)}
+                      className="w-full rounded-lg border border-surface-border px-2 py-1.5 text-sm"
+                    >
+                      <option value="">Unassigned</option>
+                      {branchOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
 
                 {stats ? (
                   <div className="grid grid-cols-2 gap-3">
@@ -403,6 +511,22 @@ const AgentsPage: React.FC = () => {
                   {user?.role === 'super_admin' && <option value="company_admin">Company Admin</option>}
                 </select>
               </div>
+
+              {canAssignBranch ? (
+                <div>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Branch</label>
+                  <select
+                    value={formData.branch_id}
+                    onChange={(e) => setFormData({ ...formData, branch_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  >
+                    <option value="">No branch</option>
+                    {branchOptions.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
               <div className="flex gap-3 pt-2">
                 <button

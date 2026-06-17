@@ -253,6 +253,8 @@ function serializeAuthUser(user: {
   name: string;
   phone: string | null;
   mustChangePassword: boolean;
+  branchId?: string | null;
+  branch?: { id: string; name: string } | null;
 }) {
   return {
     id: user.id,
@@ -263,6 +265,9 @@ function serializeAuthUser(user: {
     phone: user.phone,
     profile_complete: isStaffProfilePhoneComplete(user.phone),
     must_change_password: user.mustChangePassword,
+    branch_id: user.branchId || null,
+    branch_name: user.branch?.name || null,
+    org_branches_enabled: config.features.orgBranches === true,
   };
 }
 
@@ -277,6 +282,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       name: true,
       phone: true,
       mustChangePassword: true,
+      branchId: true,
+      branch: { select: { id: true, name: true } },
     },
   });
   if (!user) {

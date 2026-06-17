@@ -58,6 +58,7 @@ class AuthService {
                 passwordHash,
                 role: data.role,
                 customRoleId: data.custom_role_id || null,
+                branchId: data.branch_id || null,
                 mustChangePassword: data.must_change_password === true,
                 status: 'active',
             },
@@ -66,24 +67,20 @@ class AuthService {
         return { id, email: normalizedEmail, role: data.role };
     }
     /**
-     * Login with email and password. Returns JWT token pair.
+     * Validate email/password and return the active user without issuing tokens.
      */
-    async login(email, password) {
+    async validatePasswordLogin(email, password) {
         const normalizedEmail = (0, exports.normalizeAuthEmail)(email);
         const user = await prisma_1.default.user.findFirst({
             where: { email: normalizedEmail, status: 'active' },
         });
-        if (!user) {
-            throw new Error('Invalid credentials');
-        }
-        if (!user.passwordHash) {
+        if (!user || !user.passwordHash) {
             throw new Error('Invalid credentials');
         }
         const valid = await bcrypt_1.default.compare(password, user.passwordHash);
         if (!valid) {
             throw new Error('Invalid credentials');
         }
-        // Check company is active (unless super_admin)
         if (user.role !== 'super_admin') {
             const company = await prisma_1.default.company.findFirst({
                 where: { id: user.companyId, status: 'active' },
@@ -92,7 +89,21 @@ class AuthService {
                 throw new Error('Company is inactive');
             }
         }
-        // Update last login
+        return {
+            id: user.id,
+            companyId: user.companyId,
+            email: user.email,
+            role: user.role,
+            name: user.name,
+            phone: user.phone,
+            mustChangePassword: user.mustChangePassword,
+        };
+    }
+    /**
+     * Login with email and password. Returns JWT token pair.
+     */
+    async login(email, password) {
+        const user = await this.validatePasswordLogin(email, password);
         await prisma_1.default.user.update({
             where: { id: user.id },
             data: { lastLogin: new Date() },
@@ -100,6 +111,30 @@ class AuthService {
         const tokens = await this.generateTokens(user);
         logger_1.default.info('User logged in', { userId: user.id });
         return tokens;
+    }
+    /**
+     * Issue tokens for an already-authenticated user (SSO/MFA completion).
+     */
+    async issueTokensForUser(userId) {
+        const user = await prisma_1.default.user.findFirst({
+            where: { id: userId, status: 'active' },
+        });
+        if (!user) {
+            throw new Error('User not found');
+        }
+        if (user.role !== 'super_admin') {
+            const company = await prisma_1.default.company.findFirst({
+                where: { id: user.companyId, status: 'active' },
+            });
+            if (!company) {
+                throw new Error('Company is inactive');
+            }
+        }
+        await prisma_1.default.user.update({
+            where: { id: user.id },
+            data: { lastLogin: new Date() },
+        });
+        return this.generateTokens(user);
     }
     /**
      * Refresh access token using refresh token.

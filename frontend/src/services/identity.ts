@@ -25,6 +25,7 @@ export interface BranchNode {
   name: string;
   parent_id: string | null;
   settings: Record<string, unknown>;
+  member_count?: number;
   children?: BranchNode[];
 }
 

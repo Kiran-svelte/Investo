@@ -41,6 +41,9 @@ export interface AuthUser {
   phone?: string | null;
   profile_complete?: boolean;
   must_change_password?: boolean;
+  branch_id?: string | null;
+  branch_name?: string | null;
+  org_branches_enabled?: boolean;
 }
 
 export interface AuthContextType {

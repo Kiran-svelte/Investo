@@ -25,6 +25,7 @@ const leadMetadata_service_1 = require("../services/leadMetadata.service");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const tenantAgentValidation_util_1 = require("../utils/tenantAgentValidation.util");
 const leadGdpr_service_1 = require("../services/leadGdpr.service");
+const branchScope_service_1 = require("../identity/org/branchScope.service");
 const router = (0, express_1.Router)();
 function handleDeleteError(err, res) {
     if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
@@ -125,6 +126,12 @@ function buildLeadExportWhere(companyId, query, userRole, userId) {
     }
     return where;
 }
+async function applyLeadListBranchScope(where, companyId, user, query) {
+    if (!user)
+        return;
+    const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: user.role, branch_id: user.branch_id }, typeof query.branch_id === 'string' ? query.branch_id : null);
+    await (0, branchScope_service_1.applyAssignedAgentBranchScope)(where, companyId, { id: user.id, role: user.role, branch_id: user.branch_id }, branchId);
+}
 function mapLeadTimelineToSnakeCaseDTO(entry) {
     return {
         id: entry.id,
@@ -151,6 +158,7 @@ router.get('/', (0, rbac_1.authorize)('leads', 'read'), async (req, res) => {
         if (req.user.role === 'sales_agent') {
             where.assignedAgentId = req.user.id;
         }
+        await applyLeadListBranchScope(where, companyId, req.user, req.query);
         // Filters
         const { status, assigned_agent_id, property_type, search, sort_by, sort_order } = req.query;
         if (status)
@@ -268,6 +276,7 @@ router.get('/export/csv', (0, rbac_1.authorize)('leads', 'read'), rateLimiter_1.
             return;
         }
         const where = buildLeadExportWhere(companyId, req.query, req.user.role, req.user.id);
+        await applyLeadListBranchScope(where, companyId, req.user, req.query);
         const leads = await prisma_1.default.lead.findMany({
             where: where,
             include: { assignedAgent: { select: { name: true } } },
@@ -296,6 +305,7 @@ router.get('/export/json', (0, rbac_1.authorize)('leads', 'read'), rateLimiter_1
             return;
         }
         const where = buildLeadExportWhere(companyId, req.query, req.user.role, req.user.id);
+        await applyLeadListBranchScope(where, companyId, req.user, req.query);
         const leads = await prisma_1.default.lead.findMany({
             where: where,
             include: { assignedAgent: { select: { name: true } } },
@@ -321,6 +331,7 @@ router.get('/:id', (0, rbac_1.authorize)('leads', 'read'), async (req, res) => {
         if (req.user.role === 'sales_agent') {
             where.assignedAgentId = req.user.id;
         }
+        await applyLeadListBranchScope(where, companyId, req.user, {});
         const lead = await prisma_1.default.lead.findFirst({
             where,
             include: {

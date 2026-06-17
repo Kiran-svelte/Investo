@@ -23,6 +23,7 @@ import {
   type LeadStatusValue,
 } from '../../config/leadStatus.config';
 import { ensureArray } from '../../utils/safeApiData';
+import { listBranches, type BranchNode } from '../../services/identity';
 
 interface Lead {
   id: string;
@@ -73,6 +74,11 @@ const LeadsPage: React.FC = () => {
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [branchFilter, setBranchFilter] = useState('');
+  const [branchOptions, setBranchOptions] = useState<Array<{ id: string; label: string }>>([]);
+
+  const branchesEnabled = user?.org_branches_enabled !== false;
+  const canFilterByBranch = branchesEnabled && (user?.role === 'company_admin' || user?.role === 'super_admin');
 
   const canForceAnyStatus = user?.role === 'company_admin' || user?.role === 'super_admin';
   const canEditLeadStatus = (capabilities.canCreateLeads || capabilities.canAssignLeads) && !capabilities.isReadOnly;
@@ -90,6 +96,7 @@ const LeadsPage: React.FC = () => {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (statusFilter) params.append('status', statusFilter);
+      if (branchFilter) params.append('branch_id', branchFilter);
       params.append('page', String(page));
       params.append('limit', '25');
       const res = await api.get(`/leads?${params.toString()}`);
@@ -102,7 +109,7 @@ const LeadsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [isPlatformAdmin, search, statusFilter, page, targetCompanyId]);
+  }, [isPlatformAdmin, search, statusFilter, branchFilter, page, targetCompanyId]);
 
   useEffect(() => {
     loadLeads();
@@ -141,6 +148,26 @@ const LeadsPage: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!canFilterByBranch) {
+      setBranchOptions([]);
+      return;
+    }
+    const flattenBranchOptions = (nodes: BranchNode[], depth = 0): Array<{ id: string; label: string }> => {
+      const rows: Array<{ id: string; label: string }> = [];
+      for (const node of nodes) {
+        rows.push({ id: node.id, label: `${depth > 0 ? '— '.repeat(depth) : ''}${node.name}` });
+        if (node.children?.length) {
+          rows.push(...flattenBranchOptions(node.children, depth + 1));
+        }
+      }
+      return rows;
+    };
+    listBranches()
+      .then((tree) => setBranchOptions(flattenBranchOptions(tree)))
+      .catch(() => setBranchOptions([]));
+  }, [canFilterByBranch]);
+
+  useEffect(() => {
     if (capabilities.canAssignLeads) {
       api.get('/users?role=sales_agent').then(res => {
         setAgents(ensureArray<Agent>(res.data?.data));
@@ -152,6 +179,7 @@ const LeadsPage: React.FC = () => {
     const params = new URLSearchParams();
     if (search) params.append('search', search);
     if (statusFilter) params.append('status', statusFilter);
+    if (branchFilter) params.append('branch_id', branchFilter);
     return params.toString() ? `?${params}` : '';
   };
 
@@ -319,6 +347,18 @@ const LeadsPage: React.FC = () => {
             <option key={s} value={s}>{formatLeadStatus(s)}</option>
           ))}
         </select>
+        {canFilterByBranch && branchOptions.length > 0 ? (
+          <select
+            value={branchFilter}
+            onChange={(e) => { setBranchFilter(e.target.value); setPage(1); }}
+            className="px-4 py-2 border border-surface-border-strong rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+          >
+            <option value="">All branches</option>
+            {branchOptions.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+        ) : null}
       </div>
 
       {/* Table - Desktop */}

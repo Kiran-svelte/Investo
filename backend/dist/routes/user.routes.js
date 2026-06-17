@@ -53,7 +53,25 @@ const logger_1 = __importDefault(require("../config/logger"));
 const pagination_1 = require("../utils/pagination");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const staffPhoneUniqueness_1 = require("../utils/staffPhoneUniqueness");
+const branchScope_service_1 = require("../identity/org/branchScope.service");
 const router = (0, express_1.Router)();
+function mapUserResponse(user) {
+    return {
+        id: user.id,
+        company_id: user.companyId,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        status: user.status,
+        last_login: user.lastLogin ?? null,
+        created_at: user.createdAt ?? null,
+        branch_id: user.branchId || null,
+        branch_name: user.branch?.name || null,
+        active_leads: user.active_leads,
+        sales_count: user.sales_count,
+    };
+}
 router.use(auth_1.authenticate);
 router.use(tenant_1.strictTenantIsolation);
 router.use((req, res, next) => {
@@ -85,9 +103,12 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
             where.companyId = companyId;
         }
         // Role filter
-        const { role } = req.query;
+        const { role, branch_id: branchFilter } = req.query;
         if (role) {
             where.role = role;
+        }
+        if (branchFilter && (0, branchScope_service_1.isOrgBranchesEnabled)()) {
+            where.branchId = branchFilter;
         }
         const { page, limit, offset } = (0, pagination_1.parsePagination)(req.query);
         const [users, total] = await Promise.all([
@@ -96,6 +117,8 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
                 select: {
                     id: true, companyId: true, name: true, email: true, phone: true,
                     role: true, status: true, lastLogin: true, createdAt: true,
+                    branchId: true,
+                    branch: { select: { name: true } },
                 },
                 orderBy: { createdAt: 'desc' },
                 skip: offset,
@@ -130,7 +153,7 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
                 _count: { id: true },
             });
             const salesMap = new Map(salesCounts.map((s) => [s.assignedAgentId, s._count.id]));
-            const enriched = users.map((u) => ({
+            const enriched = users.map((u) => mapUserResponse({
                 ...u,
                 active_leads: leadMap.get(u.id) || 0,
                 sales_count: salesMap.get(u.id) || 0,
@@ -142,7 +165,7 @@ router.get('/', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
             return;
         }
         res.json({
-            data: users,
+            data: users.map((u) => mapUserResponse(u)),
             pagination: (0, pagination_1.buildPaginationMeta)(page, limit, total),
         });
     }
@@ -173,13 +196,15 @@ router.get('/:id', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
             select: {
                 id: true, companyId: true, name: true, email: true, phone: true,
                 role: true, status: true, lastLogin: true, createdAt: true,
+                branchId: true,
+                branch: { select: { name: true } },
             },
         });
         if (!user) {
             res.status(404).json({ error: 'User not found' });
             return;
         }
-        res.json({ data: user });
+        res.json({ data: mapUserResponse(user) });
     }
     catch (err) {
         logger_1.default.error('Failed to fetch user', { error: err.message });
@@ -193,7 +218,7 @@ router.get('/:id', (0, rbac_1.authorize)('users', 'read'), async (req, res) => {
  */
 router.post('/', (0, rbac_1.authorize)('users', 'create'), subscriptionEnforcement_1.requireActivePaidSubscription, (0, validate_1.validate)(validation_1.createUserSchema), (0, audit_1.auditLog)('create', 'users'), async (req, res) => {
     try {
-        const { name, email, password, phone, role, target_company_id, must_change_password } = req.body;
+        const { name, email, password, phone, role, target_company_id, must_change_password, branch_id } = req.body;
         const queryTargetCompanyId = typeof req.query.target_company_id === 'string' ? req.query.target_company_id : undefined;
         const resolvedTargetCompanyId = target_company_id || queryTargetCompanyId;
         // Determine which company to create user in
@@ -228,6 +253,9 @@ router.post('/', (0, rbac_1.authorize)('users', 'create'), subscriptionEnforceme
                 return;
             }
         }
+        if (branch_id && (0, branchScope_service_1.isOrgBranchesEnabled)()) {
+            await (0, branchScope_service_1.assertBranchBelongsToCompany)(companyId, branch_id);
+        }
         const result = await auth_service_1.authService.register({
             name,
             email,
@@ -236,6 +264,7 @@ router.post('/', (0, rbac_1.authorize)('users', 'create'), subscriptionEnforceme
             role,
             company_id: companyId,
             must_change_password,
+            branch_id: branch_id && (0, branchScope_service_1.isOrgBranchesEnabled)() ? branch_id : null,
         });
         if (role === 'company_admin') {
             const company = await prisma_1.default.company.findUnique({
@@ -319,7 +348,7 @@ router.put('/:id', (0, rbac_1.authorize)('users', 'update'), (0, audit_1.auditLo
         }
         else {
             // Company admin or super admin
-            const { name, phone, role, status } = req.body;
+            const { name, phone, role, status, branch_id } = req.body;
             const { normalizeStaffProfilePhone } = await Promise.resolve().then(() => __importStar(require('../utils/userProfilePhone')));
             // Cannot change to super_admin unless you are super_admin
             if (role === 'super_admin' && req.user.role !== 'super_admin') {
@@ -341,6 +370,11 @@ router.put('/:id', (0, rbac_1.authorize)('users', 'update'), (0, audit_1.auditLo
                     phoneToSave = normalized;
                 }
             }
+            if (branch_id !== undefined && (0, branchScope_service_1.isOrgBranchesEnabled)()) {
+                if (branch_id) {
+                    await (0, branchScope_service_1.assertBranchBelongsToCompany)(targetUser.companyId, branch_id);
+                }
+            }
             await prisma_1.default.user.update({
                 where: { id },
                 data: {
@@ -348,14 +382,27 @@ router.put('/:id', (0, rbac_1.authorize)('users', 'update'), (0, audit_1.auditLo
                     ...(phoneToSave !== undefined && { phone: phoneToSave }),
                     ...(role && { role }),
                     ...(status && { status }),
+                    ...(branch_id !== undefined && (0, branchScope_service_1.isOrgBranchesEnabled)()
+                        ? { branchId: branch_id || null }
+                        : {}),
                 },
             });
         }
         const updated = await prisma_1.default.user.findFirst({
             where: { id },
-            select: { id: true, companyId: true, name: true, email: true, phone: true, role: true, status: true },
+            select: {
+                id: true,
+                companyId: true,
+                name: true,
+                email: true,
+                phone: true,
+                role: true,
+                status: true,
+                branchId: true,
+                branch: { select: { name: true } },
+            },
         });
-        res.json({ data: updated });
+        res.json({ data: mapUserResponse(updated) });
     }
     catch (err) {
         if ((0, staffPhoneUniqueness_1.isStaffPhoneInUseError)(err)) {

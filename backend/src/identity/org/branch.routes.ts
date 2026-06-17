@@ -3,6 +3,7 @@ import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../../middleware/auth';
 import { hasRole } from '../../middleware/rbac';
 import { branchService } from '../org/branch.service';
+import { countBranchMembers } from '../org/branchScope.service';
 
 const router = Router();
 
@@ -12,7 +13,10 @@ router.use(hasRole('company_admin'));
 router.get('/', async (req: AuthRequest, res: Response) => {
   const companyId = req.user!.company_id;
   const branches = await branchService.list(companyId);
-  res.json({ data: branchService.buildTree(branches) });
+  const branchIds = branches.map((branch) => branch.id);
+  const memberCounts = await countBranchMembers(companyId, branchIds);
+  const tree = branchService.buildTree(branches);
+  res.json({ data: branchService.attachMemberCounts(tree, memberCounts) });
 });
 
 router.post('/', async (req: AuthRequest, res: Response) => {

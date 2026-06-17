@@ -18,7 +18,22 @@ const socket_service_1 = require("../services/socket.service");
 const pagination_1 = require("../utils/pagination");
 const resourceDelete_service_1 = require("../services/resourceDelete.service");
 const companyWhatsAppConfig_util_1 = require("../utils/companyWhatsAppConfig.util");
-const router = (0, express_1.Router)();
+const branchScope_service_1 = require("../identity/org/branchScope.service");
+const EMPTY_AGENT_SENTINEL = '00000000-0000-0000-0000-000000000000';
+async function applyConversationBranchScope(where, companyId, user, query) {
+    if (!user || !(0, branchScope_service_1.isOrgBranchesEnabled)() || user.role === 'sales_agent') {
+        return;
+    }
+    const branchId = (0, branchScope_service_1.resolveEffectiveBranchId)({ role: user.role, branch_id: user.branch_id }, typeof query.branch_id === 'string' ? query.branch_id : null);
+    if (!branchId) {
+        return;
+    }
+    const agentIds = await (0, branchScope_service_1.resolveAgentUserIdsForBranch)(companyId, branchId);
+    const scope = {
+        assignedAgentId: { in: agentIds.length > 0 ? agentIds : [EMPTY_AGENT_SENTINEL] },
+    };
+    where.lead = where.lead ? { ...where.lead, ...scope } : scope;
+}
 function handleDeleteError(err, res) {
     if (err instanceof resourceDelete_service_1.ResourceDeleteError) {
         res.status(err.statusCode).json({ error: err.message });
@@ -28,6 +43,7 @@ function handleDeleteError(err, res) {
     logger_1.default.error('Delete failed', { error: message });
     res.status(500).json({ error: message });
 }
+const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.use(tenant_1.strictTenantIsolation);
 router.use(propertyCompletenessGate_1.propertyCompletenessGate);
@@ -50,6 +66,9 @@ function mapMessageToDTO(msg) {
         content: msg.content,
         language: msg.language,
         whatsapp_message_id: msg.whatsappMessageId,
+        delivery_status: msg.deliveryStatus || null,
+        meta_message_id: msg.metaMessageId || null,
+        failed_reason: msg.failedReason || null,
         status: msg.status,
         created_at: msg.createdAt?.toISOString?.() || msg.createdAt,
     };
@@ -110,6 +129,7 @@ router.get('/', (0, rbac_1.authorize)('conversations', 'read'), async (req, res)
         if (req.user.role === 'sales_agent') {
             where.lead = { assignedAgentId: req.user.id };
         }
+        await applyConversationBranchScope(where, companyId, req.user, req.query);
         const { status, search } = req.query;
         if (status)
             where.status = status;

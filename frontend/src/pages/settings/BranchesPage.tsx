@@ -1,5 +1,8 @@
 import React from 'react';
-import { GitBranch, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { GitBranch, Loader2, Plus, Trash2, Users } from 'lucide-react';
+import { dashboardPath } from '../../config/navigation.config';
+import { useAuth } from '../../context/AuthContext';
 import {
   createBranch,
   deleteBranch,
@@ -19,7 +22,19 @@ function flattenBranches(nodes: BranchNode[], depth = 0): Array<{ node: BranchNo
   return rows;
 }
 
+function sumMemberCounts(nodes: BranchNode[]): number {
+  let total = 0;
+  for (const node of nodes) {
+    total += node.member_count || 0;
+    if (node.children?.length) {
+      total += sumMemberCounts(node.children);
+    }
+  }
+  return total;
+}
+
 const BranchesPage: React.FC = () => {
+  const { user } = useAuth();
   const [tree, setTree] = React.useState<BranchNode[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -44,6 +59,8 @@ const BranchesPage: React.FC = () => {
   }, [load]);
 
   const flat = flattenBranches(tree);
+  const totalMembers = sumMemberCounts(tree);
+  const branchesEnabled = user?.org_branches_enabled !== false;
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -81,7 +98,7 @@ const BranchesPage: React.FC = () => {
   };
 
   const handleDelete = async (branch: BranchNode) => {
-    if (!window.confirm(`Delete branch "${branch.name}"?`)) return;
+    if (!window.confirm(`Delete branch "${branch.name}"? Team members must be reassigned first.`)) return;
     setSaving(true);
     setError(null);
     try {
@@ -102,6 +119,30 @@ const BranchesPage: React.FC = () => {
           Model regions, offices, or teams with a two-level hierarchy.
         </p>
       </div>
+
+      <section className="rounded-xl border border-brand-200 bg-brand-50/60 p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-800">How branches work</h2>
+        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-brand-950">
+          <li>Create a top-level branch (region or office), optionally add child branches (teams or sub-offices).</li>
+          <li>
+            Open{' '}
+            <Link to={dashboardPath('/agents')} className="font-semibold underline underline-offset-2">
+              Team
+            </Link>{' '}
+            and assign each sales or operations user to a branch.
+          </li>
+          <li>
+            Operations and viewer roles only see leads, visits, and analytics for agents in their branch (including child branches).
+          </li>
+          <li>Company admins see everything and can filter any list by branch.</li>
+        </ol>
+        {!branchesEnabled ? (
+          <p className="mt-3 text-sm text-amber-900">
+            Branch scoping is pending platform activation. You can still create branches and assign team members; set{' '}
+            <code className="rounded bg-white/80 px-1">FEATURE_ORG_BRANCHES=true</code> on the backend to enforce scoped views.
+          </p>
+        ) : null}
+      </section>
 
       {error ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
@@ -138,6 +179,20 @@ const BranchesPage: React.FC = () => {
         </div>
       </form>
 
+      <div className="flex flex-wrap items-center gap-4 text-sm text-ink-muted">
+        <span>{flat.length} branch{flat.length === 1 ? '' : 'es'}</span>
+        <span className="inline-flex items-center gap-1">
+          <Users className="h-4 w-4" />
+          {totalMembers} assigned team member{totalMembers === 1 ? '' : 's'}
+        </span>
+        <Link
+          to={dashboardPath('/agents')}
+          className="font-semibold text-brand-700 hover:text-brand-800"
+        >
+          Manage team assignments →
+        </Link>
+      </div>
+
       <section className="rounded-xl border border-surface-border bg-white">
         {loading ? (
           <div className="flex items-center justify-center gap-2 p-10 text-ink-muted">
@@ -152,7 +207,11 @@ const BranchesPage: React.FC = () => {
               <li key={node.id} className="flex items-center justify-between gap-4 px-5 py-4">
                 <div style={{ paddingLeft: `${depth * 1.25}rem` }}>
                   <p className="font-medium text-ink-primary">{node.name}</p>
-                  <p className="text-xs text-ink-muted">{depth === 0 ? 'Top level' : 'Child branch'}</p>
+                  <p className="text-xs text-ink-muted">
+                    {depth === 0 ? 'Top level' : 'Child branch'}
+                    {' · '}
+                    {(node.member_count || 0)} member{(node.member_count || 0) === 1 ? '' : 's'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button

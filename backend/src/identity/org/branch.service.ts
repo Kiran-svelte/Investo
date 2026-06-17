@@ -12,6 +12,7 @@ export interface BranchNode {
   name: string;
   parent_id: string | null;
   settings: Record<string, unknown>;
+  member_count?: number;
   children?: BranchNode[];
 }
 
@@ -73,9 +74,24 @@ export class BranchService {
       throw new Error('Cannot delete branch with child branches');
     }
 
+    const memberCount = await prisma.user.count({
+      where: { companyId, branchId, status: 'active' },
+    });
+    if (memberCount > 0) {
+      throw new Error('Cannot delete branch with assigned team members. Reassign them in Team first.');
+    }
+
     await prismaClient().companyBranch.deleteMany({
       where: { id: branchId, companyId },
     });
+  }
+
+  attachMemberCounts(branches: BranchNode[], counts: Map<string, number>): BranchNode[] {
+    return branches.map((branch) => ({
+      ...branch,
+      member_count: counts.get(branch.id) || 0,
+      children: branch.children ? this.attachMemberCounts(branch.children, counts) : undefined,
+    }));
   }
 
   buildTree(branches: BranchNode[]): BranchNode[] {

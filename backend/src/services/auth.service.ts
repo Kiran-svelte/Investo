@@ -31,6 +31,7 @@ export class AuthService {
     company_id: string;
     custom_role_id?: string | null;
     must_change_password?: boolean;
+    branch_id?: string | null;
   }): Promise<{ id: string; email: string; role: string }> {
     const normalizedEmail = normalizeAuthEmail(data.email);
 
@@ -73,6 +74,7 @@ export class AuthService {
         passwordHash,
         role: data.role as any,
         customRoleId: data.custom_role_id || null,
+        branchId: data.branch_id || null,
         mustChangePassword: data.must_change_password === true,
         status: 'active',
       },

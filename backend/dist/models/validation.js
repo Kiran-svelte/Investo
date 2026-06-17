@@ -277,6 +277,7 @@ exports.createUserSchema = zod_1.z.object({
     role: zod_1.z.enum(exports.ROLES),
     target_company_id: zod_1.z.string().uuid().optional(), // For super_admin to create users in any company
     must_change_password: zod_1.z.boolean().optional(),
+    branch_id: zod_1.z.string().uuid().nullable().optional(),
 }).superRefine((data, ctx) => {
     const whatsappStaffRoles = ['sales_agent', 'operations', 'company_admin'];
     if (whatsappStaffRoles.includes(data.role) && !data.phone) {

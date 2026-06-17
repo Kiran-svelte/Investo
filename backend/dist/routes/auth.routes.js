@@ -50,6 +50,7 @@ const selfServiceSignup_service_1 = require("../services/selfServiceSignup.servi
 const crypto_1 = __importDefault(require("crypto"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const auth_service_2 = require("../services/auth.service");
+const mfa_service_1 = require("../identity/mfa/mfa.service");
 const email_service_1 = require("../services/email.service");
 const authSessionCookies_util_1 = require("../utils/authSessionCookies.util");
 const router = (0, express_1.Router)();
@@ -146,23 +147,32 @@ router.post('/login', (0, validate_1.validate)(validation_1.loginSchema), async 
     try {
         const { email, password } = req.body;
         const normalizedEmail = (0, auth_service_2.normalizeAuthEmail)(email);
-        const tokens = await auth_service_1.authService.login(normalizedEmail, password);
-        const user = await prisma_1.default.user.findFirst({
-            where: { email: normalizedEmail, status: 'active' },
-            select: {
-                id: true,
-                companyId: true,
-                email: true,
-                role: true,
-                name: true,
-                phone: true,
-                mustChangePassword: true,
-            },
-        });
-        if (!user) {
-            res.status(401).json({ message: 'Invalid credentials' });
+        const user = await auth_service_1.authService.validatePasswordLogin(normalizedEmail, password);
+        const gate = await mfa_service_1.mfaService.evaluateLoginGate(user);
+        if (gate.mfa_required) {
+            const decoded = mfa_service_1.mfaService.decodeMfaToken(gate.mfa_token);
+            res.json({
+                success: true,
+                message: decoded.purpose === 'mfa_enroll' ? 'MFA enrollment required' : 'MFA verification required',
+                data: {
+                    mfa_required: true,
+                    mfa_token: gate.mfa_token,
+                    mfa_purpose: decoded.purpose,
+                    user: {
+                        id: user.id,
+                        company_id: user.companyId,
+                        email: user.email,
+                        role: user.role,
+                        name: user.name,
+                        phone: user.phone,
+                        profile_complete: (0, userProfilePhone_1.isStaffProfilePhoneComplete)(user.phone),
+                        must_change_password: user.mustChangePassword,
+                    },
+                },
+            });
             return;
         }
+        const tokens = gate.tokens;
         (0, authSessionCookies_util_1.setAuthSessionCookies)(res, tokens);
         res.json({
             success: true,
@@ -262,6 +272,9 @@ function serializeAuthUser(user) {
         phone: user.phone,
         profile_complete: (0, userProfilePhone_1.isStaffProfilePhoneComplete)(user.phone),
         must_change_password: user.mustChangePassword,
+        branch_id: user.branchId || null,
+        branch_name: user.branch?.name || null,
+        org_branches_enabled: config_1.default.features.orgBranches === true,
     };
 }
 router.get('/me', auth_1.authenticate, async (req, res) => {
@@ -275,6 +288,8 @@ router.get('/me', auth_1.authenticate, async (req, res) => {
             name: true,
             phone: true,
             mustChangePassword: true,
+            branchId: true,
+            branch: { select: { id: true, name: true } },
         },
     });
     if (!user) {
