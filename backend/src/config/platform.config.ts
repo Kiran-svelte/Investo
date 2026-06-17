@@ -36,7 +36,9 @@ function normalizeQueuePrefix(value: string | undefined): string {
 }
 
 export function resolvePlatformWorkerMode(env: NodeJS.ProcessEnv = process.env): PlatformWorkerMode {
-  return env.RUN_BACKGROUND_WORKERS_ON_API === 'true' ? 'api_colocated' : 'dedicated_worker';
+  if (env.RUN_BACKGROUND_WORKERS_ON_API === 'true') return 'api_colocated';
+  if (env.RUN_BACKGROUND_WORKERS_ON_API === 'false') return 'dedicated_worker';
+  return 'dedicated_worker';
 }
 
 export function resolvePlatformConfig(env: NodeJS.ProcessEnv = process.env): PlatformConfig {

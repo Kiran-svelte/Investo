@@ -18,6 +18,8 @@ export interface EnterpriseBaselineReport {
   overall_score: number;
   worker_mode: PlatformWorkerMode;
   redis_status: PlatformRedisStatus;
+  chunk_progress_pct?: number;
+  exit_gate_ready?: boolean;
   backup_age_hours?: number | null;
   backup_last_success_at?: string | null;
   read_only_mode?: boolean;
