@@ -71,6 +71,9 @@ import { isAllowedCorsOrigin } from './config';
 import copilotRoutes from './routes/copilot.routes';
 import { authenticate } from './middleware/auth';
 import { requireFeature } from './middleware/featureGate';
+import billingAdminRoutes from './routes/billing-admin.routes';
+import agencyInviteRoutes from './routes/agencyInvite.routes';
+import cashfreeWebhookRoutes from './routes/cashfreeWebhook.routes';
 
 const app = express();
 
@@ -111,6 +114,8 @@ app.use('/scim/v2', scimRoutes);
 
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
+// Cashfree payment webhook — separate from WhatsApp webhook, no IP restriction needed
+app.use('/api/webhooks/cashfree', webhookRateLimiter, cashfreeWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(cookieParser());
@@ -180,6 +185,8 @@ app.use(
 app.use('/api/error-logs', authenticate, companyRateLimiter, errorLogRoutes);
 app.use('/api/assignment-settings', authenticate, companyRateLimiter, assignmentSettingsRoutes);
 app.use('/api', financeRoutes);
+app.use('/api/billing-admin', authenticate, billingAdminRoutes);
+app.use('/api/agency-invites', agencyInviteRoutes);
 
 // 404 handler
 app.use((req, res) => {

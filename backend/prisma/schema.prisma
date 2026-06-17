@@ -85,6 +85,10 @@ model Company {
   sandboxTenant            SandboxTenant?
   aiReviewQueueItems       AiReviewQueueItem[]
   messageArchives          MessageArchive[]
+  subscription             CompanySubscription?
+  agencyInvites            AgencyInvite[]
+  payments                 Payment[]
+  billingEvents            BillingEvent[]
 
   @@map("companies")
 }
@@ -346,14 +350,101 @@ model Invoice {
   paymentMethod  String?       @map("payment_method") @db.VarChar(50)
   paymentRef     String?       @map("payment_ref") @db.VarChar(100)
   notes          String?       @db.Text
+  lineItems      Json          @default("[]") @map("line_items")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
   company        Company       @relation(fields: [companyId], references: [id])
+  payments       Payment[]
 
   @@index([companyId, status])
   @@index([dueDate])
   @@map("invoices")
+}
+
+// ─── Company Subscription (billing lifecycle) ───────────────────────
+model CompanySubscription {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  companyId              String                    @unique @map("company_id") @db.Uuid
+  billingStatus          BillingStatus             @default(trialing) @map("billing_status")
+  trialStartedAt         DateTime?                 @map("trial_started_at")
+  trialEndsAt            DateTime?                 @map("trial_ends_at")
+  currentPeriodStart     DateTime?                 @map("current_period_start")
+  currentPeriodEnd       DateTime?                 @map("current_period_end")
+  graceUntil             DateTime?                 @map("grace_until")
+  paymentMethod          SubscriptionPaymentMethod? @map("payment_method")
+  negotiatedMonthlyPrice Decimal?                  @map("negotiated_monthly_price") @db.Decimal(12, 2)
+  includedSeats          Int                       @default(5) @map("included_seats")
+  perSeatPriceInr        Decimal                   @default(499) @map("per_seat_price_inr") @db.Decimal(12, 2)
+  basePriceMonthly       Decimal                   @default(8999) @map("base_price_monthly") @db.Decimal(12, 2)
+  cashfreeSubscriptionId String?                   @map("cashfree_subscription_id") @db.VarChar(100)
+  cashfreeCustomerId     String?                   @map("cashfree_customer_id") @db.VarChar(100)
+  nextBillingDate        DateTime?                 @map("next_billing_date")
+  suspendedAt            DateTime?                 @map("suspended_at")
+  lastTrialReminderDay   Int?                      @map("last_trial_reminder_day")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@map("company_subscriptions")
+}
+
+model AgencyInvite {
+  id                     String    @id @default(uuid()) @db.Uuid
+  token                  String    @unique @db.VarChar(64)
+  agencyName             String    @map("agency_name") @db.VarChar(255)
+  adminEmail             String    @map("admin_email") @db.VarChar(255)
+  negotiatedMonthlyPrice Decimal?  @map("negotiated_monthly_price") @db.Decimal(12, 2)
+  companyId              String?   @map("company_id") @db.Uuid
+  notes                  String?   @db.Text
+  expiresAt              DateTime  @map("expires_at")
+  acceptedAt             DateTime? @map("accepted_at")
+  createdById            String    @map("created_by_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([adminEmail])
+  @@map("agency_invites")
+}
+
+model Payment {
+  id                String                    @id @default(uuid()) @db.Uuid
+  companyId         String                    @map("company_id") @db.Uuid
+  subscriptionId    String?                   @map("subscription_id") @db.Uuid
+  invoiceId         String?                   @map("invoice_id") @db.Uuid
+  amount            Decimal                   @db.Decimal(12, 2)
+  currency          String                    @default("INR") @db.VarChar(3)
+  status            PaymentStatus             @default(pending)
+  method            SubscriptionPaymentMethod
+  cashfreeOrderId   String?                   @unique @map("cashfree_order_id") @db.VarChar(100)
+  cashfreePaymentId String?                   @map("cashfree_payment_id") @db.VarChar(100)
+  metadata          Json                      @default("{}")
+  paidAt            DateTime?                 @map("paid_at")
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @updatedAt @map("updated_at")
+
+  company      Company              @relation(fields: [companyId], references: [id])
+  subscription CompanySubscription? @relation(fields: [subscriptionId], references: [id])
+  invoice      Invoice?             @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId, status])
+  @@map("payments")
+}
+
+model BillingEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  eventType String   @map("event_type") @db.VarChar(50)
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@map("billing_events")
 }
 
 // ─── Leads (CRM) ───────────────────────────────────────────────────
@@ -972,6 +1063,29 @@ enum InvoiceStatus {
   pending
   paid
   overdue
+  cancelled
+}
+
+enum BillingStatus {
+  invited
+  trialing
+  active
+  past_due
+  suspended
+  canceled
+}
+
+enum SubscriptionPaymentMethod {
+  card
+  invoice
+  upi
+  bank_transfer
+}
+
+enum PaymentStatus {
+  pending
+  success
+  failed
   cancelled
 }
 

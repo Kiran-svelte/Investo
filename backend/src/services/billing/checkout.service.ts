@@ -1,0 +1,213 @@
+import prisma from '../../config/prisma';
+import config from '../../config';
+import logger from '../../config/logger';
+import type { SubscriptionPaymentMethod } from '@prisma/client';
+import {
+  createCashfreeOrder,
+  fetchCashfreeOrder,
+  generateOrderId,
+  isCashfreeConfigured,
+} from './cashfree.service';
+import {
+  activateSubscription,
+  countBillableSeats,
+  computeMonthlyTotal,
+  getSubscriptionSummary,
+  logBillingEvent,
+} from './subscription.service';
+import { generateSubscriptionInvoice, markInvoicePaid } from './invoiceGenerator.service';
+
+export type CheckoutInput = {
+  companyId: string;
+  method: SubscriptionPaymentMethod;
+  customerEmail: string;
+  customerName: string;
+  customerPhone?: string;
+};
+
+export type CheckoutResult = {
+  paymentId: string;
+  orderId?: string;
+  checkoutUrl?: string;
+  devMode?: boolean;
+  invoiceId?: string;
+  instructions?: string;
+  amount: number;
+};
+
+export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutResult> {
+  const sub = await prisma.companySubscription.findUnique({ where: { companyId: input.companyId } });
+  if (!sub) throw new Error('No subscription found');
+
+  const seatCount = await countBillableSeats(input.companyId);
+  const { monthlyTotal } = computeMonthlyTotal({
+    basePriceMonthly: Number(sub.basePriceMonthly),
+    negotiatedMonthlyPrice: sub.negotiatedMonthlyPrice ? Number(sub.negotiatedMonthlyPrice) : null,
+    includedSeats: sub.includedSeats,
+    perSeatPriceInr: Number(sub.perSeatPriceInr),
+    seatCount,
+  });
+
+  if (input.method === 'invoice') {
+    const invoiceId = await generateSubscriptionInvoice(input.companyId);
+    await activateSubscription(input.companyId, 'invoice');
+    await markInvoicePaid(invoiceId, `TRUST-INVOICE-${Date.now()}`, 'invoice');
+
+    const payment = await prisma.payment.create({
+      data: {
+        companyId: input.companyId,
+        subscriptionId: sub.id,
+        invoiceId,
+        amount: monthlyTotal,
+        status: 'success',
+        method: 'invoice',
+        paidAt: new Date(),
+        metadata: { netDays: 30, trustBased: true },
+      },
+    });
+
+    await logBillingEvent(input.companyId, 'checkout_invoice_trust', { invoiceId, paymentId: payment.id });
+
+    return {
+      paymentId: payment.id,
+      invoiceId,
+      amount: monthlyTotal,
+      instructions:
+        'Your account is active. An invoice has been generated with Net 30 payment terms. Our team will follow up for payment.',
+    };
+  }
+
+  if (input.method === 'bank_transfer') {
+    const invoiceId = await generateSubscriptionInvoice(input.companyId);
+    const payment = await prisma.payment.create({
+      data: {
+        companyId: input.companyId,
+        subscriptionId: sub.id,
+        invoiceId,
+        amount: monthlyTotal,
+        status: 'pending',
+        method: 'bank_transfer',
+        metadata: { awaitingTransfer: true },
+      },
+    });
+
+    return {
+      paymentId: payment.id,
+      invoiceId,
+      amount: monthlyTotal,
+      instructions:
+        'Transfer the amount to our bank account (details on invoice). Share UTR with support@investo.in. Account activates once payment is confirmed.',
+    };
+  }
+
+  const orderId = generateOrderId(input.companyId);
+  const invoiceId = await generateSubscriptionInvoice(input.companyId);
+
+  const returnUrl = `${config.frontend.baseUrl}/dashboard/billing?order_id=${encodeURIComponent(orderId)}`;
+  const notifyUrl = `${config.apiPublicUrl}/api/webhooks/cashfree`;
+
+  const paymentMethods =
+    input.method === 'upi' ? (['upi'] as const) : input.method === 'card' ? (['card'] as const) : undefined;
+
+  const order = await createCashfreeOrder({
+    orderId,
+    amountInr: monthlyTotal,
+    customerEmail: input.customerEmail,
+    customerName: input.customerName,
+    customerPhone: input.customerPhone,
+    returnUrl,
+    notifyUrl,
+    paymentMethods: paymentMethods ? [...paymentMethods] : ['card', 'upi', 'nb'],
+  });
+
+  const payment = await prisma.payment.create({
+    data: {
+      companyId: input.companyId,
+      subscriptionId: sub.id,
+      invoiceId,
+      amount: monthlyTotal,
+      status: 'pending',
+      method: input.method,
+      cashfreeOrderId: order.orderId,
+      metadata: { paymentSessionId: order.paymentSessionId, devMode: order.devMode },
+    },
+  });
+
+  return {
+    paymentId: payment.id,
+    orderId: order.orderId,
+    checkoutUrl: order.checkoutUrl,
+    devMode: order.devMode,
+    invoiceId,
+    amount: monthlyTotal,
+  };
+}
+
+export async function confirmPayment(orderId: string, companyId: string): Promise<boolean> {
+  const payment = await prisma.payment.findFirst({
+    where: { cashfreeOrderId: orderId, companyId },
+  });
+  if (!payment) return false;
+  if (payment.status === 'success') return true;
+
+  const isDevMode =
+    !isCashfreeConfigured() ||
+    (typeof payment.metadata === 'object' &&
+      payment.metadata !== null &&
+      (payment.metadata as { devMode?: boolean }).devMode === true);
+
+  let success = false;
+  let paymentRef = orderId;
+
+  if (isDevMode) {
+    success = true;
+    paymentRef = `DEV-${orderId}`;
+  } else {
+    const order = await fetchCashfreeOrder(orderId);
+    success = order.status === 'PAID' || order.status === 'ACTIVE';
+    if (order.paymentId) paymentRef = order.paymentId;
+  }
+
+  if (!success) return false;
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      status: 'success',
+      paidAt: new Date(),
+      cashfreePaymentId: paymentRef,
+    },
+  });
+
+  if (payment.invoiceId) {
+    await markInvoicePaid(payment.invoiceId, paymentRef, payment.method);
+  }
+
+  await activateSubscription(companyId, payment.method);
+  await logBillingEvent(companyId, 'payment_success', { orderId, paymentId: payment.id });
+
+  return true;
+}
+
+export async function handleCashfreeWebhook(orderId: string, paymentId?: string): Promise<void> {
+  const payment = await prisma.payment.findFirst({ where: { cashfreeOrderId: orderId } });
+  if (!payment || payment.status === 'success') return;
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      status: 'success',
+      paidAt: new Date(),
+      cashfreePaymentId: paymentId || orderId,
+    },
+  });
+
+  if (payment.invoiceId) {
+    await markInvoicePaid(payment.invoiceId, paymentId || orderId, payment.method);
+  }
+
+  await activateSubscription(payment.companyId, payment.method);
+  await logBillingEvent(payment.companyId, 'webhook_payment_success', { orderId });
+}
+
+export { getSubscriptionSummary };

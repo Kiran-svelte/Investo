@@ -6,7 +6,7 @@ import { SocketProvider } from './context/SocketContext';
 import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/notifications/ToastContainer';
 import InvestoLoading from './components/loading/InvestoLoading';
-import { CompanyFeaturesProvider } from './context/CompanyFeaturesContext';
+import { CompanyFeaturesProvider, useCompanyFeatures } from './context/CompanyFeaturesContext';
 import { TenantProvider } from './context/TenantContext';
 import LoginPage from './pages/auth/LoginPage';
 import SsoLoginPage from './pages/auth/SsoLoginPage';
@@ -53,7 +53,6 @@ import AIActionLogsPage from './pages/ai-action-logs/AIActionLogsPage';
 import CopilotPage from './pages/copilot/CopilotPage';
 import ErrorLogsPage from './pages/error-logs/ErrorLogsPage';
 import ProfilePage from './pages/profile/ProfilePage';
-import { useCompanyFeatures } from './context/CompanyFeaturesContext';
 import './i18n/i18n';
 import api from './services/api';
 import {
@@ -67,6 +66,10 @@ import {
   isPathAllowedForRole,
   resolveDashboardPath,
 } from './config/navigation.config';
+import { SubscriptionProvider } from './context/SubscriptionContext';
+import AcceptInvitePage from './pages/auth/AcceptInvitePage';
+import AgencyInvitesPage from './pages/admin/AgencyInvitesPage';
+import BillingPage from './pages/billing/BillingPage';
 
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
@@ -285,6 +288,7 @@ const PublicRoute: React.FC = () => {
 /** Redirects authenticated users away from routes their role cannot access. */
 export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
   const { user } = useAuth();
+  const { isFeatureEnabled, loading: featuresLoading } = useCompanyFeatures();
   const role = user?.role;
 
   if (!role) {
@@ -292,7 +296,12 @@ export const RoleRoute: React.FC<{ path: string }> = ({ path }) => {
   }
 
   const guardedPath = path.startsWith(DASHBOARD_BASE) ? path : dashboardPath(path);
-  if (!isPathAllowedForRole(guardedPath, role, () => true)) {
+
+  if (featuresLoading && role !== 'super_admin') {
+    return <LoadingScreen variant="session" category="auth" />;
+  }
+
+  if (!isPathAllowedForRole(guardedPath, role, isFeatureEnabled)) {
     return (
       <AccessFeedbackPage
         title="This page is not available for your role"
@@ -396,10 +405,13 @@ const App: React.FC = () => {
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
+              {/* Public invite acceptance route — no auth required */}
+              <Route path="/accept-invite/:token" element={<AcceptInvitePage />} />
             </Route>
 
             <Route element={<ProtectedRoute />}>
               <Route path="/change-password" element={<ChangePasswordPage />} />
+              <Route element={<SubscriptionProvider><Outlet /></SubscriptionProvider>}>
               <Route element={<ProfileGuard />}>
               <Route element={<OnboardingAccessRoute />}>
                 <Route path="/onboarding" element={<OnboardingPage />} />
@@ -503,6 +515,9 @@ const App: React.FC = () => {
                   <Route element={<RoleRoute path="/companies" />}>
                     <Route path="companies" element={<CompaniesPage />} />
                   </Route>
+                  <Route element={<RoleRoute path="/agency-invites" />}>
+                    <Route path="agency-invites" element={<AgencyInvitesPage />} />
+                  </Route>
                   <Route element={<RoleRoute path="/platform-health" />}>
                     <Route path="platform-health" element={<PlatformHealthPage />} />
                   </Route>
@@ -515,8 +530,10 @@ const App: React.FC = () => {
                   <Route element={<RoleRoute path="/message-failures" />}>
                     <Route path="message-failures" element={<DeadLetterPage />} />
                   </Route>
-                  {/* Billing is not available in this version — redirect to dashboard */}
-                  <Route path="billing" element={<Navigate to={DASHBOARD_BASE} replace />} />
+                  {/* Billing page — fully enabled */}
+                  <Route element={<RoleRoute path="/billing" />}>
+                    <Route path="billing" element={<BillingPage />} />
+                  </Route>
                   <Route element={<RoleRoute path="/audit-logs" />}>
                     <Route element={<FeatureRoute featureKey="audit_logs" />}>
                       <Route path="audit-logs" element={<AuditLogsPage />} />
@@ -529,9 +546,11 @@ const App: React.FC = () => {
                 </Route>
               </Route>
               </Route>
+              </Route>
 
               {/* Legacy CRM paths without /dashboard prefix */}
               <Route path="/leads/*" element={<LegacyDashboardRedirect />} />
+              <Route path="/billing/*" element={<LegacyDashboardRedirect />} />
               <Route path="/properties/*" element={<LegacyDashboardRedirect />} />
               <Route path="/conversations/*" element={<LegacyDashboardRedirect />} />
               <Route path="/calendar/*" element={<LegacyDashboardRedirect />} />

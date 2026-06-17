@@ -40,6 +40,8 @@ export type NavRouteKey =
   | 'tenant_health'
   | 'support_tools'
   | 'dr_status'
+  | 'billing'
+  | 'agency_invites'
   | 'settings';
 
 export interface NavItemSpec {
@@ -91,6 +93,8 @@ export const NAV_ITEM_GROUP: Record<NavRouteKey, NavGroupKey> = {
   tenant_health: 'platform',
   support_tools: 'platform',
   dr_status: 'platform',
+  billing: 'admin',
+  agency_invites: 'platform',
 };
 
 export interface NavGroupSpec {
@@ -179,6 +183,12 @@ export const NAV_ITEMS: NavItemSpec[] = [
     key: 'companies',
     path: dashboardPath('/companies'),
     roles: ['super_admin'],
+  },
+  {
+    key: 'agency_invites',
+    path: dashboardPath('/agency-invites'),
+    roles: ['super_admin'],
+    labelFallback: 'Agency Invites',
   },
   {
     key: 'platform_health',
@@ -288,9 +298,12 @@ const EXTRA_ROUTE_GUARDS: Array<{
   pathPrefix: string;
   roles: UserRole[];
   featureKey?: string;
+  navKey?: NavRouteKey;
 }> = [
-  { pathPrefix: dashboardPath('/properties/import'), roles: ['company_admin'], featureKey: 'property_management' },
-  { pathPrefix: dashboardPath('/leads/'), roles: ['company_admin', 'sales_agent', 'operations', 'viewer'], featureKey: 'lead_automation' },
+  { pathPrefix: dashboardPath('/properties/import'), roles: ['company_admin'], featureKey: 'property_management', navKey: 'properties' },
+  { pathPrefix: dashboardPath('/leads/'), roles: ['company_admin', 'sales_agent', 'operations', 'viewer'], featureKey: 'lead_automation', navKey: 'leads' },
+  /** Billing route exists (TrialBanner deep-link) but stays out of sidebar until Cashfree billing is enabled. */
+  { pathPrefix: dashboardPath('/billing'), roles: ['company_admin'], navKey: 'billing' },
 ];
 
 export function getRoleHomePath(role: UserRole | undefined): string {
@@ -360,7 +373,7 @@ export function getNavItemForPath(pathname: string): NavItemSpec | undefined {
   for (const extra of EXTRA_ROUTE_GUARDS) {
     if (normalized === extra.pathPrefix || normalized.startsWith(`${extra.pathPrefix}/`)) {
       return {
-        key: 'properties',
+        key: extra.navKey ?? 'properties',
         path: extra.pathPrefix,
         roles: extra.roles,
         featureKey: extra.featureKey,

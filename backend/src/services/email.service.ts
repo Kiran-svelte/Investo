@@ -180,6 +180,124 @@ export class EmailService {
       return false;
     }
   }
+
+  async sendAgencyInviteEmail(params: {
+    toEmail: string;
+    agencyName: string;
+    inviteUrl: string;
+    expiresAt: Date;
+  }): Promise<boolean> {
+    if (!isMailConfigured() || !config.mail.from) {
+      logger.warn('Agency invite email skipped: mail not configured', { toEmail: params.toEmail });
+      return false;
+    }
+
+    const subject = `You're invited to Investo — ${params.agencyName}`;
+    const expiry = params.expiresAt.toLocaleDateString('en-IN');
+    const text =
+      `Hello,\n\n` +
+      `You've been invited to set up ${params.agencyName} on Investo.\n\n` +
+      `Start your 14-day full-access trial (no payment required):\n${params.inviteUrl}\n\n` +
+      `This link expires on ${expiry}.\n`;
+
+    const html = `
+      <p>Hello,</p>
+      <p>You've been invited to set up <strong>${escapeHtml(params.agencyName)}</strong> on Investo.</p>
+      <p><a href="${escapeHtmlAttr(params.inviteUrl)}">Create your account &amp; start 14-day trial</a></p>
+      <p><small>No payment required until you choose to subscribe. Link expires ${escapeHtml(expiry)}.</small></p>
+    `;
+
+    try {
+      await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async sendTrialReminderEmail(params: {
+    toEmail: string;
+    toName?: string | null;
+    companyName: string;
+    daysLeft: number;
+    billingUrl: string;
+  }): Promise<boolean> {
+    if (!isMailConfigured() || !config.mail.from) return false;
+
+    const name = (params.toName || '').trim() || 'there';
+    const subject = `${params.daysLeft} day${params.daysLeft === 1 ? '' : 's'} left in your Investo trial`;
+    const text =
+      `Hi ${name},\n\n` +
+      `Your Investo trial for ${params.companyName} ends in ${params.daysLeft} day(s).\n\n` +
+      `Subscribe now to keep uninterrupted access:\n${params.billingUrl}\n`;
+
+    const html = `
+      <p>Hi ${escapeHtml(name)},</p>
+      <p>Your Investo trial for <strong>${escapeHtml(params.companyName)}</strong> ends in <strong>${params.daysLeft}</strong> day(s).</p>
+      <p><a href="${escapeHtmlAttr(params.billingUrl)}">Subscribe now</a></p>
+    `;
+
+    try {
+      await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async sendTrialExpiredEmail(params: {
+    toEmail: string;
+    toName?: string | null;
+    billingUrl: string;
+  }): Promise<boolean> {
+    if (!isMailConfigured() || !config.mail.from) return false;
+
+    const name = (params.toName || '').trim() || 'there';
+    const subject = 'Your Investo trial has ended — subscribe to continue';
+    const text =
+      `Hi ${name},\n\n` +
+      `Your 14-day Investo trial has ended. Subscribe to restore full access:\n${params.billingUrl}\n`;
+
+    const html = `
+      <p>Hi ${escapeHtml(name)},</p>
+      <p>Your 14-day Investo trial has ended.</p>
+      <p><a href="${escapeHtmlAttr(params.billingUrl)}">Subscribe now</a></p>
+    `;
+
+    try {
+      await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async sendAccountSuspendedEmail(params: {
+    toEmail: string;
+    toName?: string | null;
+    billingUrl: string;
+  }): Promise<boolean> {
+    if (!isMailConfigured() || !config.mail.from) return false;
+
+    const name = (params.toName || '').trim() || 'there';
+    const subject = 'Investo account suspended — payment overdue';
+    const text =
+      `Hi ${name},\n\n` +
+      `Your Investo account has been suspended due to overdue payment. Update billing to restore access:\n${params.billingUrl}\n`;
+
+    const html = `
+      <p>Hi ${escapeHtml(name)},</p>
+      <p>Your Investo account has been suspended due to overdue payment.</p>
+      <p><a href="${escapeHtmlAttr(params.billingUrl)}">Update billing</a></p>
+    `;
+
+    try {
+      await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 function escapeHtml(input: string): string {

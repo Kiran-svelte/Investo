@@ -305,6 +305,17 @@ const config = {
     baseUrl: (process.env.FRONTEND_BASE_URL || 'http://localhost:3000').replace(/\/+$/, ''),
   },
 
+  /** Public API base URL for webhooks (Cashfree notify_url). */
+  apiPublicUrl: (process.env.API_PUBLIC_URL || process.env.BACKEND_PUBLIC_URL || `http://localhost:${process.env.PORT || '3001'}`).replace(/\/+$/, ''),
+
+  cashfree: {
+    appId: (process.env.CASHFREE_APP_ID || '').trim(),
+    secretKey: (process.env.CASHFREE_SECRET_KEY || '').trim(),
+    sandbox: process.env.CASHFREE_SANDBOX !== 'false',
+    apiVersion: (process.env.CASHFREE_API_VERSION || '2023-08-01').trim(),
+    webhookSecret: (process.env.CASHFREE_WEBHOOK_SECRET || process.env.CASHFREE_SECRET_KEY || '').trim(),
+  },
+
   selfService: {
     signupEnabled: process.env.SELF_SERVICE_SIGNUP_ENABLED === 'true',
   },
@@ -654,6 +665,8 @@ const config = {
     publicApi: process.env.FEATURE_PUBLIC_API === 'true',
     /** Chunk 11 — usage metering invoices. Default OFF. */
     billingOps: process.env.FEATURE_BILLING_OPS === 'true',
+    /** Commercial subscription + Cashfree checkout. ON by default; set FEATURE_BILLING=false to disable. */
+    billing: process.env.FEATURE_BILLING !== 'false',
     /** Chunk 12 — support impersonation + tenant health. Default OFF. */
     supportOps: process.env.FEATURE_SUPPORT_OPS === 'true',
     /** Chunk 13 — sandbox tenants + approval chains. Default OFF. */
