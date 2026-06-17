@@ -34,17 +34,25 @@ export class SsoService {
     }
 
     const normalizedEmail = normalizeAuthEmail(email);
-    const resolution = await resolveCompanyByEmailDomain(normalizedEmail);
-    if (!resolution?.config.sso_enabled) {
-      throw new Error('SSO is not configured for this email domain');
-    }
-
     const state = crypto.randomBytes(24).toString('hex');
     const nonce = crypto.randomBytes(16).toString('hex');
 
     if (config.identity.ssoTestIdp) {
+      const existingUser = await prismaClient().user.findFirst({
+        where: { email: normalizedEmail, status: 'active' },
+        select: { id: true, companyId: true },
+      });
+      if (!existingUser) {
+        throw new Error('No active account found for this email. Use password login or ask your admin to invite you.');
+      }
+
       const redirectUrl = `${config.identity.ssoCallbackBaseUrl}/api/auth/sso/callback?state=${state}&test=1&email=${encodeURIComponent(normalizedEmail)}&name=${encodeURIComponent(normalizedEmail.split('@')[0])}&external_id=${encodeURIComponent(`test:${normalizedEmail}`)}`;
       return { redirect_url: redirectUrl, state };
+    }
+
+    const resolution = await resolveCompanyByEmailDomain(normalizedEmail);
+    if (!resolution?.config.sso_enabled) {
+      throw new Error('SSO is not configured for this email domain');
     }
 
     const row = await prismaClient().companyIdentityConfig.findUnique({
@@ -73,29 +81,43 @@ export class SsoService {
     company_id?: string;
   }): Promise<Awaited<ReturnType<typeof authService.issueTokensForUser>>> {
     const normalizedEmail = normalizeAuthEmail(params.email);
-    let companyId = params.company_id;
 
-    if (!companyId) {
+    let user = await prismaClient().user.findFirst({
+      where: { email: normalizedEmail, status: 'active' },
+    });
+
+    let companyId = user?.companyId || params.company_id;
+
+    if (!companyId && !config.identity.ssoTestIdp) {
       const resolution = await resolveCompanyByEmailDomain(normalizedEmail);
       if (!resolution) throw new Error('No SSO company mapping for email domain');
       companyId = resolution.companyId;
     }
 
-    let user = await prismaClient().user.findFirst({
-      where: {
-        companyId,
-        OR: [
-          { externalId: params.external_id },
-          { email: normalizedEmail },
-        ],
-      },
-    });
+    if (!companyId && config.identity.ssoTestIdp) {
+      throw new Error('No active account found for this email');
+    }
+
+    if (!user && companyId) {
+      user = await prismaClient().user.findFirst({
+        where: {
+          companyId,
+          OR: [
+            { externalId: params.external_id },
+            { email: normalizedEmail },
+          ],
+        },
+      });
+    }
 
     if (!user) {
+      if (config.identity.ssoTestIdp) {
+        throw new Error('No active account found for this email. Ask your admin to invite you first.');
+      }
       user = await prismaClient().user.create({
         data: {
           id: uuidv4(),
-          companyId,
+          companyId: companyId!,
           email: normalizedEmail,
           name: params.name || normalizedEmail.split('@')[0],
           authProvider: 'sso',
@@ -113,6 +135,7 @@ export class SsoService {
           name: params.name || user.name,
         },
       });
+      companyId = user.companyId;
     }
 
     await prismaClient().auditLog.create({

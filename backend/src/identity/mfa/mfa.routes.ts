@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 
 import { authenticate, AuthRequest } from '../../middleware/auth';
 import { hasRole } from '../../middleware/rbac';
+import { setAuthSessionCookies, authSessionResponseMeta } from '../../utils/authSessionCookies.util';
 import { mfaService } from './mfa.service';
 
 const router = Router();
@@ -58,6 +59,7 @@ router.post('/verify-enrollment-pending', async (req, res: Response) => {
       return;
     }
     const tokens = await mfaService.completeMfaChallenge(mfa_token, code);
+    setAuthSessionCookies(res, tokens);
     res.json({
       success: true,
       data: {
@@ -65,6 +67,7 @@ router.post('/verify-enrollment-pending', async (req, res: Response) => {
           access_token: tokens.accessToken,
           refresh_token: tokens.refreshToken,
         },
+        session: authSessionResponseMeta(),
       },
     });
   } catch (err: any) {
@@ -76,6 +79,7 @@ router.post('/verify', async (req, res: Response) => {
   try {
     const { mfa_token, code } = req.body || {};
     const tokens = await mfaService.completeMfaChallenge(mfa_token, code);
+    setAuthSessionCookies(res, tokens);
     res.json({
       success: true,
       data: {
@@ -83,6 +87,7 @@ router.post('/verify', async (req, res: Response) => {
           access_token: tokens.accessToken,
           refresh_token: tokens.refreshToken,
         },
+        session: authSessionResponseMeta(),
       },
     });
   } catch (err: any) {
