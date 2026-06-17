@@ -514,6 +514,12 @@ export async function bootstrapDatabase(options: BootstrapOptions): Promise<void
     }
   }
 
+  await applyCompatibilityPatchesAndSeed(options);
+}
+
+export async function applyCompatibilityPatchesAndSeed(options: BootstrapOptions): Promise<void> {
+  const { autoMigrate, autoSeed } = options;
+
   try {
     await applyCompatibilityPatches();
   } catch (err: any) {

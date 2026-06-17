@@ -4,7 +4,7 @@ buildCommand = "npm ci && node node_modules/prisma/build/index.js generate && no
 watchPatterns = ["src/**", "prisma/**", "package.json"]
 
 [deploy]
-startCommand = "node node_modules/prisma/build/index.js migrate deploy && npm run start"
+startCommand = "npm run start"
 healthcheckPath = "/api/health/live"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

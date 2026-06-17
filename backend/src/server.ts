@@ -4,7 +4,8 @@ import app from './app';
 import config from './config';
 import logger from './config/logger';
 import prisma from './config/prisma';
-import { bootstrapDatabase } from './config/bootstrapDatabase';
+import { runPrismaMigrateDeploy } from './config/prismaMigrate';
+import { applyCompatibilityPatchesAndSeed } from './config/bootstrapDatabase';
 import { automationService } from './services/automation.service';
 import { propertyImportWorkerService } from './services/propertyImportWorker.service';
 import { socketService } from './services/socket.service';
@@ -181,16 +182,13 @@ async function start(): Promise<void> {
       );
     }
 
-    // Apply schema migrations before accepting traffic so enterprise tables exist on first request.
     await prisma.$queryRaw`SELECT 1`;
     logger.info('Database connected (Prisma → PostgreSQL)');
 
-    await bootstrapDatabase({
-      autoMigrate: config.db.autoMigrate,
-      autoSeed: config.db.autoSeed,
-    });
+    if (config.db.autoMigrate) {
+      await runPrismaMigrateDeploy();
+    }
 
-    // Create HTTP server after DB is ready so auth/SSO/WhatsApp routes do not hit missing tables.
     httpServer = createServer(app);
     socketService.initialize(httpServer);
 
@@ -204,9 +202,12 @@ async function start(): Promise<void> {
       httpServer!.once('error', reject);
     });
 
-    // Warm caches and start co-located workers in the background.
     void (async () => {
       try {
+        await applyCompatibilityPatchesAndSeed({
+          autoMigrate: config.db.autoMigrate,
+          autoSeed: config.db.autoSeed,
+        });
         // Pre-warm pgvector schemas so per-request ensureSchema() calls are
         // instant in-memory cache hits instead of 5 SQL round-trips each.
         try {
