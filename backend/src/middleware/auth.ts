@@ -6,6 +6,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { cacheGet, cacheSet } from '../config/redis';
 import { readAccessTokenFromCookies } from '../utils/authSessionCookies.util';
+import { ipAllowlistMiddleware } from './ipAllowlist';
 
 const AUTH_CACHE_TTL_SECONDS = 300; // 5 minutes
 
@@ -156,6 +157,13 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     await cacheSet(tokenCacheKey, authUser, AUTH_CACHE_TTL_SECONDS).catch(() => undefined);
 
     req.user = authUser;
+
+    await new Promise<void>((resolve) => {
+      void ipAllowlistMiddleware(req, res, () => resolve());
+    });
+    if (res.headersSent) {
+      return;
+    }
 
     next();
   } catch (err: any) {

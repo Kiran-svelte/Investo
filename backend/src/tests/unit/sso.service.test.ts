@@ -26,7 +26,7 @@ jest.mock('../../config/prisma', () => ({
 
 jest.mock('../../identity/identityConfig.service', () => ({
   resolveCompanyByEmailDomain: jest.fn().mockResolvedValue({
-    companyId: 'company-1',
+    companyId: 'company-other',
     config: { sso_enabled: true },
   }),
 }));
@@ -55,7 +55,12 @@ describe('sso.service', () => {
     jest.clearAllMocks();
   });
 
-  it('starts test IdP login redirect for allowed domain', async () => {
+  it('starts test IdP login redirect for existing active user', async () => {
+    (prisma as any).user.findFirst.mockResolvedValueOnce({
+      id: 'user-1',
+      companyId: 'company-1',
+    });
+
     const service = new SsoService();
     const result = await service.startLogin('agent@acme.test');
     expect(result.redirect_url).toContain('/api/auth/sso/callback');
@@ -63,12 +68,18 @@ describe('sso.service', () => {
     expect(result.state).toHaveLength(48);
   });
 
-  it('creates or links user on test callback', async () => {
-    (prisma as any).user.findFirst.mockResolvedValueOnce(null);
-    (prisma as any).user.create.mockResolvedValueOnce({
+  it('links existing global user on test callback without duplicate create', async () => {
+    (prisma as any).user.findFirst.mockResolvedValueOnce({
       id: 'user-1',
       companyId: 'company-1',
       email: 'agent@acme.test',
+      name: 'Agent',
+    });
+    (prisma as any).user.update.mockResolvedValueOnce({
+      id: 'user-1',
+      companyId: 'company-1',
+      email: 'agent@acme.test',
+      name: 'Agent',
     });
 
     const service = new SsoService();
@@ -79,8 +90,24 @@ describe('sso.service', () => {
     });
 
     expect(tokens.accessToken).toBe('access');
+    expect((prisma as any).user.create).not.toHaveBeenCalled();
+    expect((prisma as any).user.update).toHaveBeenCalled();
     expect((prisma as any).auditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ action: 'sso_login' }),
+      data: expect.objectContaining({ action: 'sso_login', companyId: 'company-1' }),
     });
+  });
+
+  it('rejects test callback when no active user exists', async () => {
+    (prisma as any).user.findFirst.mockResolvedValueOnce(null);
+
+    const service = new SsoService();
+    await expect(
+      service.completeCallback({
+        email: 'missing@acme.test',
+        name: 'Missing',
+        external_id: 'test:missing@acme.test',
+      }),
+    ).rejects.toThrow(/No active account found/);
+    expect((prisma as any).user.create).not.toHaveBeenCalled();
   });
 });
