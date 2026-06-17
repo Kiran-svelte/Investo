@@ -4,13 +4,15 @@ import app from './app';
 import config from './config';
 import logger from './config/logger';
 import prisma from './config/prisma';
-import { bootstrapDatabase } from './config/bootstrapDatabase';
+import { runPrismaMigrateDeploy } from './config/prismaMigrate';
+import { applyCompatibilityPatchesAndSeed } from './config/bootstrapDatabase';
 import { automationService } from './services/automation.service';
 import { propertyImportWorkerService } from './services/propertyImportWorker.service';
 import { socketService } from './services/socket.service';
 import { startCronScheduler, stopCronScheduler } from './services/agent/cron-scheduler.service';
 import { destroyCheckpointer } from './services/agent/agent-memory.service';
 import { reconcileOrphanedVisitReminders } from './services/visitLifecycle.service';
+import { whatsappInboundWorkerService } from './services/queue/whatsappInboundWorker.service';
 
 /** Maximum time (ms) to wait for in-flight requests to drain before forced exit. */
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -20,16 +22,20 @@ let keepAliveTimer: NodeJS.Timeout | null = null;
 let automationStarted = false;
 let agentCronStarted = false;
 let propertyImportWorkerStarted = false;
+let whatsappInboundWorkerStarted = false;
 let isShuttingDown = false;
 
 /**
- * In production, background workers (automation queue, property import) should run on
- * the dedicated worker process (`npm run start:worker`). Set RUN_BACKGROUND_WORKERS_ON_API=true
- * on the API service only when no separate worker is deployed.
+ * In production, background workers (automation queue, property import, WhatsApp inbound)
+ * should run on the dedicated worker process (`npm run start:worker`) when deployed separately.
+ * When async WhatsApp is enabled without a worker service, co-locate workers on the API process.
  */
 function shouldRunBackgroundWorkersOnApi(): boolean {
   if (config.env !== 'production') return true;
-  return process.env.RUN_BACKGROUND_WORKERS_ON_API === 'true';
+  if (process.env.RUN_BACKGROUND_WORKERS_ON_API === 'true') return true;
+  if (process.env.RUN_BACKGROUND_WORKERS_ON_API === 'false') return false;
+  if (config.features.asyncWhatsAppPipeline) return true;
+  return false;
 }
 
 function startAutomationIfNeeded(): void {
@@ -48,6 +54,13 @@ function startPropertyImportWorkerIfNeeded(): void {
   if (propertyImportWorkerStarted || !shouldRunBackgroundWorkersOnApi()) return;
   propertyImportWorkerService.start();
   propertyImportWorkerStarted = true;
+}
+
+function startWhatsAppInboundWorkerIfNeeded(): void {
+  if (whatsappInboundWorkerStarted || !config.features.asyncWhatsAppPipeline) return;
+  if (!shouldRunBackgroundWorkersOnApi()) return;
+  whatsappInboundWorkerService.start();
+  whatsappInboundWorkerStarted = true;
 }
 
 /**
@@ -105,6 +118,10 @@ async function shutdown(signal: string): Promise<void> {
   if (propertyImportWorkerStarted) {
     propertyImportWorkerService.stop();
     propertyImportWorkerStarted = false;
+  }
+  if (whatsappInboundWorkerStarted) {
+    whatsappInboundWorkerService.stop();
+    whatsappInboundWorkerStarted = false;
   }
 
   // Step 3: Flush agent memory checkpointer and DB connection pool.
@@ -165,7 +182,13 @@ async function start(): Promise<void> {
       );
     }
 
-    // Create HTTP server and bind immediately so Render health checks pass while DB warms up.
+    await prisma.$queryRaw`SELECT 1`;
+    logger.info('Database connected (Prisma → PostgreSQL)');
+
+    if (config.db.autoMigrate) {
+      await runPrismaMigrateDeploy();
+    }
+
     httpServer = createServer(app);
     socketService.initialize(httpServer);
 
@@ -179,17 +202,12 @@ async function start(): Promise<void> {
       httpServer!.once('error', reject);
     });
 
-    // Warm database and bootstrap in the background.
     void (async () => {
       try {
-        await prisma.$queryRaw`SELECT 1`;
-        logger.info('Database connected (Prisma → PostgreSQL)');
-
-        await bootstrapDatabase({
+        await applyCompatibilityPatchesAndSeed({
           autoMigrate: config.db.autoMigrate,
           autoSeed: config.db.autoSeed,
         });
-
         // Pre-warm pgvector schemas so per-request ensureSchema() calls are
         // instant in-memory cache hits instead of 5 SQL round-trips each.
         try {
@@ -206,6 +224,7 @@ async function start(): Promise<void> {
         startAutomationIfNeeded();
         startAgentCronIfNeeded();
         startPropertyImportWorkerIfNeeded();
+        startWhatsAppInboundWorkerIfNeeded();
 
         // Self-heal: re-enqueue any visit reminder jobs that were lost during
         // a previous server crash between visit.create and scheduleVisitReminderJobs.
@@ -241,6 +260,10 @@ async function start(): Promise<void> {
           if (!propertyImportWorkerStarted) {
             logger.info('Dependencies healthy; starting property import worker');
             startPropertyImportWorkerIfNeeded();
+          }
+          if (!whatsappInboundWorkerStarted) {
+            logger.info('Dependencies healthy; starting WhatsApp inbound worker');
+            startWhatsAppInboundWorkerIfNeeded();
           }
         } catch (err: unknown) {
           logger.warn('Neon keep-alive ping failed', {
