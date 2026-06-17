@@ -7,12 +7,16 @@ import {
   getDpaStatus,
   getRetentionPolicy,
   listDsrRequests,
+  listLegalHolds,
+  placeLegalHold,
   processDsrRequest,
+  releaseLegalHold,
   updateRetentionPolicy,
   type ComplianceFeatureStatus,
   type DpaStatus,
   type DsrRequest,
   type DsrRequestType,
+  type LegalHold,
   type RetentionPolicy,
 } from '../../services/compliance';
 
@@ -26,7 +30,11 @@ function dsrStatusTone(status: string): string {
 const CompliancePage: React.FC = () => {
   const [features, setFeatures] = React.useState<ComplianceFeatureStatus | null>(null);
   const [requests, setRequests] = React.useState<DsrRequest[]>([]);
-  const [retention, setRetention] = React.useState<RetentionPolicy>({ messageDays: 365, leadInactiveDays: 730, auditDays: 2555 });
+  const [retention, setRetention] = React.useState<RetentionPolicy | null>(null);
+  const [holds, setHolds] = React.useState<LegalHold[]>([]);
+  const [holdEntityType, setHoldEntityType] = React.useState('lead');
+  const [holdEntityId, setHoldEntityId] = React.useState('');
+  const [holdReason, setHoldReason] = React.useState('');
   const [dpa, setDpa] = React.useState<DpaStatus | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -39,16 +47,18 @@ const CompliancePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [status, dsrRows, policy, dpaStatus] = await Promise.all([
+      const [status, dsrRows, policy, dpaStatus, holdRows] = await Promise.all([
         getComplianceStatus(),
         listDsrRequests().catch(() => []),
         getRetentionPolicy().catch(() => null),
         getDpaStatus().catch(() => null),
+        listLegalHolds().catch(() => []),
       ]);
       setFeatures(status);
       setRequests(dsrRows);
       if (policy) setRetention(policy);
       setDpa(dpaStatus);
+      setHolds(holdRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load compliance settings');
     } finally {
@@ -94,7 +104,7 @@ const CompliancePage: React.FC = () => {
   const handleSaveRetention = async () => {
     setBusy(true);
     try {
-      await updateRetentionPolicy(retention);
+      await updateRetentionPolicy(retentionValues);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save retention policy');
@@ -113,6 +123,47 @@ const CompliancePage: React.FC = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handlePlaceHold = async () => {
+    if (!holdEntityId.trim() || !holdReason.trim()) {
+      setError('Entity ID and reason are required for legal hold');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await placeLegalHold({
+        entity_type: holdEntityType,
+        entity_id: holdEntityId.trim(),
+        reason: holdReason.trim(),
+      });
+      setHoldEntityId('');
+      setHoldReason('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to place legal hold');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReleaseHold = async (id: string) => {
+    setBusy(true);
+    try {
+      await releaseLegalHold(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to release legal hold');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retentionValues: RetentionPolicy = retention ?? {
+    messageDays: 365,
+    leadInactiveDays: 730,
+    auditDays: 2555,
   };
 
   if (loading && !features) {
@@ -241,8 +292,11 @@ const CompliancePage: React.FC = () => {
               <input
                 type="number"
                 min={1}
-                value={retention[key] ?? ''}
-                onChange={(e) => setRetention((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
+                value={retentionValues[key] ?? ''}
+                onChange={(e) => setRetention((prev) => ({
+                  ...(prev ?? retentionValues),
+                  [key]: Number(e.target.value),
+                }))}
                 className="mt-1 w-full rounded-lg border border-surface-border px-3 py-2"
               />
             </label>
@@ -256,6 +310,78 @@ const CompliancePage: React.FC = () => {
         >
           Save retention policy
         </button>
+      </section>
+
+      <section className="rounded-xl border border-surface-border bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Shield className="h-5 w-5 text-brand-700" />
+          <h2 className="text-lg font-semibold text-ink-primary">Legal holds</h2>
+        </div>
+        <p className="mt-1 text-sm text-ink-muted">
+          Block retention purge and deletion for specific leads or conversations under investigation.
+        </p>
+        {features?.legal_hold ? (
+          <>
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <select
+                value={holdEntityType}
+                onChange={(e) => setHoldEntityType(e.target.value)}
+                className="rounded-lg border border-surface-border px-3 py-2 text-sm"
+              >
+                <option value="lead">Lead</option>
+                <option value="conversation">Conversation</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Entity UUID"
+                value={holdEntityId}
+                onChange={(e) => setHoldEntityId(e.target.value)}
+                className="rounded-lg border border-surface-border px-3 py-2 text-sm md:col-span-2"
+              />
+              <input
+                type="text"
+                placeholder="Reason"
+                value={holdReason}
+                onChange={(e) => setHoldReason(e.target.value)}
+                className="rounded-lg border border-surface-border px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handlePlaceHold()}
+              className="mt-3 rounded-lg border border-surface-border px-4 py-2 text-sm font-semibold text-ink-secondary"
+            >
+              Place hold
+            </button>
+            <ul className="mt-4 divide-y divide-surface-border">
+              {holds.length === 0 ? (
+                <li className="py-4 text-sm text-ink-muted">No active legal holds.</li>
+              ) : (
+                holds.map((hold) => (
+                  <li key={hold.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-ink-primary">
+                        {hold.entityType} · {hold.entityId}
+                      </p>
+                      <p className="text-xs text-ink-muted">{hold.reason}</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleReleaseHold(hold.id)}
+                      className="rounded-lg border border-surface-border px-2 py-1 text-xs font-semibold"
+                    >
+                      Release
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          </>
+        ) : (
+          <p className="mt-3 text-sm text-ink-muted">Legal hold is disabled (FEATURE_COMPLIANCE_LEGAL_HOLD off).</p>
+        )}
       </section>
 
       <section className="rounded-xl border border-surface-border bg-white p-5 shadow-sm">

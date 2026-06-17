@@ -33,7 +33,9 @@ import {
   ClipboardList,
   Bell,
   Calculator,
+  CreditCard,
   LogOut,
+  Mail,
   Menu,
   X,
   ChevronDown,
@@ -84,6 +86,8 @@ const NAV_ICONS: Record<NavRouteKey, LucideIcon> = {
   tenant_health: HeartPulse,
   support_tools: LifeBuoy,
   dr_status: HardDrive,
+  billing: CreditCard,
+  agency_invites: Mail,
   settings: Settings,
 };
 

@@ -44,6 +44,7 @@ export interface DrStatusSnapshot {
   backup_last_success_at: string | null;
   read_only_mode: boolean;
   primary_region: string;
+  slo_targets: EnterpriseBaselineReport['slo_targets'];
 }
 
 export async function getEnterpriseBaselineReport(): Promise<EnterpriseBaselineReport> {
@@ -58,5 +59,6 @@ export async function getDrStatus(): Promise<DrStatusSnapshot> {
     backup_last_success_at: report.backup_last_success_at ?? null,
     read_only_mode: report.read_only_mode === true,
     primary_region: report.primary_region ?? 'ap-south-1',
+    slo_targets: report.slo_targets,
   };
 }

@@ -110,11 +110,11 @@ const DrStatusPage: React.FC = () => {
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-ink-muted">RPO target</dt>
-              <dd className="font-semibold">&lt; 15 minutes</dd>
+              <dd className="font-semibold">&lt; {snapshot.slo_targets.rpoMinutes} minutes</dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-ink-muted">RTO target</dt>
-              <dd className="font-semibold">&lt; 1 hour</dd>
+              <dd className="font-semibold">&lt; {snapshot.slo_targets.rtoMinutes} minutes</dd>
             </div>
           </dl>
         </div>

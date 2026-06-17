@@ -82,3 +82,30 @@ export async function acceptDpa(version?: string): Promise<{ acceptance: { versi
   );
   return data;
 }
+
+export interface LegalHold {
+  id: string;
+  entityType: string;
+  entityId: string;
+  reason: string;
+  placedBy: string;
+  createdAt: string;
+}
+
+export async function listLegalHolds(): Promise<LegalHold[]> {
+  const { data } = await api.get<{ holds: LegalHold[] }>('/compliance/legal-holds');
+  return data.holds ?? [];
+}
+
+export async function placeLegalHold(payload: {
+  entity_type: string;
+  entity_id: string;
+  reason: string;
+}): Promise<LegalHold> {
+  const { data } = await api.post<{ hold: LegalHold }>('/compliance/legal-holds', payload);
+  return data.hold;
+}
+
+export async function releaseLegalHold(id: string): Promise<void> {
+  await api.post(`/compliance/legal-holds/${id}/release`);
+}
