@@ -311,7 +311,8 @@ const config = {
   cashfree: {
     appId: (process.env.CASHFREE_APP_ID || '').trim(),
     secretKey: (process.env.CASHFREE_SECRET_KEY || '').trim(),
-    sandbox: process.env.CASHFREE_SANDBOX !== 'false',
+    /** true only in sandbox/test environments — must be explicitly opted in, never on by default */
+    sandbox: process.env.CASHFREE_SANDBOX === 'true',
     apiVersion: (process.env.CASHFREE_API_VERSION || '2023-08-01').trim(),
     webhookSecret: (process.env.CASHFREE_WEBHOOK_SECRET || process.env.CASHFREE_SECRET_KEY || '').trim(),
   },

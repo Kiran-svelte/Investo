@@ -58,19 +58,39 @@ export async function countBillableSeats(companyId: string): Promise<number> {
   });
 }
 
+/**
+ * Determines whether a company currently has platform access.
+ *
+ * Enforces trial expiry independently of the billing cron — if trialEndsAt has
+ * passed, access is denied even if billingStatus is still 'trialing'. This is a
+ * safety net for when the cron job misses a run or is delayed.
+ *
+ * @param billingStatus - Current subscription billing status.
+ * @param graceUntil - Grace period end date for past_due accounts, or null.
+ * @param companyStatus - Company-level status ('active', 'suspended', etc.).
+ * @param trialEndsAt - Trial expiry date, required when billingStatus is 'trialing'.
+ * @returns true if the company has access to the platform.
+ */
 export function resolveHasAccess(
   billingStatus: BillingStatus,
   graceUntil: Date | null,
   companyStatus: string,
+  trialEndsAt?: Date | null,
 ): boolean {
   if (companyStatus === 'suspended') return false;
-  if (billingStatus === 'trialing' || billingStatus === 'active') return true;
+  if (billingStatus === 'trialing') {
+    // Independently enforce trial expiry — do not wait for billing cron to flip status.
+    if (trialEndsAt && trialEndsAt.getTime() <= Date.now()) return false;
+    return true;
+  }
+  if (billingStatus === 'active') return true;
   if (billingStatus === 'past_due') {
     if (graceUntil && graceUntil.getTime() > Date.now()) return true;
     return false;
   }
   return false;
 }
+
 
 export function buildSubscriptionSummary(
   sub: {
@@ -111,7 +131,7 @@ export function buildSubscriptionSummary(
     );
   }
 
-  const hasAccess = resolveHasAccess(sub.billingStatus, sub.graceUntil, companyStatus);
+  const hasAccess = resolveHasAccess(sub.billingStatus, sub.graceUntil, companyStatus, sub.trialEndsAt);
   const needsPayment =
     sub.billingStatus === 'trialing' &&
     sub.trialEndsAt != null &&

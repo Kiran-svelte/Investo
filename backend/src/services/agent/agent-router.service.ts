@@ -66,23 +66,18 @@ async function sendStaffCopilotQuickActions(
   }
 }
 
+/**
+ * Sends a plain-text WhatsApp message to a staff member or agent via the company-scoped sender.
+ *
+ * @param phone - Recipient phone in E.164 format.
+ * @param companyId - Company scope for provider selection.
+ * @param message - Plain text content to send.
+ */
 async function sendWhatsAppResponse(phone: string, companyId: string, message: string): Promise<void> {
-  const prisma = await getPrisma();
   const { whatsappService } = await import('../whatsapp.service');
-  const dynamicSender = (whatsappService as any).sendCompanyTextMessage;
-  if (typeof dynamicSender === 'function') {
-    await dynamicSender.call(whatsappService, phone, message, companyId);
-    return;
-  }
-
-  const company = await prisma.company.findUnique({
-    where: { id: companyId },
-    select: { settings: true },
-  });
-  const outboundConfig = await whatsappService.resolveCompanyWhatsAppConfig(companyId);
-  if (!outboundConfig) return;
-  await whatsappService.sendMessage(phone, message, outboundConfig);
+  await whatsappService.sendCompanyTextMessage(phone, message, companyId);
 }
+
 
 type AgentMessageResult = {
   text: string;

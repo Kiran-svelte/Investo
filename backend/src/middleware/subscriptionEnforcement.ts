@@ -61,6 +61,7 @@ export async function requireActivePaidSubscription(
       company.subscription.billingStatus,
       company.subscription.graceUntil,
       company.status,
+      company.subscription.trialEndsAt,
     );
 
     if (!hasAccess) {

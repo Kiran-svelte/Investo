@@ -189,18 +189,36 @@ export async function confirmPayment(orderId: string, companyId: string): Promis
   return true;
 }
 
+/**
+ * Processes a Cashfree payment success webhook event.
+ * Uses atomic updateMany (WHERE status = 'pending') to prevent double-processing
+ * when Cashfree delivers the same webhook event more than once concurrently.
+ *
+ * @param orderId - Cashfree order ID from the webhook payload.
+ * @param paymentId - Cashfree payment ID (cf_payment_id), if available.
+ */
 export async function handleCashfreeWebhook(orderId: string, paymentId?: string): Promise<void> {
-  const payment = await prisma.payment.findFirst({ where: { cashfreeOrderId: orderId } });
-  if (!payment || payment.status === 'success') return;
-
-  await prisma.payment.update({
-    where: { id: payment.id },
+  // Atomic claim: only one concurrent call can set status=success.
+  // If rowCount === 0, this webhook was already processed — safe to ignore.
+  const result = await prisma.payment.updateMany({
+    where: { cashfreeOrderId: orderId, status: { not: 'success' } },
     data: {
       status: 'success',
       paidAt: new Date(),
       cashfreePaymentId: paymentId || orderId,
     },
   });
+
+  if (result.count === 0) {
+    logger.info('handleCashfreeWebhook: duplicate delivery or already processed, skipping', { orderId });
+    return;
+  }
+
+  const payment = await prisma.payment.findFirst({ where: { cashfreeOrderId: orderId } });
+  if (!payment) {
+    logger.error('handleCashfreeWebhook: payment row missing after successful update — data inconsistency', { orderId });
+    return;
+  }
 
   if (payment.invoiceId) {
     await markInvoicePaid(payment.invoiceId, paymentId || orderId, payment.method);
@@ -209,5 +227,6 @@ export async function handleCashfreeWebhook(orderId: string, paymentId?: string)
   await activateSubscription(payment.companyId, payment.method);
   await logBillingEvent(payment.companyId, 'webhook_payment_success', { orderId });
 }
+
 
 export { getSubscriptionSummary };

@@ -21,6 +21,17 @@ export interface ScheduleVisitInput {
   agentId?: string;
   /** Shared idempotency key across workflow, commit, and tool paths. */
   idempotencyKey?: string;
+  /**
+   * When true, skips canTransitionLeadToVisitScheduledStatus check.
+   * Use ONLY in the agent approval path where the lead may already be
+   * visit_scheduled from a prior optimistic update.
+   */
+  skipLeadTransitionCheck?: boolean;
+  /**
+   * When true, skips the ±1h agent calendar conflict check.
+   * Use in the agent approval path: the agent manually reviewed and confirmed the slot.
+   */
+  skipConflictCheck?: boolean;
 }
 
 /** Shared visit booking idempotency key shape (workflow + commit + tools). */
@@ -74,7 +85,7 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
     return { success: false, error: 'lead_not_found' };
   }
 
-  if (!canTransitionLeadToVisitScheduledStatus(lead.status)) {
+  if (!input.skipLeadTransitionCheck && !canTransitionLeadToVisitScheduledStatus(lead.status)) {
     return { success: false, error: 'invalid_lead_transition' };
   }
 
@@ -106,13 +117,15 @@ export async function scheduleVisit(input: ScheduleVisitInput): Promise<Schedule
     where: {
       agentId,
       companyId,
-      status: { not: 'cancelled' },
+      // Exclude terminal states: cancelled (rejected), no_show (customer didn't attend — agent free),
+      // and completed (past event). Only active upcoming visits create real calendar conflicts.
+      status: { notIn: ['cancelled', 'completed', 'no_show'] },
       scheduledAt: { gte: bufferStart, lte: bufferEnd },
     },
     select: { id: true, scheduledAt: true },
   });
 
-  if (conflicts.length > 0) {
+  if (!input.skipConflictCheck && conflicts.length > 0) {
     return {
       success: false,
       error: 'agent_conflict',

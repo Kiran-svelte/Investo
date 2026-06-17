@@ -320,10 +320,27 @@ export async function resolveVisitApproval(
   companyId: string,
   agentId: string,
 ): Promise<{ ok: boolean; message: string }> {
-  const pending = await findPendingVisitApproval(companyId, agentId, approvalId);
-  if (!pending) {
+  // Look up by approvalId only — any authorised staff member may tap Confirm,
+  // not just the originally assigned agent. agentId filter would reject valid taps.
+  const approval = await getBookingApprovalById(approvalId);
+  if (!approval || approval.companyId !== companyId) {
+    return { ok: false, message: 'Visit approval not found.' };
+  }
+  // Idempotency: agent double-tapped — return a helpful already-done message
+  if (approval.status === 'approved') {
+    return { ok: true, message: '✅ Visit was already confirmed. Customer has been notified.' };
+  }
+  if (approval.status === 'declined') {
+    return { ok: false, message: 'This visit request was already declined.' };
+  }
+  if (approval.status !== 'pending') {
     return { ok: false, message: 'No pending visit request found (it may have expired).' };
   }
+  const pending = await toVisitPayload(approval as BookingApprovalRow);
+  if (!pending) {
+    return { ok: false, message: 'Visit approval data is incomplete.' };
+  }
+
 
   const { whatsappService } = await import('./whatsapp.service');
 
@@ -367,6 +384,10 @@ export async function resolveVisitApproval(
       scheduledAt,
       agentId,
       notes: 'Confirmed by agent via WhatsApp',
+      // Agent tapped Confirm — skip lead-state and calendar-conflict guards.
+      // The agent has consciously reviewed and approved this specific slot.
+      skipLeadTransitionCheck: true,
+      skipConflictCheck: true,
     });
 
     if (!booking.success || !booking.visit) {

@@ -210,7 +210,11 @@ export class EmailService {
     try {
       await this.sendEmail({ to: params.toEmail, subject, text, html });
       return true;
-    } catch {
+    } catch (err: unknown) {
+      logger.warn('sendAgencyInviteEmail failed', {
+        toEmail: params.toEmail,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     }
   }
@@ -240,7 +244,12 @@ export class EmailService {
     try {
       await this.sendEmail({ to: params.toEmail, subject, text, html });
       return true;
-    } catch {
+    } catch (err: unknown) {
+      logger.warn('sendTrialReminderEmail failed', {
+        toEmail: params.toEmail,
+        daysLeft: params.daysLeft,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     }
   }
@@ -267,7 +276,11 @@ export class EmailService {
     try {
       await this.sendEmail({ to: params.toEmail, subject, text, html });
       return true;
-    } catch {
+    } catch (err: unknown) {
+      logger.warn('sendTrialExpiredEmail failed', {
+        toEmail: params.toEmail,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     }
   }
@@ -294,7 +307,11 @@ export class EmailService {
     try {
       await this.sendEmail({ to: params.toEmail, subject, text, html });
       return true;
-    } catch {
+    } catch (err: unknown) {
+      logger.warn('sendAccountSuspendedEmail failed', {
+        toEmail: params.toEmail,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     }
   }
