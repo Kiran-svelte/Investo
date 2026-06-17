@@ -13,11 +13,36 @@ const router = Router();
 router.use(authenticate);
 
 function featureDisabled(res: Response): boolean {
-  if (!config.features.dsr && !config.features.complianceRetention && !config.features.complianceDpa) {
+  if (
+    !config.features.dsr
+    && !config.features.complianceRetention
+    && !config.features.complianceLegalHold
+    && !config.features.complianceDpa
+  ) {
     res.status(503).json({ error: 'Compliance features are disabled' });
     return true;
   }
   return false;
+}
+
+function normalizeRetentionBody(body: Record<string, unknown>) {
+  const leadDays = body.leadDays ?? body.leadInactiveDays ?? body.lead_inactive_days;
+  const messageDays = body.messageDays ?? body.message_days;
+  const auditDays = body.auditDays ?? body.audit_days;
+  const inactiveCompanyDays = body.inactiveCompanyDays ?? body.inactive_company_days;
+  return {
+    ...(leadDays !== undefined ? { leadDays: Number(leadDays) } : {}),
+    ...(messageDays !== undefined ? { messageDays: Number(messageDays) } : {}),
+    ...(auditDays !== undefined ? { auditDays: Number(auditDays) } : {}),
+    ...(inactiveCompanyDays !== undefined ? { inactiveCompanyDays: Number(inactiveCompanyDays) } : {}),
+  };
+}
+
+function serializeRetentionPolicy(policy: Record<string, unknown>) {
+  return {
+    ...policy,
+    leadInactiveDays: policy.leadDays,
+  };
 }
 
 router.get('/status', hasRole('company_admin', 'super_admin'), (_req: AuthRequest, res: Response) => {
@@ -119,7 +144,7 @@ router.get('/retention', hasRole('company_admin', 'super_admin'), async (req: Au
     return;
   }
   const policy = await retentionService.getPolicy(companyId);
-  res.json({ policy });
+  res.json({ policy: serializeRetentionPolicy(policy as Record<string, unknown>) });
 });
 
 router.put('/retention', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
@@ -132,8 +157,8 @@ router.put('/retention', hasRole('company_admin', 'super_admin'), async (req: Au
     res.status(400).json({ error: 'Company context required' });
     return;
   }
-  const policy = await retentionService.upsertPolicy(companyId, req.body || {});
-  res.json({ policy });
+  const policy = await retentionService.upsertPolicy(companyId, normalizeRetentionBody(req.body || {}));
+  res.json({ policy: serializeRetentionPolicy(policy as Record<string, unknown>) });
 });
 
 router.get('/legal-holds', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
