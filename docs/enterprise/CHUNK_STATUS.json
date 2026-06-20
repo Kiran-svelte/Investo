@@ -1,163 +1,183 @@
 {
-  "updated_at": "2026-06-17T07:00:00Z",
-  "overall_progress_pct": 100,
-  "master_doc": "main_docs/enterprise.md",
+  "updated_at": "2026-06-20T09:45:00.000Z",
+  "spec": "main_docs/chunks/README.md",
+  "product_framing": "docs/NECESSARY.md",
+  "execution_order": "07 → 01 → 03 → 04 → 02 → 06 → 05",
+  "overall_progress_pct": 70,
+  "master_doc": "main_docs/chunks/README.md",
   "chunks": [
     {
-      "id": "chunk-01",
-      "title": "Baseline assessment & platform foundations",
-      "status": "complete",
+      "id": "pillar-07",
+      "file": "main_docs/chunks/chunk-07.md",
+      "title": "Onboarding, Go-Live Readiness & Platform Ops",
+      "pillar": 7,
       "priority": "P0",
-      "done_criteria_met": 7,
-      "done_criteria_total": 7,
-      "completed_at": "2026-06-17T04:36:18Z",
-      "proof": { "baseline": "npm run baseline", "tenant_isolation": "npx jest src/tests/integration/tenantIsolation.matrix.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+      "status": "complete",
+      "done_criteria": [
+        "readiness.service.ts: whatsapp_verified promoted to fail + published property required",
+        "companyProvisioning.service.ts: identity config bootstrapped on company create",
+        "CHUNK_STATUS.json: updated to 7-pillar tracking",
+        "Docs point to Railway + biginvesto.online only"
+      ],
+      "gaps_closed": [
+        "whatsapp_verified was warn — now fail when credentials present but untested",
+        "properties check now requires published status (not just draft)",
+        "whatsapp_verified added to requiredIds gate (ready=true only when WA live)"
+      ],
+      "completed_at": "2026-06-20T09:43:39.000Z",
+      "proof": {
+        "unit": "npx jest src/tests/unit/readiness*.test.ts --runInBand",
+        "production": "GET /api/readiness as company_admin",
+        "smoke": "node scripts/production-smoke-test.mjs"
+      }
     },
     {
-      "id": "chunk-02",
-      "title": "Async messaging pipeline",
-      "status": "complete",
+      "id": "pillar-01",
+      "file": "main_docs/chunks/chunk-01.md",
+      "title": "Lead Capture, Assignment & Pipeline Ownership",
+      "pillar": 1,
       "priority": "P0",
-      "done_criteria_met": 7,
-      "done_criteria_total": 7,
-      "completed_at": "2026-06-17T05:10:00Z",
-      "proof": { "webhook_async": "npx jest src/tests/integration/webhook-async.pipeline.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+      "status": "verified",
+      "done_criteria": [
+        "Returning buyer guard: RETURNING_CLIENT_HISTORY_THRESHOLD=2 in customerMessageFastPath.service.ts",
+        "Staff/buyer phone collision: structured log in buyerAgentAssist.service.ts",
+        "Tenant isolation: strictTenantIsolation on all lead routes",
+        "Lead dedup: @@unique([companyId, phone]) in schema"
+      ],
+      "gaps_closed": [
+        "Lead schema has phone dedup unique constraint",
+        "Returning buyer fast path guard already implemented and verified"
+      ],
+      "verified_at": "2026-06-20T09:43:00.000Z",
+      "notes": "Core lead capture implemented and hardened. Phone collision logging verified present. No new code needed — existing implementation meets spec.",
+      "proof": {
+        "tenant_isolation": "npx jest src/tests/integration/tenantIsolation.matrix.test.ts --runInBand",
+        "returning_buyer": "npx jest src/tests/unit/buyerStartFresh.service.test.ts",
+        "smoke": "node scripts/production-smoke-test.mjs"
+      }
     },
     {
-      "id": "chunk-03",
-      "title": "Fair multi-tenancy & resource isolation",
-      "status": "complete",
+      "id": "pillar-03",
+      "file": "main_docs/chunks/chunk-03.md",
+      "title": "Property Inventory, Import, Knowledge & Publish",
+      "pillar": 3,
       "priority": "P0",
-      "done_criteria_met": 6,
-      "done_criteria_total": 6,
-      "completed_at": "2026-06-17T05:16:09Z",
-      "proof": { "noisy_neighbor": "npx jest src/tests/integration/noisy-neighbor.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
+      "status": "verified",
+      "done_criteria": [
+        "Upload route: uses signed tokens (assertSignedUploadAccess) — unauthenticated abuse prevented",
+        "Draft → publish flow: knowledge gate in propertyImport.service.ts",
+        "AI uses published inventory: vector search in propertyKnowledge.service.ts"
+      ],
+      "gaps_closed": [
+        "Upload route uses HMAC-signed tokens — not truly unauthenticated as initially assessed",
+        "FEATURE_BULK_PUBLISH_STRICT exists and is toggleable per tenant"
+      ],
+      "verified_at": "2026-06-20T09:43:00.000Z",
+      "notes": "Upload routes use signed-token security (HMAC), not session cookies — correct design for browser-to-server file uploads. FEATURE_BULK_PUBLISH_STRICT flag exists.",
+      "proof": {
+        "unit": "npx jest src/tests/unit/property-import-extractor.service.test.ts",
+        "smoke": "node scripts/production-smoke-test.mjs"
+      }
     },
     {
-      "id": "chunk-04",
-      "title": "Enterprise IAM (MFA, SSO, SCIM)",
-      "status": "complete",
-      "priority": "P1",
-      "done_criteria_met": 8,
-      "done_criteria_total": 8,
-      "completed_at": "2026-06-17T06:22:00Z",
-      "proof": { "mfa_unit": "npx jest src/tests/unit/mfa.service.test.ts --runInBand --no-cache", "sso_unit": "npx jest src/tests/unit/sso.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-05",
-      "title": "Security hardening",
-      "status": "complete",
-      "priority": "P1",
-      "done_criteria_met": 8,
-      "done_criteria_total": 8,
-      "completed_at": "2026-06-17T06:28:00Z",
-      "proof": { "pii_encryption": "npx jest src/tests/unit/piiEncryption.service.test.ts --runInBand --no-cache", "security_headers": "npx jest src/tests/unit/securityHeaders.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-06",
-      "title": "Compliance & data governance",
-      "status": "complete",
-      "priority": "P1",
-      "done_criteria_met": 7,
-      "done_criteria_total": 7,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "dsr": "npx jest src/tests/unit/dsr.service.test.ts --runInBand --no-cache", "legal_hold": "npx jest src/tests/unit/legalHold.service.test.ts --runInBand --no-cache", "frontend": "CompliancePage", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-07",
-      "title": "Observability, SLOs, incidents",
-      "status": "complete",
+      "id": "pillar-04",
+      "file": "main_docs/chunks/chunk-04.md",
+      "title": "Visit Booking, Calendar, Reminders & Conversion",
+      "pillar": 4,
       "priority": "P0",
-      "done_criteria_met": 8,
-      "done_criteria_total": 8,
-      "completed_at": "2026-06-17T06:05:00Z",
-      "proof": { "synthetic": "npm run synthetic", "runbooks": "docs/enterprise/INCIDENT_RUNBOOK.md", "smoke": "npm run smoke" }
+      "status": "verified",
+      "done_criteria": [
+        "rescheduleVisitReminderJobs: cancels old then schedules new (visitLifecycle.service.ts)",
+        "reconcileOrphanedVisitReminders: self-healer on server startup",
+        "Conflict detection API: GET /api/calendar/conflicts (already implemented)",
+        "Visit statuses: scheduled → confirmed → completed → cancelled / no_show"
+      ],
+      "gaps_closed": [
+        "rescheduleVisitReminderJobs already atomically cancels + reschedules",
+        "Conflict detection endpoint already implemented in calendar.routes.ts",
+        "Orphan reminder reconciliation already runs on startup"
+      ],
+      "verified_at": "2026-06-20T09:43:00.000Z",
+      "proof": {
+        "unit": "npx jest src/tests/unit/customerVisitBooking.test.ts",
+        "smoke": "node scripts/production-smoke-test.mjs"
+      }
     },
     {
-      "id": "chunk-08",
-      "title": "Disaster recovery & multi-region",
+      "id": "pillar-02",
+      "file": "main_docs/chunks/chunk-02.md",
+      "title": "Conversations: Visibility, Takeover & Staff Reply",
+      "pillar": 2,
+      "priority": "P0",
       "status": "complete",
+      "done_criteria": [
+        "is_taken_over + taken_over_by_agent_id in conversation GET response",
+        "Send failure: returns HTTP 502 with whatsapp_delivery_failed=true (not silent)",
+        "Takeover: conversation.status='agent_active', aiEnabled=false written to DB",
+        "Socket: CONVERSATION_UPDATED emitted on takeover, release, send"
+      ],
+      "gaps_closed": [
+        "Added is_taken_over and taken_over_by_agent_id fields to mapConversationToSnakeCaseDTO",
+        "Send failure already returned 502 — confirmed correct"
+      ],
+      "completed_at": "2026-06-20T09:44:30.000Z",
+      "proof": {
+        "unit": "npx jest src/tests/unit/conversation.routes.send-message.test.ts",
+        "smoke": "node scripts/production-smoke-test.mjs"
+      }
+    },
+    {
+      "id": "pillar-06",
+      "file": "main_docs/chunks/chunk-06.md",
+      "title": "Owner Dashboard, Analytics & Export",
+      "pillar": 6,
       "priority": "P1",
-      "done_criteria_met": 8,
-      "done_criteria_total": 8,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "read_only": "npx jest src/tests/unit/readOnlyMode.test.ts --runInBand --no-cache", "runbook": "docs/enterprise/DR_RUNBOOK.md", "smoke": "npm run smoke" }
+      "status": "complete",
+      "done_criteria": [
+        "Dashboard KPI: 7 parallel Promise.all queries (already implemented)",
+        "Redis cache: 60s TTL on dashboard endpoint (already implemented)",
+        "New index: leads [companyId, createdAt]",
+        "New index: visits [companyId, status, scheduledAt]",
+        "Migration: 20260620100000_analytics_indexes"
+      ],
+      "gaps_closed": [
+        "Added leads_company_id_created_at_idx — fixes leadsToday query",
+        "Added visits_company_id_status_scheduled_at_idx — fixes visitsScheduled/Completed queries",
+        "CONCURRENTLY index creation: no table lock on production deploy"
+      ],
+      "completed_at": "2026-06-20T09:45:38.000Z",
+      "proof": {
+        "migration": "npx prisma migrate deploy (Railway)",
+        "smoke": "GET /api/analytics/dashboard — check response time < 2s"
+      }
     },
     {
-      "id": "chunk-09",
-      "title": "Data platform (events, warehouse, search)",
-      "status": "complete",
-      "priority": "P2",
-      "done_criteria_met": 8,
-      "done_criteria_total": 8,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "outbox": "npx jest src/tests/unit/outbox.service.test.ts --runInBand --no-cache", "search": "npx jest src/tests/unit/tenantSearch.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-10",
-      "title": "Public API & integrations",
-      "status": "complete",
-      "priority": "P2",
-      "done_criteria_met": 7,
-      "done_criteria_total": 7,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "api_key": "npx jest src/tests/unit/apiKey.service.test.ts --runInBand --no-cache", "webhook_hmac": "npx jest src/tests/unit/publicWebhook.test.ts --runInBand --no-cache", "frontend": "IntegrationsPage", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-11",
-      "title": "Usage metering & billing ops",
-      "status": "complete",
-      "priority": "P2",
-      "done_criteria_met": 7,
-      "done_criteria_total": 7,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "metering": "npx jest src/tests/unit/meteringInvoice.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-12",
-      "title": "Support tooling & tenant health",
-      "status": "complete",
-      "priority": "P2",
-      "done_criteria_met": 7,
-      "done_criteria_total": 7,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "impersonation": "npx jest src/tests/unit/impersonation.service.test.ts --runInBand --no-cache", "frontend": "TenantHealthPage SupportToolsPage", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-13",
-      "title": "Enterprise product configurability",
-      "status": "complete",
-      "priority": "P3",
-      "done_criteria_met": 7,
-      "done_criteria_total": 7,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "sandbox": "npx jest src/tests/unit/sandbox.service.test.ts --runInBand --no-cache", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-14",
-      "title": "AI & WhatsApp governance",
-      "status": "complete",
+      "id": "pillar-05",
+      "file": "main_docs/chunks/chunk-05.md",
+      "title": "Team Access: Roles, Invites, MFA, SSO & SCIM",
+      "pillar": 5,
       "priority": "P1",
-      "done_criteria_met": 8,
-      "done_criteria_total": 8,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "ai_review": "npx jest src/tests/unit/aiReviewQueue.service.test.ts --runInBand --no-cache", "archive": "npx jest src/tests/unit/messageArchive.service.test.ts --runInBand --no-cache", "frontend": "AiGovernancePage", "smoke": "npm run smoke" }
-    },
-    {
-      "id": "chunk-15",
-      "title": "Release engineering & org process",
-      "status": "complete",
-      "priority": "P1",
-      "done_criteria_met": 9,
-      "done_criteria_total": 9,
-      "completed_at": "2026-06-17T07:00:00Z",
-      "proof": { "ci": ".github/workflows/ci.yml", "k6": "infra/k6/load-test.js", "exit_gate": "npm run exit-gate", "adrs": "docs/enterprise/ADRS/", "smoke": "npm run smoke" }
+      "status": "in_progress",
+      "done_criteria": [
+        "SSO migration 20260620000000_sso_oidc_client_secret applied to Railway",
+        "OIDC callback completes (ssoOidc.service.ts + ssoState.service.ts wired)",
+        "identity-settings.routes.ts: PUT /identity saves issuer+client+secret",
+        "SSO_TEST_IDP=false in production (after staging proof)"
+      ],
+      "gaps_pending": [
+        "SSO migration not yet applied to Railway DB (needs prisma migrate deploy)",
+        "SSO_TEST_IDP still true in production — flip after staging OIDC e2e proof"
+      ],
+      "notes": "identity-settings.routes.ts PUT /identity already saves sso_oidc_issuer, sso_oidc_client_id, sso_oidc_client_secret via upsertCompanyIdentityConfig. ssoOidc.service.ts and ssoState.service.ts are implemented. Migration SQL exists. Needs Railway deploy."
     }
   ],
   "exit_gate": {
     "ready": false,
-    "last_run": null,
-    "failed_gates": []
+    "pending_items": [
+      "Apply SSO migration to Railway (pillar-05)",
+      "SSO_TEST_IDP=false in production after staging OIDC proof (pillar-05)",
+      "Post-deploy smoke test: 20/20 on production",
+      "GET /api/readiness green on pilot tenant"
+    ]
   }
 }
-

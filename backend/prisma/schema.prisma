@@ -486,6 +486,8 @@ model Lead {
   @@index([companyId, assignedAgentId])
   @@index([phone])
   @@index([companyId, lastContactAt])
+  // Chunk-06: analytics dashboard 'leads today' query — companyId + createdAt filter.
+  @@index([companyId, createdAt])
   /// Prevent duplicate leads for the same phone number within a company.
   /// Handles concurrent webhook retries that both try to create a new lead.
   @@unique([companyId, phone])
@@ -856,6 +858,8 @@ model Visit {
 
   @@index([companyId, scheduledAt])
   @@index([agentId, scheduledAt])
+  // Chunk-06: analytics dashboard 'visits by status' query — companyId + status + scheduledAt.
+  @@index([companyId, status, scheduledAt])
   @@map("visits")
 }
 

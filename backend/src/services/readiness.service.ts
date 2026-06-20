@@ -1,5 +1,4 @@
 import prisma from '../config/prisma';
-import config from '../config';
 
 export type ReadinessCheckStatus = 'pass' | 'fail' | 'warn';
 
@@ -17,14 +16,18 @@ export interface TenantReadinessReport {
   checks: ReadinessCheck[];
 }
 
+/** Extract the whatsapp sub-object from company settings JSON. */
 function getWhatsAppSettings(settings: unknown): Record<string, unknown> {
   if (!settings || typeof settings !== 'object') {
     return {};
   }
   const whatsapp = (settings as Record<string, unknown>).whatsapp;
-  return whatsapp && typeof whatsapp === 'object' ? (whatsapp as Record<string, unknown>) : {};
+  return whatsapp && typeof whatsapp === 'object'
+    ? (whatsapp as Record<string, unknown>)
+    : {};
 }
 
+/** Returns true if phone number ID + access token are both present and non-empty. */
 function hasWhatsAppCredentials(settings: unknown): boolean {
   const whatsapp = getWhatsAppSettings(settings);
   const meta = (whatsapp.meta as Record<string, unknown>) || {};
@@ -34,23 +37,28 @@ function hasWhatsAppCredentials(settings: unknown): boolean {
 }
 
 /**
- * WhatsApp is "verified" only when it has been explicitly tested and
- * `verifiedAt` / `lastVerifiedAt` is recorded in company settings.
- * When credentials exist but verification has never been run we return
- * status='fail' (not 'warn') so the readiness gate blocks correctly per
- * Chunk-07 spec: "Readiness green only when WhatsApp verified".
+ * Derives the verification status for the WhatsApp readiness check.
+ *
+ * Chunk-07 requirement: readiness must be `ready=true` ONLY when WhatsApp is
+ * actually verified. To enforce this, the check is:
+ *   - 'pass'  — credentials present AND last test succeeded (verifiedAt set)
+ *   - 'fail'  — credentials present BUT never tested  ← promoted from 'warn'
+ *   - 'warn'  — no credentials at all (handled separately by whatsapp_credentials check)
+ *
+ * @param settings - Raw company.settings JSON value
+ * @returns ReadinessCheckStatus
  */
-function getWhatsAppVerificationStatus(settings: unknown): ReadinessCheckStatus {
+function getWhatsAppVerifiedStatus(settings: unknown): ReadinessCheckStatus {
   const whatsapp = getWhatsAppSettings(settings);
   const hasCredentials = hasWhatsAppCredentials(settings);
 
   if (!hasCredentials) {
-    // No credentials at all — handled by whatsapp_credentials check.
+    // No credentials — whatsapp_credentials check will handle this.
     return 'warn';
   }
 
   const isVerified = Boolean(whatsapp.verifiedAt || whatsapp.lastVerifiedAt);
-  // Credentials present but never tested → fail (blocks readiness.ready).
+  // Credentials present but never tested → fail so ready gate blocks.
   return isVerified ? 'pass' : 'fail';
 }
 
@@ -61,21 +69,29 @@ function isMailConfigured(): boolean {
 }
 
 export async function getTenantReadiness(companyId: string): Promise<TenantReadinessReport> {
-  const [company, onboarding, totalPropertyCount, publishedImportCount, userCount, aiSettings] =
-    await Promise.all([
-      prisma.company.findUnique({
-        where: { id: companyId },
-        select: { name: true, whatsappPhone: true, settings: true, status: true },
-      }),
-      prisma.companyOnboarding.findUnique({ where: { companyId } }),
-      prisma.property.count({ where: { companyId } }),
-      prisma.propertyImportDraft.count({ where: { companyId, status: 'published' } }),
-      prisma.user.count({ where: { companyId, status: 'active' } }),
-      prisma.aiSetting.findUnique({
-        where: { companyId },
-        select: { businessName: true, operatingLocations: true },
-      }),
-    ]);
+  const [
+    company,
+    onboarding,
+    publishedPropertyCount,
+    totalPropertyCount,
+    userCount,
+    aiSettings,
+  ] = await Promise.all([
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true, whatsappPhone: true, settings: true, status: true },
+    }),
+    prisma.companyOnboarding.findUnique({ where: { companyId } }),
+    // Chunk-07: at least one AVAILABLE (buyer-visible) property required.
+    // PropertyStatus enum: available | sold | upcoming — no 'published' enum value.
+    prisma.property.count({ where: { companyId, status: 'available' } }),
+    prisma.property.count({ where: { companyId } }),
+    prisma.user.count({ where: { companyId, status: 'active' } }),
+    prisma.aiSetting.findUnique({
+      where: { companyId },
+      select: { businessName: true, operatingLocations: true },
+    }),
+  ]);
 
   if (!company) {
     return {
@@ -89,9 +105,7 @@ export async function getTenantReadiness(companyId: string): Promise<TenantReadi
   const locations = Array.isArray(aiSettings?.operatingLocations)
     ? aiSettings!.operatingLocations
     : [];
-
-  const catalogReadyCount = totalPropertyCount;
-  const waVerificationStatus = getWhatsAppVerificationStatus(company.settings);
+  const waVerifiedStatus = getWhatsAppVerifiedStatus(company.settings);
 
   const checks: ReadinessCheck[] = [
     {
@@ -112,13 +126,15 @@ export async function getTenantReadiness(companyId: string): Promise<TenantReadi
     },
     {
       id: 'properties',
-      label: 'Property catalog (published)',
-      // Chunk-07: must have at least one PUBLISHED property, not just a draft.
-      status: catalogReadyCount > 0 ? 'pass' : 'fail',
+      label: 'Property catalog (at least one available)',
+      // Chunk-07: requires at least one AVAILABLE property (buyer-visible).
+      status: publishedPropertyCount > 0 ? 'pass' : 'fail',
       detail:
-        catalogReadyCount > 0
-          ? `${catalogReadyCount} propert${catalogReadyCount === 1 ? 'y' : 'ies'}${publishedImportCount > 0 ? ` (${publishedImportCount} via import)` : ''}`
-          : 'Add and publish at least one property for the AI to recommend inventory',
+        publishedPropertyCount > 0
+          ? `${publishedPropertyCount} available propert${publishedPropertyCount === 1 ? 'y' : 'ies'}`
+          : totalPropertyCount > 0
+          ? `${totalPropertyCount} propert${totalPropertyCount === 1 ? 'y' : 'ies'} exist but none are available — set at least one to 'available' so AI can recommend inventory`
+          : 'Add at least one property and set it to available so AI can recommend inventory',
       actionPath: '/properties',
     },
     {
@@ -152,12 +168,12 @@ export async function getTenantReadiness(companyId: string): Promise<TenantReadi
     {
       id: 'whatsapp_verified',
       label: 'WhatsApp connection tested',
-      // Chunk-07: upgraded from warn → fail when credentials exist but unverified.
-      status: waVerificationStatus,
+      // Chunk-07: upgraded from warn → fail when credentials present but unverified.
+      status: waVerifiedStatus,
       detail:
-        waVerificationStatus === 'pass'
+        waVerifiedStatus === 'pass'
           ? 'Last connection test succeeded'
-          : waVerificationStatus === 'fail'
+          : waVerifiedStatus === 'fail'
           ? 'Run Test Connection after saving credentials — WhatsApp is not live until verified'
           : 'Save credentials first, then run Test Connection',
       actionPath: '/ai-settings',
@@ -189,8 +205,8 @@ export async function getTenantReadiness(companyId: string): Promise<TenantReadi
 
   const passCount = checks.filter((c) => c.status === 'pass').length;
 
-  // Chunk-07 required gate: all of these must pass before ready=true.
-  // whatsapp_verified promoted to required (was previously only in warn tier).
+  // Chunk-07 gate: ALL of these must be 'pass' for ready=true.
+  // whatsapp_verified is now required (not just a warning).
   const requiredIds = new Set([
     'company_active',
     'onboarding_complete',

@@ -94,6 +94,13 @@ function mapMessageToDTO(msg: any) {
 }
 
 function mapConversationToSnakeCaseDTO(conv: any, options?: { lastMessage?: any | null }) {
+  /**
+   * is_taken_over: true when a human agent has paused the AI and is replying
+   * directly. Derived from status='agent_active' so the frontend never needs
+   * a separate field to show the takeover banner.
+   */
+  const isTakenOver = conv.status === 'agent_active';
+
   return {
     id: conv.id,
     company_id: conv.companyId,
@@ -102,6 +109,9 @@ function mapConversationToSnakeCaseDTO(conv: any, options?: { lastMessage?: any 
     status: conv.status,
     language: conv.language,
     ai_enabled: conv.aiEnabled,
+    // Chunk-02: explicit takeover state for frontend banner / thread header.
+    is_taken_over: isTakenOver,
+    taken_over_by_agent_id: isTakenOver ? (conv.lead?.assignedAgentId ?? null) : null,
     stage: conv.stage,
     stage_entered_at: toIsoString(conv.stageEnteredAt),
     stage_message_count: conv.stageMessageCount,
