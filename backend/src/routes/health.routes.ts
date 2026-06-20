@@ -161,7 +161,8 @@ router.get('/enterprise', authenticate, hasRole('super_admin'), async (_req: Req
       signals: {
         quotaMiddlewareWired: true,
         retentionPurgeScheduled: config.features.complianceRetention === true,
-        oidcSsoProductionReady: config.features.sso === true && config.identity.ssoTestIdp !== true,
+        oidcSsoProductionReady: config.features.sso === true
+          && (config.keycloak.enabled === true || config.identity.ssoTestIdp !== true),
       },
     }),
     backup_age_hours: dr.backup_age_hours,

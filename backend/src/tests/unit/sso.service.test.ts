@@ -8,6 +8,10 @@ jest.mock('../../config', () => ({
       ssoTestIdp: true,
       ssoCallbackBaseUrl: 'https://api.test',
     },
+    keycloak: {
+      enabled: false,
+      ssoAllTenants: false,
+    },
   },
 }));
 
@@ -24,11 +28,22 @@ jest.mock('../../config/prisma', () => ({
   },
 }));
 
+jest.mock('../../identity/keycloak/platformKeycloak.service', () => ({
+  isPlatformKeycloakEnabled: jest.fn(() => false),
+  resolveCompanyForSsoLogin: jest.fn().mockResolvedValue({
+    companyId: 'company-other',
+    config: { sso_enabled: true },
+  }),
+  resolveOidcCredentialsForCompany: jest.fn(),
+  getPlatformKeycloakOidcConfig: jest.fn(() => null),
+}));
+
 jest.mock('../../identity/identityConfig.service', () => ({
   resolveCompanyByEmailDomain: jest.fn().mockResolvedValue({
     companyId: 'company-other',
     config: { sso_enabled: true },
   }),
+  getCompanyIdentityConfigRow: jest.fn(),
 }));
 
 jest.mock('../../services/auth.service', () => ({

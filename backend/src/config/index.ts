@@ -529,6 +529,15 @@ const config = {
       || 'http://127.0.0.1:3001'
     ).replace(/\/+$/, ''),
   },
+  keycloak: {
+    enabled: process.env.KEYCLOAK_ENABLED === 'true',
+    baseUrl: (process.env.KEYCLOAK_URL || process.env.KEYCLOAK_PUBLIC_URL || '').replace(/\/+$/, ''),
+    realm: (process.env.KEYCLOAK_REALM || 'investo').trim(),
+    clientId: (process.env.KEYCLOAK_CLIENT_ID || 'investo-app').trim(),
+    clientSecret: (process.env.KEYCLOAK_CLIENT_SECRET || '').trim(),
+    /** When true, any active user may SSO even if company sso_enabled is false. */
+    ssoAllTenants: process.env.KEYCLOAK_SSO_ALL_TENANTS === 'true',
+  },
   langgraph: {
     enabled: process.env.LANGGRAPH_ENABLED === 'true',
     url: (process.env.LANGGRAPH_URL || 'http://localhost:8000').replace(/\/+$/, ''),

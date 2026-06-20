@@ -2,11 +2,16 @@ import { Router, Request, Response } from 'express';
 
 import config from '../../config';
 import { ssoService } from '../sso/sso.service';
+import { getPublicSsoConfig } from '../keycloak/platformKeycloak.service';
 import { normalizeAuthEmail } from '../../services/auth.service';
 import { setAuthSessionCookies, authSessionResponseMeta } from '../../utils/authSessionCookies.util';
 import prisma from '../../config/prisma';
 
 const router = Router();
+
+router.get('/config', (_req: Request, res: Response) => {
+  res.json({ data: getPublicSsoConfig() });
+});
 
 function redirectSsoError(res: Response, message: string): void {
   const url = new URL(`${config.frontend.baseUrl}/auth/sso`);

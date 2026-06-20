@@ -15,7 +15,7 @@ if (!token) {
   process.exit(1);
 }
 
-const PROJECT_ID = process.env.RAILWAY_PROJECT_ID || 'd21a6fc9-9759-4159-ab30-6d0731d8b57e';
+const PROJECT_ID = process.env.RAILWAY_PROJECT_ID || 'af15cb2b-b9ff-49cf-979d-a34b7c871359';
 const GRAPHQL = 'https://backboard.railway.com/graphql/v2';
 
 async function gql(query, variables = {}) {

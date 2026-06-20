@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Building2, Loader2, Shield } from 'lucide-react';
 import { AxiosError } from 'axios';
-import { startSsoLogin } from '../../services/identity';
+import { getPublicSsoConfig, startSsoLogin } from '../../services/identity';
 import { isTransientAuthError } from '../../services/api';
 
 const SsoLoginPage: React.FC = () => {
@@ -17,6 +17,13 @@ const SsoLoginPage: React.FC = () => {
     }
   }, [queryError]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [keycloakEnabled, setKeycloakEnabled] = useState(false);
+
+  useEffect(() => {
+    void getPublicSsoConfig()
+      .then((cfg) => setKeycloakEnabled(cfg.keycloak_enabled))
+      .catch(() => setKeycloakEnabled(false));
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -58,9 +65,13 @@ const SsoLoginPage: React.FC = () => {
               <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
                 <Building2 className="h-7 w-7" />
               </span>
-              <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">Company SSO</h1>
+              <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">
+                {keycloakEnabled ? 'Sign in with Keycloak' : 'Company SSO'}
+              </h1>
               <p className="mt-1 text-center text-sm text-ink-muted">
-                Sign in with your organization identity provider.
+                {keycloakEnabled
+                  ? 'Enterprise single sign-on powered by Keycloak. Use your work email.'
+                  : 'Sign in with your organization identity provider.'}
               </p>
             </div>
 

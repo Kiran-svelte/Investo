@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
-import { isMfaPending } from '../../services/identity';
+import { isMfaPending, getPublicSsoConfig } from '../../services/identity';
 import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
 import { AxiosError } from 'axios';
 import { isTransientAuthError } from '../../services/api';
@@ -19,6 +19,13 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginStatus, setLoginStatus] = useState('');
+  const [keycloakEnabled, setKeycloakEnabled] = useState(false);
+
+  useEffect(() => {
+    void getPublicSsoConfig()
+      .then((cfg) => setKeycloakEnabled(cfg.keycloak_enabled))
+      .catch(() => setKeycloakEnabled(false));
+  }, []);
 
   const isFormValid = email.trim().length > 0 && password.trim().length > 0;
 
@@ -151,7 +158,7 @@ const LoginPage: React.FC = () => {
               </button>
               <p className="text-center text-sm text-ink-muted">
                 <Link to="/auth/sso" className="font-medium text-brand-700 hover:underline">
-                  Sign in with company SSO
+                  {keycloakEnabled ? 'Sign in with Keycloak SSO' : 'Sign in with company SSO'}
                 </Link>
               </p>
               {isSubmitting && loginStatus ? (

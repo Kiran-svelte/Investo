@@ -6,8 +6,13 @@ import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import { authService } from '../../services/auth.service';
 import { normalizeAuthEmail } from '../../services/auth.service';
-import { resolveCompanyByEmailDomain, getCompanyIdentityConfigRow } from '../identityConfig.service';
-import { decryptMfaSecret, encryptMfaSecret } from '../../utils/mfaCrypto.util';
+import { getCompanyIdentityConfigRow } from '../identityConfig.service';
+import {
+  isPlatformKeycloakEnabled,
+  resolveCompanyForSsoLogin,
+  resolveOidcCredentialsForCompany,
+} from '../keycloak/platformKeycloak.service';
+import { decryptMfaSecret } from '../../utils/mfaCrypto.util';
 import {
   buildOidcAuthorizeUrl,
   exchangeAuthorizationCode,
@@ -38,7 +43,7 @@ export class SsoService {
     const state = crypto.randomBytes(24).toString('hex');
     const nonce = crypto.randomBytes(16).toString('hex');
 
-    if (config.identity.ssoTestIdp) {
+    if (config.identity.ssoTestIdp && !isPlatformKeycloakEnabled()) {
       const existingUser = await prismaClient().user.findFirst({
         where: { email: normalizedEmail, status: 'active' },
         select: { id: true, companyId: true },
@@ -51,17 +56,22 @@ export class SsoService {
       return { redirect_url: redirectUrl, state };
     }
 
-    const resolution = await resolveCompanyByEmailDomain(normalizedEmail);
-    if (!resolution?.config.sso_enabled) {
-      throw new Error('SSO is not configured for this email domain');
+    const resolution = await resolveCompanyForSsoLogin(normalizedEmail);
+    if (!resolution) {
+      throw new Error('No active account found for this email. Use password login or ask your admin to invite you.');
+    }
+    if (!resolution.config.sso_enabled && !config.keycloak.ssoAllTenants) {
+      throw new Error('SSO is not enabled for your organization');
     }
 
     const row = await getCompanyIdentityConfigRow(resolution.companyId);
-    if (!row?.ssoOidcIssuer || !row?.ssoOidcClientId) {
-      throw new Error('OIDC issuer/client not configured for company');
-    }
-    if (!row.ssoOidcClientSecretEnc) {
-      throw new Error('OIDC client secret not configured for company');
+    const oidc = await resolveOidcCredentialsForCompany(
+      resolution.companyId,
+      row,
+      decryptMfaSecret,
+    );
+    if (!oidc) {
+      throw new Error('OIDC is not configured for this company');
     }
 
     await storeSsoState(state, {
@@ -72,8 +82,8 @@ export class SsoService {
 
     const redirectUri = `${config.identity.ssoCallbackBaseUrl}/api/auth/sso/callback`;
     const redirectUrl = await buildOidcAuthorizeUrl({
-      issuer: row.ssoOidcIssuer,
-      clientId: row.ssoOidcClientId,
+      issuer: oidc.issuer,
+      clientId: oidc.clientId,
       redirectUri,
       state,
       nonce,
@@ -93,22 +103,26 @@ export class SsoService {
     }
 
     const row = await getCompanyIdentityConfigRow(statePayload.companyId);
-    if (!row?.ssoOidcIssuer || !row?.ssoOidcClientId || !row.ssoOidcClientSecretEnc) {
+    const oidc = await resolveOidcCredentialsForCompany(
+      statePayload.companyId,
+      row,
+      decryptMfaSecret,
+    );
+    if (!oidc) {
       throw new Error('OIDC not configured for company');
     }
 
-    const clientSecret = decryptMfaSecret(row.ssoOidcClientSecretEnc);
     const redirectUri = `${config.identity.ssoCallbackBaseUrl}/api/auth/sso/callback`;
     const tokens = await exchangeAuthorizationCode({
-      issuer: row.ssoOidcIssuer,
-      clientId: row.ssoOidcClientId,
-      clientSecret,
+      issuer: oidc.issuer,
+      clientId: oidc.clientId,
+      clientSecret: oidc.clientSecret,
       redirectUri,
       code,
     });
 
     const profile = await resolveOidcUserProfile({
-      issuer: row.ssoOidcIssuer,
+      issuer: oidc.issuer,
       accessToken: tokens.accessToken,
       idToken: tokens.idToken,
     });
@@ -142,7 +156,7 @@ export class SsoService {
     let companyId = user?.companyId || params.company_id;
 
     if (!companyId && !config.identity.ssoTestIdp) {
-      const resolution = await resolveCompanyByEmailDomain(normalizedEmail);
+      const resolution = await resolveCompanyForSsoLogin(normalizedEmail);
       if (!resolution) throw new Error('No SSO company mapping for email domain');
       companyId = resolution.companyId;
     }
@@ -164,7 +178,7 @@ export class SsoService {
     }
 
     if (!user) {
-      if (config.identity.ssoTestIdp) {
+      if (config.identity.ssoTestIdp || isPlatformKeycloakEnabled()) {
         throw new Error('No active account found for this email. Ask your admin to invite you first.');
       }
       user = await prismaClient().user.create({
@@ -198,7 +212,10 @@ export class SsoService {
         action: 'sso_login',
         resourceType: 'user',
         resourceId: user.id,
-        details: { external_id: params.external_id },
+        details: {
+          external_id: params.external_id,
+          provider: isPlatformKeycloakEnabled() ? 'keycloak' : 'oidc',
+        },
       },
     });
 

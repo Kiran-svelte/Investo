@@ -64,6 +64,18 @@ function applySession(payload: LoginSuccessPayload): AuthUser {
   return payload.user;
 }
 
+export interface PublicSsoConfig {
+  keycloak_enabled: boolean;
+  keycloak_url: string | null;
+  realm: string | null;
+  login_hint_supported: boolean;
+}
+
+export async function getPublicSsoConfig(): Promise<PublicSsoConfig> {
+  const { data } = await api.get<ApiResponse<PublicSsoConfig>>('/auth/sso/config');
+  return data.data;
+}
+
 export async function startSsoLogin(email: string): Promise<SsoStartResult> {
   const { data } = await api.get<ApiResponse<SsoStartResult>>('/auth/sso/start', {
     params: { email },
