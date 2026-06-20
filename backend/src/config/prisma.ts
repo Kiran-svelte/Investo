@@ -4,8 +4,16 @@ import config from './index';
 import logger from './logger';
 import { attachSlowQueryLogging } from './prisma-slow-query';
 
+/** Prisma interactive transactions require a direct/session DB connection, not Supabase/Neon transaction poolers. */
+function resolvePrismaConnectionString(): string {
+  if (config.db.supabasePoolerConfigured || config.db.neonPoolerConfigured) {
+    return config.db.directUrl;
+  }
+  return config.db.url;
+}
+
 const adapter = new PrismaPg({
-  connectionString: config.db.url,
+  connectionString: resolvePrismaConnectionString(),
   max: config.db.poolMax,
   ...(config.db.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
 });

@@ -1,15 +1,21 @@
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
 import prisma from '../../config/prisma';
 import config from '../../config';
 import logger from '../../config/logger';
-import { provisionNewCompany } from '../companyProvisioning.service';
-import { authService } from '../auth.service';
-import { emailService } from '../email.service';
+import { SUBSCRIPTION_PRICING } from '../../constants/subscriptionPricing';
 import {
-  assignInvestoProPlan,
-  startTrialForCompany,
-  logBillingEvent,
-} from './subscription.service';
+  DEFAULT_ONBOARDING_FEATURES,
+  DEFAULT_ONBOARDING_ROLES,
+} from '../../constants/onboardingDefaults';
+import { bootstrapCompanyIdentityConfig } from '../../identity/identityConfig.service';
+import { normalizeAuthEmail } from '../auth.service';
+import { emailService } from '../email.service';
+import { assertStaffPhoneAvailable } from '../../utils/staffPhoneUniqueness';
+import { ensureInvestoProPlan } from './subscription.service';
+
+const BCRYPT_ROUNDS = 12;
 
 function slugify(name: string): string {
   return name
@@ -27,6 +33,26 @@ async function uniqueSlug(base: string): Promise<string> {
     const existing = await prisma.company.findUnique({ where: { slug: candidate } });
     if (!existing) return candidate;
     attempt += 1;
+  }
+}
+
+/** Remove companies left behind by failed accept attempts (no users, same agency name). */
+async function cleanupOrphanAgencyCompanies(agencyName: string): Promise<void> {
+  const orphans = await prisma.company.findMany({
+    where: {
+      name: agencyName,
+      users: { none: {} },
+    },
+    select: { id: true, slug: true },
+  });
+
+  for (const orphan of orphans) {
+    await prisma.company.delete({ where: { id: orphan.id } });
+    logger.warn('Removed orphan agency company from failed invite accept', {
+      companyId: orphan.id,
+      slug: orphan.slug,
+      agencyName,
+    });
   }
 }
 
@@ -107,48 +133,140 @@ export async function acceptAgencyInvite(input: {
   if (invite.acceptedAt) throw new Error('Invite already accepted');
   if (invite.expiresAt.getTime() < Date.now()) throw new Error('Invite has expired');
 
-  const existingUser = await prisma.user.findUnique({ where: { email: invite.adminEmail } });
+  const normalizedEmail = normalizeAuthEmail(invite.adminEmail);
+  const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existingUser) throw new Error('An account with this email already exists');
 
+  const normalizedPhone = input.whatsappPhone
+    ? await assertStaffPhoneAvailable(input.whatsappPhone)
+    : null;
+
+  await cleanupOrphanAgencyCompanies(invite.agencyName);
+
   const slug = await uniqueSlug(invite.agencyName);
+  const companyId = uuidv4();
+  const userId = uuidv4();
+  const planId = await ensureInvestoProPlan();
+  const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
 
-  const company = await prisma.company.create({
-    data: {
-      name: invite.agencyName,
-      slug,
-      whatsappPhone: input.whatsappPhone || null,
-      status: 'active',
-    },
+  const now = new Date();
+  const trialEnds = new Date(now);
+  trialEnds.setDate(trialEnds.getDate() + SUBSCRIPTION_PRICING.trialDays);
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.company.create({
+      data: {
+        id: companyId,
+        name: invite.agencyName,
+        slug,
+        whatsappPhone: normalizedPhone,
+        planId,
+        status: 'active',
+      },
+    });
+
+    for (const featureKey of DEFAULT_ONBOARDING_FEATURES) {
+      await tx.companyFeature.create({
+        data: { companyId, featureKey, enabled: true },
+      });
+    }
+
+    for (const role of DEFAULT_ONBOARDING_ROLES) {
+      await tx.companyRole.create({
+        data: {
+          companyId,
+          roleName: role.roleName,
+          displayName: role.displayName,
+          permissions: role.permissions,
+          isDefault: true,
+        },
+      });
+    }
+
+    await tx.aiSetting.create({
+      data: {
+        companyId,
+        businessName: invite.agencyName,
+        responseTone: 'friendly',
+        persuasionLevel: 5,
+        workingHours: { start: '09:00', end: '21:00' },
+        greetingTemplate: `Hello! Welcome to ${invite.agencyName}. How can I help you find your dream property today?`,
+        defaultLanguage: 'en',
+        operatingLocations: [],
+        budgetRanges: {},
+        faqKnowledge: [],
+      },
+    });
+
+    await tx.companyOnboarding.create({
+      data: { companyId, stepCompleted: 0 },
+    });
+
+    await tx.companySubscription.create({
+      data: {
+        companyId,
+        billingStatus: 'trialing',
+        trialStartedAt: now,
+        trialEndsAt: trialEnds,
+        basePriceMonthly: SUBSCRIPTION_PRICING.basePriceMonthlyInr,
+        includedSeats: SUBSCRIPTION_PRICING.includedSeats,
+        perSeatPriceInr: SUBSCRIPTION_PRICING.perSeatPriceInr,
+        ...(invite.negotiatedMonthlyPrice != null
+          ? { negotiatedMonthlyPrice: invite.negotiatedMonthlyPrice }
+          : {}),
+      },
+    });
+
+    await tx.billingEvent.create({
+      data: {
+        companyId,
+        eventType: 'trial_started',
+        payload: { trialEndsAt: trialEnds.toISOString() },
+      },
+    });
+
+    await tx.user.create({
+      data: {
+        id: userId,
+        companyId,
+        name: input.adminName.trim(),
+        email: normalizedEmail,
+        phone: normalizedPhone,
+        passwordHash,
+        role: 'company_admin',
+        mustChangePassword: false,
+        status: 'active',
+      },
+    });
+
+    await tx.agencyInvite.update({
+      where: { id: invite.id },
+      data: { acceptedAt: now, companyId },
+    });
+
+    await tx.billingEvent.create({
+      data: {
+        companyId,
+        eventType: 'invite_accepted',
+        payload: { inviteId: invite.id },
+      },
+    });
+
+    return { companyId, userId };
   });
 
-  await assignInvestoProPlan(company.id);
-  await provisionNewCompany(company.id, company.name);
-  await startTrialForCompany(company.id, {
-    negotiatedMonthlyPrice: invite.negotiatedMonthlyPrice
-      ? Number(invite.negotiatedMonthlyPrice)
-      : null,
-  });
+  try {
+    await bootstrapCompanyIdentityConfig(companyId);
+  } catch (err: unknown) {
+    logger.warn('Identity config bootstrap skipped after invite accept', {
+      companyId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
-  const result = await authService.register({
-    name: input.adminName.trim(),
-    email: invite.adminEmail,
-    password: input.password,
-    phone: input.whatsappPhone || null,
-    role: 'company_admin',
-    company_id: company.id,
-    must_change_password: false,
-  });
+  logger.info('Agency invite accepted', { companyId, inviteId: invite.id, userId });
 
-  await prisma.agencyInvite.update({
-    where: { id: invite.id },
-    data: { acceptedAt: new Date(), companyId: company.id },
-  });
-
-  await logBillingEvent(company.id, 'invite_accepted', { inviteId: invite.id });
-
-  logger.info('Agency invite accepted', { companyId: company.id, inviteId: invite.id });
-
-  return { companyId: company.id, userId: result.id };
+  return result;
 }
 
 export async function listAgencyInvites(createdById?: string) {

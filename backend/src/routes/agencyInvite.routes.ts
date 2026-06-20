@@ -6,7 +6,7 @@ import { validate } from '../middleware/validate';
 import config from '../config';
 import logger from '../config/logger';
 import { normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
-import { STAFF_PHONE_REQUIRED_MESSAGE } from '../constants/staffPhonePolicy';
+import { mapInviteAcceptError } from '../utils/inviteAcceptErrors';
 import {
   acceptAgencyInvite,
   createAgencyInvite,
@@ -76,25 +76,14 @@ router.post('/:token/accept', validate(acceptInviteSchema), async (req, res: Res
     });
     res.status(201).json({ data: result });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to accept invite';
-    if (message === 'Invalid invite link') {
-      res.status(404).json({ error: message });
-      return;
+    const mapped = mapInviteAcceptError(err);
+    if (mapped.status >= 500) {
+      logger.error('Failed to accept agency invite', {
+        error: err instanceof Error ? err.message : String(err),
+        token: req.params.token,
+      });
     }
-    if (message === 'Invite already accepted' || message === 'Invite has expired') {
-      res.status(409).json({ error: message });
-      return;
-    }
-    if (message === 'An account with this email already exists') {
-      res.status(409).json({ error: message });
-      return;
-    }
-    if (message === STAFF_PHONE_REQUIRED_MESSAGE) {
-      res.status(400).json({ error: message });
-      return;
-    }
-    logger.error('Failed to accept agency invite', { error: message, token: req.params.token });
-    res.status(500).json({ error: 'Failed to accept invite' });
+    res.status(mapped.status).json({ error: mapped.error });
   }
 });
 
