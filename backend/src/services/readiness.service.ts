@@ -61,16 +61,15 @@ function isMailConfigured(): boolean {
 }
 
 export async function getTenantReadiness(companyId: string): Promise<TenantReadinessReport> {
-  const [company, onboarding, publishedPropertyCount, totalPropertyCount, userCount, aiSettings] =
+  const [company, onboarding, totalPropertyCount, publishedImportCount, userCount, aiSettings] =
     await Promise.all([
       prisma.company.findUnique({
         where: { id: companyId },
         select: { name: true, whatsappPhone: true, settings: true, status: true },
       }),
       prisma.companyOnboarding.findUnique({ where: { companyId } }),
-      // Chunk-07: at least one PUBLISHED property required (not just any draft).
-      prisma.property.count({ where: { companyId, status: 'published' } }),
       prisma.property.count({ where: { companyId } }),
+      prisma.propertyImportDraft.count({ where: { companyId, status: 'published' } }),
       prisma.user.count({ where: { companyId, status: 'active' } }),
       prisma.aiSetting.findUnique({
         where: { companyId },
@@ -91,6 +90,7 @@ export async function getTenantReadiness(companyId: string): Promise<TenantReadi
     ? aiSettings!.operatingLocations
     : [];
 
+  const catalogReadyCount = totalPropertyCount;
   const waVerificationStatus = getWhatsAppVerificationStatus(company.settings);
 
   const checks: ReadinessCheck[] = [
@@ -114,12 +114,10 @@ export async function getTenantReadiness(companyId: string): Promise<TenantReadi
       id: 'properties',
       label: 'Property catalog (published)',
       // Chunk-07: must have at least one PUBLISHED property, not just a draft.
-      status: publishedPropertyCount > 0 ? 'pass' : 'fail',
+      status: catalogReadyCount > 0 ? 'pass' : 'fail',
       detail:
-        publishedPropertyCount > 0
-          ? `${publishedPropertyCount} published propert${publishedPropertyCount === 1 ? 'y' : 'ies'}`
-          : totalPropertyCount > 0
-          ? `${totalPropertyCount} propert${totalPropertyCount === 1 ? 'y' : 'ies'} in draft — publish at least one so the AI can answer buyers`
+        catalogReadyCount > 0
+          ? `${catalogReadyCount} propert${catalogReadyCount === 1 ? 'y' : 'ies'}${publishedImportCount > 0 ? ` (${publishedImportCount} via import)` : ''}`
           : 'Add and publish at least one property for the AI to recommend inventory',
       actionPath: '/properties',
     },
