@@ -970,6 +970,34 @@ async function processDueFollowUps(): Promise<CronRunResult> {
   return affected.result();
 }
 
+async function runComplianceRetentionPurge(): Promise<CronRunResult> {
+  if (!config.features.complianceRetention) {
+    return {};
+  }
+  const affected = trackCompanyIds();
+  const { retentionService } = await import('../../compliance/retention.service');
+  const companies = await prisma.company.findMany({
+    where: { status: 'active' },
+    select: { id: true },
+    take: 500,
+  });
+  for (const company of companies) {
+    try {
+      const result = await retentionService.runNightlyPurge(company.id);
+      const purgedTotal = Object.values(result.purged).reduce((sum, n) => sum + n, 0);
+      if (purgedTotal > 0) {
+        affected.add(company.id);
+      }
+    } catch (err: unknown) {
+      logger.warn('complianceRetentionPurge: company failed', {
+        companyId: company.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return affected.result();
+}
+
 export function startCronScheduler(): void {
   if (!config.agentAi.cronEnabled || tasks.length) return;
   tasks.push(
@@ -996,6 +1024,7 @@ export function startCronScheduler(): void {
     // Auto-expire pending visit/call approvals older than 4 hours — every 30 minutes.
     cron.schedule(CRON_SCHEDULES.PENDING_APPROVAL_EXPIRE, wrap('expireStalePendingApprovals', expireStalePendingApprovals)),
     cron.schedule(CRON_SCHEDULES.FOLLOW_UP_DUE_CHECK, wrap('processDueFollowUps', processDueFollowUps)),
+    cron.schedule(CRON_SCHEDULES.COMPLIANCE_RETENTION_PURGE, wrap('complianceRetentionPurge', runComplianceRetentionPurge)),
     cron.schedule(DAILY_OPS_ROLLUP_CRON, wrap('recordDailyOpsRollup', async () => {
       await recordDailyOpsRollup();
       return {};

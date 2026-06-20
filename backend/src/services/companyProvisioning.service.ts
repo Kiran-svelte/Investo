@@ -1,4 +1,5 @@
 import prisma from '../config/prisma';
+import { bootstrapCompanyIdentityConfig } from '../identity/identityConfig.service';
 
 const DEFAULT_ONBOARDING_FEATURES = [
   'ai_bot',
@@ -74,4 +75,6 @@ export async function provisionNewCompany(companyId: string, companyName: string
       data: { companyId, stepCompleted: 0 },
     });
   });
+
+  await bootstrapCompanyIdentityConfig(companyId);
 }

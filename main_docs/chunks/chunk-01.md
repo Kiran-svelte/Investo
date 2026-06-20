@@ -1,283 +1,176 @@
-# Chunk 01 — Multi-Visit Live Context Registry
-
-> **BOUNDARY RULE:** Do not touch other files or lines. Do only what is mentioned in this chunk.
+# Chunk 01 — Lead Capture, Assignment & Pipeline Ownership
 
 | Field | Value |
 |-------|-------|
-| Chunk | 01 of 10 |
-| Workstream | Enterprise Multi-Project Buyer UX |
-| Status | **Done** |
-| Est. PR size | ~350–500 LOC across 4 files |
-| Feature flag | `FEATURE_MULTI_VISIT_CONTEXT` (default **OFF**) |
-| Depends on | Enterprise v2 baseline (2026-06-14) |
-| Blocks | Chunks 05, 08, 09, 10 |
+| Chunk | 01 of 7 |
+| Pillar | 1 — Lead comes in → someone owns it |
+| Priority | P0 |
+| Depends on | Chunk 07 (tenant live on WhatsApp) |
+| Unblocks | Chunks 02, 04, 06 |
 
 ---
 
-## 1. Objective
+## 1. Single-feature scope
 
-**Replace** the single-slot `activeVisit: ActiveVisitContext | null` model with a **visit registry** that exposes all upcoming visits for a lead, while preserving backward-compatible `activeVisit` as the *primary* visit for existing callers.
+**One focus only:** Every inbound buyer signal becomes a **tenant-scoped lead** with an **owner**, **status**, and **audit trail** — from WhatsApp webhook, manual create, CSV import, or API — with no orphan or cross-tenant rows.
 
-**Why:** With multiple projects, a buyer may have:
+Out of scope for this chunk: conversation UI (Chunk 02), visit booking (Chunk 04), SSO (Chunk 05).
 
-- Sunset Heights visit Saturday 4 PM (confirmed)
-- Lake Vista visit Saturday 6 PM (scheduled)
+---
 
-Today `getLiveLeadContext` returns only the first matching visit:
+## 2. Current state — NOW
 
-```139:164:backend/src/services/liveLeadContext.service.ts
-    const upcoming = (lead.visits ?? []).find(
-      (v) =>
-        ['scheduled', 'confirmed', 'rescheduled'].includes(v.status) &&
-        new Date(v.scheduledAt) >= new Date(now.getTime() - 2 * 60 * 60 * 1000),
-    );
-    const activeVisit = upcoming ? toVisitContext(upcoming) : null;
+### 2.1 Production today (working)
+
+| Capability | Status | Code / route |
+|--------------|--------|--------------|
+| WhatsApp inbound → lead create | ✅ | `webhook.routes`, `inboundWhatsAppRouting.service` |
+| Manual lead CRUD | ✅ | `GET/POST/PATCH /api/leads` |
+| Status pipeline | ✅ | `leadStatus.config.ts`, `LeadStatusSelect` |
+| Agent assignment (manual + round-robin) | ✅ | `assignment-settings.routes`, `LeadsPage` |
+| Tenant isolation on leads | ✅ | `strictTenantIsolation`, lead tests |
+| Super-admin tenant switch | ✅ | `?target_company_id=` query param |
+| Lead detail + notes + memory | ✅ | `LeadDetailPage`, `lead_memory` JSON |
+
+### 2.2 Test-only / partial / gaps
+
+| Gap | Impact | Severity |
+|-----|--------|----------|
+| Demo credentials stale (`admin@demorealty.in`) | Smoke/docs confusion | Medium |
+| Staff phone = buyer phone collision | Session contamination | High |
+| Re-engagement cron depends on Redis | Missed follow-ups if Redis down | Medium |
+| Bulk CSV import error UX | Admin retries without clear row errors | Low |
+| Public API lead create (`FEATURE_PUBLIC_API`) | Off by default — not enterprise ingress | Low |
+
+### 2.3 User experience TODAY
+
+| Persona | Experience |
+|---------|------------|
+| **Buyer (WhatsApp)** | Messages business number → lead auto-created → AI replies. Returning buyer may get wrong greeting if history mishandled (see `fix.md`). |
+| **Sales agent** | Opens `/dashboard/leads` → filters → opens lead → updates status. Gets 400 if super_admin forgot tenant context. |
+| **Company admin** | Creates/edits leads, assigns agents, configures round-robin in Settings. |
+| **Super admin** | Must pick tenant in switcher before CRM data loads. |
+
+---
+
+## 3. Target state — AFTER
+
+### 3.1 Perfect functioning
+
+- 100% inbound WhatsApp messages attach to **correct tenant** and **correct or new lead** within 3s webhook ack.
+- **Zero** cross-tenant lead reads/writes (proven by matrix test + quarterly re-run).
+- Staff/buyer phone collision **logged + alerted** to company_admin; copilot does not leak buyer thread.
+- Returning buyers (2+ prior AI messages) **never** get first-time onboarding greeting.
+- Assignment rules applied on create **and** on re-opened stale leads.
+- Lead list loads < 2s p95 for 5k leads/tenant (indexed queries).
+
+### 3.2 User experience AFTER
+
+| Persona | After fix |
+|---------|-----------|
+| **Buyer** | "Hi" after prior chat continues property thread; budget/area remembered in `lead_memory`. |
+| **Agent** | New lead appears in list + notification within seconds; status dropdown always reflects legal transitions. |
+| **Admin** | Import 500-row CSV with row-level error report; round-robin preview before save. |
+| **Owner** | Dashboard "new leads today" matches WhatsApp reality (no phantom rows). |
+
+---
+
+## 4. Implementation plan
+
+### Phase 1 — Correctness & isolation (week 1)
+
+| Task | Files |
+|------|-------|
+| Harden staff/buyer phone collision alert | `buyerAgentAssist.service.ts`, `notification.engine.ts` |
+| Returning buyer greeting guard | `customerMessageFastPath.service.ts`, `buyerQualification.*` |
+| Super-admin smoke: auto `target_company_id` | `scripts/production-smoke-test.mjs` ✅ done |
+| Re-engagement cron Redis fallback log | `cron-scheduler.service.ts`, `readiness.service.ts` |
+
+### Phase 2 — Assignment & import UX (week 2)
+
+| Task | Files |
+|------|-------|
+| Round-robin dry-run API | `assignment-settings.routes.ts` |
+| CSV import row errors in UI | `bulk-csv-import.service.ts`, `LeadsPage` |
+| Lead create idempotency on phone dedup | `lead.routes.ts`, Prisma unique index verify |
+
+### Phase 3 — Enterprise ingress (week 3, optional)
+
+| Task | Files |
+|------|-------|
+| Public API lead create behind API key | `publicApi.routes.ts`, `IntegrationsPage` |
+| Webhook outbound on `lead.created` | `outbox.service.ts` if `FEATURE_OUTBOX_EVENTS` |
+
+---
+
+## 5. Enterprise hardening
+
+| Control | Requirement |
+|---------|-------------|
+| Tenant isolation | Every `prisma.lead.*` query includes `companyId` from `getCompanyId(req)` |
+| Audit | `lead.created`, `lead.assigned`, `lead.status_changed` in `audit_logs` |
+| PII | Phone encrypted when `FEATURE_PII_ENCRYPTION=true` |
+| Rate limits | Webhook + user rate limiters on `/api/leads` mutations |
+| Quotas | `FEATURE_TENANT_QUOTAS` — warn then hard-enforce lead count if configured |
+
+**Kill switch:** `FEATURE_LEAD_AUTOMATION=false` (tenant feature flag) disables auto-create from WhatsApp for one company without code deploy.
+
+---
+
+## 6. Real-time usage scenarios
+
+```
+09:00  Buyer sends "2BHK Whitefield 80L" on WhatsApp
+09:00  Meta webhook → queue (async) or inline handler
+09:01  Lead created/updated, AI reply sent
+09:01  Socket event → agent dashboard notification (if connected)
+09:05  Agent opens lead on phone copilot OR /dashboard/leads
+09:10  Admin assigns round-robin if unassigned
 ```
 
-Confirm/reschedule/cancel and AI prompt injection then operate on the **wrong** visit. Spec reference: `.kiro/specs/ai-agent-production-standards/bugfix.md` row **6.1**.
-
-**Do NOT** in this chunk: change disambiguation UX (Chunk 05), conversation focus (Chunk 02), or button policy.
+**Cron (background):** `processDueFollowUps` every 15m — re-engage cold leads per automation rules.
 
 ---
 
-## 2. Files IN SCOPE (exclusive edit list)
+## 7. Tests & proof gates
 
-| File | What you may change |
-|------|---------------------|
-| `backend/src/services/liveLeadContext.service.ts` | Add `upcomingVisits[]`, extend prompt block, keep `activeVisit` compat |
-| `backend/src/tests/unit/liveLeadContext.service.test.ts` | **CREATE** if missing — multi-visit cases |
-| `backend/src/tests/unit/buyerEnterpriseUx.service.test.ts` | Update mocks if `LiveLeadContext` shape extended |
-| `backend/src/config/index.ts` | Add `multiVisitContext: process.env.FEATURE_MULTI_VISIT_CONTEXT === 'true'` |
-
----
-
-## 3. Files READ-ONLY (call but do not edit)
-
-| File | Why |
-|------|-----|
-| `backend/src/services/buyer/buyerEnterpriseUx.service.ts` | Chunk 08 extends `buildBuyerCrmButtonFlags` |
-| `backend/src/services/whatsapp/whatsappTurnOrchestrator.service.ts` | Consumes `liveCtx` — unchanged until Chunk 04 |
-| `backend/src/services/visitMutationFromChat.service.ts` | Chunk 05 uses registry |
-| `backend/src/services/ai.service.ts` | Reads `liveLeadContextBlock` string only |
+| Gate | Command / check |
+|------|-----------------|
+| Tenant matrix | `npx jest src/tests/integration/tenantIsolation.matrix.test.ts --runInBand` |
+| Lead boundary | `npx jest src/tests/unit/lead-tenant-boundary.test.ts` |
+| Returning buyer | `npx jest src/tests/unit/buyerStartFresh.service.test.ts` |
+| Production smoke | `node scripts/production-smoke-test.mjs` → `GET /leads` 200 |
+| Handset | `backend/scripts/e2e-handset-proof.mjs` — inbound creates lead |
+| Manual | Create lead → assign → status change → visible on dashboard |
 
 ---
 
-## 4. Files CALLERS (who depends on this chunk)
+## 8. Feature flags & env
 
-```
-getLiveLeadContext(leadId, companyId)
-  ├── whatsappTurnOrchestrator.service.ts → buyerButtonContextFromTurn, H9 prompt
-  ├── customerMessageFastPath.service.ts → visit-aware greeting
-  ├── ai.service.ts → liveLeadContextBlock injection
-  ├── buyerEnterpriseUx.service.ts → buildBuyerCrmButtonFlags(liveCtx)
-  └── whatsappInteractiveOrchestrator.service.ts → handleMoreInfo (direct prisma today; Chunk 09 aligns)
-```
-
-**Contract:** Existing callers reading `activeVisit` alone must behave identically when flag OFF or when lead has ≤1 upcoming visit.
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `lead_automation` (tenant) | on | WhatsApp auto-lead |
+| `FEATURE_FIX_MD_RETURNING_BUYER_STAGE` | on | Skip rapport re-interrogation |
+| `FEATURE_FIX_MD_STAFF_BUYER_COLLISION_LOG` | on | Collision structured log |
+| `FEATURE_TENANT_QUOTAS` | Railway: on | Usage metering |
+| `FEATURE_QUOTA_HARD_ENFORCE` | off | Set true after soak |
 
 ---
 
-## 5. Connection diagram
+## 9. Definition of done
 
-```
-getLiveLeadContext
-│
-├─ [D] prisma.lead.findFirst + visits (increase take: 5 → 10 when flag ON)
-│
-├─ [S] Filter upcoming visits (scheduled|confirmed|rescheduled, within window)
-│     └─ flag OFF → .find() → activeVisit (legacy)
-│     └─ flag ON  → .filter() → upcomingVisits[]
-│
-├─ [S] Pick primary activeVisit:
-│     1. Soonest scheduledAt in future (or within 2h grace past)
-│     2. Tie-break: confirmed > scheduled > rescheduled
-│     3. Same as legacy .find() order when only one exists
-│
-├─ [S] pending_approval visit (unchanged path)
-│
-├─ [S] buildPromptBlock:
-│     └─ flag OFF → current single-visit block
-│     └─ flag ON  → "### Upcoming Site Visits (N)" list + primary visit emphasis
-│
-└─ return LiveLeadContext { activeVisit, upcomingVisits, ... }
-```
+- [ ] Handset proof: inbound WhatsApp → lead row within 60s on production tenant
+- [ ] No cross-tenant leak in isolation matrix (100% pass)
+- [ ] Returning buyer "Okay" does not reset to welcome greeting
+- [ ] Staff/buyer phone collision produces admin-visible alert
+- [ ] Production smoke: leads endpoint 200 with tenant context
+- [ ] Audit log entry for assignment + status change verifiable in `/dashboard/audit-logs`
 
 ---
 
-## 6. Type changes
+## 10. Rollout
 
-### 6.1 Extend `LiveLeadContext`
-
-```typescript
-export interface LiveLeadContext {
-  // ... existing fields ...
-  /** All upcoming visits ordered by scheduledAt ASC. Empty when flag OFF and legacy path. */
-  upcomingVisits: ActiveVisitContext[];
-}
-```
-
-### 6.2 Backward compatibility rule
-
-| Condition | `upcomingVisits` | `activeVisit` |
-|-----------|------------------|---------------|
-| Flag OFF | `[]` always (or omit population) | Same as today |
-| Flag ON, 0 visits | `[]` | `null` |
-| Flag ON, 1 visit | `[v1]` | `v1` |
-| Flag ON, N visits | `[v1..vN]` | Primary per §6.3 |
-
-### 6.3 Primary visit selection algorithm
-
-When flag ON and `upcomingVisits.length > 1`:
-
-1. Sort by `scheduledAt` ascending.
-2. Prefer status `confirmed` over `scheduled` if same day and within 4 hours.
-3. Set `activeVisit = upcomingVisits[0]` after sort (document exact comparator in code comment).
-4. **Do not** auto-cancel or merge visits — read-only aggregation.
-
----
-
-## 7. Prompt block changes (flag ON only)
-
-Add to `buildPromptBlock` when `upcomingVisits.length > 1`:
-
-```markdown
-### Upcoming Site Visits (2)
-
-1. **Sunset Heights 1102** — ✅ CONFIRMED — Saturday 14 June, 4:00 PM
-2. **Lake Vista 304** — 📅 SCHEDULED — Saturday 14 June, 6:00 PM
-
-⚠️ RULE: Customer has MULTIPLE upcoming visits. When they say "confirm", "cancel", or "reschedule"
-without naming a property, you MUST ask which visit they mean. List options by property name and time.
-Do NOT assume the first visit only.
-```
-
-When `upcomingVisits.length === 1`, prompt block matches legacy single-visit format (parity).
-
----
-
-## 8. Algorithm — visit query window
-
-**Current:** 2-hour grace past `scheduledAt` for `.find()`.
-
-**Keep** same window for inclusion in `upcomingVisits`:
-
-```typescript
-const VISIT_INCLUDE_STATUSES = ['scheduled', 'confirmed', 'rescheduled'] as const;
-const GRACE_MS = 2 * 60 * 60 * 1000;
-
-function isUpcomingVisit(v: Visit, now: Date): boolean {
-  return VISIT_INCLUDE_STATUSES.includes(v.status as typeof VISIT_INCLUDE_STATUSES[number])
-    && new Date(v.scheduledAt).getTime() >= now.getTime() - GRACE_MS;
-}
-```
-
-**Future visits cap:** Max **5** in `upcomingVisits` (align with prisma `take`). Log warn if truncated.
-
----
-
-## 9. What to REMOVE
-
-| Remove / avoid | Reason |
-|----------------|--------|
-| Changing `activeVisit` to null when multiple exist | Breaks enterprise v2 button catch-all |
-| Removing single-visit prompt rules | Regression for 1-visit tenants |
-| Editing visit mutation logic | Chunk 05 |
-
----
-
-## 10. What to ADD
-
-| Addition | Location |
-|----------|----------|
-| `upcomingVisits: ActiveVisitContext[]` on return type | `liveLeadContext.service.ts` |
-| `selectPrimaryVisit(visits: ActiveVisitContext[]): ActiveVisitContext \| null` | Same file, exported for Chunk 05 |
-| Multi-visit prompt section | `buildPromptBlock` |
-| Feature flag gate | `config/index.ts` |
-| Unit tests: 0, 1, 2, 3 visits | `liveLeadContext.service.test.ts` |
-
----
-
-## 11. Implementation steps (ordered)
-
-1. Add flag to `config/index.ts` (default OFF).
-2. Extend `LiveLeadContext` interface + `buildEmptyContext()` with `upcomingVisits: []`.
-3. Refactor visit loop: when flag OFF, keep exact `.find()` behavior; when ON, `.filter()` + sort.
-4. Implement `selectPrimaryVisit` — verify `activeVisit` equals legacy `.find()` for all existing unit scenarios.
-5. Extend `buildPromptBlock` behind flag for N>1.
-6. Write unit tests (§14).
-7. Run smoke — confirm single-visit tenants unchanged with flag OFF.
-
----
-
-## 12. Why it won't break in future
-
-| Risk | Mitigation |
-|------|------------|
-| Callers assume one visit | `activeVisit` preserved; `upcomingVisits` additive |
-| Prompt token bloat | Cap at 5 visits; summarize older in one line |
-| Primary visit wrong | Exported `selectPrimaryVisit` + tests; Chunk 05 owns disambiguation UX |
-| Flag forgotten ON in prod | Chunk 10 rollout checklist; default OFF until sign-off |
-
-**Single source of truth:** All visit lists for AI prompt come from `getLiveLeadContext` — Chunk 05 must not duplicate prisma visit queries for buyer-facing disambiguation (import registry helpers instead).
-
----
-
-## 13. Debug instrumentation
-
-| Hook | When |
-|------|------|
-| `logger.info('liveLeadContext.multiVisit', { leadId, count: upcomingVisits.length })` | Flag ON and count > 1 |
-| `FEATURE_SHADOW_MODE` compare | Log if legacy `.find()` id !== `selectPrimaryVisit` id |
-
----
-
-## 14. Verification checklist
-
-### Unit tests
-
-```bash
-cd backend
-npm test -- --testPathPattern="liveLeadContext|buyerEnterpriseUx"
-```
-
-| Test case | Expected |
-|-----------|----------|
-| Flag OFF, 2 visits in DB | `activeVisit` = legacy first only; `upcomingVisits` = `[]` |
-| Flag ON, 0 visits | `activeVisit` null; `upcomingVisits` [] |
-| Flag ON, 1 confirmed visit | Both arrays length 1; same id |
-| Flag ON, 2 same-day visits | `upcomingVisits.length === 2`; prompt contains both names |
-| Flag ON, pending_approval + scheduled | pending becomes `activeVisit` (legacy rule preserved) |
-| Primary visit tie-break | confirmed beats scheduled same day |
-
-### Smoke / manual
-
-1. Lead with one visit → greeting unchanged (flag ON).
-2. Lead with two future visits → AI prompt block lists both (inspect logs / shadow mode).
-
-### Regression
-
-- `buyerEnterpriseUx.service.test.ts` button matrix still passes (uses single `activeVisit` mock).
-
----
-
-## 15. Definition of Done
-
-- [ ] Flag `FEATURE_MULTI_VISIT_CONTEXT` added, default OFF
-- [ ] `upcomingVisits` populated when flag ON
-- [ ] `activeVisit` backward compatible
-- [ ] Multi-visit prompt block when N > 1
-- [ ] Unit tests green
-- [ ] No edits outside IN SCOPE files
-- [ ] `npm run smoke` passes with flag OFF
-
----
-
-## 16. Rollback
-
-Set `FEATURE_MULTI_VISIT_CONTEXT=false` on Railway — no migration. Revert PR if type changes break compile.
-
----
-
-## 17. Next chunk
-
-After Done → [chunk-02.md](./chunk-02.md) (Conversation focus stack — project + property memory).
+1. Deploy backend fixes → Railway GraphQL redeploy
+2. Run smoke + one real handset message on pilot tenant
+3. Enable `FEATURE_QUOTA_HARD_ENFORCE` only after 2 weeks warn-only metrics
+4. Document live credentials in ops runbook (not stale demo emails)

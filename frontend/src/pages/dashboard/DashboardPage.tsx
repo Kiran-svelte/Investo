@@ -9,6 +9,7 @@ import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
 import { ensureArray } from '../../utils/safeApiData';
+import { trackClarityEvent } from '../../services/clarity';
 import {
   Users, Building2, Calendar, TrendingUp, MessageSquare,
   IndianRupee, ArrowUpRight, ArrowDownRight, Phone, MapPin,
@@ -127,6 +128,8 @@ const DashboardPage: React.FC = () => {
         setLoadError('Could not load dashboard data. Try refreshing the page.');
       } else if (failures.length > 0) {
         setLoadError(`Some dashboard sections failed to load: ${failures.join('; ')}`);
+      } else {
+        trackClarityEvent('dashboard_loaded', { period });
       }
     } catch (err: unknown) {
       setLoadError(getApiErrorMessage(err, 'Could not load dashboard data. Try refreshing the page.'));

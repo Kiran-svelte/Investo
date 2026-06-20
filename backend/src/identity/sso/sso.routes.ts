@@ -28,6 +28,42 @@ router.get('/start', async (req: Request, res: Response) => {
   }
 });
 
+async function finishSsoLogin(
+  res: Response,
+  wantsJson: boolean,
+  tokens: Awaited<ReturnType<typeof ssoService.completeCallback>>,
+  email: string,
+): Promise<void> {
+  setAuthSessionCookies(res, tokens);
+  const user = await prisma.user.findFirst({
+    where: { email: normalizeAuthEmail(email), status: 'active' },
+    select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
+  });
+  if (!wantsJson) {
+    res.redirect(`${config.frontend.baseUrl}/auth/sso/complete`);
+    return;
+  }
+  res.json({
+    success: true,
+    message: 'SSO login successful',
+    data: {
+      user: user ? {
+        id: user.id,
+        company_id: user.companyId,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        must_change_password: user.mustChangePassword,
+      } : null,
+      tokens: {
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      },
+      session: authSessionResponseMeta(),
+    },
+  });
+}
+
 router.get('/callback', async (req: Request, res: Response) => {
   const wantsJson = req.headers.accept?.includes('application/json')
     || req.query.format === 'json';
@@ -47,42 +83,23 @@ router.get('/callback', async (req: Request, res: Response) => {
       const name = typeof req.query.name === 'string' ? req.query.name : email.split('@')[0];
       const externalId = typeof req.query.external_id === 'string' ? req.query.external_id : `test:${email}`;
       const tokens = await ssoService.completeCallback({ email, name, external_id: externalId });
-      setAuthSessionCookies(res, tokens);
-      const user = await prisma.user.findFirst({
-        where: { email: normalizeAuthEmail(email), status: 'active' },
-        select: { id: true, companyId: true, email: true, role: true, name: true, mustChangePassword: true },
-      });
-      if (!wantsJson) {
-        res.redirect(`${config.frontend.baseUrl}/auth/sso/complete`);
-        return;
-      }
-      res.json({
-        success: true,
-        message: 'SSO login successful',
-        data: {
-          user: user ? {
-            id: user.id,
-            company_id: user.companyId,
-            email: user.email,
-            role: user.role,
-            name: user.name,
-            must_change_password: user.mustChangePassword,
-          } : null,
-          tokens: {
-            access_token: tokens.accessToken,
-            refresh_token: tokens.refreshToken,
-          },
-          session: authSessionResponseMeta(),
-        },
-      });
+      await finishSsoLogin(res, wantsJson, tokens, email);
+      return;
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    if (code && state) {
+      const result = await ssoService.completeOidcCallback(code, state);
+      await finishSsoLogin(res, wantsJson, result.tokens, result.email);
       return;
     }
 
     if (wantsJson) {
-      res.status(501).json({ error: 'Non-test OIDC callback exchange not configured in this environment' });
+      res.status(400).json({ error: 'Missing SSO callback parameters' });
       return;
     }
-    redirectSsoError(res, 'Production OIDC SSO is not configured yet. Use password login or test SSO.');
+    redirectSsoError(res, 'Invalid SSO callback. Use password login or contact your admin.');
   } catch (err: any) {
     const message = err.message || 'SSO callback failed';
     if (wantsJson) {

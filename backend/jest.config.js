@@ -11,6 +11,9 @@ module.exports = {
     '^jwks-rsa$': '<rootDir>/src/tests/mocks/jwks-rsa.mock.ts',
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
+  transformIgnorePatterns: [
+    '/node_modules/(?!(@scure|otplib)/)',
+  ],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/server.ts',

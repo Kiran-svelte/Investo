@@ -51,6 +51,59 @@ function parseDateParam(value: unknown, field: string): Date {
 
 router.use(strictTenantIsolation);
 
+router.get('/conflicts', authorize('visits', 'read'), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = getCompanyId(req);
+    const agentId = typeof req.query.agent_id === 'string' ? req.query.agent_id : req.user!.id;
+    const scheduledAt = parseDateParam(req.query.scheduled_at, 'scheduled_at');
+    const excludeVisitId = typeof req.query.exclude_visit_id === 'string'
+      ? req.query.exclude_visit_id
+      : undefined;
+
+    const windowStart = new Date(scheduledAt.getTime() - 60 * 60 * 1000);
+    const windowEnd = new Date(scheduledAt.getTime() + 60 * 60 * 1000);
+
+    const conflicts = await prisma.visit.findMany({
+      where: {
+        companyId,
+        agentId,
+        id: excludeVisitId ? { not: excludeVisitId } : undefined,
+        status: { in: ['scheduled', 'confirmed'] },
+        scheduledAt: { gte: windowStart, lte: windowEnd },
+      },
+      select: {
+        id: true,
+        scheduledAt: true,
+        status: true,
+        lead: { select: { customerName: true } },
+        property: { select: { name: true } },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    });
+
+    res.json({
+      data: {
+        has_conflict: conflicts.length > 0,
+        conflicts: conflicts.map((visit) => ({
+          id: visit.id,
+          scheduled_at: visit.scheduledAt.toISOString(),
+          status: visit.status,
+          customer_name: visit.lead?.customerName ?? null,
+          property_name: visit.property?.name ?? null,
+        })),
+      },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'scheduled_at_required' || message === 'scheduled_at_invalid') {
+      res.status(400).json({ error: message });
+      return;
+    }
+    logger.error('Failed to check calendar conflicts', { error: message });
+    res.status(500).json({ error: 'Failed to check calendar conflicts' });
+  }
+});
+
 router.get('/events', authorize('visits', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = getCompanyId(req);

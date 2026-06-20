@@ -129,6 +129,7 @@ model CompanyIdentityConfig {
   ssoConnectionId  String?  @map("sso_connection_id") @db.VarChar(255)
   ssoOidcIssuer    String?  @map("sso_oidc_issuer") @db.VarChar(500)
   ssoOidcClientId  String?  @map("sso_oidc_client_id") @db.VarChar(255)
+  ssoOidcClientSecretEnc String? @map("sso_oidc_client_secret_enc") @db.Text
   scimEnabled      Boolean  @default(false) @map("scim_enabled")
   scimTokenHash    String?  @map("scim_token_hash") @db.VarChar(255)
   mfaRequired      Boolean  @default(false) @map("mfa_required")

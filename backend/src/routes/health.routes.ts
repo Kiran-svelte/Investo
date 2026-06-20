@@ -160,8 +160,8 @@ router.get('/enterprise', authenticate, hasRole('super_admin'), async (_req: Req
       workerMode: resolveEffectiveWorkerMode(),
       signals: {
         quotaMiddlewareWired: true,
-        retentionPurgeScheduled: false,
-        oidcSsoProductionReady: config.identity.ssoTestIdp !== true,
+        retentionPurgeScheduled: config.features.complianceRetention === true,
+        oidcSsoProductionReady: config.features.sso === true && config.identity.ssoTestIdp !== true,
       },
     }),
     backup_age_hours: dr.backup_age_hours,

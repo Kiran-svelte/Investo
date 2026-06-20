@@ -21,6 +21,7 @@ router.put('/identity', async (req: AuthRequest, res: Response) => {
       sso_provider: req.body?.sso_provider,
       sso_oidc_issuer: req.body?.sso_oidc_issuer,
       sso_oidc_client_id: req.body?.sso_oidc_client_id,
+      sso_oidc_client_secret: req.body?.sso_oidc_client_secret,
       scim_enabled: req.body?.scim_enabled,
       mfa_required: req.body?.mfa_required,
       mfa_methods: req.body?.mfa_methods,

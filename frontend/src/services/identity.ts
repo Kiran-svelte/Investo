@@ -10,6 +10,9 @@ import type { AuthUser } from '../context/AuthContext';
 export interface CompanyIdentityConfig {
   sso_enabled: boolean;
   sso_provider: string | null;
+  sso_oidc_issuer: string | null;
+  sso_oidc_client_id: string | null;
+  has_oidc_client_secret: boolean;
   scim_enabled: boolean;
   mfa_required: boolean;
   mfa_methods: string[];
@@ -150,8 +153,7 @@ export async function getIdentitySettings(): Promise<CompanyIdentityConfig> {
 
 export async function updateIdentitySettings(
   payload: Partial<CompanyIdentityConfig> & {
-    sso_oidc_issuer?: string | null;
-    sso_oidc_client_id?: string | null;
+    sso_oidc_client_secret?: string | null;
     rotate_scim_token?: boolean;
   },
 ): Promise<{ config: CompanyIdentityConfig; scim_token_plain: string | null }> {

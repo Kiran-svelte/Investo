@@ -562,7 +562,10 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
     }
 
     if (!outboundSuccess) {
-      res.status(502).json({ error: outboundError || 'Failed to send WhatsApp message' });
+    res.status(502).json({
+      error: outboundError || 'Failed to send WhatsApp message',
+      whatsapp_delivery_failed: true,
+    });
       return;
     }
 

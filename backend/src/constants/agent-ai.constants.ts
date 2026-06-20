@@ -103,6 +103,8 @@ export const CRON_SCHEDULES = {
   NIGHTLY_CONVERSATION_SUMMARY: '40 20 * * *',
   /** Agent-tool scheduled lead follow-ups — every 15 minutes */
   FOLLOW_UP_DUE_CHECK: '*/15 * * * *',
+  /** Compliance retention purge — nightly at 3:15 AM IST = 21:45 UTC */
+  COMPLIANCE_RETENTION_PURGE: '45 21 * * *',
 } as const;
 
 // ─── Emoji Maps ─────────────────────────────────────────────────────

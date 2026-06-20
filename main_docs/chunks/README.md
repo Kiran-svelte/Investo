@@ -1,100 +1,82 @@
-# Investo — AI Logic Refactor Chunks (full.md → Production Code)
+# Investo — Seven Pillar Implementation Chunks
 
 | Field | Value |
 |-------|-------|
-| Purpose | Replace scattered / duplicate buyer AI logic with modules that behave **exactly** as [full.md](../full.md) specifies |
-| Rule | **Each chunk edits ONLY the files listed in that chunk. Do not touch other files or lines.** |
-| Order | Execute chunks **sequentially** (01 → 15). Later chunks depend on earlier contracts. |
-| Verify after each chunk | Run the chunk’s unit tests + listed E2E scenarios before starting the next chunk |
+| Master doc | [../enterprise.md](../enterprise.md) |
+| Product framing | [../../docs/NECESSARY.md](../../docs/NECESSARY.md) |
+| Total chunks | **7** (one chunk = one pillar = one epic) |
+| Execution | Complete Definition of Done + proof gates before starting the next chunk |
+| Last updated | 2026-06-20 |
 
 ---
 
-## Why chunks?
+## Purpose
 
-The buyer pipeline today works but logic is spread across `whatsapp.service.ts` (~2.6k lines), `whatsappTurnOrchestrator.service.ts`, interactive handlers, visit/call booking, workflows, and H9 LLM paths. Refactoring in one PR breaks production. These chunks:
+Each chunk is a **single-feature, production-grade spec** for one of Investo’s **7 necessary pillars** — the capabilities an agency needs for peaceful daily use without a second CRM.
 
-1. **Isolate** one vertical slice of [full.md](../full.md) per PR
-2. **Remove** duplicate or conflicting AI paths inside that slice only
-3. **Preserve** strict handler order and Zero-UI contracts from full.md
-4. **Add** debug hooks (`logOutboundBranch`, action codes) so future regressions are traceable
+Every chunk documents:
 
----
+- **NOW** — what works in production today vs test-only / partial
+- **AFTER** — target UX and functioning when chunk is fully hardened
+- **Implementation plan** — phased work, files, schema, flags
+- **Enterprise hardening** — security, tenancy, observability, kill switches
+- **Real-time usage** — live scenarios (WhatsApp, dashboard, sockets, cron)
+- **Tests & proof** — unit, integration, smoke, handset, production verification
 
-## Dependency graph
-
-```mermaid
-flowchart LR
-  C01[01 Inbound] --> C02[02 Session]
-  C02 --> C03[03 Orchestrator shell]
-  C03 --> C04[04 H2 rapport]
-  C03 --> C05[05 H3-H5 qualify]
-  C04 --> C06[06 Visit commit H6-H8]
-  C05 --> C06
-  C06 --> C07[07 H9 AI brain]
-  C03 --> C08[08 Interactive]
-  C06 --> C09[09 Call booking]
-  C06 --> C10[10 Visit approval]
-  C07 --> C11[11 Outbound]
-  C08 --> C11
-  C06 --> C12[12 Workflows buyer]
-  C09 --> C10
-  C10 --> C13[13 Automation jobs]
-  C01 --> C14[14 Staff boundary]
-  C11 --> C15[15 Integration proof]
-  C12 --> C15
-  C13 --> C15
-  C14 --> C15
-```
+Buyer AI polish and WhatsApp UX micro-flags remain in `.cursor/rules/whatsapp-enterprise-readiness.mdc`. These chunks cover **platform + pillar completeness**.
 
 ---
 
 ## Chunk index
 
-| Chunk | File | full.md PART | Primary files (IN SCOPE only) |
-|-------|------|--------------|----------------------------|
-| **01** | [chunk-01.md](./chunk-01.md) | I | `whatsapp.service.ts` (inbound guards block only), `inboundMessageGuard.service.ts`, `customerInboundQueue.service.ts` |
-| **02** | [chunk-02.md](./chunk-02.md) | II | `buyerQualification.service.ts`, `buyer/buyerStartFresh.service.ts`, `buyer/buyerSession.util.ts` (new) |
-| **03** | [chunk-03.md](./chunk-03.md) | III (shell, H-start, H1, H0, H1b) | `whatsappTurnOrchestrator.service.ts` (orchestrate + handlers H-start–H1b only) |
-| **04** | [chunk-04.md](./chunk-04.md) | III (H2, H2b, H2.5) | `whatsappTurnOrchestrator.service.ts` (H2 block only), `buyerQualification.service.ts` (read-only) |
-| **05** | [chunk-05.md](./chunk-05.md) | III (H3, H4, H5) | `whatsappTurnOrchestrator.service.ts` (H3–H5), `buyerVisitQuery.service.ts`, `buyer-memory-extract.service.ts` |
-| **06** | [chunk-06.md](./chunk-06.md) | III (H6–H8) + V | `customerVisitBooking.service.ts`, `whatsappTurnOrchestrator.service.ts` (H6–H8 block) |
-| **07** | [chunk-07.md](./chunk-07.md) | III (H9) + VIII + XI | `whatsappTurnOrchestrator.service.ts` (H9 only), `conversationStateMachine.ts`, `ai.service.ts` (buyer path hooks only) |
-| **08** | [chunk-08.md](./chunk-08.md) | IV + XV | `whatsappInteractiveOrchestrator.service.ts`, `whatsappInteractivePersist.service.ts` |
-| **09** | [chunk-09.md](./chunk-09.md) | VI | `customerCallBooking.service.ts`, `callRequest.service.ts`, `conversationCallContext.util.ts` |
-| **10** | [chunk-10.md](./chunk-10.md) | V + X (visit jobs) | `visitPendingApproval.service.ts`, `visitBooking.service.ts`, `visitLifecycle.service.ts`, `bookingApproval.service.ts` |
-| **11** | [chunk-11.md](./chunk-11.md) | XII | `whatsapp.service.ts` (outbound dispatch block only), `messagePolish.service.ts`, `whatsappResponseSanitizer.service.ts`, `outboundTurnDebug.service.ts` |
-| **12** | [chunk-12.md](./chunk-12.md) | IX | `workflow/workflow-engine.service.ts` (buyer channel), `workflow-registry.ts`, buyer workflow actions |
-| **13** | [chunk-13.md](./chunk-13.md) | X | `automation.service.ts`, `automationQueue.service.ts` |
-| **14** | [chunk-14.md](./chunk-14.md) | XIII | `inboundWhatsAppRouting.service.ts`, `agent-router.service.ts` (staff intercept only) |
-| **15** | [chunk-15.md](./chunk-15.md) | XVI–XVIII | `backend/scripts/e2e-handset-proof.mjs`, `backend/src/tests/unit/*` (listed per chunk rollup) |
+| # | File | Pillar | Single focus | Priority |
+|---|------|--------|--------------|----------|
+| 01 | [chunk-01.md](./chunk-01.md) | Pillar 1 | Lead capture, assignment & pipeline ownership | P0 |
+| 02 | [chunk-02.md](./chunk-02.md) | Pillar 2 | Conversations — visibility, takeover, staff reply | P0 |
+| 03 | [chunk-03.md](./chunk-03.md) | Pillar 3 | Property inventory, import, knowledge & publish | P0 |
+| 04 | [chunk-04.md](./chunk-04.md) | Pillar 4 | Visit booking, calendar, reminders & conversion | P0 |
+| 05 | [chunk-05.md](./chunk-05.md) | Pillar 5 | Team access — roles, invites, MFA, SSO, SCIM | P1 |
+| 06 | [chunk-06.md](./chunk-06.md) | Pillar 6 | Owner dashboard, analytics & export | P1 |
+| 07 | [chunk-07.md](./chunk-07.md) | Pillar 7 | Onboarding, go-live readiness & platform ops | P0 |
 
 ---
 
-## Global invariants (never violate across chunks)
+## Recommended execution order
 
-From [full.md](../full.md) PART III.O and PART XII:
-
-1. **Handler cascade order:** `H-start → H1 → H0 → visitCommit → H1b → H2 → H2b → H2.5 → callCommit → H-call → H3 → H4 → H5 → H6 → H7 → H7b → H8 → H9`
-2. **One primary outbound per inbound** (`claimPrimaryOutboundSend`)
-3. **Interactive taps bypass concurrent lock** but still dedupe by `messageId`
-4. **Escalation ≠ takeover:** escalation keeps `ai_active`; takeover requires `agent_active && !aiEnabled`
-5. **Visit booking default:** `pending_approval` unless `autoConfirmVisits=true`
-6. **Pending message integrity:** create `pending` → update `sent|failed` after Meta API result
-
----
-
-## After all chunks
-
-Run full proof:
-
-```bash
-cd backend
-npm test -- --testPathPattern="whatsapp|interactive|visit|call|workflow|leadTransition"
-npx tsx scripts/e2e-handset-proof.mjs
+```
+07 (readiness baseline) → 01 → 03 → 04 → 02 → 06 → 05
 ```
 
-Target: **28/28 E2E**, zero handler-order regressions, `logOutboundBranch` trace matches full.md for sample flows in PART XVIII.
+- **07 first** — unblocks every tenant (WhatsApp, mail, readiness score honest).
+- **05 last among pillars** — enterprise IAM builds on stable CRM; SSO OIDC callback is the largest net-new build.
+
+Cross-cutting enterprise ops (async WhatsApp, quotas, compliance cron, public API) are **called out inside the pillar they affect**, not as separate chunks.
 
 ---
 
-**Start here:** [chunk-01.md](./chunk-01.md) ✅ → [chunk-02.md](./chunk-02.md) ✅ → [chunk-03.md](./chunk-03.md) ✅ → Next: [chunk-04.md](./chunk-04.md)
+## Global gates (every chunk)
+
+```bash
+cd backend && npx tsc --noEmit
+cd backend && npx jest <chunk-tests> --runInBand --no-cache
+cd backend && npm run smoke
+node scripts/production-smoke-test.mjs
+```
+
+Production URLs:
+
+| Resource | URL |
+|----------|-----|
+| Frontend | https://biginvesto.online |
+| Backend | https://investo-backend-production.up.railway.app/api |
+
+---
+
+## Terminology
+
+| Term | Meaning |
+|------|---------|
+| **Pillar** | One of 7 necessary product capabilities (`docs/NECESSARY.md`) |
+| **Peaceful use** | 30 days of agency ops without manual DB edits or a parallel CRM |
+| **Test mode** | Feature flag or stub path — not acceptable for enterprise sales |
+| **Enterprise hardening** | Tenant isolation, audit, SLO, enforcement (not just UI) |

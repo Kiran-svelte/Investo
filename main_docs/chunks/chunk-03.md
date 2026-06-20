@@ -1,252 +1,168 @@
-# Chunk 03 — Project-Scoped Property Reference Resolution
-
-> **BOUNDARY RULE:** Do not touch other files or lines. Do only what is mentioned in this chunk.
+# Chunk 03 — Property Inventory, Import, Knowledge & Publish
 
 | Field | Value |
 |-------|-------|
-| Chunk | 03 of 10 |
-| Workstream | Enterprise Multi-Project Buyer UX |
-| Status | **Done** |
-| Est. PR size | ~400–550 LOC across 5 files |
-| Feature flag | `FEATURE_SCOPED_PROPERTY_RESOLVE` (default **OFF**) |
-| Depends on | Chunk 02 (`BuyerConversationFocus`) |
-| Blocks | Chunks 04, 05, 08, 09 |
+| Chunk | 03 of 7 |
+| Pillar | 3 — Inventory exists and staff/AI can use it |
+| Priority | P0 |
+| Depends on | Chunk 07 (storage + tenant provisioned) |
+| Unblocks | Chunks 02, 04 (AI answers + visit property context) |
 
 ---
 
-## 1. Objective
+## 1. Single-feature scope
 
-Harden `resolveBuyerPropertyReference` and `resolveBuyerPropertyReferenceEnterprise` so property name matching **respects project scope** and **detects cross-project ambiguity** before falling back to stale `selectedPropertyId`.
-
-**Why:** `findPropertyMentionedByName` loads up to 100 properties company-wide and returns first substring match:
-
-```44:63:backend/src/services/buyerPropertyContext.service.ts
-async function findPropertyMentionedByName(
-  companyId: string,
-  messageText: string,
-  statuses: PropertyStatus[] = ['available', 'upcoming'],
-): Promise<string | null> {
-  const properties = await prisma.property.findMany({
-    where: { companyId, status: { in: statuses } },
-    select: { id: true, name: true },
-    take: 100,
-  });
-  // ... first match wins
-}
-```
-
-With 5 projects × 20 units, "1102" or "Heights" can match the wrong project. Stale `selectedPropertyId` from Project A then books Project B (code already warns via `hasExplicitPropertyNameIntent` but doesn't scope by project).
+**One focus only:** Company admins can **load properties** (manual, CSV, spreadsheet, brochure/PDF), **review drafts**, **publish** with media completeness, and expose **verified knowledge** to buyer AI and staff copilot via RAG.
 
 ---
 
-## 2. Files IN SCOPE
+## 2. Current state — NOW
 
-| File | Scope |
+### 2.1 Production today (working)
+
+| Capability | Status | Code / route |
+|--------------|--------|--------------|
+| Property CRUD | ✅ | `property.routes`, `PropertiesPage` |
+| Import wizard (simple + spreadsheet) | ✅ | `PropertyImportPage`, `property-import.routes` |
+| Draft → publish flow | ✅ | `propertyImport.service`, knowledge gate |
+| S3/R2 media upload | ✅ | `storage.service`, `PropertyMediaPanel` |
+| Knowledge chunks + embeddings | ✅ | `property_knowledge_chunks`, OpenAI embeddings |
+| AI uses published inventory | ✅ | `workflow-engine`, `ai.service`, vector search |
+| Extended attributes at publish | ✅ | `FEATURE_EXTENDED_PROPERTY_ATTRS` (default on) |
+| Bulk import skip review | ✅ | `FEATURE_BULK_IMPORT_SKIP_REVIEW` (default on) |
+
+### 2.2 Test-only / partial / gaps
+
+| Gap | Impact |
+|-----|--------|
+| Publish without hero/brochure | Buyer gets text-only (partially gated by media completeness flag) |
+| `FEATURE_BULK_PUBLISH_STRICT` | Off — bulk publish may skip knowledge gate |
+| Geocoding without Google Maps key | Location fields manual only |
+| Property upload public endpoint | `/api/property-imports/uploads` unauthenticated — needs token hardening review |
+| Frontend property page tests flaky | CI noise, not prod blocker |
+
+### 2.3 User experience TODAY
+
+| Persona | Experience |
+|---------|------------|
+| **Company admin** | Upload CSV/brochure → map columns → fix gaps in knowledge wizard → publish. |
+| **Agent** | Views properties (read); AI answers buyers from published knowledge. |
+| **Buyer (WhatsApp)** | Asks "3BHK price?" → AI pulls RAG chunks + catalog. Wrong data if publish was incomplete. |
+
+---
+
+## 3. Target state — AFTER
+
+### 3.1 Perfect functioning
+
+- No property reaches `published` without **hero image OR brochure PDF** (configurable strict mode).
+- Publish triggers embedding index within 60s; WhatsApp AI answers match sheet data within 2 turns.
+- Import errors: row/column level report downloadable.
+- Copilot `searchPropertyKnowledge` returns same chunks as buyer AI for same query.
+- Super-admin cannot accidentally publish to wrong tenant.
+
+### 3.2 User experience AFTER
+
+| Persona | After fix |
+|---------|-----------|
+| **Admin** | Readiness banner: "3 drafts missing RERA" before go-live. One-click reindex. |
+| **Buyer** | Brochure + location pin on first property detail ask. |
+| **Agent** | Copilot cites property name + price consistent with Properties page. |
+
+---
+
+## 4. Implementation plan
+
+### Phase 1 — Publish quality (week 1)
+
+| Task | Files |
 |------|-------|
-| `backend/src/services/buyerPropertyContext.service.ts` | Scoped search, ambiguity result type, enterprise resolver |
-| `backend/src/services/customerVisitBooking.service.ts` | Pass focus/project into `resolvePropertyId` |
-| `backend/src/services/whatsapp/whatsappTurnOrchestrator.service.ts` | **Only** H6–H8 + H9 calls to `resolveBuyerPropertyReference*` — pass `scopedProjectId`, handle ambiguous |
-| `backend/src/tests/unit/buyerPropertyContext.service.test.ts` | Extend multi-project cases |
-| `backend/src/config/index.ts` | `scopedPropertyResolve` flag |
+| Enforce media completeness on publish | `propertyImport.service.ts`, `fixMdPropertyMediaCompleteness` |
+| Enable `FEATURE_BULK_PUBLISH_STRICT` for enterprise tenants | `enterpriseConfig.routes` |
+| Reindex job status in UI | `PropertyImportPage`, health dep `property_knowledge_backfill_queue` |
+
+### Phase 2 — Import hardening (week 2)
+
+| Task | Files |
+|------|-------|
+| Signed upload tokens only (remove anonymous abuse) | `property-import-upload.routes.ts` |
+| Row-level CSV error export | `bulk-csv-import.service.ts` |
+| Geocoding fallback UX when no API key | `PropertyImportLocationFields.tsx` |
+
+### Phase 3 — AI alignment (week 3)
+
+| Task | Files |
+|------|-------|
+| Copilot RAG parity test | `copilotPropertyRag`, `verify-property-ai-context.mjs` |
+| Expanded prompts rollout metrics | `FEATURE_EXPANDED_PROPERTY_PROMPTS`, shadow mode |
 
 ---
 
-## 3. Files READ-ONLY
+## 5. Enterprise hardening
 
-| File | Why |
-|------|-----|
-| `backend/src/services/buyer/buyerConversationFocus.service.ts` | Chunk 02 — import only |
-| `backend/src/utils/propertyBrowseTurn.util.ts` | Uses enterprise resolver — may need read for test updates only |
+| Control | Requirement |
+|---------|-------------|
+| Tenant isolation | Properties + drafts scoped by `companyId` |
+| Storage | AWS/R2 credentials per env; no cross-bucket paths |
+| Audit | `property.published`, `property.import_completed` |
+| Virus/size limits | Multer limits on upload routes |
+| Secrets | No brochure URLs with long-lived public tokens in logs |
+
+**Kill switch:** `FEATURE_FULL_IMPORT_KNOWLEDGE=false` disables wide CSV indexing (narrow catalog only).
 
 ---
 
-## 4. API changes
-
-### 4.1 Extended input
-
-```typescript
-export type BuyerPropertyResolveInput = {
-  companyId: string;
-  messageText: string;
-  selectedPropertyId?: string | null;
-  recommendedPropertyIds?: readonly string[] | null;
-  /** Chunk 02 — when set, name search prefers properties in this project */
-  scopedProjectId?: string | null;
-  /** When true, return ambiguity instead of first match */
-  strictMultiMatch?: boolean;
-};
-```
-
-### 4.2 Extended result (flag ON)
-
-```typescript
-export type BuyerPropertyResolveResult = {
-  propertyId: string | null;
-  /** Multiple name matches across projects — caller must clarify */
-  ambiguousMatches?: Array<{ id: string; name: string; projectId: string | null }>;
-  /** Match found but in different project than scopedProjectId */
-  crossProjectSwitch?: boolean;
-};
-```
-
-When flag OFF: functions return `string | null` / existing enterprise shape (no breaking change).
-
-### 4.3 Resolution algorithm (flag ON)
+## 6. Real-time usage scenarios
 
 ```
-1. If scopedProjectId set:
-     a. Search properties WHERE companyId AND projectId = scopedProjectId AND status IN (available, upcoming)
-     b. Name match within project first
-2. If no match AND message has explicit property intent:
-     c. Search company-wide (take 100)
-     d. If multiple matches with different projectIds → return ambiguousMatches (do NOT pick first)
-3. If single company-wide match AND scopedProjectId set AND project differs:
-     → crossProjectSwitch = true; return that propertyId (Chunk 08 may intercept for second visit)
-4. Ordinal reference against recommendedPropertyIds (unchanged)
-5. Fallback selectedPropertyId ONLY if:
-     - NOT hasExplicitPropertyNameIntent
-     - NOT crossProjectSwitch without confirmation
-6. recommended.length === 1 fallback (unchanged)
-7. else null
+Admin uploads 40-row CSV at 10:00
+  → Draft created → knowledge wizard flags missing amenities
+  → Admin fills gaps → Publish at 10:45
+  → Embeddings queued → health shows pending: 0 by 10:47
+Buyer at 11:00: "What's the carpet area of Tower B?"
+  → Vector search + focused property LLM → accurate sqft from sheet
+Staff copilot: "Compare Project A and B pricing"
+  → searchPropertyKnowledge tool → same chunk IDs as buyer path
 ```
 
 ---
 
-## 5. Ambiguity UX contract (orchestrator only)
+## 7. Tests & proof gates
 
-When `ambiguousMatches?.length > 1`, orchestrator **must not** call visit commit or H9 with a guessed property.
-
-Return deterministic clarify turn (i18n keys to add in Chunk 09 or here if keys in `buyerI18n.util.ts` — **if adding keys, only add to `buyerI18n.util.ts` and list in PR**):
-
-```
-I found more than one match:
-1. Sunset Heights 1102
-2. Lake Heights 1102
-Which one do you mean? Reply with the number or full name.
-```
-
-Store `ambiguousMatches` ids in `recommendedPropertyIds` for ordinal follow-up.
-
-**Handler:** Short-circuit in `handleClassifierWorkflowTurn` / visit commit path before DB write.
+| Gate | Command |
+|------|---------|
+| Import extractor | `npx jest src/tests/unit/property-import-extractor.service.test.ts` |
+| Publish readiness | `propertyImportPublishReadiness.test.ts` |
+| Production upload smoke | `backend/scripts/smoke-property-upload-production.mjs` |
+| AI context verify | `backend/scripts/verify-property-ai-context.mjs` |
+| Manual | Publish property → ask WhatsApp price → matches dashboard |
 
 ---
 
-## 6. Connection diagram
+## 8. Feature flags & env
 
-```
-resolveBuyerPropertyReferenceEnterprise(input)
-  │
-  ├─ findSoldPropertyMentionedByName (unchanged)
-  │
-  └─ resolveBuyerPropertyReference(input)
-        ├─ findPropertyMentionedByNameScoped(projectId?)
-        ├─ findPropertyMentionedByNameGlobal → ambiguity check
-        ├─ resolveOrdinalReference
-        └─ selectedPropertyId fallback (guarded)
-
-customerVisitBooking.resolvePropertyId
-  └── passes scopedProjectId from conversationFocus
-
-handleFullAiTurn
-  └── resolvedPropertyId from enterprise resolver
-        └── if ambiguous → clarify turn (skip LLM)
-```
+| Flag | Purpose |
+|------|---------|
+| `property_management` (tenant) | Module on |
+| `FEATURE_FULL_IMPORT_KNOWLEDGE` | Index all CSV columns |
+| `FEATURE_EXPANDED_PROPERTY_PROMPTS` | Wider AI context |
+| `FEATURE_BULK_PUBLISH_STRICT` | Gate + rollback on index fail |
+| `AWS_*` / `R2_*` | Storage backend |
 
 ---
 
-## 7. Sold property path (unchanged behavior)
+## 9. Definition of done
 
-`findSoldPropertyMentionedByName` stays company-wide — sold unit by name must still explain + project listings button (enterprise invariant #5).
-
-Optional flag ON improvement: include `projectName` in sold explanation when multiple "1102" exist.
-
----
-
-## 8. What to REMOVE
-
-| Remove | Reason |
-|--------|--------|
-| Blind fallback to `selectedPropertyId` when `crossProjectSwitch` without explicit confirm | Wrong-property booking |
-| Silent first-match on multi-match global search | Ambiguity clarify instead |
+- [ ] Publish blocked when hero+brochure both missing (strict tenant)
+- [ ] Handset: buyer property Q&A matches published sheet (3 sample queries)
+- [ ] Import 100-row CSV completes with zero silent row drops
+- [ ] Production smoke: `GET /properties` 200, `GET /property-projects` 200
+- [ ] Health: `property_knowledge_embeddings: ok`
 
 ---
 
-## 9. What to ADD
+## 10. Rollout
 
-| Addition | Location |
-|----------|----------|
-| `findPropertyMentionedByNameScoped` | `buyerPropertyContext.service.ts` |
-| `resolveBuyerPropertyReferenceWithMeta` | Same (internal); public API gated by flag |
-| Ambiguity short-circuit | `whatsappTurnOrchestrator.service.ts` (≤60 LOC) |
-| Visit booking scope pass-through | `customerVisitBooking.service.ts` (≤20 LOC) |
-| Tests: same unit number two projects, scoped match, ambiguous | `buyerPropertyContext.service.test.ts` |
-
----
-
-## 10. Implementation steps
-
-1. Add flag.
-2. Implement scoped name search with projectId filter on Property model (`projectId` column exists).
-3. Implement ambiguity detection (≥2 matches, different projectIds OR same token "1102").
-4. Extend enterprise resolver to return meta when flag ON; wrap legacy return when OFF.
-5. Wire orchestrator clarify turn.
-6. Wire visit booking `resolvePropertyId`.
-7. Tests + smoke.
-
----
-
-## 11. Why it won't break in future
-
-| Risk | Mitigation |
-|------|------------|
-| Single-project tenant | Scoped search with null projectId = global (legacy) |
-| Performance | Project-scoped query smaller than 100-row scan |
-| Breaking callers | Flag OFF preserves `Promise<string \| null>` paths |
-| Wrong clarify loop | Cap ambiguous list at 5; ordinal "1"/"2" resolves next turn |
-
-**Downstream mapping:**
-
-- Chunk 04 uses resolved `propertyId` as focused catalog anchor
-- Chunk 05 uses resolved property for visit target when booking
-- Chunk 08 uses `crossProjectSwitch` for second-visit policy
-
----
-
-## 12. Verification checklist
-
-```bash
-npm test -- --testPathPattern="buyerPropertyContext|customerVisitBooking"
-```
-
-| Test case | Expected |
-|-----------|----------|
-| Flag OFF | Identical to existing test suite |
-| Scoped project, name unique in project | Returns that id |
-| "1102" matches 2 projects | `ambiguousMatches.length === 2`, propertyId null |
-| Explicit "Lake Vista 304" | Resolves even if selectedPropertyId is Sunset |
-| hasExplicitPropertyNameIntent + no match | null (no stale fallback) |
-| Visit booking with scope | Books property in focused project |
-
-Manual: Multi-project tenant — message unit number shared across projects → clarify list, not wrong booking.
-
----
-
-## 13. Definition of Done
-
-- [x] Scoped + ambiguous resolution behind flag
-- [x] Orchestrator clarify path for ambiguity
-- [x] Visit booking passes project scope
-- [x] All existing buyerPropertyContext tests pass (flag OFF)
-- [x] New multi-project tests pass (flag ON)
-
----
-
-## 14. Rollback
-
-`FEATURE_SCOPED_PROPERTY_RESOLVE=false`.
-
----
-
-## 15. Next chunk
-
-After Done → [chunk-04.md](./chunk-04.md) (Scoped AI property catalog).
+1. Enable strict publish on pilot tenant only
+2. Reindex all published properties post-deploy
+3. Monitor WhatsApp "wrong price" escalations for 7 days

@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 
 import prisma from '../config/prisma';
+import { encryptMfaSecret } from '../utils/mfaCrypto.util';
 
 function prismaClient(): any {
   return prisma as any;
@@ -10,6 +11,9 @@ function prismaClient(): any {
 export interface CompanyIdentityConfigView {
   sso_enabled: boolean;
   sso_provider: string | null;
+  sso_oidc_issuer: string | null;
+  sso_oidc_client_id: string | null;
+  has_oidc_client_secret: boolean;
   scim_enabled: boolean;
   mfa_required: boolean;
   mfa_methods: string[];
@@ -23,6 +27,9 @@ function normalizeConfig(row: any): CompanyIdentityConfigView {
   return {
     sso_enabled: Boolean(row?.ssoEnabled),
     sso_provider: row?.ssoProvider || null,
+    sso_oidc_issuer: row?.ssoOidcIssuer || null,
+    sso_oidc_client_id: row?.ssoOidcClientId || null,
+    has_oidc_client_secret: Boolean(row?.ssoOidcClientSecretEnc),
     scim_enabled: Boolean(row?.scimEnabled),
     mfa_required: Boolean(row?.mfaRequired),
     mfa_methods: Array.isArray(row?.mfaMethods) ? row.mfaMethods : ['totp'],
@@ -36,6 +43,9 @@ function normalizeConfig(row: any): CompanyIdentityConfigView {
 const DEFAULT_IDENTITY_CONFIG: CompanyIdentityConfigView = {
   sso_enabled: false,
   sso_provider: null,
+  sso_oidc_issuer: null,
+  sso_oidc_client_id: null,
+  has_oidc_client_secret: false,
   scim_enabled: false,
   mfa_required: false,
   mfa_methods: ['totp'],
@@ -50,9 +60,20 @@ function isMissingIdentityTableError(err: unknown): boolean {
   return message.includes('company_identity_configs') && message.includes('does not exist');
 }
 
+export async function getCompanyIdentityConfigRow(companyId: string): Promise<any | null> {
+  try {
+    return await prismaClient().companyIdentityConfig.findUnique({ where: { companyId } });
+  } catch (err: unknown) {
+    if (isMissingIdentityTableError(err)) {
+      return null;
+    }
+    throw err;
+  }
+}
+
 export async function getCompanyIdentityConfig(companyId: string): Promise<CompanyIdentityConfigView> {
   try {
-    const row = await prismaClient().companyIdentityConfig.findUnique({ where: { companyId } });
+    const row = await getCompanyIdentityConfigRow(companyId);
     if (!row) {
       return { ...DEFAULT_IDENTITY_CONFIG };
     }
@@ -65,6 +86,27 @@ export async function getCompanyIdentityConfig(companyId: string): Promise<Compa
   }
 }
 
+export async function bootstrapCompanyIdentityConfig(companyId: string): Promise<void> {
+  try {
+    await prismaClient().companyIdentityConfig.upsert({
+      where: { companyId },
+      create: {
+        companyId,
+        ssoEnabled: false,
+        scimEnabled: false,
+        mfaRequired: false,
+        allowedDomains: [],
+      },
+      update: {},
+    });
+  } catch (err: unknown) {
+    if (isMissingIdentityTableError(err)) {
+      return;
+    }
+    throw err;
+  }
+}
+
 export async function upsertCompanyIdentityConfig(
   companyId: string,
   input: Partial<{
@@ -72,6 +114,7 @@ export async function upsertCompanyIdentityConfig(
     sso_provider: string | null;
     sso_oidc_issuer: string | null;
     sso_oidc_client_id: string | null;
+    sso_oidc_client_secret: string | null;
     scim_enabled: boolean;
     mfa_required: boolean;
     mfa_methods: string[];
@@ -86,6 +129,12 @@ export async function upsertCompanyIdentityConfig(
   if (input.sso_provider !== undefined) data.ssoProvider = input.sso_provider;
   if (input.sso_oidc_issuer !== undefined) data.ssoOidcIssuer = input.sso_oidc_issuer;
   if (input.sso_oidc_client_id !== undefined) data.ssoOidcClientId = input.sso_oidc_client_id;
+  if (input.sso_oidc_client_secret !== undefined) {
+    const trimmed = String(input.sso_oidc_client_secret || '').trim();
+    if (trimmed) {
+      data.ssoOidcClientSecretEnc = encryptMfaSecret(trimmed);
+    }
+  }
   if (input.scim_enabled !== undefined) data.scimEnabled = input.scim_enabled;
   if (input.mfa_required !== undefined) data.mfaRequired = input.mfa_required;
   if (input.mfa_methods !== undefined) data.mfaMethods = input.mfa_methods;

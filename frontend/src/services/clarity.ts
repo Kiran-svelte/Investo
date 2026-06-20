@@ -43,3 +43,16 @@ export function syncClarityPage(pagePath: string, user: AuthUser | null): void {
 
   Clarity.setTag('page', pagePath);
 }
+
+export function trackClarityEvent(eventName: string, metadata?: Record<string, string>): void {
+  if (!initialized || typeof window === 'undefined') return;
+
+  Clarity.event(eventName);
+  if (metadata) {
+    for (const [key, value] of Object.entries(metadata)) {
+      if (value) {
+        Clarity.setTag(key, value);
+      }
+    }
+  }
+}

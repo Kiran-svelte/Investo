@@ -10,8 +10,9 @@
 | 06 | [06_IMPLEMENTATION_PLAN.md](./06_IMPLEMENTATION_PLAN.md) | Delivery | Phases, milestones, rollout |
 | 07 | [07_AIAGENT_FLOW.md](./07_AIAGENT_FLOW.md) | AI + backend | Six AI surfaces, H0–H9 orchestrator, workflows, Zero-UI |
 | **08** | **[08_BUYER_CONVERSATION_PLAYBOOK.md](./08_BUYER_CONVERSATION_PLAYBOOK.md)** | **Sales + QA + eng** | **Turn-by-turn buyer scripts from “Hi” through visit/call — client / agent / dashboard POV** |
+| **enterprise** | **[enterprise.md](./enterprise.md)** | **Platform + eng leads** | **True enterprise maturity model (12 domains), gap analysis, exit criteria** |
 | **full** | **[full.md](./full.md)** | **Product + QA + eng** | **Complete hierarchy tree — every branch: 1st vs nth conversation, handlers, buttons, visit/call, escalation, automation, sockets** |
-| **chunks** | **[chunks/README.md](./chunks/README.md)** | **Backend implementers** | **15 bounded refactor chunks — replace AI logic to match full.md exactly; one PR per chunk** |
+| **chunks** | **[chunks/README.md](./chunks/README.md)** | **Platform implementers** | **7 pillar implementation chunks — one spec per necessary product pillar (lead → go-live)** |
 
 ---
 
@@ -47,4 +48,4 @@
 | Checklist status | `CHECKLIST_STATUS.md` (repo root) |
 | Handset proof report | `backend/docs/PRODUCTION_HANDSET_PROOF_REPORT.md` |
 
-**Last updated:** 2026-06-08
+**Last updated:** 2026-06-20

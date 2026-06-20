@@ -24,6 +24,7 @@ import {
 } from '../../config/leadStatus.config';
 import { ensureArray } from '../../utils/safeApiData';
 import { listBranches, type BranchNode } from '../../services/identity';
+import { trackClarityEvent } from '../../services/clarity';
 
 interface Lead {
   id: string;
@@ -194,6 +195,7 @@ const LeadsPage: React.FC = () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+      trackClarityEvent('leads_export_csv');
     } catch {
       setPageError('Could not export leads as CSV.');
     }

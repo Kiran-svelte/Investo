@@ -6,7 +6,14 @@ import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import { authService } from '../../services/auth.service';
 import { normalizeAuthEmail } from '../../services/auth.service';
-import { resolveCompanyByEmailDomain } from '../identityConfig.service';
+import { resolveCompanyByEmailDomain, getCompanyIdentityConfigRow } from '../identityConfig.service';
+import { decryptMfaSecret, encryptMfaSecret } from '../../utils/mfaCrypto.util';
+import {
+  buildOidcAuthorizeUrl,
+  exchangeAuthorizationCode,
+  resolveOidcUserProfile,
+} from './ssoOidc.service';
+import { consumeSsoState, storeSsoState } from './ssoState.service';
 
 function prismaClient(): any {
   return prisma as any;
@@ -15,12 +22,6 @@ function prismaClient(): any {
 export interface SsoStartResult {
   redirect_url: string;
   state: string;
-}
-
-export interface SsoProfile {
-  external_id: string;
-  email: string;
-  name: string;
 }
 
 export class SsoService {
@@ -55,23 +56,75 @@ export class SsoService {
       throw new Error('SSO is not configured for this email domain');
     }
 
-    const row = await prismaClient().companyIdentityConfig.findUnique({
-      where: { companyId: resolution.companyId },
-    });
+    const row = await getCompanyIdentityConfigRow(resolution.companyId);
     if (!row?.ssoOidcIssuer || !row?.ssoOidcClientId) {
       throw new Error('OIDC issuer/client not configured for company');
     }
+    if (!row.ssoOidcClientSecretEnc) {
+      throw new Error('OIDC client secret not configured for company');
+    }
+
+    await storeSsoState(state, {
+      email: normalizedEmail,
+      companyId: resolution.companyId,
+      nonce,
+    });
 
     const redirectUri = `${config.identity.ssoCallbackBaseUrl}/api/auth/sso/callback`;
-    const authorizeUrl = new URL(`${row.ssoOidcIssuer.replace(/\/+$/, '')}/authorize`);
-    authorizeUrl.searchParams.set('client_id', row.ssoOidcClientId);
-    authorizeUrl.searchParams.set('response_type', 'code');
-    authorizeUrl.searchParams.set('scope', 'openid email profile');
-    authorizeUrl.searchParams.set('redirect_uri', redirectUri);
-    authorizeUrl.searchParams.set('state', state);
-    authorizeUrl.searchParams.set('nonce', nonce);
+    const redirectUrl = await buildOidcAuthorizeUrl({
+      issuer: row.ssoOidcIssuer,
+      clientId: row.ssoOidcClientId,
+      redirectUri,
+      state,
+      nonce,
+      loginHint: normalizedEmail,
+    });
 
-    return { redirect_url: authorizeUrl.toString(), state };
+    return { redirect_url: redirectUrl, state };
+  }
+
+  async completeOidcCallback(code: string, state: string): Promise<{
+    tokens: Awaited<ReturnType<typeof authService.issueTokensForUser>>;
+    email: string;
+  }> {
+    const statePayload = await consumeSsoState(state);
+    if (!statePayload) {
+      throw new Error('Invalid or expired SSO state');
+    }
+
+    const row = await getCompanyIdentityConfigRow(statePayload.companyId);
+    if (!row?.ssoOidcIssuer || !row?.ssoOidcClientId || !row.ssoOidcClientSecretEnc) {
+      throw new Error('OIDC not configured for company');
+    }
+
+    const clientSecret = decryptMfaSecret(row.ssoOidcClientSecretEnc);
+    const redirectUri = `${config.identity.ssoCallbackBaseUrl}/api/auth/sso/callback`;
+    const tokens = await exchangeAuthorizationCode({
+      issuer: row.ssoOidcIssuer,
+      clientId: row.ssoOidcClientId,
+      clientSecret,
+      redirectUri,
+      code,
+    });
+
+    const profile = await resolveOidcUserProfile({
+      issuer: row.ssoOidcIssuer,
+      accessToken: tokens.accessToken,
+      idToken: tokens.idToken,
+    });
+
+    if (normalizeAuthEmail(profile.email) !== statePayload.email) {
+      throw new Error('OIDC email does not match requested login email');
+    }
+
+    const authTokens = await this.completeCallback({
+      email: profile.email,
+      name: profile.name,
+      external_id: profile.external_id,
+      company_id: statePayload.companyId,
+    });
+
+    return { tokens: authTokens, email: profile.email };
   }
 
   async completeCallback(params: {

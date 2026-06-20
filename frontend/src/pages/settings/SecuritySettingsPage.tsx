@@ -11,6 +11,9 @@ const SecuritySettingsPage: React.FC = () => {
   const [allowedDomainsInput, setAllowedDomainsInput] = React.useState('');
   const [ipAllowlistInput, setIpAllowlistInput] = React.useState('');
   const [ipAllowlistEnabled, setIpAllowlistEnabled] = React.useState(false);
+  const [oidcIssuerInput, setOidcIssuerInput] = React.useState('');
+  const [oidcClientIdInput, setOidcClientIdInput] = React.useState('');
+  const [oidcClientSecretInput, setOidcClientSecretInput] = React.useState('');
   const [scimTokenPlain, setScimTokenPlain] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -26,6 +29,9 @@ const SecuritySettingsPage: React.FC = () => {
       setAllowedDomainsInput(data.allowed_domains.join(', '));
       setIpAllowlistInput(data.ip_allowlist.join(', '));
       setIpAllowlistEnabled(data.ip_allowlist_enabled);
+      setOidcIssuerInput(data.sso_oidc_issuer || '');
+      setOidcClientIdInput(data.sso_oidc_client_id || '');
+      setOidcClientSecretInput('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load security settings');
     } finally {
@@ -54,6 +60,9 @@ const SecuritySettingsPage: React.FC = () => {
       const result = await updateIdentitySettings({
         sso_enabled: config.sso_enabled,
         sso_provider: config.sso_provider,
+        sso_oidc_issuer: oidcIssuerInput.trim() || null,
+        sso_oidc_client_id: oidcClientIdInput.trim() || null,
+        sso_oidc_client_secret: oidcClientSecretInput.trim() || undefined,
         scim_enabled: config.scim_enabled,
         mfa_required: config.mfa_required,
         mfa_methods: config.mfa_methods,
@@ -65,6 +74,9 @@ const SecuritySettingsPage: React.FC = () => {
       setAllowedDomainsInput(result.config.allowed_domains.join(', '));
       setIpAllowlistInput(result.config.ip_allowlist.join(', '));
       setIpAllowlistEnabled(result.config.ip_allowlist_enabled);
+      setOidcIssuerInput(result.config.sso_oidc_issuer || '');
+      setOidcClientIdInput(result.config.sso_oidc_client_id || '');
+      setOidcClientSecretInput('');
       setMessage('Security settings saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
@@ -178,6 +190,60 @@ const SecuritySettingsPage: React.FC = () => {
             className="investo-input mt-1.5"
             placeholder="acme.com, acme.in"
           />
+        </div>
+        <div className="mt-4 space-y-4 rounded-lg border border-surface-border bg-surface-muted p-4">
+          <p className="text-sm font-medium text-ink-primary">OIDC provider (Google Workspace, Okta, Azure AD)</p>
+          <p className="text-xs text-ink-muted">
+            Redirect URI for your IdP:
+            {' '}
+            <span className="font-mono break-all">
+              {(() => {
+                const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+                return apiBase ? `${apiBase}/auth/sso/callback` : 'https://<your-api-host>/api/auth/sso/callback';
+              })()}
+            </span>
+          </p>
+          <div>
+            <label htmlFor="oidc-issuer" className="block text-sm font-medium text-ink-secondary">
+              Issuer URL
+            </label>
+            <input
+              id="oidc-issuer"
+              value={oidcIssuerInput}
+              onChange={(event) => setOidcIssuerInput(event.target.value)}
+              className="investo-input mt-1.5"
+              placeholder="https://accounts.google.com or https://your-org.okta.com/oauth2/default"
+            />
+          </div>
+          <div>
+            <label htmlFor="oidc-client-id" className="block text-sm font-medium text-ink-secondary">
+              Client ID
+            </label>
+            <input
+              id="oidc-client-id"
+              value={oidcClientIdInput}
+              onChange={(event) => setOidcClientIdInput(event.target.value)}
+              className="investo-input mt-1.5"
+              placeholder="your-oauth-client-id"
+            />
+          </div>
+          <div>
+            <label htmlFor="oidc-client-secret" className="block text-sm font-medium text-ink-secondary">
+              Client secret
+            </label>
+            <input
+              id="oidc-client-secret"
+              type="password"
+              value={oidcClientSecretInput}
+              onChange={(event) => setOidcClientSecretInput(event.target.value)}
+              className="investo-input mt-1.5"
+              placeholder={config.has_oidc_client_secret ? 'Leave blank to keep existing secret' : 'Paste client secret'}
+              autoComplete="new-password"
+            />
+            {config.has_oidc_client_secret ? (
+              <p className="mt-1 text-xs text-emerald-700">Client secret is configured.</p>
+            ) : null}
+          </div>
         </div>
       </section>
 

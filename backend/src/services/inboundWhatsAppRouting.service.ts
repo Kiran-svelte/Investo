@@ -156,6 +156,32 @@ export async function routeCompanyScopedInbound(params: {
       };
       if (isFixMdEnabled('fixMdStaffBuyerCollisionLog')) {
         logger.warn('Staff phone match supersedes potential buyer lead — customer AI suppressed', collisionPayload);
+        try {
+          const { notificationEngine } = await import('./notification.engine');
+          const admins = await prisma.user.findMany({
+            where: { companyId: params.companyId, role: 'company_admin', status: 'active' },
+            select: { id: true },
+          });
+          for (const admin of admins) {
+            await notificationEngine.notify({
+              companyId: params.companyId,
+              userId: admin.id,
+              type: 'system',
+              title: 'Staff phone matches buyer lead',
+              message: `A team member's WhatsApp number matches buyer lead "${matchingBuyerLead.customerName ?? 'Unknown'}". Customer AI is suppressed for this number to prevent thread leakage.`,
+              data: {
+                event: 'staff_buyer_phone_collision',
+                buyerLeadId: matchingBuyerLead.id,
+                staffUserId: companyUser.userId,
+              },
+            });
+          }
+        } catch (notifyErr: unknown) {
+          logger.warn('Failed to notify admins about staff/buyer phone collision', {
+            companyId: params.companyId,
+            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          });
+        }
       } else {
         logger.info('Staff phone matched buyer lead (legacy log level)', collisionPayload);
       }
