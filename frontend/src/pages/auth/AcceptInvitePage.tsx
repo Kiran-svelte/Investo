@@ -25,6 +25,8 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import api from '../../services/api';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+import { STAFF_PHONE_REQUIRED_MESSAGE } from '../../constants/staffPhonePolicy';
 
 interface InviteDetails {
   agencyName: string;
@@ -113,7 +115,9 @@ const AcceptInvitePage: React.FC = () => {
       errors.confirmPassword = 'Passwords do not match.';
     }
 
-    if (formData.whatsappPhone && !/^\+?[\d\s-]{8,15}$/.test(formData.whatsappPhone)) {
+    if (!formData.whatsappPhone.trim()) {
+      errors.whatsappPhone = STAFF_PHONE_REQUIRED_MESSAGE;
+    } else if (!/^\+?[\d\s-]{8,15}$/.test(formData.whatsappPhone)) {
       errors.whatsappPhone = 'Enter a valid phone number (e.g. +91 9876543210).';
     }
 
@@ -136,11 +140,7 @@ const AcceptInvitePage: React.FC = () => {
       });
       setIsSuccess(true);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Could not create account. Please try again or contact support.';
-      setSubmitError(message);
+      setSubmitError(getApiErrorMessage(err, 'Could not create account. Please try again or contact support.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -368,11 +368,10 @@ const AcceptInvitePage: React.FC = () => {
               )}
             </div>
 
-            {/* WhatsApp phone (optional) */}
+            {/* WhatsApp phone */}
             <div>
               <label htmlFor="accept-invite-phone" className="block text-sm font-medium text-gray-700 mb-1">
-                WhatsApp phone{' '}
-                <span className="text-xs text-gray-400 font-normal">(optional)</span>
+                WhatsApp phone *
               </label>
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />

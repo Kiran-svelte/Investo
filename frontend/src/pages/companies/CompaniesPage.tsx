@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+import { STAFF_PHONE_REQUIRED_MESSAGE } from '../../constants/staffPhonePolicy';
 import Pagination from '../../components/common/Pagination';
 import {
   Building2, Plus, Search, Users, Check, X,
@@ -58,6 +59,7 @@ const CompaniesPage: React.FC = () => {
     name: '',
     email: '',
     password: '',
+    phone: '',
     must_change_password: true,
   });
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
@@ -178,22 +180,30 @@ const CompaniesPage: React.FC = () => {
   const handleInviteAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteCompany) return;
+    if (!inviteForm.phone.trim()) {
+      setInviteError(STAFF_PHONE_REQUIRED_MESSAGE);
+      return;
+    }
     setInviteSubmitting(true);
     setInviteError('');
     setInviteSuccess('');
     try {
-      await api.post('/users', {
+      const response = await api.post('/users', {
         name: inviteForm.name,
         email: inviteForm.email,
         password: inviteForm.password,
+        phone: inviteForm.phone.trim(),
         role: 'company_admin',
         target_company_id: inviteCompany.id,
         must_change_password: inviteForm.must_change_password,
       });
+      const warnings = Array.isArray(response.data?.warnings) ? response.data.warnings : [];
       setInviteSuccess(
-        `Company admin created. They should log in and complete the 6-step onboarding wizard.`,
+        warnings.length > 0
+          ? `Company admin created. ${warnings.join(' ')}`
+          : 'Company admin created. They should log in and complete the 6-step onboarding wizard.',
       );
-      setInviteForm({ name: '', email: '', password: '', must_change_password: true });
+      setInviteForm({ name: '', email: '', password: '', phone: '', must_change_password: true });
     } catch (err: any) {
       setInviteError(getApiErrorMessage(err, 'Failed to create company admin'));
     } finally {
@@ -503,6 +513,20 @@ const CompaniesPage: React.FC = () => {
                     Create a unique temporary password. The admin will be asked to change it on first login.
                   </p>
                 </div>
+              <div>
+                <label className="block text-sm font-medium text-ink-secondary mb-1">WhatsApp phone *</label>
+                <input
+                  type="tel"
+                  required
+                  value={inviteForm.phone}
+                  onChange={(e) => setInviteForm({ ...inviteForm, phone: e.target.value })}
+                  className="w-full px-3 py-2 border border-surface-border-strong rounded-lg"
+                  placeholder="+91 98765 43210"
+                />
+                <p className="mt-1 text-xs text-ink-muted">
+                  Required for company admins using WhatsApp copilot.
+                </p>
+              </div>
               <label className="flex items-center gap-2 text-sm text-ink-secondary">
                 <input
                   type="checkbox"

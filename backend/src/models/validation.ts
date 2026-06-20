@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  requiresStaffPhone,
+  STAFF_PHONE_REQUIRED_MESSAGE,
+} from '../constants/staffPhonePolicy';
 
 const INDIAN_E164_REGEX = /^\+91\d{10}$/;
 
@@ -331,11 +335,10 @@ export const createUserSchema = z.object({
   must_change_password: z.boolean().optional(),
   branch_id: z.string().uuid().nullable().optional(),
 }).superRefine((data, ctx) => {
-  const whatsappStaffRoles = ['sales_agent', 'operations', 'company_admin'] as const;
-  if (whatsappStaffRoles.includes(data.role as typeof whatsappStaffRoles[number]) && !data.phone) {
+  if (requiresStaffPhone(data.role) && !data.phone) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'Phone number is required for staff who use WhatsApp copilot',
+      message: STAFF_PHONE_REQUIRED_MESSAGE,
       path: ['phone'],
     });
   }

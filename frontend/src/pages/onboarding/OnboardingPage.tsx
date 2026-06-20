@@ -12,6 +12,7 @@ import { buildDefaultFeatureState } from '../../config/tenantFeatures';
 import { dispatchCompanyFeaturesReload } from '../../utils/featureReload';
 import InfoTooltip from '../../components/common/InfoTooltip';
 import { PERSUASION_LEVEL_HELP, PROJECT_BUDGET_HELP } from '../../constants/aiFieldHelp';
+import { requiresStaffPhone, STAFF_PHONE_REQUIRED_MESSAGE } from '../../constants/staffPhonePolicy';
 
 export { formatIndianPhoneForApi, stripIndianCountryCode };
 
@@ -60,6 +61,7 @@ interface Invite {
   email: string;
   role: string;
   password: string;
+  phone: string;
 }
 
 // ── Constants ──────────────────────────────────
@@ -228,7 +230,7 @@ const OnboardingPage: React.FC = () => {
   const [locationsInput, setLocationsInput] = useState('');
 
   // Step 5
-  const [invites, setInvites] = useState<Invite[]>([{ name: '', email: '', role: 'sales_agent', password: '' }]);
+  const [invites, setInvites] = useState<Invite[]>([{ name: '', email: '', role: 'sales_agent', password: '', phone: '' }]);
 
   // Step 6
   const [completed, setCompleted] = useState(false);
@@ -368,8 +370,13 @@ const OnboardingPage: React.FC = () => {
   const handleStep5 = async () => {
     const validInvites = invites.filter(i => i.name.trim() && i.email.trim());
     const hasWeakPassword = validInvites.some(i => i.password.trim().length < 8);
+    const missingRequiredPhones = validInvites.some((i) => requiresStaffPhone(i.role) && !i.phone.trim());
     if (hasWeakPassword) {
       setError('Each invited user must have a password with at least 8 characters');
+      return;
+    }
+    if (missingRequiredPhones) {
+      setError(STAFF_PHONE_REQUIRED_MESSAGE);
       return;
     }
     setSaving(true);
@@ -464,7 +471,7 @@ const OnboardingPage: React.FC = () => {
   // ── Invite helpers ────────────────────────────
 
   const addInviteRow = () => {
-    setInvites(prev => [...prev, { name: '', email: '', role: 'sales_agent', password: '' }]);
+    setInvites(prev => [...prev, { name: '', email: '', role: 'sales_agent', password: '', phone: '' }]);
   };
 
   const updateInvite = (index: number, field: keyof Invite, value: string) => {
@@ -810,7 +817,7 @@ const OnboardingPage: React.FC = () => {
       </p>
       {invites.map((inv, idx) => (
         <div key={idx} className="flex items-start gap-3">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 flex-1">
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 flex-1">
             <input
               value={inv.name}
               onChange={e => updateInvite(idx, 'name', e.target.value)}
@@ -840,6 +847,13 @@ const OnboardingPage: React.FC = () => {
               className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               placeholder="Temporary password"
               minLength={8}
+            />
+            <input
+              type="tel"
+              value={inv.phone}
+              onChange={e => updateInvite(idx, 'phone', e.target.value)}
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+              placeholder={requiresStaffPhone(inv.role) ? 'WhatsApp phone *' : 'WhatsApp phone'}
             />
           </div>
           {invites.length > 1 && (

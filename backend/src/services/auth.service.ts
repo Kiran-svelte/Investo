@@ -6,6 +6,7 @@ import config from '../config';
 import logger from '../config/logger';
 import { provisionNeonIdentity } from './identityProvisioning.service';
 import { assertStaffPhoneAvailable } from '../utils/staffPhoneUniqueness';
+import { requiresStaffPhone, STAFF_PHONE_REQUIRED_MESSAGE } from '../constants/staffPhonePolicy';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -60,6 +61,9 @@ export class AuthService {
     }
 
     const id = uuidv4();
+    if (requiresStaffPhone(data.role) && !data.phone) {
+      throw new Error(STAFF_PHONE_REQUIRED_MESSAGE);
+    }
     const normalizedPhone = data.phone
       ? await assertStaffPhoneAvailable(data.phone)
       : null;

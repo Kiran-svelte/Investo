@@ -41,8 +41,8 @@ describe('OnboardingPage helpers', () => {
   });
 
   it('prefers backend error key and falls back to message', () => {
-    expect(getApiErrorMessage({ response: { data: { error: 'Validation failed' } } }, 'Fallback')).toBe('Validation failed');
-    expect(getApiErrorMessage({ response: { data: { message: 'Bad request' } } }, 'Fallback')).toBe('Bad request');
+    expect(getApiErrorMessage({ isAxiosError: true, response: { data: { error: 'Validation failed' } } }, 'Fallback')).toBe('Validation failed');
+    expect(getApiErrorMessage({ isAxiosError: true, response: { data: { message: 'Bad request' } } }, 'Fallback')).toBe('Bad request');
     expect(getApiErrorMessage({}, 'Fallback')).toBe('Fallback');
   });
 

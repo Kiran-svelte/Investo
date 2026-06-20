@@ -36,7 +36,13 @@ export async function createAgencyInvite(input: {
   negotiatedMonthlyPrice?: number | null;
   notes?: string;
   createdById: string;
-}): Promise<{ id: string; token: string; inviteUrl: string; expiresAt: Date }> {
+}): Promise<{
+  id: string;
+  token: string;
+  inviteUrl: string;
+  expiresAt: Date;
+  emailDelivery: { sent: boolean; reason?: string };
+}> {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 30);
@@ -55,14 +61,31 @@ export async function createAgencyInvite(input: {
 
   const inviteUrl = `${config.frontend.baseUrl}/accept-invite/${token}`;
 
-  await emailService.sendAgencyInviteEmail({
+  const mailResult = await emailService.sendAgencyInviteEmail({
     toEmail: invite.adminEmail,
     agencyName: invite.agencyName,
     inviteUrl,
     expiresAt: invite.expiresAt,
   });
+  if (!mailResult.sent) {
+    logger.error('Agency invite email not delivered', {
+      inviteId: invite.id,
+      toEmail: invite.adminEmail,
+      reason: mailResult.reason,
+      action: 'Configure RESEND_API_KEY and MAIL_FROM in Railway backend service vars',
+    });
+  }
 
-  return { id: invite.id, token, inviteUrl, expiresAt };
+  return {
+    id: invite.id,
+    token,
+    inviteUrl,
+    expiresAt,
+    emailDelivery: {
+      sent: mailResult.sent,
+      reason: mailResult.reason,
+    },
+  };
 }
 
 export async function getInviteByToken(token: string) {
@@ -110,6 +133,7 @@ export async function acceptAgencyInvite(input: {
     name: input.adminName.trim(),
     email: invite.adminEmail,
     password: input.password,
+    phone: input.whatsappPhone || null,
     role: 'company_admin',
     company_id: company.id,
     must_change_password: false,

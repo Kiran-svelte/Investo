@@ -45,6 +45,19 @@ export class EmailService {
     return sendResendEmail(mail);
   }
 
+  private mailDisabledResult(kind: string, toEmail: string): MailSendResult {
+    const reason = !isMailConfigured()
+      ? 'mail_not_configured: set RESEND_API_KEY and MAIL_FROM'
+      : 'mail_from_missing: set MAIL_FROM';
+    logger.error(`${kind} email not sent`, {
+      toEmail,
+      reason,
+      action: 'Set Railway backend env vars RESEND_API_KEY and MAIL_FROM, then redeploy.',
+      transport: config.mail.transport,
+    });
+    return { sent: false, reason };
+  }
+
   async sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<MailSendResult> {
     if (!isMailConfigured()) {
       logger.warn('Password reset email skipped: mail not configured', {
@@ -104,12 +117,9 @@ export class EmailService {
     }
   }
 
-  async sendWelcomeInviteEmail(params: WelcomeInviteEmailParams): Promise<boolean> {
+  async sendWelcomeInviteEmail(params: WelcomeInviteEmailParams): Promise<MailSendResult> {
     if (!isMailConfigured() || !config.mail.from) {
-      logger.warn('Welcome invite email skipped: Resend not configured', {
-        userEmail: params.toEmail,
-      });
-      return false;
+      return this.mailDisabledResult('Welcome invite', params.toEmail);
     }
 
     const greetingName = (params.toName || '').trim() || 'there';
@@ -141,22 +151,21 @@ export class EmailService {
         html,
       });
       logger.info('Welcome invite email sent', { userEmail: params.toEmail, messageId: result.id });
-      return true;
+      return { sent: true, messageId: result.id };
     } catch (err: unknown) {
-      logger.warn('Welcome invite email failed', {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Welcome invite email failed', {
         userEmail: params.toEmail,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
+        action: 'Verify MAIL_FROM sender/domain in Resend and RESEND_API_KEY permissions',
       });
-      return false;
+      return { sent: false, reason: message };
     }
   }
 
-  async sendReEngagementEmail(params: ReEngagementEmailParams): Promise<boolean> {
+  async sendReEngagementEmail(params: ReEngagementEmailParams): Promise<MailSendResult> {
     if (!isMailConfigured() || !config.mail.from) {
-      logger.warn('Re-engagement email skipped: Resend not configured', {
-        userEmail: params.toEmail,
-      });
-      return false;
+      return this.mailDisabledResult('Re-engagement', params.toEmail);
     }
 
     const greetingName = (params.toName || '').trim() || 'there';
@@ -171,13 +180,14 @@ export class EmailService {
         html,
       });
       logger.info('Re-engagement email sent', { userEmail: params.toEmail, messageId: result.id });
-      return true;
+      return { sent: true, messageId: result.id };
     } catch (err: unknown) {
-      logger.warn('Re-engagement email failed', {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Re-engagement email failed', {
         userEmail: params.toEmail,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      return false;
+      return { sent: false, reason: message };
     }
   }
 
@@ -186,10 +196,9 @@ export class EmailService {
     agencyName: string;
     inviteUrl: string;
     expiresAt: Date;
-  }): Promise<boolean> {
+  }): Promise<MailSendResult> {
     if (!isMailConfigured() || !config.mail.from) {
-      logger.warn('Agency invite email skipped: mail not configured', { toEmail: params.toEmail });
-      return false;
+      return this.mailDisabledResult('Agency invite', params.toEmail);
     }
 
     const subject = `You're invited to Investo — ${params.agencyName}`;
@@ -208,14 +217,15 @@ export class EmailService {
     `;
 
     try {
-      await this.sendEmail({ to: params.toEmail, subject, text, html });
-      return true;
+      const result = await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return { sent: true, messageId: result.id };
     } catch (err: unknown) {
-      logger.warn('sendAgencyInviteEmail failed', {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('sendAgencyInviteEmail failed', {
         toEmail: params.toEmail,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      return false;
+      return { sent: false, reason: message };
     }
   }
 
@@ -225,8 +235,8 @@ export class EmailService {
     companyName: string;
     daysLeft: number;
     billingUrl: string;
-  }): Promise<boolean> {
-    if (!isMailConfigured() || !config.mail.from) return false;
+  }): Promise<MailSendResult> {
+    if (!isMailConfigured() || !config.mail.from) return this.mailDisabledResult('Trial reminder', params.toEmail);
 
     const name = (params.toName || '').trim() || 'there';
     const subject = `${params.daysLeft} day${params.daysLeft === 1 ? '' : 's'} left in your Investo trial`;
@@ -242,15 +252,16 @@ export class EmailService {
     `;
 
     try {
-      await this.sendEmail({ to: params.toEmail, subject, text, html });
-      return true;
+      const result = await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return { sent: true, messageId: result.id };
     } catch (err: unknown) {
-      logger.warn('sendTrialReminderEmail failed', {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('sendTrialReminderEmail failed', {
         toEmail: params.toEmail,
         daysLeft: params.daysLeft,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      return false;
+      return { sent: false, reason: message };
     }
   }
 
@@ -258,8 +269,8 @@ export class EmailService {
     toEmail: string;
     toName?: string | null;
     billingUrl: string;
-  }): Promise<boolean> {
-    if (!isMailConfigured() || !config.mail.from) return false;
+  }): Promise<MailSendResult> {
+    if (!isMailConfigured() || !config.mail.from) return this.mailDisabledResult('Trial expired', params.toEmail);
 
     const name = (params.toName || '').trim() || 'there';
     const subject = 'Your Investo trial has ended — subscribe to continue';
@@ -274,14 +285,15 @@ export class EmailService {
     `;
 
     try {
-      await this.sendEmail({ to: params.toEmail, subject, text, html });
-      return true;
+      const result = await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return { sent: true, messageId: result.id };
     } catch (err: unknown) {
-      logger.warn('sendTrialExpiredEmail failed', {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('sendTrialExpiredEmail failed', {
         toEmail: params.toEmail,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      return false;
+      return { sent: false, reason: message };
     }
   }
 
@@ -289,8 +301,8 @@ export class EmailService {
     toEmail: string;
     toName?: string | null;
     billingUrl: string;
-  }): Promise<boolean> {
-    if (!isMailConfigured() || !config.mail.from) return false;
+  }): Promise<MailSendResult> {
+    if (!isMailConfigured() || !config.mail.from) return this.mailDisabledResult('Account suspended', params.toEmail);
 
     const name = (params.toName || '').trim() || 'there';
     const subject = 'Investo account suspended — payment overdue';
@@ -305,14 +317,15 @@ export class EmailService {
     `;
 
     try {
-      await this.sendEmail({ to: params.toEmail, subject, text, html });
-      return true;
+      const result = await this.sendEmail({ to: params.toEmail, subject, text, html });
+      return { sent: true, messageId: result.id };
     } catch (err: unknown) {
-      logger.warn('sendAccountSuspendedEmail failed', {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('sendAccountSuspendedEmail failed', {
         toEmail: params.toEmail,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      return false;
+      return { sent: false, reason: message };
     }
   }
 }

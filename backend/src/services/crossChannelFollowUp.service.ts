@@ -38,17 +38,22 @@ export async function tryCrossChannelFollowUp(
         : 'New properties matching your search';
 
   try {
-    const sent = await emailService.sendReEngagementEmail({
+    const mailResult = await emailService.sendReEngagementEmail({
       toEmail: lead.email.trim(),
       toName: lead.customerName,
       subject,
       bodyText: whatsappBody.replace(/\*/g, ''),
     });
 
-    if (sent) {
+    if (mailResult.sent) {
       await prisma.lead.update({
         where: { id: lead.id },
         data: { lastContactAt: new Date() },
+      });
+    } else {
+      logger.error('Cross-channel email not sent', {
+        leadId,
+        reason: mailResult.reason,
       });
     }
   } catch (err: any) {

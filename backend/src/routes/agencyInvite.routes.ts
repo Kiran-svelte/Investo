@@ -5,6 +5,8 @@ import { hasRole } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
 import config from '../config';
 import logger from '../config/logger';
+import { normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
+import { STAFF_PHONE_REQUIRED_MESSAGE } from '../constants/staffPhonePolicy';
 import {
   acceptAgencyInvite,
   createAgencyInvite,
@@ -24,7 +26,11 @@ const createInviteSchema = z.object({
 const acceptInviteSchema = z.object({
   admin_name: z.string().min(2).max(255),
   password: z.string().min(8).max(128),
-  whatsapp_phone: z.string().optional(),
+  whatsapp_phone: z.preprocess(
+    normalizeIndianPhoneNumber,
+    z.string()
+      .refine(isIndianE164Phone, 'Enter a valid Indian mobile number (10 digits).'),
+  ),
 });
 
 /** GET /api/agency-invites/:token — public */
@@ -71,7 +77,24 @@ router.post('/:token/accept', validate(acceptInviteSchema), async (req, res: Res
     res.status(201).json({ data: result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to accept invite';
-    res.status(400).json({ error: message });
+    if (message === 'Invalid invite link') {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message === 'Invite already accepted' || message === 'Invite has expired') {
+      res.status(409).json({ error: message });
+      return;
+    }
+    if (message === 'An account with this email already exists') {
+      res.status(409).json({ error: message });
+      return;
+    }
+    if (message === STAFF_PHONE_REQUIRED_MESSAGE) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    logger.error('Failed to accept agency invite', { error: message, token: req.params.token });
+    res.status(500).json({ error: 'Failed to accept invite' });
   }
 });
 
@@ -89,7 +112,12 @@ router.post('/', authenticate, hasRole('super_admin'), validate(createInviteSche
       notes: req.body.notes,
       createdById: req.user!.id,
     });
-    res.status(201).json({ data: result });
+    res.status(201).json({
+      data: result,
+      warning: result.emailDelivery.sent
+        ? undefined
+        : `Invite created but email delivery failed (${result.emailDelivery.reason || 'unknown reason'}). Configure RESEND_API_KEY and MAIL_FROM.`,
+    });
   } catch (err: unknown) {
     logger.error('Failed to create agency invite', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Failed to create invite' });

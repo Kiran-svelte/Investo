@@ -8,9 +8,9 @@ import Pagination from '../../components/common/Pagination';
 import useConfirmDialog from '../../hooks/useConfirmDialog';
 import { ensureArray } from '../../utils/safeApiData';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+import { requiresStaffPhone, STAFF_PHONE_REQUIRED_MESSAGE } from '../../constants/staffPhonePolicy';
 import { listBranches, type BranchNode } from '../../services/identity';
 
-const WHATSAPP_STAFF_ROLES = new Set(['sales_agent', 'operations', 'company_admin']);
 
 interface AgentStats {
   agent_id: string;
@@ -145,8 +145,8 @@ const AgentsPage: React.FC = () => {
     setSubmitting(true);
     setError('');
 
-    if (WHATSAPP_STAFF_ROLES.has(formData.role) && !formData.phone.trim()) {
-      setError('Phone number is required for staff who use WhatsApp copilot.');
+    if (requiresStaffPhone(formData.role) && !formData.phone.trim()) {
+      setError(STAFF_PHONE_REQUIRED_MESSAGE);
       setSubmitting(false);
       return;
     }

@@ -31,4 +31,13 @@ describe('getApiErrorMessage', () => {
   it('returns fallback for unknown errors', () => {
     expect(getApiErrorMessage({}, 'Fallback')).toBe('Fallback');
   });
+
+  it('returns fallback for generic axios 400 message', () => {
+    const err = {
+      isAxiosError: true,
+      message: 'Request failed with status code 400',
+      response: { status: 400, data: {} },
+    };
+    expect(getApiErrorMessage(err, 'Please fix highlighted fields.')).toBe('Please fix highlighted fields.');
+  });
 });

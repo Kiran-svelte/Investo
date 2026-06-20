@@ -15,6 +15,7 @@ import { emailService } from '../services/email.service';
 import config from '../config';
 import { rejectPlatformAdminTenantApi } from '../middleware/rejectPlatformAdmin';
 import { mapPrismaError } from '../utils/prismaErrors';
+import { requiresStaffPhone, STAFF_PHONE_REQUIRED_MESSAGE } from '../constants/staffPhonePolicy';
 
 const router = Router();
 
@@ -662,7 +663,7 @@ router.post(
       await assertStepPrerequisites(companyId, 5);
       const members = req.body.members || req.body.invites;
 
-      // members/invites: [{ name, email, role, password }]
+      // members/invites: [{ name, email, role, password, phone }]
       if (!Array.isArray(members)) {
         res.status(400).json({
           error: 'members/invites must be an array',
@@ -722,12 +723,22 @@ router.post(
           customRoleId = customRole.id;
           userRole = 'viewer';
         }
+        const rawPhone = m.phone ? String(m.phone).trim() : '';
+        if (requiresStaffPhone(selectedRole) && !rawPhone) {
+          created.push({
+            email: normalizedEmail,
+            role: selectedRole,
+            status: 'phone_required',
+            message: STAFF_PHONE_REQUIRED_MESSAGE,
+          });
+          continue;
+        }
         try {
           const user = await authService.register({
             name: String(m.name),
             email: normalizedEmail,
             password: String(m.password),
-            phone: m.phone || null,
+            phone: rawPhone || null,
             role: userRole,
             company_id: companyId,
             custom_role_id: customRoleId,
@@ -741,14 +752,24 @@ router.post(
           });
 
           const loginUrl = `${config.frontend.baseUrl.replace(/\/$/, '')}/login`;
-          void emailService.sendWelcomeInviteEmail({
+          const mailResult = await emailService.sendWelcomeInviteEmail({
             toEmail: normalizedEmail,
             toName: String(m.name),
             loginUrl,
             temporaryPassword: String(m.password),
-          }).catch((mailErr: Error) => {
-            logger.warn('Onboarding invite email failed', { email: normalizedEmail, error: mailErr.message });
           });
+          if (!mailResult.sent) {
+            created.push({
+              email: normalizedEmail,
+              role: selectedRole,
+              status: 'email_failed',
+              message: `User created but invite email failed: ${mailResult.reason || 'unknown reason'}`,
+            });
+            logger.error('Onboarding invite email not sent', {
+              email: normalizedEmail,
+              reason: mailResult.reason,
+            });
+          }
         } catch (inviteErr: any) {
           created.push({
             email: normalizedEmail,

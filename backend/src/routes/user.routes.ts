@@ -289,24 +289,32 @@ router.post(
         branch_id: branch_id && isOrgBranchesEnabled() ? branch_id : null,
       });
 
+      let warnings: string[] = [];
       if (role === 'company_admin') {
         const company = await prisma.company.findUnique({
           where: { id: companyId },
           select: { name: true },
         });
         const loginUrl = `${config.frontend.baseUrl.replace(/\/$/, '')}/login`;
-        void emailService.sendWelcomeInviteEmail({
+        const mailResult = await emailService.sendWelcomeInviteEmail({
           toEmail: email,
           toName: name,
           loginUrl,
           temporaryPassword: password,
           companyName: company?.name,
-        }).catch((mailErr: Error) => {
-          logger.warn('Welcome invite email failed', { error: mailErr.message, email });
         });
+        if (!mailResult.sent) {
+          warnings = [
+            `Admin account created, but invite email was not sent (${mailResult.reason || 'unknown reason'}).`,
+          ];
+          logger.error('Welcome invite email not sent for company admin', {
+            email,
+            reason: mailResult.reason,
+          });
+        }
       }
 
-      res.status(201).json({ data: result, id: result.id });
+      res.status(201).json({ data: result, id: result.id, warnings });
     } catch (err: any) {
       if (isStaffPhoneInUseError(err)) {
         res.status(409).json({ error: err.message });

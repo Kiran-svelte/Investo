@@ -281,6 +281,26 @@ describe('Validation: User Schema', () => {
       expect(result.data.phone).toBe('+919876543210');
     }
   });
+
+  test('company admin requires phone', () => {
+    const result = createUserSchema.safeParse({
+      name: 'Admin User',
+      email: 'admin@example.com',
+      password: 'securepass123',
+      role: 'company_admin',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('viewer can be created without phone', () => {
+    const result = createUserSchema.safeParse({
+      name: 'Viewer User',
+      email: 'viewer@example.com',
+      password: 'securepass123',
+      role: 'viewer',
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('Validation: Visit Schema', () => {
