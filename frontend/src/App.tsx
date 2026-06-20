@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/notifications/ToastContainer';
+import ClarityAnalytics from './components/analytics/ClarityAnalytics';
 import InvestoLoading from './components/loading/InvestoLoading';
 import { CompanyFeaturesProvider, useCompanyFeatures } from './context/CompanyFeaturesContext';
 import { TenantProvider } from './context/TenantContext';
@@ -392,6 +393,7 @@ const App: React.FC = () => {
         <CompanyFeaturesProvider>
         <NotificationProvider>
         <SocketProvider>
+          <ClarityAnalytics />
           <ToastContainer />
           <Routes>
             <Route path="/" element={<RootEntry />} />

@@ -4,9 +4,9 @@
  * Usage: node scripts/production-smoke-test.mjs [--base-url URL] [--email E] [--password P]
  */
 
-const DEFAULT_BASE = 'https://investo-backend-v2.onrender.com/api';
-const DEFAULT_EMAIL = 'admin@demorealty.in';
-const DEFAULT_PASSWORD = 'demo@123';
+const DEFAULT_BASE = 'https://investo-backend-production.up.railway.app/api';
+const DEFAULT_EMAIL = process.env.SMOKE_EMAIL || 'big.investo.sol@gmail.com';
+const DEFAULT_PASSWORD = process.env.SMOKE_PASSWORD || 'Investo@123';
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -23,12 +23,18 @@ function parseArgs() {
   return opts;
 }
 
-async function request(baseUrl, path, { method = 'GET', token, body } = {}) {
+async function request(baseUrl, path, { method = 'GET', token, body, companyId } = {}) {
   const headers = { Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body) headers['Content-Type'] = 'application/json';
 
-  const res = await fetch(`${baseUrl}${path}`, {
+  let url = `${baseUrl}${path}`;
+  if (companyId) {
+    const joiner = url.includes('?') ? '&' : '?';
+    url += `${joiner}target_company_id=${encodeURIComponent(companyId)}`;
+  }
+
+  const res = await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -90,23 +96,28 @@ async function main() {
   }
   pass('POST /auth/login', `status ${login.status}`);
 
+  const user = login.json?.data?.user;
+  const role = user?.role;
+  const tenantCompanyId = user?.company_id || user?.companyId || null;
+  const scopedCompanyId = role === 'super_admin' ? tenantCompanyId : null;
+
   const endpoints = [
     { label: 'GET /auth/me', path: '/auth/me' },
-    { label: 'GET /notifications', path: '/notifications?page=1&limit=5' },
-    { label: 'GET /leads', path: '/leads?page=1&limit=5' },
-    { label: 'GET /properties', path: '/properties?page=1&limit=5' },
-    { label: 'GET /visits', path: '/visits?page=1&limit=5' },
-    { label: 'GET /conversations', path: '/conversations?page=1&limit=5' },
-    { label: 'GET /users', path: '/users' },
-    { label: 'GET /analytics/dashboard', path: '/analytics/dashboard' },
-    { label: 'GET /ai-settings', path: '/ai-settings' },
-    { label: 'GET /features', path: '/features' },
+    { label: 'GET /notifications', path: '/notifications?page=1&limit=5', scoped: true },
+    { label: 'GET /leads', path: '/leads?page=1&limit=5', scoped: true },
+    { label: 'GET /properties', path: '/properties?page=1&limit=5', scoped: true },
+    { label: 'GET /visits', path: '/visits?page=1&limit=5', scoped: true },
+    { label: 'GET /conversations', path: '/conversations?page=1&limit=5', scoped: true },
+    { label: 'GET /users', path: '/users', scoped: true },
+    { label: 'GET /analytics/dashboard', path: '/analytics/dashboard', scoped: true },
+    { label: 'GET /ai-settings', path: '/ai-settings', scoped: true },
+    { label: 'GET /features', path: '/features', scoped: true },
     { label: 'GET /onboarding/status', path: '/onboarding/status' },
-    { label: 'GET /assignment-settings', path: '/assignment-settings' },
-    { label: 'GET /conversion-settings', path: '/conversion-settings' },
-    { label: 'GET /property-imports/drafts', path: '/property-imports/drafts' },
-    { label: 'GET /property-projects', path: '/property-projects' },
-    { label: 'GET /error-logs', path: '/error-logs?page=1&limit=5' },
+    { label: 'GET /assignment-settings', path: '/assignment-settings', scoped: true },
+    { label: 'GET /conversion-settings', path: '/conversion-settings', scoped: true },
+    { label: 'GET /property-imports/drafts', path: '/property-imports/drafts', scoped: true },
+    { label: 'GET /property-projects', path: '/property-projects', scoped: true },
+    { label: 'GET /error-logs', path: '/error-logs?page=1&limit=5', scoped: true },
     { label: 'GET /subscriptions/plans', path: '/subscriptions/plans' },
     { label: 'POST /calculate-emi', path: '/calculate-emi', method: 'POST', body: { principal: 5000000, down_payment: 500000, interest_rate: 8.5, tenure_months: 240 } },
   ];
@@ -116,6 +127,7 @@ async function main() {
       method: ep.method || 'GET',
       token,
       body: ep.body,
+      companyId: ep.scoped ? scopedCompanyId : null,
     });
 
     // 200/201 = pass; 403 = role/feature gate; 423 = property completeness gate (expected on demo tenant)
