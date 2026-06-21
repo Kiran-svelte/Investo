@@ -327,6 +327,13 @@ const config = {
     resend: {
       apiKey: resendApiKey,
     },
+    smtpBridge: {
+      enabled: process.env.SMTP_BRIDGE_ENABLED !== 'false',
+      host: process.env.SMTP_BRIDGE_BIND_HOST || '0.0.0.0',
+      port: parseInt(process.env.SMTP_BRIDGE_PORT || '2525', 10),
+      username: process.env.SMTP_BRIDGE_USERNAME || 'resend',
+      keycloakHost: process.env.SMTP_BRIDGE_HOST || 'investo-backend.railway.internal',
+    },
   },
 
   db: {
@@ -535,6 +542,8 @@ const config = {
     realm: (process.env.KEYCLOAK_REALM || 'investo').trim(),
     clientId: (process.env.KEYCLOAK_CLIENT_ID || 'investo-app').trim(),
     clientSecret: (process.env.KEYCLOAK_CLIENT_SECRET || '').trim(),
+    adminUsername: (process.env.KEYCLOAK_ADMIN || process.env.KC_BOOTSTRAP_ADMIN_USERNAME || 'admin').trim(),
+    adminPassword: (process.env.KEYCLOAK_ADMIN_PASSWORD || process.env.KC_BOOTSTRAP_ADMIN_PASSWORD || '').trim(),
     /** When true, any active user may SSO even if company sso_enabled is false. */
     ssoAllTenants: process.env.KEYCLOAK_SSO_ALL_TENANTS === 'true',
   },
@@ -648,31 +657,33 @@ const config = {
     prometheusMetrics: process.env.FEATURE_PROMETHEUS_METRICS !== 'false',
     sloAlerts: process.env.FEATURE_SLO_ALERTS === 'true',
     publicStatusApi: process.env.FEATURE_PUBLIC_STATUS_API === 'true',
-    /** Per-tenant usage quotas (chunk 03). Default OFF until staging sign-off. */
-    tenantQuotas: process.env.FEATURE_TENANT_QUOTAS === 'true',
+    /**
+     * Admin dashboard enterprise modules — ON by default since 2026-06-21.
+     * Set FEATURE_*=false on Railway to disable without redeploying code.
+     */
+    tenantQuotas: process.env.FEATURE_TENANT_QUOTAS !== 'false',
     /** When true with tenantQuotas, return 429 on exceed; otherwise warn-only headers. */
     quotaHardEnforce: process.env.FEATURE_QUOTA_HARD_ENFORCE === 'true',
     quotaAdminOverrides: process.env.FEATURE_QUOTA_ADMIN_OVERRIDES !== 'false',
-    sso: process.env.FEATURE_SSO === 'true',
-    mfa: process.env.FEATURE_MFA === 'true',
-    scim: process.env.FEATURE_SCIM === 'true',
-    orgBranches: process.env.FEATURE_ORG_BRANCHES === 'true',
+    sso: process.env.FEATURE_SSO !== 'false',
+    mfa: process.env.FEATURE_MFA !== 'false',
+    scim: process.env.FEATURE_SCIM !== 'false',
+    orgBranches: process.env.FEATURE_ORG_BRANCHES !== 'false',
     piiEncryption: process.env.FEATURE_PII_ENCRYPTION === 'true',
     secretsVault: process.env.FEATURE_SECRETS_VAULT === 'true',
-    ipAllowlist: process.env.FEATURE_IP_ALLOWLIST === 'true',
+    ipAllowlist: process.env.FEATURE_IP_ALLOWLIST !== 'false',
     securityHeadersStrict: process.env.FEATURE_SECURITY_HEADERS_STRICT !== 'false',
-    /** Chunk 06 — data subject requests (export/delete). Default OFF. */
-    dsr: process.env.FEATURE_DSR === 'true',
-    complianceRetention: process.env.FEATURE_COMPLIANCE_RETENTION === 'true',
-    complianceLegalHold: process.env.FEATURE_COMPLIANCE_LEGAL_HOLD === 'true',
-    complianceDpa: process.env.FEATURE_COMPLIANCE_DPA === 'true',
+    dsr: process.env.FEATURE_DSR !== 'false',
+    complianceRetention: process.env.FEATURE_COMPLIANCE_RETENTION !== 'false',
+    complianceLegalHold: process.env.FEATURE_COMPLIANCE_LEGAL_HOLD !== 'false',
+    complianceDpa: process.env.FEATURE_COMPLIANCE_DPA !== 'false',
     /** Chunk 08 — disaster recovery read-only mode. Default OFF. */
     readOnlyMode: process.env.FEATURE_READ_ONLY_MODE === 'true',
     /** Chunk 09 — transactional outbox + tenant search. Default OFF. */
     outboxEvents: process.env.FEATURE_OUTBOX_EVENTS === 'true',
     tenantSearch: process.env.FEATURE_TENANT_SEARCH === 'true',
-    /** Chunk 10 — public API keys + outbound webhooks. Default OFF. */
-    publicApi: process.env.FEATURE_PUBLIC_API === 'true',
+    /** Public API keys + outbound webhooks for Integrations admin page. */
+    publicApi: process.env.FEATURE_PUBLIC_API !== 'false',
     /** Chunk 11 — usage metering invoices. Default OFF. */
     billingOps: process.env.FEATURE_BILLING_OPS === 'true',
     /** Commercial subscription + Cashfree checkout. ON by default; set FEATURE_BILLING=false to disable. */
@@ -683,9 +694,9 @@ const config = {
     sandboxTenants: process.env.FEATURE_SANDBOX_TENANTS === 'true',
     sandboxNoRealPii: process.env.FEATURE_SANDBOX_NO_REAL_PII === 'true',
     approvalChains: process.env.FEATURE_APPROVAL_CHAINS === 'true',
-    /** Chunk 14 — AI governance. Default OFF. */
-    promptVersioning: process.env.FEATURE_PROMPT_VERSIONING === 'true',
-    aiReviewQueue: process.env.FEATURE_AI_REVIEW_QUEUE === 'true',
+    /** AI governance admin page — review queue + prompt registry. */
+    promptVersioning: process.env.FEATURE_PROMPT_VERSIONING !== 'false',
+    aiReviewQueue: process.env.FEATURE_AI_REVIEW_QUEUE !== 'false',
     messageArchive: process.env.FEATURE_MESSAGE_ARCHIVE === 'true',
   },
 };

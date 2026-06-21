@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Loader2, ShieldCheck } from 'lucide-react';
+import AuthBrandMark from '../../components/brand/AuthBrandMark';
 import { verifyMfaLogin } from '../../services/identity';
 import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
 import { useAuth } from '../../context/AuthContext';
@@ -56,7 +57,8 @@ const MfaVerifyPage: React.FC = () => {
     <div className="flex min-h-screen items-center justify-center bg-surface-muted px-4">
       <div className="w-full max-w-md investo-card-pad">
         <div className="mb-6 flex flex-col items-center text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white">
+          <AuthBrandMark height={44} />
+          <span className="mt-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white">
             <ShieldCheck className="h-6 w-6" />
           </span>
           <h1 className="mt-4 text-2xl font-semibold text-ink-primary">Verify authenticator</h1>

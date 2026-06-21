@@ -1,16 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Building2 } from 'lucide-react';
+import InvestoLogo from '../../components/brand/InvestoLogo';
 
 const PrivacyPolicyPage: React.FC = () => (
   <div className="min-h-screen bg-surface-muted px-4 py-10">
     <div className="mx-auto max-w-3xl">
       <div className="mb-8 flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white">
-          <Building2 className="h-7 w-7" />
-        </div>
+        <InvestoLogo height={44} />
         <div>
-          <h1 className="text-2xl font-bold text-ink-primary">Investo Privacy Policy</h1>
+          <h1 className="text-2xl font-bold text-ink-primary">Privacy Policy</h1>
           <p className="text-sm text-ink-muted">Last updated: June 2026</p>
         </div>
       </div>

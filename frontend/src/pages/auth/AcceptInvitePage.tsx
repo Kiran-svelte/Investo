@@ -11,8 +11,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import InvestoLogo from '../../components/brand/InvestoLogo';
 import {
-  Building2,
   Lock,
   User,
   Phone,
@@ -176,11 +176,14 @@ const AcceptInvitePage: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 text-center">
           <div className="flex justify-center mb-4">
+            <InvestoLogo height={44} />
+          </div>
+          <div className="flex justify-center mb-4">
             <div className="rounded-full bg-green-100 p-4">
               <CheckCircle className="h-10 w-10 text-green-600" />
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Welcome to Investo!</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Welcome to BIG INVESTO!</h1>
           <p className="text-gray-500 mt-2">
             Your account has been created for{' '}
             <strong className="text-gray-700">{invite?.agencyName}</strong>. You have{' '}
@@ -240,9 +243,7 @@ const AcceptInvitePage: React.FC = () => {
         {/* Header card */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg mb-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-white/20 p-2.5">
-              <Building2 className="h-6 w-6" />
-            </div>
+            <InvestoLogo height={36} className="rounded-xl" />
             <div>
               <p className="text-blue-100 text-xs font-medium uppercase tracking-wider">
                 You've been invited to

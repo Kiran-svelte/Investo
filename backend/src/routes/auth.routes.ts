@@ -20,6 +20,7 @@ import {
   readRefreshTokenFromCookies,
   setAuthSessionCookies,
 } from '../utils/authSessionCookies.util';
+import { syncKeycloakUser } from '../identity/keycloak/keycloakAdmin.service';
 
 
 const router = Router();
@@ -390,6 +391,14 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), as
       },
     });
 
+    void syncKeycloakUser({
+      email: req.user!.email,
+      name: req.user!.name || req.user!.email,
+      investoUserId: req.user!.id,
+      password: new_password,
+      temporaryPassword: false,
+    }).catch(() => undefined);
+
     logger.info('Password changed', { userId: req.user!.id });
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (err: any) {
@@ -419,6 +428,12 @@ router.post('/forgot-password', validate(forgotPasswordSchema), async (req: Requ
       res.json({ success: true, message: 'If an account exists with this email, you will receive a password reset link' });
       return;
     }
+
+    void syncKeycloakUser({
+      email: user.email,
+      name: user.name,
+      investoUserId: user.id,
+    }).catch(() => undefined);
 
     // Generate reset token
     const token = crypto.randomBytes(32).toString('hex');
@@ -454,12 +469,22 @@ router.post('/forgot-password', validate(forgotPasswordSchema), async (req: Requ
           userId: user.id,
           reason: mailResult.reason,
         });
+        res.status(503).json({
+          success: false,
+          message: 'Unable to send password reset email right now. Please try again later or contact support.',
+        });
+        return;
       }
     } catch (sendErr: any) {
       logger.error('Password reset email send failed', {
         userId: user.id,
         error: sendErr?.message || String(sendErr),
       });
+      res.status(503).json({
+        success: false,
+        message: 'Unable to send password reset email right now. Please try again later or contact support.',
+      });
+      return;
     }
 
     // In development, include token in response for testing
@@ -492,7 +517,7 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req: Reques
     // Find user
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
-      select: { id: true },
+      select: { id: true, email: true, name: true },
     });
 
     if (!user) {
@@ -542,6 +567,14 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req: Reques
         data: { revoked: true },
       }),
     ]);
+
+    void syncKeycloakUser({
+      email: user.email,
+      name: user.name,
+      investoUserId: user.id,
+      password: new_password,
+      temporaryPassword: false,
+    }).catch(() => undefined);
 
     logger.info('Password reset completed', { userId: user.id });
     res.json({ success: true, message: 'Password has been reset successfully. Please login with your new password.' });

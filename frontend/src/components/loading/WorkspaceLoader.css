@@ -61,22 +61,15 @@
 .workspace-loader__logo {
   display: block;
   flex-shrink: 0;
-  width: 2.75rem;
-  height: 2.75rem;
+  height: 2.25rem;
 }
 
-.workspace-loader__logo svg {
-  width: 100%;
+.workspace-loader__logo img {
+  display: block;
   height: 100%;
-  filter: drop-shadow(0 4px 12px rgba(13, 148, 136, 0.25));
-}
-
-.workspace-loader__logo-bg {
-  fill: #0d9488;
-}
-
-.workspace-loader__logo-mark {
-  fill: #fff;
+  width: auto;
+  max-width: none;
+  filter: drop-shadow(0 4px 12px rgba(13, 148, 136, 0.2));
 }
 
 .workspace-loader__brand-text {

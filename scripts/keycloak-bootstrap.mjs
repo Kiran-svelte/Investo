@@ -16,6 +16,7 @@ import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getResendSmtpMissingDetail, parseResendSmtpConfig } from './resend-smtp-config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '../backend');
@@ -36,12 +37,12 @@ if (!keycloakUrl || !adminPassword) {
   process.exit(1);
 }
 
-async function waitForKeycloak(maxAttempts = 60) {
+async function waitForKeycloak(maxAttempts = 120) {
   for (let i = 0; i < maxAttempts; i += 1) {
     try {
-      const res = await fetch(`${keycloakUrl}/health/ready`);
+      const res = await fetch(`${keycloakUrl}/realms/master`);
       if (res.ok) {
-        process.stdout.write('Keycloak is ready\n');
+        process.stderr.write('Keycloak is ready\n');
         return;
       }
     } catch {
@@ -86,7 +87,7 @@ async function adminFetch(token, method, pathSuffix, body) {
 async function ensureRealm(token) {
   const getRes = await adminFetch(token, 'GET', `/admin/realms/${realm}`);
   if (getRes.ok) {
-    process.stdout.write(`Realm ${realm} exists\n`);
+    process.stderr.write(`Realm ${realm} exists\n`);
     return;
   }
 
@@ -103,7 +104,29 @@ async function ensureRealm(token) {
   if (!createRes.ok && createRes.status !== 409) {
     throw new Error(`Create realm failed (${createRes.status}): ${await createRes.text()}`);
   }
-  process.stdout.write(`Created realm ${realm}\n`);
+  process.stderr.write(`Created realm ${realm}\n`);
+}
+
+async function ensureRealmSmtp(token) {
+  const smtpConfig = parseResendSmtpConfig();
+  if (!smtpConfig) {
+    throw new Error(`Keycloak SMTP not configured: ${getResendSmtpMissingDetail()}`);
+  }
+
+  const getRes = await adminFetch(token, 'GET', `/admin/realms/${realm}`);
+  if (!getRes.ok) {
+    throw new Error(`Load realm for SMTP failed (${getRes.status}): ${await getRes.text()}`);
+  }
+
+  const realmPayload = await getRes.json();
+  realmPayload.smtpServer = smtpConfig.keycloakSmtpServer;
+
+  const putRes = await adminFetch(token, 'PUT', `/admin/realms/${realm}`, realmPayload);
+  if (!putRes.ok) {
+    throw new Error(`Configure Keycloak SMTP failed (${putRes.status}): ${await putRes.text()}`);
+  }
+
+  process.stderr.write(`Configured Keycloak SMTP via Resend (${smtpConfig.mailFrom})\n`);
 }
 
 async function ensureClient(token) {
@@ -152,7 +175,7 @@ async function ensureClient(token) {
 async function syncUsers(token) {
   const dbUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
   if (!dbUrl) {
-    process.stdout.write('Skip user sync — no DATABASE_URL\n');
+    process.stderr.write('Skip user sync — no DATABASE_URL\n');
     return 0;
   }
 
@@ -187,7 +210,7 @@ async function syncUsers(token) {
         attributes: { investo_user_id: [user.id] },
       });
       if (!createRes.ok && createRes.status !== 409) {
-        process.stdout.write(`Skip user ${email}: ${createRes.status}\n`);
+        process.stderr.write(`Skip user ${email}: ${createRes.status}\n`);
         continue;
       }
     }
@@ -206,7 +229,7 @@ async function syncUsers(token) {
       temporary: false,
     });
     if (!credRes.ok) {
-      process.stdout.write(`Password sync failed for ${email}: ${credRes.status}\n`);
+      process.stderr.write(`Password sync failed for ${email}: ${credRes.status}\n`);
       continue;
     }
 
@@ -252,7 +275,7 @@ async function syncInvestoIdentityConfigs() {
         updated_at = CURRENT_TIMESTAMP`,
       [company.id, issuer, clientId, JSON.stringify(domains)],
     );
-    process.stdout.write(`SSO enabled for ${company.name} domains=${domains.join(',') || 'none'}\n`);
+    process.stderr.write(`SSO enabled for ${company.name} domains=${domains.join(',') || 'none'}\n`);
   }
 
   await client.end();
@@ -262,6 +285,7 @@ async function main() {
   await waitForKeycloak();
   const token = await getAdminToken();
   await ensureRealm(token);
+  await ensureRealmSmtp(token);
   const clientSecret = await ensureClient(token);
   const synced = await syncUsers(token);
   await syncInvestoIdentityConfigs();
@@ -274,6 +298,7 @@ async function main() {
     issuer: `${keycloakUrl}/realms/${realm}`,
     callback_url: callbackUrl,
     users_synced: synced,
+    smtp_configured: true,
   };
 
   console.error(`Bootstrap complete: ${synced} users synced`);

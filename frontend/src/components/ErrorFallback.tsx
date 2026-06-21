@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Home, RefreshCw, ArrowLeft } from 'lucide-react';
+import InvestoLogo from './brand/InvestoLogo';
 import { dashboardPath, getRoleHomePath } from '../config/navigation.config';
 import type { UserRole } from '../context/AuthContext';
 
@@ -35,12 +36,13 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({
   return (
     <div className={`investo-page flex items-center justify-center ${shellClass}`}>
       <section className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-elevated p-6 text-center shadow-investo sm:p-8">
+        <div className="mx-auto mb-3 flex justify-center">
+          <InvestoLogo height={36} />
+        </div>
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-rose-50 text-rose-700">
           <AlertTriangle className="h-6 w-6" aria-hidden />
         </div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-brand-700">Investo</p>
-        <h1 className="mt-2 text-2xl font-bold text-ink-primary">{title}</h1>
-        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-ink-muted">{description}</p>
+        <h1 className="text-2xl font-bold text-ink-primary">{title}</h1>        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-ink-muted">{description}</p>
         {errorId ? (
           <p className="mt-4 text-xs text-ink-faint">
             Reference: <code className="rounded bg-surface-subtle px-2 py-0.5 font-mono">{errorId}</code>

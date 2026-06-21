@@ -7,6 +7,7 @@ import logger from '../config/logger';
 import { provisionNeonIdentity } from './identityProvisioning.service';
 import { assertStaffPhoneAvailable } from '../utils/staffPhoneUniqueness';
 import { requiresStaffPhone, STAFF_PHONE_REQUIRED_MESSAGE } from '../constants/staffPhonePolicy';
+import { syncKeycloakUser } from '../identity/keycloak/keycloakAdmin.service';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -85,6 +86,14 @@ export class AuthService {
     });
 
     logger.info('User registered', { userId: id, role: data.role });
+
+    void syncKeycloakUser({
+      email: normalizedEmail,
+      name: data.name,
+      investoUserId: id,
+      password: data.password,
+      temporaryPassword: data.must_change_password === true,
+    }).catch(() => undefined);
 
     return { id, email: normalizedEmail, role: data.role };
   }

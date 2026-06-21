@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Building2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import LanguageSelector from '../../components/common/LanguageSelector';
+import AuthBrandMark from '../../components/brand/AuthBrandMark';
 import InvestoButton from '../../components/ui/InvestoButton';
 import api from '../../services/api';
 import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
@@ -59,9 +59,7 @@ export default function ChangePasswordPage() {
         <div className="flex flex-1 items-center justify-center px-4 pb-12">
           <div className="w-full max-w-md">
             <div className="mb-8 flex flex-col items-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
-                <Building2 className="h-7 w-7" aria-hidden />
-              </span>
+              <AuthBrandMark height={48} />
               <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">
                 {t('auth.change_password_title')}
               </h1>

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
-  Building2,
   CalendarDays,
   Menu,
   MessageSquare,
@@ -14,6 +13,7 @@ import {
   Bot,
   X,
 } from 'lucide-react';
+import InvestoLogo from '../../components/brand/InvestoLogo';
 
 const FEATURES = [
   {
@@ -27,7 +27,7 @@ const FEATURES = [
     body: 'Every stage editable by agents or admins. AI updates status as conversations progress.',
   },
   {
-    icon: Building2,
+    icon: BarChart3,
     title: 'Inventory in minutes',
     body: 'Upload brochures, fill knowledge gaps, publish to catalog and AI index without spreadsheets.',
   },
@@ -58,11 +58,8 @@ export default function LandingPage() {
     <div className="min-h-[100dvh] bg-surface-muted text-ink-primary">
       <header className="sticky top-0 z-50 border-b border-surface-border/80 bg-surface-base/95 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-3 sm:h-16 sm:px-6 md:px-8">
-          <Link to="/" className="flex min-w-0 items-center gap-2">
-            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
-              <Building2 className="h-5 w-5" />
-            </span>
-            <span className="truncate text-base font-semibold tracking-tight sm:text-lg">Investo</span>
+          <Link to="/" className="flex min-w-0 items-center">
+            <InvestoLogo height={36} className="max-h-9" />
           </Link>
 
           <nav className="hidden items-center gap-6 text-sm font-medium text-ink-muted lg:flex">
@@ -277,7 +274,10 @@ export default function LandingPage() {
 
       <footer className="border-t border-surface-border bg-surface-base py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-3 text-sm text-ink-muted sm:flex-row sm:px-6 md:px-8">
-          <span>© {new Date().getFullYear()} Investo</span>
+          <div className="flex flex-col items-center gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <InvestoLogo height={28} />
+            <span>© {new Date().getFullYear()} BIG INVESTO</span>
+          </div>
           <div className="flex gap-6">
             <Link to="/privacy" className="hover:text-ink-primary">Privacy</Link>
             <Link to="/login" className="hover:text-ink-primary">Sign in</Link>

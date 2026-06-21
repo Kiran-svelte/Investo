@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
 import { Mail, ArrowLeft, Loader2, CheckCircle } from 'lucide-react';
+import AuthBrandMark from '../../components/brand/AuthBrandMark';
 
 export default function ForgotPasswordPage() {
   const { t } = useTranslation();
@@ -60,7 +61,7 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h1 className="text-center text-3xl font-bold text-brand-600">INVESTO</h1>
+          <AuthBrandMark height={52} />
           <h2 className="mt-6 text-center text-2xl font-bold text-ink-primary">
             {t('auth.forgot_password_title') || 'Forgot Password?'}
           </h2>

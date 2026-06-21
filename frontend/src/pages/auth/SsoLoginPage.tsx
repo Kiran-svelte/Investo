@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Building2, Loader2, Shield } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Loader2, Shield } from 'lucide-react';
+import AuthBrandMark from '../../components/brand/AuthBrandMark';
 import { AxiosError } from 'axios';
 import { getPublicSsoConfig, startSsoLogin } from '../../services/identity';
 import { isTransientAuthError } from '../../services/api';
@@ -62,9 +63,7 @@ const SsoLoginPage: React.FC = () => {
         <div className="flex flex-1 items-center justify-center px-4 pb-12">
           <div className="w-full max-w-md">
             <div className="mb-8 flex flex-col items-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
-                <Building2 className="h-7 w-7" />
-              </span>
+              <AuthBrandMark height={48} />
               <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">
                 {keycloakEnabled ? 'Sign in with Keycloak' : 'Company SSO'}
               </h1>
@@ -113,6 +112,13 @@ const SsoLoginPage: React.FC = () => {
                 )}
               </button>
             </form>
+
+            <p className="mt-4 text-center text-sm text-ink-muted">
+              Forgot your password?{' '}
+              <Link to="/forgot-password" className="font-medium text-brand-700 hover:underline">
+                Reset via BIG INVESTO
+              </Link>
+            </p>
 
             <p className="mt-6 text-center text-sm text-ink-muted">
               Need a local password instead?{' '}

@@ -6,8 +6,10 @@ import { isMfaPending, getPublicSsoConfig } from '../../services/identity';
 import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
 import { AxiosError } from 'axios';
 import { isTransientAuthError } from '../../services/api';
-import { ArrowLeft, Building2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import LanguageSelector from '../../components/common/LanguageSelector';
+import AuthBrandMark from '../../components/brand/AuthBrandMark';
+import InvestoLogo from '../../components/brand/InvestoLogo';
 
 const LoginPage: React.FC = () => {
   const { t } = useTranslation();
@@ -72,7 +74,8 @@ const LoginPage: React.FC = () => {
     <div className="flex min-h-screen bg-surface-muted">
       <div className="hidden w-[42%] flex-col justify-between border-r border-surface-border bg-slate-900 p-10 text-slate-200 lg:flex">
         <div>
-          <Link to="/" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
+          <InvestoLogo height={40} />
+          <Link to="/" className="mt-8 inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
             <ArrowLeft className="h-4 w-4" />
             Back to home
           </Link>
@@ -83,7 +86,7 @@ const LoginPage: React.FC = () => {
             Sign in to manage leads, properties, visits, and AI conversations for your team.
           </p>
         </div>
-        <p className="text-xs text-slate-500">Investo · Real estate operations platform</p>
+        <p className="text-xs text-slate-500">BIG INVESTO · Real estate operations platform</p>
       </div>
 
       <div className="flex flex-1 flex-col">
@@ -93,9 +96,7 @@ const LoginPage: React.FC = () => {
         <div className="flex flex-1 items-center justify-center px-4 pb-12">
           <div className="w-full max-w-md">
             <div className="mb-8 flex flex-col items-center lg:items-start">
-              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
-                <Building2 className="h-7 w-7" />
-              </span>
+              <AuthBrandMark height={48} align="start" />
               <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">Sign in</h1>
               <p className="mt-1 text-sm text-ink-muted">{t('auth.login')}</p>
             </div>

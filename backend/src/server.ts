@@ -123,6 +123,12 @@ async function shutdown(signal: string): Promise<void> {
     whatsappInboundWorkerService.stop();
     whatsappInboundWorkerStarted = false;
   }
+  try {
+    const { stopSmtpResendBridge } = await import('./services/smtpResendBridge.service');
+    await stopSmtpResendBridge();
+  } catch {
+    // ignore bridge shutdown errors
+  }
 
   // Step 3: Flush agent memory checkpointer and DB connection pool.
   try {
@@ -202,6 +208,9 @@ async function start(): Promise<void> {
       httpServer!.once('error', reject);
     });
 
+    const { startSmtpResendBridge } = await import('./services/smtpResendBridge.service');
+    startSmtpResendBridge();
+
     void (async () => {
       try {
         await applyCompatibilityPatchesAndSeed({
@@ -225,6 +234,15 @@ async function start(): Promise<void> {
         startAgentCronIfNeeded();
         startPropertyImportWorkerIfNeeded();
         startWhatsAppInboundWorkerIfNeeded();
+
+        try {
+          const { bootstrapGovernanceDefaults } = await import('./governance/bootstrapGovernance.service');
+          await bootstrapGovernanceDefaults();
+        } catch (bootstrapErr: unknown) {
+          logger.warn('Governance bootstrap failed', {
+            error: bootstrapErr instanceof Error ? bootstrapErr.message : String(bootstrapErr),
+          });
+        }
 
         // Self-heal: re-enqueue any visit reminder jobs that were lost during
         // a previous server crash between visit.create and scheduleVisitReminderJobs.

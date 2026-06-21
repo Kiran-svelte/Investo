@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import InvestoLogo from '../brand/InvestoLogo';
 import './WorkspaceLoader.css';
 
 const STATUS_LINES = [
@@ -50,16 +51,9 @@ const WorkspaceLoader: React.FC<WorkspaceLoaderProps> = ({
             animate={{ rotate: [0, 4, -4, 0] }}
             transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
           >
-            <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-              <rect width="32" height="32" rx="8" className="workspace-loader__logo-bg" />
-              <path
-                d="M9 22V10h4.2l3.4 7.2L20 10h4v12h-3.2v-7.1L17.4 22h-2.8l-3.4-7.1V22H9z"
-                className="workspace-loader__logo-mark"
-              />
-            </svg>
+            <InvestoLogo height={36} />
           </motion.span>
           <div className="workspace-loader__brand-text">
-            <span className="workspace-loader__title">Investo</span>
             <AnimatePresence mode="wait">
               <motion.span
                 key={statusLine}

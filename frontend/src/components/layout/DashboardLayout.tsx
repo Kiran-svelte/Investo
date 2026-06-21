@@ -19,6 +19,7 @@ import NotificationBell from './NotificationBell';
 import PageTransition from './PageTransition';
 import PageErrorBoundary from '../PageErrorBoundary';
 import InvestoLoading from '../loading/InvestoLoading';
+import InvestoLogo from '../brand/InvestoLogo';
 import {
   LayoutDashboard,
   Users,
@@ -184,17 +185,10 @@ const Sidebar: React.FC = () => {
   const reduceMotion = useReducedMotion();
 
   const brand = (
-    <div className={`flex h-16 items-center border-b border-sidebar-border ${collapsed ? 'justify-center px-2' : 'gap-3 px-4'}`}>
-      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white shadow-md shadow-brand-900/30">
-        <Building2 className="h-5 w-5" />
-      </div>
-      {!collapsed && (
-        <div className="min-w-0">
-          <span className="text-base font-semibold tracking-tight text-sidebar-active">Investo</span>
-          {user?.role && (
-            <p className="truncate text-xs text-sidebar-text">{ROLE_LABELS[user.role] || user.role}</p>
-          )}
-        </div>
+    <div className={`flex h-16 items-center border-b border-sidebar-border ${collapsed ? 'justify-center px-2' : 'gap-2 px-3'}`}>
+      <InvestoLogo height={collapsed ? 28 : 32} className={collapsed ? 'max-w-[2.5rem] object-left' : ''} />
+      {!collapsed && user?.role && (
+        <p className="min-w-0 truncate text-xs text-sidebar-text">{ROLE_LABELS[user.role] || user.role}</p>
       )}
     </div>
   );
