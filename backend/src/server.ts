@@ -208,8 +208,14 @@ async function start(): Promise<void> {
       httpServer!.once('error', reject);
     });
 
-    const { startSmtpResendBridge } = await import('./services/smtpResendBridge.service');
-    startSmtpResendBridge();
+    try {
+      const { startSmtpResendBridge } = await import('./services/smtpResendBridge.service');
+      startSmtpResendBridge();
+    } catch (bridgeErr: unknown) {
+      logger.error('Keycloak SMTP bridge failed to start; API remains up for direct Resend mail', {
+        error: bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr),
+      });
+    }
 
     void (async () => {
       try {
