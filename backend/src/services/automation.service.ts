@@ -566,9 +566,27 @@ export class AutomationService {
       case 'lead_nurture_3d':
       case 'lead_nurture_7d':
       case 'lead_nurture_30d':
-      case 'visit_post_follow_up':
-        await this.executeFollowUp(String(data.leadId), String(data.reason || 'visit_post_feedback'));
+      case 'visit_post_follow_up': {
+        const leadId = String(data.leadId);
+        const visitId = String(data.visitId ?? '');
+        if (!visitId) {
+          await this.executeFollowUp(leadId, 'visit_post_feedback');
+          return;
+        }
+        const lead = await prisma.lead.findUnique({
+          where: { id: leadId },
+          select: { companyId: true },
+        });
+        if (!lead) return;
+        const { deliverPostVisitFeedbackPrompt } = await import('./buyer/postVisitFeedback.service');
+        await deliverPostVisitFeedbackPrompt({
+          leadId,
+          visitId,
+          companyId: lead.companyId,
+          source: 'automation_24h',
+        });
         return;
+      }
       case 'conversation_timeout_24h':
         await this.executeConversationTimeout(String(data.conversationId));
         return;

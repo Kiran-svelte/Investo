@@ -6,6 +6,7 @@ import {
   isVisitCancelOrRescheduleMessage,
   isVisitSchedulingMessage,
   isCustomVisitSlotMessage,
+  isVisitNpsScoreMessage,
   parseCustomVisitSlotFromMessage,
   parseRescheduleTargetFromMessage,
   parseVisitDateTimeFromHistory,
@@ -26,6 +27,7 @@ import {
 } from './buyerPropertyContext.service';
 import { evaluateSecondVisitPolicy } from './buyer/buyerEnterpriseUx.service';
 import { tBuyer } from '../utils/buyerI18n.util';
+import { isConversationAwaitingPostVisitFeedback } from '../utils/postVisitFeedbackContext.util';
 import config from '../config';
 import { formatBuyerVisitScheduled, formatBuyerVisitPendingApprovalReply } from '../utils/visitFormat.util';
 import { isConversationAwaitingCallTime } from '../utils/conversationCallContext.util';
@@ -413,6 +415,22 @@ export async function tryCommitCustomerVisitBooking(
     return staffReschedule;
   }
 
+  if (isVisitNpsScoreMessage(customerMessage)) {
+    return { committed: false };
+  }
+
+  const conversationRow = await prisma.conversation.findUnique({
+    where: { id: conversation.id },
+    select: { commitments: true, stage: true },
+  });
+
+  if (
+    isConversationAwaitingPostVisitFeedback(conversationRow?.commitments)
+    && !isVisitCancelOrRescheduleMessage(customerMessage)
+  ) {
+    return { committed: false };
+  }
+
   if (isVisitCancelOrRescheduleMessage(customerMessage)) {
     const activeVisit = await prisma.visit.findFirst({
       where: {
@@ -446,10 +464,6 @@ export async function tryCommitCustomerVisitBooking(
     return tryCustomerVisitCancelReschedule(input);
   }
 
-  const conversationRow = await prisma.conversation.findUnique({
-    where: { id: conversation.id },
-    select: { commitments: true, stage: true },
-  });
   const visitSchedulingContext = {
     awaitingCallTime: isConversationAwaitingCallTime(conversationRow?.commitments),
     visitBookingStage: conversationRow?.stage === 'visit_booking',

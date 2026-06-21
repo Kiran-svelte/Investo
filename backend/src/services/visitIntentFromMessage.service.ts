@@ -126,6 +126,10 @@ export function parseRescheduleTargetFromMessage(
   return parseVisitDateTimeFromMessage(text, reference);
 }
 
+export function isVisitNpsScoreMessage(message: string): boolean {
+  return /^\s*[1-5]\s*$/.test(message.trim());
+}
+
 export function messageReferencesVisitTomorrow(message: string): boolean {
   return /\b(on\s+tomorrow|for\s+tomorrow|tomorrow'?s\s+visit|visit\s+.*\btomorrow\b)\b/i.test(
     message.trim(),
@@ -290,6 +294,7 @@ export function getISTDateBoundsForDow(targetDow: number): [Date, Date] {
 export function parseVisitDateTimeFromMessage(message: string, reference = new Date()): Date | null {
   const text = message.trim().toLowerCase();
   if (!text) return null;
+  if (isVisitNpsScoreMessage(message)) return null;
 
   const timeMatch = text.match(TIME_PATTERN);
   if (!timeMatch) {

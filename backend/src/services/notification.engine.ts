@@ -440,7 +440,21 @@ class NotificationEngine {
       } else if (newStatus === 'cancelled') {
         whatsappMsg = `Hi ${customerName},\n\nYour scheduled visit for ${timeStr} has been *cancelled*.\n\nWould you like to reschedule? Reply with your preferred date and time.`;
       } else if (newStatus === 'completed') {
-        whatsappMsg = `Hi ${customerName}! 🏡\n\nThank you for visiting with us today!\n\nWe hope you liked the property. Feel free to ask any questions or let us know if you'd like to revisit.\n\nHow would you rate your visit experience? (1-5)`;
+        try {
+          const { deliverPostVisitFeedbackPrompt } = await import('./buyer/postVisitFeedback.service');
+          await deliverPostVisitFeedbackPrompt({
+            leadId: visit.leadId,
+            visitId: visit.id,
+            companyId: visit.companyId,
+            source: 'visit_completed',
+          });
+        } catch (err: unknown) {
+          logger.warn('Failed to send post-visit feedback prompt', {
+            visitId: visit.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
       }
 
       if (whatsappMsg) {

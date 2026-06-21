@@ -16,11 +16,19 @@ import { buildBuyerVisitStatusReply, isBuyerVisitStatusQuery } from '../buyerVis
 import {
   isShortVisitConfirmation,
   isVisitCancelOrRescheduleMessage,
+  isVisitNpsScoreMessage,
   isVisitSchedulingMessage,
   parseCustomVisitSlotFromMessage,
   parseVisitDateTimeFromHistory,
   parseVisitDateTimeFromMessage,
 } from '../visitIntentFromMessage.service';
+import {
+  buildPostVisitFeedbackTurnResult,
+  parsePostVisitFeedbackMessage,
+  recordPostVisitFeedback,
+  resolvePostVisitFeedbackVisitId,
+  shouldHandlePostVisitFeedbackTurn,
+} from '../buyer/postVisitFeedback.service';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
 import { buildSafeBuyerFallback } from '../../utils/safeBuyerFallback.util';
 import { resolveFirstPropertyHeroMediaComponent, resolveHeroMediaForBuyerTurn } from '../brochureDelivery.service';
@@ -66,6 +74,7 @@ import {
   resolveBuyerPropertyReferenceEnterprise,
 } from '../buyerPropertyContext.service';
 import { aiService } from '../ai.service';
+import { createAiOutboundMessage } from './aiOutboundMessage.service';
 import type { CompanyWhatsAppConfig } from '../whatsapp.service';
 import {
   buildBuyerStartFreshReply,
@@ -1443,6 +1452,78 @@ async function handleClassifierWorkflowTurn(
 }
 
 // ---------------------------------------------------------------------------
+// H2.75: Post-visit feedback (deterministic — before visit commit side-effects / LLM)
+// ---------------------------------------------------------------------------
+
+async function handlePostVisitFeedbackTurn(
+  ctx: BuyerTurnRuntimeContext,
+  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
+): Promise<TurnResult | null> {
+  if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
+
+  if (!shouldHandlePostVisitFeedbackTurn({
+    messageText: ctx.input.messageText,
+    commitments: ctx.input.conversationCommitments,
+    liveCtx,
+    history: ctx.history,
+  })) {
+    return null;
+  }
+
+  const parsed = parsePostVisitFeedbackMessage(ctx.input.messageText);
+  if (!parsed.matched) return null;
+
+  const visitId = await resolvePostVisitFeedbackVisitId({
+    commitments: ctx.input.conversationCommitments,
+    liveCtx,
+  });
+  if (!visitId) return null;
+
+  const propertyName =
+    liveCtx.recentCompletedVisit?.propertyName
+    ?? liveCtx.activeVisit?.propertyName
+    ?? null;
+  const visitPropertyProjectId = liveCtx.recentCompletedVisit?.projectId ?? null;
+
+  const lang = resolveBuyerLanguage({
+    message: ctx.input.messageText,
+    leadLanguage: ctx.input.leadLanguage,
+  });
+
+  const { text, components } = buildPostVisitFeedbackTurnResult({
+    parsed,
+    lang,
+    propertyName,
+    visitPropertyProjectId,
+  });
+
+  await recordPostVisitFeedback({
+    conversationId: ctx.input.conversationId,
+    visitId,
+    parsed,
+    rawMessage: ctx.input.messageText,
+  });
+
+  await prisma.message.create({
+    data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: text, status: 'sent' },
+  });
+
+  logOutboundBranch('H2.75', 'whatsappTurnOrchestrator:postVisitFeedback', 'post_visit_feedback_fast_path', {
+    kind: parsed.kind,
+    visitId,
+  });
+
+  return {
+    audience: 'buyer',
+    handled: true,
+    terminal: true,
+    text,
+    ...(components.length ? { components } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // H8: Visit commit reply
 // ---------------------------------------------------------------------------
 
@@ -1840,14 +1921,13 @@ async function handleFullAiTurn(
     properties: properties.map((p) => ({ id: p.id, name: p.name })),
   });
 
-  await prisma.message.create({
-    data: {
-      conversationId: ctx.input.conversationId,
-      senderType: 'ai',
-      content: outboundText,
-      language: aiResponse.detectedLanguage,
-      status: 'sent',
-    },
+  await createAiOutboundMessage({
+    conversationId: ctx.input.conversationId,
+    companyId: ctx.companyId,
+    content: outboundText,
+    language: aiResponse.detectedLanguage,
+    mutationSucceeded: visitCommit.committed === true,
+    hasInventoryAlternatives: neverSayNoCtx.hasInventoryAlternatives,
   });
 
   if (aiResponse.newState) {
@@ -2163,6 +2243,7 @@ function buyerMessageHasResolvableVisitDateTime(
   proposedVisitTime: Date | null,
   recentCustomerMessages: string[],
 ): boolean {
+  if (isVisitNpsScoreMessage(messageText)) return false;
   if (parseVisitDateTimeFromMessage(messageText)) return true;
   if (parseCustomVisitSlotFromMessage(messageText)) return true;
   if (isShortVisitConfirmation(messageText) && proposedVisitTime) return true;
@@ -2505,6 +2586,9 @@ export async function orchestrateWhatsAppBuyerTurn(
   // Rapport/dismissal before call commit — bare "Hi" must not fall through to LLM greeting templates.
   const h1b = await handleDismissalTurn(ctx, visitCommit);
   if (h1b) return withDefaultReplyPacing(h1b);
+
+  const hPostVisit = await handlePostVisitFeedbackTurn(ctx, visitCommit, liveCtx);
+  if (hPostVisit) return withDefaultReplyPacing(hPostVisit);
 
   const h2 = await handleRapportTurn(ctx, visitCommit, activeState.stage, liveCtx);
   if (h2) return withDefaultReplyPacing(h2);

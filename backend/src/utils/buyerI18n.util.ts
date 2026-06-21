@@ -143,6 +143,13 @@ type BuyerCopyKey =
   | 'nurture_7d'
   | 'nurture_30d'
   | 'nurture_visit_feedback'
+  | 'post_visit_feedback_prompt'
+  | 'post_visit_feedback_rating_ack'
+  | 'post_visit_feedback_loved_ack'
+  | 'post_visit_feedback_more_options_ack'
+  | 'post_visit_feedback_negotiate_ack'
+  | 'post_visit_feedback_defer_ack'
+  | 'post_visit_feedback_negative_ack'
   | 'returning_pivot'
   | 'returning_welcome_back'
   | 'returning_area_hint'
@@ -896,6 +903,97 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     pa: 'Hi {name}!\n\nKal site visit kivein si? Feedback deo: pasand aaya, hor options chahide, ya negotiate karna hai.',
     or: 'Hi {name}!\n\nGatakalira site visit kemiti thila? Feedback antu: bhala lagila, aau options darkar, ba negotiate karibe.',
   },
+  post_visit_feedback_prompt: {
+    en: 'Hi {name}! 🏡\n\nThank you for visiting *{property}* with us.\n\nHow was your experience?\n• Rate *1–5*, or\n• Reply: *loved it*, *need more options*, *negotiate*, or *need time to decide*',
+    hi: 'Hi {name}! 🏡\n\n*{property}* par visit ke liye dhanyavaad.\n\nExperience kaisi rahi?\n• *1–5* rate karein, ya\n• Reply: *pasand aaya*, *aur options*, *negotiate*, ya *time chahiye*',
+    kn: 'Hi {name}! 🏡\n\n*{property}* ge visit ge dhanyavaad.\n\nExperience hegide?\n• *1–5* rate maadi, athava\n• Reply: *ishtavagide*, *inna options*, *negotiate*, athava *time beku*',
+    te: 'Hi {name}! 🏡\n\n*{property}* ki visit ki dhanyavaadalu.\n\nExperience ela undi?\n• *1–5* rate cheyandi, leda\n• Reply: *nachindi*, *inka options*, *negotiate*, leda *time kavali*',
+    ta: 'Hi {name}! 🏡\n\n*{property}* visit ku nandri.\n\nExperience eppadi irundhadhu?\n• *1–5* rate pannunga, illa\n• Reply: *pudichadhu*, *vera options*, *negotiate*, illa *time venum*',
+    ml: 'Hi {name}! 🏡\n\n*{property}* visit nu nanni.\n\nExperience engane?\n• *1–5* rate cheyyuka, atho\n• Reply: *ishtapettu*, *vere options*, *negotiate*, atho *time venam*',
+    mr: 'Hi {name}! 🏡\n\n*{property}* la visit sathi dhanyavaad.\n\nExperience kashi hoti?\n• *1–5* rate kara, kinva\n• Reply: *avadla*, *anakhin options*, *negotiate*, kinva *vel lagel*',
+    bn: 'Hi {name}! 🏡\n\n*{property}* visit er jonno dhonyobad.\n\nExperience kemon chhilo?\n• *1–5* rate din, ba\n• Reply: *bhalo laglo*, *aro options*, *negotiate*, ba *somoy lagbe*',
+    gu: 'Hi {name}! 🏡\n\n*{property}* visit mate aabhar.\n\nExperience kem hati?\n• *1–5* rate karo, ke\n• Reply: *gamyu*, *vadhhu options*, *negotiate*, ke *samay joiye*',
+    pa: 'Hi {name}! 🏡\n\n*{property}* visit layi dhanyavaad.\n\nExperience kivein si?\n• *1–5* rate karo, ja\n• Reply: *pasand aaya*, *hor options*, *negotiate*, ja *time chahida*',
+    or: 'Hi {name}! 🏡\n\n*{property}* visit pain dhanyabaad.\n\nExperience kemiti thila?\n• *1–5* rate karantu, ba\n• Reply: *bhala lagila*, *aau options*, *negotiate*, ba *samaya darkar*',
+  },
+  post_visit_feedback_rating_ack: {
+    en: 'Thank you for the *{rating}/5* rating! 😊 We\'re glad you visited *{property}*. When you\'re ready, tap *Talk to Agent* or tell us your next step.',
+    hi: '*{rating}/5* rating ke liye dhanyavaad! 😊 *{property}* visit ke liye khushi hui. Taiyar hon to *Talk to Agent* dabayein ya next step batayein.',
+    kn: '*{rating}/5* rating ge dhanyavaad! 😊 *{property}* visit ge santoshavagide. Ready iddre *Talk to Agent* banni.',
+    te: '*{rating}/5* rating ki thanks! 😊 *{property}* visit ki santosham. Ready aithe *Talk to Agent* tap cheyandi.',
+    ta: '*{rating}/5* rating ku nandri! 😊 *{property}* visit ku santhosam. Ready na *Talk to Agent* tap pannunga.',
+    ml: '*{rating}/5* rating nu nanni! 😊 *{property}* visit santhosham. Ready aayal *Talk to Agent* tap cheyyuka.',
+    mr: '*{rating}/5* rating sathi dhanyavaad! 😊 *{property}* visit cha anand. Ready asal tar *Talk to Agent* tap kara.',
+    bn: '*{rating}/5* rating er jonno dhonyobad! 😊 *{property}* visit bhalo laglo. Ready hole *Talk to Agent* tap korun.',
+    gu: '*{rating}/5* rating mate aabhar! 😊 *{property}* visit gamyu. Ready hoy to *Talk to Agent* tap karo.',
+    pa: '*{rating}/5* rating layi dhanyavaad! 😊 *{property}* visit changi lagi. Ready ho ke *Talk to Agent* tap karo.',
+    or: '*{rating}/5* rating pain dhanyabaad! 😊 *{property}* visit bhala lagila. Ready thile *Talk to Agent* tap karantu.',
+  },
+  post_visit_feedback_loved_ack: {
+    en: 'That\'s wonderful to hear! 😊 Glad you liked *{property}*. Tap *Talk to Agent* to discuss next steps, or *View Listings* for more options.',
+    hi: 'Bahut accha sunke khushi hui! 😊 *{property}* pasand aaya. Next step ke liye *Talk to Agent* dabayein, ya *View Listings* dekhein.',
+    kn: 'Khushi aaytu! 😊 *{property}* ishtavagide. Next step ge *Talk to Agent* banni, athava *View Listings* nodi.',
+    te: 'Chala santosham! 😊 *{property}* nachindi. Next step ki *Talk to Agent* tap cheyandi, leda *View Listings* chudandi.',
+    ta: 'Romba santhosam! 😊 *{property}* pudichadhu. Next step ku *Talk to Agent* tap pannunga, illa *View Listings* paarunga.',
+    ml: 'Sanathosham! 😊 *{property}* ishtapettu. Next step nu *Talk to Agent* tap cheyyuka, atho *View Listings* nokku.',
+    mr: 'Chhan aikun! 😊 *{property}* avadla. Next step sathi *Talk to Agent* tap kara, kinva *View Listings* paha.',
+    bn: 'Khushi holo shunte! 😊 *{property}* bhalo laglo. Next step e *Talk to Agent* tap korun, ba *View Listings* dekhen.',
+    gu: 'Khushi thai! 😊 *{property}* gamyu. Next step mate *Talk to Agent* tap karo, ke *View Listings* joo.',
+    pa: 'Khushi hoi! 😊 *{property}* pasand aaya. Next step layi *Talk to Agent* tap karo, ja *View Listings* vekho.',
+    or: 'Khushi hela! 😊 *{property}* bhala lagila. Next step pain *Talk to Agent* tap karantu, ba *View Listings* dekhandu.',
+  },
+  post_visit_feedback_more_options_ack: {
+    en: 'Sure — I\'ll help you explore more options similar to *{property}*. Tap *View Listings* or share your budget and preferred area.',
+    hi: 'Theek hai — *{property}* jaisi aur options dikhata hoon. *View Listings* dabayein ya budget/area batayein.',
+    kn: 'Sari — *{property}* tara inna options help maadthini. *View Listings* banni athava budget/area heli.',
+    te: 'Sare — *{property}* lanti inka options help chestanu. *View Listings* tap cheyandi leda budget/area cheppandi.',
+    ta: 'Sari — *{property}* maari vera options help pannuren. *View Listings* tap pannunga illa budget/area sollunga.',
+    ml: 'Shari — *{property}* pole vere options help cheyyam. *View Listings* tap cheyyuka atho budget/area parayuka.',
+    mr: 'Thik aahe — *{property}* sarkhe ankhin options dakhvto. *View Listings* tap kara kinva budget/area sanga.',
+    bn: 'Thik ache — *{property}* er moto aro options dekhabo. *View Listings* tap korun ba budget/area bolun.',
+    gu: 'Barabar — *{property}* jevi vadhu options batavish. *View Listings* tap karo ke budget/area kaho.',
+    pa: 'Theek hai — *{property}* varga hor options dikhanga. *View Listings* tap karo ja budget/area daso.',
+    or: 'Thik achhi — *{property}* pari aau options dekhaibi. *View Listings* tap karantu ba budget/area kuhantu.',
+  },
+  post_visit_feedback_negotiate_ack: {
+    en: 'Got it — pricing and negotiation for *{property}* needs our specialist. Tap *Talk to Agent* and we\'ll connect you shortly.',
+    hi: 'Samajh gaya — *{property}* ke liye pricing/negotiation specialist se hogi. *Talk to Agent* dabayein, jald connect karenge.',
+    kn: 'Got it — *{property}* pricing/negotiation specialist inda. *Talk to Agent* banni, bega connect maadthivi.',
+    te: 'Got it — *{property}* pricing/negotiation specialist tho. *Talk to Agent* tap cheyandi, twaraga connect chestam.',
+    ta: 'Got it — *{property}* pricing/negotiation specialist vazhi. *Talk to Agent* tap pannunga, seekiram connect pannuvom.',
+    ml: 'Got it — *{property}* pricing/negotiation specialist vazhi. *Talk to Agent* tap cheyyuka, vegam connect cheyyam.',
+    mr: 'Got it — *{property}* pricing/negotiation specialist kadun. *Talk to Agent* tap kara, lagech connect karu.',
+    bn: 'Got it — *{property}* er pricing/negotiation specialist er kache. *Talk to Agent* tap korun, taratari connect korbo.',
+    gu: 'Got it — *{property}* mate pricing/negotiation specialist thi. *Talk to Agent* tap karo, jaldi connect karishu.',
+    pa: 'Got it — *{property}* layi pricing/negotiation specialist ton. *Talk to Agent* tap karo, jaldi connect karange.',
+    or: 'Got it — *{property}* pain pricing/negotiation specialist tharu. *Talk to Agent* tap karantu, jaldi connect kariba.',
+  },
+  post_visit_feedback_defer_ack: {
+    en: 'Of course — take your time! 🙂 There\'s no rush on *{property}*. When you\'re ready, tap *Talk to Agent* or reply here anytime.',
+    hi: 'Bilkul — apna time lein! 🙂 *{property}* par koi jaldi nahi. Taiyar hon to *Talk to Agent* dabayein ya yahan reply karein.',
+    kn: 'Sure — nimma time tagolli! 🙂 *{property}* ge hurry illa. Ready iddre *Talk to Agent* banni athava illi reply maadi.',
+    te: 'Sure — mee time teeskondi! 🙂 *{property}* ki hurry ledu. Ready aithe *Talk to Agent* tap cheyandi leda ikkada reply cheyandi.',
+    ta: 'Sure — unga time eduthukonga! 🙂 *{property}* ku hurry illa. Ready na *Talk to Agent* tap pannunga illa inga reply pannunga.',
+    ml: 'Sure — ningalude time edutholku! 🙂 *{property}* nu hurry illa. Ready aayal *Talk to Agent* tap cheyyuka atho ivide reply cheyyuka.',
+    mr: 'Sure — tumcha vel gya! 🙂 *{property}* sathi hurry nahi. Ready asal tar *Talk to Agent* tap kara kinva ithe reply kara.',
+    bn: 'Sure — somoy nin! 🙂 *{property}* er jonno hurry nei. Ready hole *Talk to Agent* tap korun ba ekhane reply korun.',
+    gu: 'Sure — tamaro samay lo! 🙂 *{property}* mate hurry nathi. Ready hoy to *Talk to Agent* tap karo ke ahiya reply karo.',
+    pa: 'Sure — apna time lo! 🙂 *{property}* layi hurry nahi. Ready ho ke *Talk to Agent* tap karo ja ithe reply karo.',
+    or: 'Sure — samaya niantu! 🙂 *{property}* pain hurry nahi. Ready thile *Talk to Agent* tap karantu ba ethare reply karantu.',
+  },
+  post_visit_feedback_negative_ack: {
+    en: 'Thank you for the honest feedback on *{property}*. I\'m sorry it wasn\'t the right fit. Tap *View Listings* for alternatives or *Talk to Agent* for personal help.',
+    hi: '*{property}* par honest feedback ke liye dhanyavaad. Sahi fit na hone par maaf kijiye. Alternatives ke liye *View Listings* ya *Talk to Agent* dabayein.',
+    kn: '*{property}* honest feedback ge dhanyavaad. Sari fit alla andre kshamisi. Alternatives ge *View Listings* athava *Talk to Agent* banni.',
+    te: '*{property}* honest feedback ki thanks. Right fit kakapothe kshaminchandi. Alternatives ki *View Listings* leda *Talk to Agent* tap cheyandi.',
+    ta: '*{property}* honest feedback ku nandri. Right fit illana mannikavum. Alternatives ku *View Listings* illa *Talk to Agent* tap pannunga.',
+    ml: '*{property}* honest feedback nu nanni. Right fit alla enkil kshamikkuka. Alternatives nu *View Listings* atho *Talk to Agent* tap cheyyuka.',
+    mr: '*{property}* honest feedback sathi dhanyavaad. Yogy fit na asel tar maaf kara. Alternatives sathi *View Listings* kinva *Talk to Agent* tap kara.',
+    bn: '*{property}* er honest feedback er jonno dhonyobad. Right fit na hole khoma korun. Alternatives er jonno *View Listings* ba *Talk to Agent* tap korun.',
+    gu: '*{property}* mate honest feedback mate aabhar. Right fit na hoy to maaf karo. Alternatives mate *View Listings* ke *Talk to Agent* tap karo.',
+    pa: '*{property}* layi honest feedback layi dhanyavaad. Right fit na hove ta maaf karo. Alternatives layi *View Listings* ja *Talk to Agent* tap karo.',
+    or: '*{property}* pain honest feedback pain dhanyabaad. Right fit na helle khama karantu. Alternatives pain *View Listings* ba *Talk to Agent* tap karantu.',
+  },
   returning_pivot: {
     en: 'Great — let\'s start fresh! 🏡\n\nShare your *budget*, preferred *area*, and *BHK* (or property type) and I\'ll shortlist the best matches from *{company}*.',
     hi: 'Badhiya — naye se shuru karte hain! 🏡\n\nApna *budget*, *area*, aur *BHK* (ya property type) share karein, main *{company}* se best matches bhejunga.',
@@ -1416,7 +1514,7 @@ export function nurtureMessageForReason(
     '3d_reengage': 'nurture_3d',
     '7d_urgency': 'nurture_7d',
     '30d_reengage': 'nurture_30d',
-    visit_post_feedback: 'nurture_visit_feedback',
+    visit_post_feedback: 'post_visit_feedback_prompt',
   };
   const key = keyMap[reason] ?? 'nurture_48h';
   return tBuyer(lang, key, vars);

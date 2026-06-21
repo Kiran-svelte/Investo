@@ -1,6 +1,7 @@
 import {
   isVisitCancelOrRescheduleMessage,
   isVisitListQueryMessage,
+  isVisitNpsScoreMessage,
   isVisitSchedulingMessage,
   parseRescheduleTargetFromMessage,
   parseVisitDateTimeFromMessage,
@@ -16,6 +17,7 @@ describe('visitIntentFromMessage.service', () => {
     expect(isVisitSchedulingMessage('9 pm today ?')).toBe(false);
     expect(isVisitSchedulingMessage('9 pm today ?', { awaitingCallTime: true })).toBe(false);
     expect(isVisitSchedulingMessage('tomorrow 3pm', { visitBookingStage: true })).toBe(true);
+    expect(isVisitSchedulingMessage('4')).toBe(false);
   });
 
   it('parses Saturday 12 pm from message', () => {
@@ -79,5 +81,10 @@ describe('visitIntentFromMessage.service', () => {
     );
     expect(parsed).not.toBeNull();
     expect(parsed!.getHours()).toBe(12);
+  });
+
+  it('does not parse bare NPS scores as visit times', () => {
+    expect(isVisitNpsScoreMessage('4')).toBe(true);
+    expect(parseVisitDateTimeFromMessage('4', friday)).toBeNull();
   });
 });

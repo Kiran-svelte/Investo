@@ -26,6 +26,7 @@ jest.mock('../../services/whatsapp.service', () => ({
   whatsappService: {
     sendMessage: jest.fn().mockResolvedValue(true),
     sendCompanyTextMessage: jest.fn().mockResolvedValue(true),
+    sendCompanyInteractiveButtons: jest.fn().mockResolvedValue(true),
     resolveCompanyWhatsAppConfig: jest.fn().mockResolvedValue({
       provider: 'meta',
       phoneNumberId: 'phone-1',
@@ -74,7 +75,18 @@ describe('automation post-visit follow-up', () => {
       },
     });
     (prisma.lead.update as jest.Mock).mockResolvedValue({});
+    (prisma.visit.findUnique as jest.Mock).mockResolvedValue({
+      id: 'visit-1',
+      leadId: 'lead-1',
+      status: 'completed',
+      notes: null,
+      lead: { id: 'lead-1', phone: '+919876543210', customerName: 'Asha', language: 'en' },
+      property: { name: 'Sunset Heights', projectId: null },
+    });
     (prisma.conversation.findFirst as jest.Mock).mockResolvedValue({ id: 'conv-1' });
+    (prisma.conversation.findUnique as jest.Mock).mockResolvedValue({ commitments: {} });
+    (prisma.conversation.update as jest.Mock).mockResolvedValue({});
+    (prisma.message.create as jest.Mock).mockResolvedValue({});
 
     await automationQueueService.processDueJobs(async (job) => {
       processed.push(job.type);
@@ -82,9 +94,10 @@ describe('automation post-visit follow-up', () => {
     });
 
     expect(processed).toEqual(['visit_post_follow_up']);
-    const sentMessage = (whatsappService.sendMessage as jest.Mock).mock.calls[0]?.[1] as string
+    const sentMessage = (whatsappService.sendCompanyInteractiveButtons as jest.Mock).mock.calls[0]?.[2] as string
       ?? (whatsappService.sendCompanyTextMessage as jest.Mock).mock.calls[0]?.[1] as string;
-    expect(sentMessage).toContain('How was your site visit yesterday?');
+    expect(sentMessage).toContain('How was your experience?');
+    expect(sentMessage).toContain('1–5');
     expect(sentMessage).not.toMatch(/[ðàâ]/);
   });
 

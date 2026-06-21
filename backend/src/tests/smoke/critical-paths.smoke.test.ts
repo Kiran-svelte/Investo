@@ -4,7 +4,8 @@
  */
 
 import { isBuyerVisitStatusQuery } from '../../services/buyerVisitQuery.service';
-import { isVisitSchedulingMessage, parseCustomVisitSlotFromMessage } from '../../services/visitIntentFromMessage.service';
+import { isVisitSchedulingMessage, parseCustomVisitSlotFromMessage, isVisitNpsScoreMessage, parseVisitDateTimeFromMessage } from '../../services/visitIntentFromMessage.service';
+import { parsePostVisitFeedbackMessage } from '../../services/buyer/postVisitFeedback.service';
 import { buildFastPathCustomerReply } from '../../services/customerMessageFastPath.service';
 import { resolveStageFromLeadStatus } from '../../utils/buyerLeadProgress.util';
 import { shouldElevateReturningBuyerStage } from '../../utils/fixMdFeatures.util';
@@ -20,6 +21,18 @@ describe('critical-path smoke scenarios', () => {
     expect(isVisitSchedulingMessage(message)).toBe(true);
     const slot = parseCustomVisitSlotFromMessage(message);
     expect(slot).toBeTruthy();
+  });
+
+  test('post-visit NPS rating is not treated as visit datetime', () => {
+    expect(isVisitNpsScoreMessage('4')).toBe(true);
+    expect(parseVisitDateTimeFromMessage('4')).toBeNull();
+    expect(isVisitSchedulingMessage('4')).toBe(false);
+    expect(parsePostVisitFeedbackMessage('4')).toEqual({ matched: true, kind: 'rating', rating: 4 });
+    expect(parsePostVisitFeedbackMessage('Need some time to decide')).toEqual({
+      matched: true,
+      kind: 'sentiment',
+      sentiment: 'defer',
+    });
   });
 
   test('brochure request matches explicit intent pattern', () => {
@@ -50,6 +63,19 @@ describe('critical-path smoke scenarios', () => {
     expect(limits.knowledgeChunksMax).toBeGreaterThan(10);
     delete process.env.FEATURE_EXPANDED_PROPERTY_PROMPTS;
     jest.resetModules();
+  });
+
+  test('admin enterprise modules default ON with kill switches', () => {
+    delete process.env.FEATURE_PUBLIC_API;
+    delete process.env.FEATURE_AI_REVIEW_QUEUE;
+    jest.resetModules();
+    const features = require('../../config').default.features;
+    expect(features.publicApi).toBe(true);
+    expect(features.aiReviewQueue).toBe(true);
+    expect(features.orgBranches).toBe(true);
+    process.env.FEATURE_PUBLIC_API = 'false';
+    jest.resetModules();
+    expect(require('../../config').default.features.publicApi).toBe(false);
   });
 
   test('multi-project enterprise flags load without throw', () => {
