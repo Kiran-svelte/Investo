@@ -429,7 +429,7 @@ async function handleAgentMessage(
           `LLM is off. These commands still work:\n` +
           `- "visits today"\n- "new leads today"\n` +
           `- "get lead [name]"\n- "confirm visit"\n\n` +
-          `Or use the *Investo dashboard* for advanced operations.`);
+          `Reply *help* anytime for this command list.`);
     if (session?.id) {
       await recordAgentCopilotExchange({
         sessionId: session.id,
@@ -486,7 +486,7 @@ async function handleAgentMessage(
         `- "new leads today"\n- "get lead [name]"\n\n` +
         `*Quick actions*\n` +
         `- "confirm visit"\n- "mark lead [name] visited"\n\n` +
-        `Or use the *Investo dashboard* for advanced operations.`;
+        `Reply *help* anytime for this command list.`;
       replyKind = 'help_fallback';
     }
   }
@@ -608,7 +608,7 @@ export async function routeIfInternalUserForCompany(
       await sendWhatsAppResponse(
         normalizedPhone,
         user.companyId,
-        'That request did not go through. Try a shorter command like "visits today" or "new leads today", or use the Investo dashboard.',
+        'That request did not go through. Try a shorter command like "visits today" or "new leads today".',
       );
     }
     endOutboundTurn('staff_error');

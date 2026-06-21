@@ -91,7 +91,7 @@ export function createLeadReadTools(context: ToolContext): AgentTool[] {
             `${i + 1}. ${getStatusEmoji(lead.status)} *${lead.customerName ?? 'Unknown'}* ${maskPhone(lead.phone)}\n   Status: ${formatStatusLabel(lead.status)} | Agent: ${lead.assignedAgent?.name ?? 'Unassigned'}`,
         );
         if (leads.length > CRM_WHATSAPP_LIST_LIMIT) {
-          lines.push(`_+${leads.length - CRM_WHATSAPP_LIST_LIMIT} more — open the Investo dashboard for the full list._`);
+          lines.push(`_+${leads.length - CRM_WHATSAPP_LIST_LIMIT} more — reply with a narrower search (e.g. area or date)._`);
         }
         return [`*New leads today (${getTodayIST()})*`, ...lines].join('\n\n');
       },

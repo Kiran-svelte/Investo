@@ -1,6 +1,6 @@
 {
     "name": "investo-backend",
-    "version": "0.1.18",
+    "version": "0.1.19",
     "deployNote": "v0.1.19-fix-invite-accept-supabase-pooler",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",

@@ -150,6 +150,7 @@ type BuyerCopyKey =
   | 'post_visit_feedback_negotiate_ack'
   | 'post_visit_feedback_defer_ack'
   | 'post_visit_feedback_negative_ack'
+  | 'post_visit_feedback_already_recorded'
   | 'returning_pivot'
   | 'returning_welcome_back'
   | 'returning_area_hint'
@@ -993,6 +994,19 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
     gu: '*{property}* mate honest feedback mate aabhar. Right fit na hoy to maaf karo. Alternatives mate *View Listings* ke *Talk to Agent* tap karo.',
     pa: '*{property}* layi honest feedback layi dhanyavaad. Right fit na hove ta maaf karo. Alternatives layi *View Listings* ja *Talk to Agent* tap karo.',
     or: '*{property}* pain honest feedback pain dhanyabaad. Right fit na helle khama karantu. Alternatives pain *View Listings* ba *Talk to Agent* tap karantu.',
+  },
+  post_visit_feedback_already_recorded: {
+    en: 'Thanks — we already saved your visit feedback. Tap *Talk to Agent* if you want to discuss next steps.',
+    hi: 'Dhanyavaad — aapka visit feedback pehle se save hai. Next step ke liye *Talk to Agent* dabayein.',
+    kn: 'Dhanyavaad — nimma visit feedback already save ide. Next step ge *Talk to Agent* banni.',
+    te: 'Thanks — mee visit feedback already save ayyindi. Next step ki *Talk to Agent* tap cheyandi.',
+    ta: 'Thanks — unga visit feedback already save aagiruchu. Next step ku *Talk to Agent* tap pannunga.',
+    ml: 'Thanks — ningalude visit feedback already save cheythittundu. Next step nu *Talk to Agent* tap cheyyuka.',
+    mr: 'Thanks — tumcha visit feedback already save aahe. Next step sathi *Talk to Agent* tap kara.',
+    bn: 'Thanks — apnar visit feedback age theke save ache. Next step e *Talk to Agent* tap korun.',
+    gu: 'Thanks — tamaro visit feedback pehla thi save che. Next step mate *Talk to Agent* tap karo.',
+    pa: 'Thanks — tuhada visit feedback pehlan hi save hai. Next step layi *Talk to Agent* tap karo.',
+    or: 'Thanks — apananka visit feedback agaru save heichi. Next step pain *Talk to Agent* tap karantu.',
   },
   returning_pivot: {
     en: 'Great — let\'s start fresh! 🏡\n\nShare your *budget*, preferred *area*, and *BHK* (or property type) and I\'ll shortlist the best matches from *{company}*.',

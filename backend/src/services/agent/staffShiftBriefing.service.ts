@@ -85,7 +85,7 @@ function buildBriefingFallback(agentName: string, mode: 'check_in' | 'check_out'
   return [
     `Good evening ${agentName}.`,
     `Your end-of-day summary is temporarily unavailable.`,
-    `Try *CHECK OUT* again shortly, or review visits in the Investo dashboard.`,
+    `Try *CHECK OUT* again shortly, or ask *visits today* for your schedule.`,
   ].join('\n');
 }
 

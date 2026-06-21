@@ -55,7 +55,7 @@ export function createBrochureTools(context: ToolContext): AgentTool[] {
         if (!property.brochureUrl) {
           const isStaffChannel = context.channel === 'staff' || Boolean(context.staffPhone);
           if (isStaffChannel) {
-            return `No brochure file for *${property.name}* yet. Upload one in the Investo dashboard (Properties), then I can send it to the customer.`;
+            return `No brochure file for *${property.name}* yet. Add it under Properties, then tell me *send brochure* again.`;
           }
           return (
             `I don't have a digital brochure for *${property.name}* yet. ` +

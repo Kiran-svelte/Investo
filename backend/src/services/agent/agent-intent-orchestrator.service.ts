@@ -210,10 +210,10 @@ export function buildRoleBlockedIntentReply(userRole: string, intent: AgentInten
   if (userRole === 'viewer') {
     return (
       'You have *read-only* access. I can show leads, visits, properties, and analytics from here. ' +
-      'Use the Investo dashboard for write actions like status updates or bulk sends.'
+      'Ask your admin for sales permissions to update statuses from WhatsApp.'
     );
   }
-  return `That action isn't available for your role. Use the Investo dashboard for ${intent.replace(/_/g, ' ')}.`;
+  return `That action isn't available for your role on WhatsApp. Try a read query like "visits today" or ask your admin for access.`;
 }
 
 function getActionToolsForContext(context: ToolContext): AgentActionTool[] {

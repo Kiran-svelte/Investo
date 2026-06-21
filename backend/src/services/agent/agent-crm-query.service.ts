@@ -143,7 +143,7 @@ function formatListWithCap<T>(items: T[], format: (item: T, index: number) => st
   const lines = shown.map(format);
   if (items.length > CRM_WHATSAPP_LIST_LIMIT) {
     lines.push(
-      `_+${items.length - CRM_WHATSAPP_LIST_LIMIT} more — open the Investo dashboard for the full list._`,
+      `_+${items.length - CRM_WHATSAPP_LIST_LIMIT} more — reply with a narrower search (e.g. area or date).`,
     );
   }
   return lines.join('\n\n');

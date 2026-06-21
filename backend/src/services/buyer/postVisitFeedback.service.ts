@@ -91,12 +91,19 @@ export function shouldHandlePostVisitFeedbackTurn(input: {
   liveCtx: Pick<LiveLeadContext, 'activeVisit' | 'recentCompletedVisit' | 'leadStatus'>;
   history: Array<{ senderType?: string; content?: string }>;
 }): boolean {
-  if (isConversationAwaitingPostVisitFeedback(input.commitments)) return true;
   const parsed = parsePostVisitFeedbackMessage(input.messageText);
-  if (!parsed.matched) return false;
-  if (isPostVisitBuyer(input.liveCtx)) return true;
-  if (recentOutboundWasPostVisitPrompt(input.history)) return true;
+  const inPostVisitContext =
+    isConversationAwaitingPostVisitFeedback(input.commitments)
+    || isPostVisitBuyer(input.liveCtx)
+    || recentOutboundWasPostVisitPrompt(input.history);
+
+  if (!inPostVisitContext) return false;
+  if (parsed.matched) return true;
   return isConversationAwaitingPostVisitFeedback(input.commitments);
+}
+
+export function buildPostVisitFeedbackAlreadyRecordedReply(lang: string | null | undefined): string {
+  return tBuyer(lang, 'post_visit_feedback_already_recorded');
 }
 
 export function buildPostVisitFeedbackPromptText(input: {
@@ -182,7 +189,15 @@ export async function recordPostVisitFeedback(input: {
   visitId: string;
   parsed: Exclude<PostVisitFeedbackParseResult, { matched: false }>;
   rawMessage: string;
-}): Promise<void> {
+}): Promise<boolean> {
+  const existing = await prisma.visit.findUnique({
+    where: { id: input.visitId },
+    select: { notes: true },
+  });
+  if (visitNotesIndicateFeedbackCollected(existing?.notes)) {
+    return false;
+  }
+
   const noteParts = [
     POST_VISIT_FEEDBACK_NOTE_PREFIX,
     input.parsed.kind === 'rating'
@@ -192,17 +207,20 @@ export async function recordPostVisitFeedback(input: {
     `at=${new Date().toISOString()}`,
   ];
 
-  await prisma.visit.update({
-    where: { id: input.visitId },
-    data: {
-      notes: noteParts.join(' '),
-    },
-  }).catch((err: unknown) => {
+  try {
+    await prisma.visit.update({
+      where: { id: input.visitId },
+      data: {
+        notes: noteParts.join(' '),
+      },
+    });
+  } catch (err: unknown) {
     logger.warn('recordPostVisitFeedback: visit notes update failed', {
       visitId: input.visitId,
       error: err instanceof Error ? err.message : String(err),
     });
-  });
+    return false;
+  }
 
   await mergeConversationCommitments(input.conversationId, {
     awaitingPostVisitFeedback: false,
@@ -212,6 +230,7 @@ export async function recordPostVisitFeedback(input: {
     visitSlotDiscussed: false,
     visitSlotConfirmed: false,
   });
+  return true;
 }
 
 export async function shouldSendPostVisitFollowUp(input: {

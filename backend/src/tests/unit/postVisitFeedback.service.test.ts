@@ -1,6 +1,7 @@
 import {
   isVisitNpsScoreMessage,
   parsePostVisitFeedbackMessage,
+  recordPostVisitFeedback,
   shouldHandlePostVisitFeedbackTurn,
   shouldSendPostVisitFollowUp,
 } from '../../services/buyer/postVisitFeedback.service';
@@ -9,7 +10,7 @@ import { parseVisitDateTimeFromMessage } from '../../services/visitIntentFromMes
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
   default: {
-    visit: { findUnique: jest.fn() },
+    visit: { findUnique: jest.fn(), update: jest.fn() },
     conversation: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     message: { create: jest.fn() },
   },
@@ -49,6 +50,45 @@ describe('postVisitFeedback.service', () => {
         history: [],
       }),
     ).toBe(true);
+  });
+
+  test('shouldHandlePostVisitFeedbackTurn stays true for duplicate rating after feedback collected', () => {
+    expect(
+      shouldHandlePostVisitFeedbackTurn({
+        messageText: '4',
+        commitments: { postVisitFeedbackCollectedAt: new Date().toISOString() },
+        liveCtx: {
+          activeVisit: null,
+          recentCompletedVisit: {
+            visitId: 'v1',
+            propertyId: 'p1',
+            propertyName: 'Sunset Heights',
+            projectId: null,
+            status: 'completed',
+            scheduledAt: new Date(),
+            agentName: null,
+            agentPhone: null,
+            notes: '[post_visit_feedback] rating=4',
+          },
+          leadStatus: 'visited',
+        },
+        history: [],
+      }),
+    ).toBe(true);
+  });
+
+  test('recordPostVisitFeedback is idempotent when visit notes already contain feedback', async () => {
+    (prisma.visit.findUnique as jest.Mock).mockResolvedValue({
+      notes: '[post_visit_feedback] rating=4',
+    });
+    const saved = await recordPostVisitFeedback({
+      conversationId: 'conv-1',
+      visitId: 'visit-1',
+      parsed: { matched: true, kind: 'rating', rating: 4 },
+      rawMessage: '4',
+    });
+    expect(saved).toBe(false);
+    expect(prisma.visit.update).not.toHaveBeenCalled();
   });
 
   test('shouldHandlePostVisitFeedbackTurn for post-visit buyer with rating reply', () => {

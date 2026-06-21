@@ -24,11 +24,14 @@ import {
 } from '../visitIntentFromMessage.service';
 import {
   buildPostVisitFeedbackTurnResult,
+  buildPostVisitFeedbackAlreadyRecordedReply,
+  buildPostVisitFeedbackButtons,
   parsePostVisitFeedbackMessage,
   recordPostVisitFeedback,
   resolvePostVisitFeedbackVisitId,
   shouldHandlePostVisitFeedbackTurn,
 } from '../buyer/postVisitFeedback.service';
+import { isPostVisitFeedbackCollected, visitNotesIndicateFeedbackCollected } from '../../utils/postVisitFeedbackContext.util';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
 import { buildSafeBuyerFallback } from '../../utils/safeBuyerFallback.util';
 import { resolveFirstPropertyHeroMediaComponent, resolveHeroMediaForBuyerTurn } from '../brochureDelivery.service';
@@ -1491,19 +1494,35 @@ async function handlePostVisitFeedbackTurn(
     leadLanguage: ctx.input.leadLanguage,
   });
 
-  const { text, components } = buildPostVisitFeedbackTurnResult({
-    parsed,
-    lang,
-    propertyName,
-    visitPropertyProjectId,
-  });
+  const alreadyRecorded =
+    isPostVisitFeedbackCollected(ctx.input.conversationCommitments)
+    || visitNotesIndicateFeedbackCollected(liveCtx.recentCompletedVisit?.notes);
 
-  await recordPostVisitFeedback({
-    conversationId: ctx.input.conversationId,
-    visitId,
-    parsed,
-    rawMessage: ctx.input.messageText,
-  });
+  let text: string;
+  let components: WhatsAppComponent[];
+
+  if (alreadyRecorded) {
+    text = buildPostVisitFeedbackAlreadyRecordedReply(lang);
+    components = buildPostVisitFeedbackButtons({ lang, visitPropertyProjectId });
+  } else {
+    const turn = buildPostVisitFeedbackTurnResult({
+      parsed,
+      lang,
+      propertyName,
+      visitPropertyProjectId,
+    });
+    text = turn.text;
+    components = turn.components;
+    const saved = await recordPostVisitFeedback({
+      conversationId: ctx.input.conversationId,
+      visitId,
+      parsed,
+      rawMessage: ctx.input.messageText,
+    });
+    if (!saved) {
+      text = buildPostVisitFeedbackAlreadyRecordedReply(lang);
+    }
+  }
 
   await prisma.message.create({
     data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: text, status: 'sent' },
