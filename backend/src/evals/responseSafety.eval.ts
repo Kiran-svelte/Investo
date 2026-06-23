@@ -111,3 +111,39 @@ export function evaluateResponseSafety(input: ResponseSafetyInput): ResponseSafe
 
   return { sanitizedText, violations };
 }
+
+export function evaluateResponseRisk(input: ResponseSafetyInput): { riskScore: number; violations: string[] } {
+  const violations: string[] = [];
+  for (const leak of INTERNAL_LEAKS) {
+    if (leak.pattern.test(input.text)) violations.push(leak.id);
+  }
+  if (input.mutationSucceeded !== true && CLAIM_RE.test(input.text)) {
+    violations.push('false_mutation_claim');
+  }
+  if (
+    input.hasInventoryAlternatives &&
+    /\b(no properties|not available|nothing available)\b/i.test(input.text) &&
+    !/\b(share|shortlist|alternative|closest|options)\b/i.test(input.text)
+  ) {
+    violations.push('dead_end_no_inventory_reply');
+  }
+
+  const weights: Record<string, number> = {
+    uuid: 90,
+    match_score: 85,
+    workflow_name: 80,
+    internal_id_line: 85,
+    grounded_label: 75,
+    false_mutation_claim: 95,
+    dead_end_no_inventory_reply: 70,
+  };
+
+  if (violations.length === 0) {
+    return { riskScore: 0, violations };
+  }
+
+  return {
+    violations,
+    riskScore: Math.max(...violations.map((violation) => weights[violation] ?? 70)),
+  };
+}
