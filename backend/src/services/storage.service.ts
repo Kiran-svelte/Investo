@@ -10,6 +10,7 @@ import {
   R2_STORAGE_PREFIX,
   isDbPropertyImportMediaKey,
   extractAwsObjectKeyFromReference,
+  extractR2ObjectKeyFromReference,
   parseAwsStorageKey,
   parseR2StorageKey,
   parseSupabaseStorageKey,
@@ -346,7 +347,7 @@ export class StorageService {
       );
     }
 
-    const r2Key = parseR2StorageKey(trimmed);
+    const r2Key = parseR2StorageKey(trimmed) ?? extractR2ObjectKeyFromReference(trimmed);
     if (r2Key && isR2StorageConfigured()) {
       ensureR2Config();
       return getSignedUrl(
@@ -357,6 +358,19 @@ export class StorageService {
         }),
         { expiresIn: expiresInSeconds },
       );
+    }
+
+    const supabaseKey = parseSupabaseStorageKey(trimmed);
+    if (supabaseKey && isSupabaseStorageConfigured()) {
+      const encodedPath = supabaseKey.objectPath.split('/').map(encodeURIComponent).join('/');
+      return `${config.supabase.url}/storage/v1/object/public/${supabaseKey.bucket}/${encodedPath}`;
+    }
+
+    if (trimmed.includes('/storage/v1/object/') && trimmed.startsWith('https://')) {
+      const publicMatch = trimmed.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i);
+      if (publicMatch) {
+        return trimmed.split(/\s/)[0];
+      }
     }
 
     if (trimmed.startsWith('https://') && !storageUrlRequiresPresignedAccess(trimmed)) {

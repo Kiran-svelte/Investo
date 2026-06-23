@@ -20,20 +20,24 @@ jest.mock('../../config/prisma', () => ({
     user: { findUnique: jest.fn() },
     notification: { create: jest.fn() },
     lead: { update: jest.fn() },
-    conversation: { update: jest.fn() },
+    conversation: { update: jest.fn(), findUnique: jest.fn() },
     message: { findFirst: jest.fn(), create: jest.fn() },
     property: { findFirst: jest.fn(), findMany: jest.fn() },
     propertyProject: { count: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
   },
 }));
 
-jest.mock('../../services/brochureDelivery.service', () => ({
-  resolveBrochureForAiTurn: jest.fn(async ({ aiText }: { aiText: string }) => ({
-    cleanedText: aiText,
-    mediaComponent: null,
-  })),
-  resolvePropertyDetailMediaComponents: jest.fn(async () => []),
-}));
+jest.mock('../../services/brochureDelivery.service', () => {
+  const actual = jest.requireActual('../../services/brochureDelivery.service');
+  return {
+    ...actual,
+    resolveBrochureForAiTurn: jest.fn(async ({ aiText }: { aiText: string }) => ({
+      cleanedText: aiText,
+      mediaComponent: null,
+    })),
+    resolvePropertyDetailMediaComponents: jest.fn(async () => []),
+  };
+});
 
 jest.mock('../../services/alternativeInventory.service', () => ({
   searchAlternativeTiers: jest.fn(async () => []),
@@ -315,6 +319,50 @@ describe('whatsappInteractiveOrchestrator.service', () => {
       focusedPropertyId: null,
       recommendedPropertyIds: ['prop-a', 'prop-b'],
     });
+  });
+
+  test('more-info attaches native property media to turn result', async () => {
+    const { resolvePropertyDetailMediaComponents } = await import('../../services/brochureDelivery.service');
+    (resolvePropertyDetailMediaComponents as jest.Mock).mockResolvedValueOnce([
+      { kind: 'media', url: 'https://signed.example/hero.jpg', mime: 'image/jpeg', caption: 'Sunset 1102' },
+      { kind: 'media', url: 'https://signed.example/brochure.pdf', mime: 'application/pdf', caption: 'Brochure' },
+    ]);
+
+    const unit = {
+      id: 'prop-unit-1',
+      name: 'Sunset 1102',
+      companyId: 'co-1',
+      status: 'available',
+      priceMin: 9000000,
+      priceMax: 9500000,
+      propertyType: 'apartment',
+      bedrooms: 2,
+      locationArea: 'Whitefield',
+      locationCity: 'Bengaluru',
+      builder: 'Builder',
+      reraNumber: 'RERA',
+      brochureUrl: 'investo/companies/co/properties/p/brochure/x.pdf',
+      images: ['investo/companies/co/properties/p/image/x.jpg'],
+      projectId: 'proj-sunset',
+      amenities: [],
+      description: 'Nice unit',
+      extendedAttributes: {},
+    };
+    (prisma.property.findFirst as jest.Mock).mockResolvedValue(unit);
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue(null);
+    (buildPropertyDetailButtons as jest.Mock).mockReturnValue({
+      kind: 'buttons',
+      buttons: [{ id: 'book-visit-prop-unit-1', title: 'Book Visit' }],
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'more-info-prop-unit-1',
+    });
+
+    expect(resolvePropertyDetailMediaComponents).toHaveBeenCalled();
+    const media = (result?.turnResult?.components ?? []).filter((c) => c.kind === 'media');
+    expect(media).toHaveLength(2);
   });
 
   test('more-info sets focusedPropertyId when buyerFocusStack ON', async () => {

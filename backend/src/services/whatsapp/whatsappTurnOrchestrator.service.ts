@@ -34,7 +34,11 @@ import {
 import { isPostVisitFeedbackCollected, visitNotesIndicateFeedbackCollected } from '../../utils/postVisitFeedbackContext.util';
 import { applyVisitMutationFromChat } from '../visitMutationFromChat.service';
 import { buildSafeBuyerFallback } from '../../utils/safeBuyerFallback.util';
-import { resolveFirstPropertyHeroMediaComponent, resolveHeroMediaForBuyerTurn } from '../brochureDelivery.service';
+import {
+  PROPERTY_DETAIL_MEDIA_MAX,
+  resolveFirstPropertyHeroMediaComponent,
+  resolveHeroMediaForBuyerTurn,
+} from '../brochureDelivery.service';
 import {
   buildAdvancedReturningReply,
   buildPostVisitWelcomeReply,
@@ -152,13 +156,15 @@ export function isHumanTakeoverActive(conversation: { status: string; aiEnabled:
  * @param stage - Current conversation stage.
  * @returns A single media component, or undefined.
  */
-/** Cap turn components to one customer-visible payload: interactive wins over separate media. */
+/** Cap turn components: interactive + up to PROPERTY_DETAIL_MEDIA_MAX native attachments. */
 export function enforceTurnComponentBudget(components: WhatsAppComponent[]): WhatsAppComponent[] {
   const interactive = components.find((c) => c.kind === 'buttons' || c.kind === 'list');
   const media = components.filter((c) => c.kind === 'media');
-  if (interactive && media.length) return [...media.slice(0, 2), interactive];
+  if (interactive && media.length) {
+    return [...media.slice(0, PROPERTY_DETAIL_MEDIA_MAX), interactive];
+  }
   if (interactive) return [interactive];
-  if (media.length) return media.slice(0, 2);
+  if (media.length) return media.slice(0, PROPERTY_DETAIL_MEDIA_MAX);
   return [];
 }
 
@@ -2054,25 +2060,22 @@ async function handleFullAiTurn(
   const detailPropertyId = componentPropertyId ?? resolvedPropertyId ?? null;
   let propertyDetailMedia: WhatsAppComponent[] = [];
   if (detailPropertyId) {
-    const { isBuyerPropertyDetailOutbound } = await import('../../utils/buyerSituationButtons.util');
-    if (isBuyerPropertyDetailOutbound(outboundText)) {
-      const detailProp = allRawProperties.find((p) => p.id === detailPropertyId)
-        ?? await prisma.property.findFirst({
-          where: { id: detailPropertyId, companyId: ctx.companyId },
-          select: { id: true, name: true, brochureUrl: true, images: true },
-        });
-      if (detailProp) {
-        const { resolvePropertyDetailMediaComponents } = await import('../brochureDelivery.service');
-        propertyDetailMedia = await resolvePropertyDetailMediaComponents({
-          companyId: ctx.companyId,
-          property: {
-            id: detailProp.id,
-            name: detailProp.name,
-            brochureUrl: detailProp.brochureUrl ?? null,
-            images: detailProp.images,
-          },
-        });
-      }
+    const detailProp = allRawProperties.find((p) => p.id === detailPropertyId)
+      ?? await prisma.property.findFirst({
+        where: { id: detailPropertyId, companyId: ctx.companyId },
+        select: { id: true, name: true, brochureUrl: true, images: true },
+      });
+    if (detailProp) {
+      const { resolvePropertyDetailMediaComponents } = await import('../brochureDelivery.service');
+      propertyDetailMedia = await resolvePropertyDetailMediaComponents({
+        companyId: ctx.companyId,
+        property: {
+          id: detailProp.id,
+          name: detailProp.name,
+          brochureUrl: detailProp.brochureUrl ?? null,
+          images: detailProp.images,
+        },
+      });
     }
   }
 

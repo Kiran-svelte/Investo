@@ -52,7 +52,7 @@ export const outboundBudgetEvalCases: Array<EvalCase<OutboundBudgetInput, Outbou
   {
     id: 'outbound-brochure-over-duplicate-media',
     category: 'outbound-budget',
-    description: 'Budget collapses duplicate media slots to one.',
+    description: 'Property detail turn may include brochure PDF, hero image, and buttons.',
     severity: 'high',
     input: {
       components: [
@@ -61,7 +61,7 @@ export const outboundBudgetEvalCases: Array<EvalCase<OutboundBudgetInput, Outbou
         { kind: 'buttons', buttons: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }] },
       ],
     },
-    expected: { maxInteractive: 1, maxMedia: 1, maxTotal: 2 },
+    expected: { maxInteractive: 1, maxMedia: 2, maxTotal: 3 },
   },
 ];
 

@@ -14,7 +14,7 @@ export function extractAwsObjectKeyFromReference(ref: string): string | null {
   if (fromPrefix) return fromPrefix;
 
   const pathMatch = trimmed.match(
-    /(?:^|\/)(investo\/)?companies\/[0-9a-f-]{36}\/properties\/[^/\s"'()]+(?:\/brochure\/[^?\s"'()]+)?/i,
+    /(?:^|\/)(investo\/)?companies\/[0-9a-f-]{36}\/properties\/[^/\s"'()]+(?:\/(?:image|brochure)\/[^?\s"'()]+)?/i,
   );
   if (pathMatch) {
     let path = pathMatch[0].replace(/^\//, '');
@@ -50,6 +50,9 @@ export function parseR2StorageKey(key: string): string | null {
     const objectKey = key.slice(R2_STORAGE_PREFIX.length).trim();
     return objectKey || null;
   }
+  if (key.startsWith('http://') || key.startsWith('https://')) {
+    return null;
+  }
   if (
     !key.startsWith(SUPABASE_STORAGE_PREFIX)
     && !key.startsWith(DB_PROPERTY_IMPORT_MEDIA_PREFIX)
@@ -58,6 +61,40 @@ export function parseR2StorageKey(key: string): string | null {
     return key;
   }
   return null;
+}
+
+/** Extract R2 object key from r2:// prefix, path fragment, or R2 HTTPS URL. */
+export function extractR2ObjectKeyFromReference(ref: string): string | null {
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+
+  const fromPrefix = parseR2StorageKey(trimmed);
+  if (fromPrefix) return fromPrefix;
+
+  const pathMatch = trimmed.match(
+    /(?:^|\/)(investo\/)?companies\/[0-9a-f-]{36}\/properties\/[^/\s"'()]+(?:\/(?:image|brochure)\/[^?\s"'()]+)?/i,
+  );
+  if (pathMatch) {
+    let path = pathMatch[0].replace(/^\//, '');
+    if (!path.startsWith('investo/')) {
+      path = `investo/${path.replace(/^investo\//, '')}`;
+    }
+    return path;
+  }
+
+  try {
+    const url = new URL(trimmed.split(/\s/)[0]);
+    if (!url.hostname.includes('r2.cloudflarestorage.com') && !url.hostname.endsWith('.r2.dev')) {
+      return null;
+    }
+    const segments = decodeURIComponent(url.pathname.replace(/^\//, '')).split('/').filter(Boolean);
+    if (segments.length < 2) return null;
+    const keyParts = segments.slice(1);
+    const key = keyParts.join('/');
+    return key || null;
+  } catch {
+    return null;
+  }
 }
 
 export function parseSupabaseStorageKey(key: string): { bucket: string; objectPath: string } | null {

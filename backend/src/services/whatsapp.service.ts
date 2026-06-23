@@ -2558,7 +2558,8 @@ export class WhatsAppService {
     if (hasText) {
       let body = result.text!.trim();
       const mediaItems = (result.components ?? []).filter((c) => c.kind === 'media');
-      for (const media of mediaItems) {
+      for (let i = 0; i < mediaItems.length; i += 1) {
+        const media = mediaItems[i];
         if (!media.url) continue;
         if (media.mime.startsWith('image/')) {
           const imgResult = await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig);
@@ -2576,6 +2577,9 @@ export class WhatsAppService {
               urlPrefix: media.url.slice(0, 80),
             });
           }
+        }
+        if (i < mediaItems.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
         }
       }
       await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);

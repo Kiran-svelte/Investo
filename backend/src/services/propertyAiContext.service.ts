@@ -1,4 +1,5 @@
 import type { Property } from '@prisma/client';
+import { extractPropertyImageUrls } from './brochureDelivery.service';
 import config from '../config';
 import { getPropertyPromptLimits } from '../utils/propertyPromptLimits.util';
 import {
@@ -88,7 +89,7 @@ function parseExtendedAttributes(raw: unknown): Record<string, unknown> | undefi
 }
 
 export function propertyToAiPromptInput(property: Property): PropertyAiPromptInput {
-  const images = Array.isArray(property.images) ? (property.images as string[]) : [];
+  const images = extractPropertyImageUrls(property.images);
   const floorPlans = Array.isArray(property.floorPlanUrls) ? (property.floorPlanUrls as string[]) : [];
   const extendedAttributes = parseExtendedAttributes(
     (property as Property & { extendedAttributes?: unknown }).extendedAttributes,
@@ -109,7 +110,7 @@ export function propertyToAiPromptInput(property: Property): PropertyAiPromptInp
     builder: property.builder,
     reraNumber: property.reraNumber,
     brochureUrl: property.brochureUrl,
-    hasImages: images.some((url) => typeof url === 'string' && url.startsWith('https://')),
+    hasImages: images.length > 0,
     extendedAttributes,
     floorPlanUrls: floorPlans.filter((url) => typeof url === 'string' && url.trim()),
     priceListUrl: property.priceListUrl,

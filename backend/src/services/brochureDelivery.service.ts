@@ -31,9 +31,24 @@ export async function resolveBrochureUrlForWhatsApp(storedUrl: string): Promise<
   }
 }
 
+/** Resolve one storage reference to a WhatsApp-fetchable HTTPS URL. */
+export async function resolveStorageReferenceForWhatsApp(storedUrl: string): Promise<string | null> {
+  if (!storedUrl?.trim()) return null;
+  try {
+    return await storageService.getPresignedDownloadUrl(storedUrl, 3600);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('Could not resolve media download URL for WhatsApp', {
+      urlPrefix: storedUrl.slice(0, 96),
+      error: message,
+    });
+    return null;
+  }
+}
+
 /** Presigned HTTPS URL for property hero images (private S3/R2 buckets). */
 export async function resolvePropertyImageUrlForWhatsApp(storedUrl: string): Promise<string | null> {
-  return resolveBrochureUrlForWhatsApp(storedUrl);
+  return resolveStorageReferenceForWhatsApp(storedUrl);
 }
 
 function imageMimeFromUrl(url: string): string {
@@ -43,8 +58,18 @@ function imageMimeFromUrl(url: string): string {
   return 'image/jpeg';
 }
 
-/** Normalize property.images JSON — strings, aws:// keys, or { url } objects. */
+/** Normalize property.images JSON — strings, JSON string, aws:// keys, or { url } objects. */
 export function extractPropertyImageUrls(images: unknown): string[] {
+  if (!images) return [];
+  if (typeof images === 'string') {
+    const trimmed = images.trim();
+    if (!trimmed) return [];
+    try {
+      return extractPropertyImageUrls(JSON.parse(trimmed));
+    } catch {
+      return trimmed.startsWith('http') ? [trimmed] : [];
+    }
+  }
   if (!Array.isArray(images)) return [];
 
   const out: string[] = [];
@@ -74,43 +99,56 @@ export type WhatsAppMediaComponent = {
   caption?: string;
 };
 
+/** Max native attachments on a property-detail turn (images + brochure PDF). */
+export const PROPERTY_DETAIL_MEDIA_MAX = 4;
+export const PROPERTY_DETAIL_IMAGE_MAX = 3;
+
 /** First fetchable hero image from a property images JSON array. */
 export async function resolveFirstPropertyHeroMediaComponent(input: {
   images: unknown;
   caption?: string;
 }): Promise<WhatsAppMediaComponent | null> {
+  const all = await resolvePropertyImageMediaComponents(input);
+  return all[0] ?? null;
+}
+
+/** Up to N property screenshots as native WhatsApp image attachments. */
+export async function resolvePropertyImageMediaComponents(input: {
+  images: unknown;
+  caption?: string;
+  maxImages?: number;
+}): Promise<WhatsAppMediaComponent[]> {
   const candidates = extractPropertyImageUrls(input.images);
-  if (!candidates.length) return null;
+  if (!candidates.length) return [];
+
+  const maxImages = input.maxImages ?? PROPERTY_DETAIL_IMAGE_MAX;
+  const out: WhatsAppMediaComponent[] = [];
 
   for (const raw of candidates) {
-    try {
-      const presigned = await resolvePropertyImageUrlForWhatsApp(raw);
-      if (presigned) {
-        return {
-          kind: 'media',
-          url: presigned,
-          mime: imageMimeFromUrl(raw),
-          caption: input.caption,
-        };
-      }
-    } catch (err: unknown) {
-      logger.warn('Hero image presign failed', {
-        urlPrefix: raw.slice(0, 80),
-        error: err instanceof Error ? err.message : String(err),
+    if (out.length >= maxImages) break;
+
+    const presigned = await resolvePropertyImageUrlForWhatsApp(raw);
+    if (presigned) {
+      out.push({
+        kind: 'media',
+        url: presigned,
+        mime: imageMimeFromUrl(raw),
+        caption: out.length === 0 ? input.caption : undefined,
       });
+      continue;
     }
 
     if (isDirectFetchablePublicUrl(raw)) {
-      return {
+      out.push({
         kind: 'media',
         url: raw,
         mime: imageMimeFromUrl(raw),
-        caption: input.caption,
-      };
+        caption: out.length === 0 ? input.caption : undefined,
+      });
     }
   }
 
-  return null;
+  return out;
 }
 
 /** Resolve hero image for a buyer turn — presigned, stage-aware, focused property first. */
@@ -291,11 +329,12 @@ export async function resolvePropertyDetailMediaComponents(input: {
 }): Promise<WhatsAppMediaComponent[]> {
   const out: WhatsAppMediaComponent[] = [];
 
-  const hero = await resolveFirstPropertyHeroMediaComponent({
+  const imageMedia = await resolvePropertyImageMediaComponents({
     images: input.property.images,
     caption: input.property.name,
+    maxImages: PROPERTY_DETAIL_IMAGE_MAX,
   });
-  if (hero) out.push(hero);
+  out.push(...imageMedia);
 
   if (input.property.brochureUrl) {
     const pdfUrl = await resolveBrochureUrlForWhatsApp(input.property.brochureUrl);
@@ -304,16 +343,17 @@ export async function resolvePropertyDetailMediaComponents(input: {
         kind: 'media',
         url: pdfUrl,
         mime: 'application/pdf',
-        caption: `📎 ${input.property.name} — Brochure`,
+        caption: `${input.property.name} — Brochure`,
       });
     } else {
       logger.warn('resolvePropertyDetailMediaComponents: brochure presign failed', {
         propertyId: input.property.id,
+        urlPrefix: input.property.brochureUrl.slice(0, 96),
       });
     }
   }
 
-  return out.slice(0, 2);
+  return out.slice(0, PROPERTY_DETAIL_MEDIA_MAX);
 }
 
 /**

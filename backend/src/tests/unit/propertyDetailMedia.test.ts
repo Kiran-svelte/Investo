@@ -24,6 +24,25 @@ describe('resolvePropertyDetailMediaComponents', () => {
     expect(media[1]?.mime).toBe('application/pdf');
   });
 
+  it('returns multiple screenshots plus brochure for property detail turns', async () => {
+    const media = await resolvePropertyDetailMediaComponents({
+      companyId: 'co-1',
+      property: {
+        id: 'prop-3',
+        name: 'Lake Vista 801',
+        brochureUrl: 'investo/companies/co/properties/p/brochure/file.pdf',
+        images: JSON.stringify([
+          'investo/companies/co/properties/p/image/a.jpg',
+          'investo/companies/co/properties/p/image/b.jpg',
+        ]),
+      },
+    });
+
+    expect(media.length).toBeGreaterThanOrEqual(2);
+    expect(media.filter((m) => m.mime.startsWith('image/')).length).toBe(2);
+    expect(media.some((m) => m.mime === 'application/pdf')).toBe(true);
+  });
+
   it('returns only hero when no brochure on file', async () => {
     const media = await resolvePropertyDetailMediaComponents({
       companyId: 'co-1',

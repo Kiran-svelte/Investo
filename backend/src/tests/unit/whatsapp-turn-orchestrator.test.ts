@@ -48,12 +48,14 @@ describe('whatsappTurnOrchestrator.service', () => {
     if (hero?.kind === 'media') expect(hero.mime).toBe('image/jpeg');
   });
 
-  test('enforceTurnComponentBudget prefers buttons over media', () => {
+  test('enforceTurnComponentBudget keeps interactive with property media attachments', () => {
     const budget = enforceTurnComponentBudget([
       { kind: 'buttons', buttons: [{ id: 'book', title: 'Book' }] },
       { kind: 'media', url: 'https://x.jpg', mime: 'image/jpeg' },
+      { kind: 'media', url: 'https://y.pdf', mime: 'application/pdf' },
     ]);
-    expect(budget).toHaveLength(1);
-    expect(budget[0].kind).toBe('buttons');
+    expect(budget).toHaveLength(3);
+    expect(budget.filter((c) => c.kind === 'media')).toHaveLength(2);
+    expect(budget[budget.length - 1]?.kind).toBe('buttons');
   });
 });
