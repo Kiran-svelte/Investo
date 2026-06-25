@@ -5,25 +5,36 @@ type ApiErrorPayload = {
   message?: string;
 };
 
+function extractFromPayload(payload: ApiErrorPayload | undefined): string | null {
+  if (!payload) return null;
+
+  if (payload.error && typeof payload.error === 'object' && payload.error.message) {
+    return payload.error.message;
+  }
+
+  if (typeof payload.error === 'string' && payload.error.trim()) {
+    return payload.error;
+  }
+
+  if (payload.message?.trim()) {
+    return payload.message;
+  }
+
+  return null;
+}
+
 /**
  * Extracts a user-facing error string from an API or network failure.
  * Handles nested `{ error: { message } }` (bulk import) and flat `{ error: string }`.
+ *
+ * Works for real AxiosErrors and for any error-shaped object carrying
+ * `response.data` (e.g. wrapped/re-thrown errors), so the UI never silently
+ * falls back to a generic message when the server provided a reason.
  */
 export function getApiErrorMessage(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
-    const payload = err.response?.data as ApiErrorPayload | undefined;
-
-    if (payload?.error && typeof payload.error === 'object' && payload.error.message) {
-      return payload.error.message;
-    }
-
-    if (typeof payload?.error === 'string' && payload.error.trim()) {
-      return payload.error;
-    }
-
-    if (payload?.message?.trim()) {
-      return payload.message;
-    }
+    const fromPayload = extractFromPayload(err.response?.data as ApiErrorPayload | undefined);
+    if (fromPayload) return fromPayload;
 
     const rawMessage = err.message?.trim();
     if (rawMessage) {
@@ -34,6 +45,12 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
       }
       return rawMessage;
     }
+  }
+
+  if (err && typeof err === 'object' && 'response' in err) {
+    const response = (err as { response?: { data?: ApiErrorPayload } }).response;
+    const fromPayload = extractFromPayload(response?.data);
+    if (fromPayload) return fromPayload;
   }
 
   if (err instanceof Error && err.message.trim()) {

@@ -126,12 +126,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const { plan, ...companyData } = company;
-    const data = {
+    const data = sanitizeCompanyRecord({
       ...companyData,
       plan_name: plan?.name ?? null,
       max_agents: plan?.maxAgents ?? null,
       price_monthly: plan?.priceMonthly ?? null,
-    };
+    } as Record<string, unknown>);
 
     res.json({ data });
   } catch (err: any) {

@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.25",
-    "deployNote": "v0.1.25-fix-cron-notification-arg-order",
+    "version": "0.1.26",
+    "deployNote": "v0.1.26-fix-company-secret-leak-and-error-display",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {
