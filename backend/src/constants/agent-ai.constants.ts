@@ -52,11 +52,17 @@ export const CONFIRMATION_REQUIRED_ACTIONS: ReadonlySet<string> = new Set([
 
 /** Cron expressions for proactive WhatsApp notifications */
 export const CRON_SCHEDULES = {
-  /** Morning briefing for agents - 9:00 AM IST = 03:30 UTC */
+  /**
+   * Staff check-in / check-out proactive briefings — every 15 minutes, 7 days/week.
+   * Uses per-company ai_settings.working_hours (not fixed 9:00 / 18:30 IST).
+   * Survives Railway restarts: 90-minute send windows + boot catch-up on scheduler start.
+   */
+  STAFF_SHIFT_BRIEFING_POLL: '*/15 * * * *',
+  /** @deprecated Replaced by STAFF_SHIFT_BRIEFING_POLL — kept for docs/tests reference */
   MORNING_BRIEFING: '30 3 * * 1-6',
-  /** Daily owner summary - 9:15 AM IST = 03:45 UTC (staggered from MORNING_BRIEFING to avoid simultaneous messages) */
+  /** Daily owner summary - 9:15 AM IST = 03:45 UTC */
   OWNER_DAILY_SUMMARY: '45 3 * * 1-6',
-  /** End-of-day summary for agents — 6:30 PM IST = 13:00 UTC */
+  /** @deprecated Replaced by STAFF_SHIFT_BRIEFING_POLL */
   END_OF_DAY_SUMMARY: '0 13 * * 1-6',
   /** Weekly admin performance report — Monday 9:00 AM IST = 03:30 UTC */
   WEEKLY_ADMIN_REPORT: '30 3 * * 1',

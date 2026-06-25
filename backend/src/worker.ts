@@ -1,9 +1,11 @@
 import logger from './config/logger';
 import prisma from './config/prisma';
+import config from './config';
 import { getRedis } from './config/redis';
 import { propertyImportWorkerService } from './services/propertyImportWorker.service';
 import { automationService } from './services/automation.service';
 import { whatsappInboundWorkerService } from './services/queue/whatsappInboundWorker.service';
+import { startStaffShiftBriefingScheduler } from './services/agent/cron-scheduler.service';
 import { touchWorkerHeartbeat } from './services/observability/syntheticCheck.service';
 
 async function startWorker(): Promise<void> {
@@ -30,13 +32,24 @@ async function startWorker(): Promise<void> {
 
     whatsappInboundWorkerService.start();
 
+    if (config.agentAi?.enabled && config.agentAi?.cronEnabled) {
+      startStaffShiftBriefingScheduler();
+    }
+
     void touchWorkerHeartbeat();
     setInterval(() => {
       void touchWorkerHeartbeat();
     }, 60_000);
 
     logger.info('Investo worker runtime started', {
-      services: ['property_import_worker', 'automation_service', 'whatsapp_inbound_worker'],
+      services: [
+        'property_import_worker',
+        'automation_service',
+        'whatsapp_inbound_worker',
+        ...(config.agentAi?.enabled && config.agentAi?.cronEnabled
+          ? ['staff_shift_briefing_scheduler']
+          : []),
+      ],
     });
   } catch (err: any) {
     logger.error('Failed to start worker runtime', {

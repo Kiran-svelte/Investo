@@ -1,22 +1,15 @@
 import prisma from '../../config/prisma';
 import logger from '../../config/logger';
+import { istDayBounds } from '../../utils/istCalendar.util';
 import { formatTimeIST, visitStatusEmoji } from './response-formatter.service';
 import { logAgentAction } from '../agent-action-log.service';
 
 export type StaffBriefingCronAction = 'cron_morning_briefing' | 'cron_eod_summary';
 export type StaffShiftAction = 'staff_check_in' | 'staff_check_out';
 
-const SHIFT_ACTION_COOLDOWN_MS = 60 * 1000;
+export { istDayBounds };
 
-/** IST calendar-day bounds as UTC Date pair [start, end]. */
-export function istDayBounds(): [Date, Date] {
-  const now = new Date();
-  const offset = 5.5 * 60 * 60 * 1000;
-  const ist = new Date(now.getTime() + offset);
-  const start = new Date(ist.getFullYear(), ist.getMonth(), ist.getDate());
-  const utcStart = new Date(start.getTime() - offset);
-  return [utcStart, new Date(utcStart.getTime() + 24 * 60 * 60 * 1000 - 1)];
-}
+const SHIFT_ACTION_COOLDOWN_MS = 60 * 1000;
 
 async function countStaleFollowUps(agentId: string, companyId: string): Promise<number> {
   const threshold = new Date(Date.now() - 24 * 60 * 60 * 1000);

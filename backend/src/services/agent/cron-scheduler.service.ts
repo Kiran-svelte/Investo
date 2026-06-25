@@ -3,6 +3,13 @@ import config from '../../config';
 import logger from '../../config/logger';
 import prisma from '../../config/prisma';
 import { CRON_SCHEDULES } from '../../constants/agent-ai.constants';
+import { tryAcquireCronLeaderLock } from '../../utils/cronLeaderLock.util';
+import {
+  isEndOfDayBriefingDue,
+  isMorningBriefingDue,
+  parseCompanyWorkingHours,
+  type CompanyWorkingHours,
+} from '../../utils/istCalendar.util';
 import { logAgentAction, purgeOldActionLogs } from '../agent-action-log.service';
 import { recordDailyOpsRollup, DAILY_OPS_ROLLUP_CRON } from '../opsMetrics.service';
 import { cleanupExpiredConfirmations } from './confirmation.service';
@@ -17,6 +24,7 @@ import {
 
 type ScheduledTask = cron.ScheduledTask;
 const tasks: ScheduledTask[] = [];
+let staffShiftBriefingTask: ScheduledTask | null = null;
 
 /** Result from a cron handler — scopes logs and failure alerts to affected tenants. */
 export type CronRunResult = {
@@ -42,29 +50,94 @@ function trackCompanyIds(): { add: (id: string) => void; result: () => CronRunRe
 
 async function sendNotification(phone: string, companyId: string, message: string): Promise<void> {
   const { whatsappService } = await import('../whatsapp.service');
-  await whatsappService.sendCompanyTextMessage(phone, message, companyId);
+  await whatsappService.sendCompanyTextMessage(phone, companyId, message);
 }
 
-async function sendMorningBriefings(): Promise<CronRunResult> {
-  const affected = trackCompanyIds();
-  const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
-  for (const agent of agents) {
-    if (!agent.phone) continue;
-    try {
-      if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_morning_briefing')) continue;
-      const message = await buildAgentMorningBriefing(agent.id, agent.companyId, agent.name);
-      await sendNotification(agent.phone, agent.companyId, message);
-      await logCronBriefingSent(agent.id, agent.companyId, 'cron_morning_briefing');
-      affected.add(agent.companyId);
-    } catch (agentErr: unknown) {
-      logger.warn('sendMorningBriefings: agent failed', {
-        agentId: agent.id,
-        companyId: agent.companyId,
-        error: agentErr instanceof Error ? agentErr.message : String(agentErr),
-      });
+const STAFF_SHIFT_BRIEFING_LOCK_TTL_SECONDS = 10 * 60;
+
+async function loadCompanyWorkingHoursMap(companyIds: string[]): Promise<Map<string, CompanyWorkingHours>> {
+  const uniqueIds = [...new Set(companyIds.filter(Boolean))];
+  const map = new Map<string, CompanyWorkingHours>();
+  if (!uniqueIds.length) return map;
+
+  const settings = await prisma.aiSetting.findMany({
+    where: { companyId: { in: uniqueIds } },
+    select: { companyId: true, workingHours: true },
+  });
+  for (const row of settings) {
+    map.set(row.companyId, parseCompanyWorkingHours(row.workingHours));
+  }
+  for (const companyId of uniqueIds) {
+    if (!map.has(companyId)) {
+      map.set(companyId, parseCompanyWorkingHours(null));
     }
   }
+  return map;
+}
+
+/**
+ * Proactive staff check-in / check-out WhatsApp briefings.
+ * Polls every 15 min against each company's ai_settings.working_hours so messages
+ * still fire after Railway restarts (90-min windows + boot catch-up).
+ */
+export async function processStaffShiftBriefings(at: Date = new Date()): Promise<CronRunResult> {
+  const affected = trackCompanyIds();
+  const agents = await prisma.user.findMany({
+    where: { status: 'active', role: 'sales_agent', phone: { not: null } },
+    select: { id: true, name: true, phone: true, companyId: true },
+  });
+  const hoursByCompany = await loadCompanyWorkingHoursMap(agents.map((a) => a.companyId));
+
+  for (const agent of agents) {
+    if (!agent.phone) continue;
+    const workingHours = hoursByCompany.get(agent.companyId) ?? parseCompanyWorkingHours(null);
+
+    if (isMorningBriefingDue(workingHours, at)) {
+      try {
+        if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_morning_briefing')) continue;
+        const message = await buildAgentMorningBriefing(agent.id, agent.companyId, agent.name);
+        await sendNotification(agent.phone, agent.companyId, message);
+        await logCronBriefingSent(agent.id, agent.companyId, 'cron_morning_briefing');
+        affected.add(agent.companyId);
+      } catch (agentErr: unknown) {
+        logger.warn('processStaffShiftBriefings: morning briefing failed', {
+          agentId: agent.id,
+          companyId: agent.companyId,
+          error: agentErr instanceof Error ? agentErr.message : String(agentErr),
+        });
+      }
+    }
+
+    if (isEndOfDayBriefingDue(workingHours, at)) {
+      try {
+        if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_eod_summary')) continue;
+        const message = await buildAgentEndOfDaySummary(agent.id, agent.companyId, agent.name);
+        await sendNotification(agent.phone, agent.companyId, message);
+        await logCronBriefingSent(agent.id, agent.companyId, 'cron_eod_summary');
+        affected.add(agent.companyId);
+      } catch (agentErr: unknown) {
+        logger.warn('processStaffShiftBriefings: EOD briefing failed', {
+          agentId: agent.id,
+          companyId: agent.companyId,
+          error: agentErr instanceof Error ? agentErr.message : String(agentErr),
+        });
+      }
+    }
+  }
+
   return affected.result();
+}
+
+async function runStaffShiftBriefingPoll(): Promise<CronRunResult> {
+  const acquired = await tryAcquireCronLeaderLock(
+    'staff_shift_briefing_poll',
+    STAFF_SHIFT_BRIEFING_LOCK_TTL_SECONDS,
+  );
+  if (!acquired) {
+    logger.debug('staffShiftBriefingPoll: skipped — another instance holds the lock');
+    return {};
+  }
+  return processStaffShiftBriefings();
 }
 
 async function sendVisitReminders(): Promise<CronRunResult> {
@@ -100,28 +173,6 @@ async function sendVisitReminders(): Promise<CronRunResult> {
       result: 'Agent visit reminder sent (1h window)',
     });
     affected.add(visit.companyId);
-  }
-  return affected.result();
-}
-
-async function sendEndOfDaySummaries(): Promise<CronRunResult> {
-  const affected = trackCompanyIds();
-  const agents = await prisma.user.findMany({ where: { status: 'active', role: 'sales_agent', phone: { not: null } }, select: { id: true, name: true, phone: true, companyId: true } });
-  for (const agent of agents) {
-    if (!agent.phone) continue;
-    try {
-      if (await wasCronBriefingSentToday(agent.id, agent.companyId, 'cron_eod_summary')) continue;
-      const message = await buildAgentEndOfDaySummary(agent.id, agent.companyId, agent.name);
-      await sendNotification(agent.phone, agent.companyId, message);
-      await logCronBriefingSent(agent.id, agent.companyId, 'cron_eod_summary');
-      affected.add(agent.companyId);
-    } catch (agentErr: unknown) {
-      logger.warn('sendEndOfDaySummaries: agent failed', {
-        agentId: agent.id,
-        companyId: agent.companyId,
-        error: agentErr instanceof Error ? agentErr.message : String(agentErr),
-      });
-    }
   }
   return affected.result();
 }
@@ -1001,9 +1052,11 @@ async function runComplianceRetentionPurge(): Promise<CronRunResult> {
 export function startCronScheduler(): void {
   if (!config.agentAi.cronEnabled || tasks.length) return;
   tasks.push(
-    cron.schedule(CRON_SCHEDULES.MORNING_BRIEFING, wrap('morningBriefing', sendMorningBriefings)),
+    cron.schedule(
+      CRON_SCHEDULES.STAFF_SHIFT_BRIEFING_POLL,
+      wrap('staffShiftBriefingPoll', runStaffShiftBriefingPoll),
+    ),
     cron.schedule(CRON_SCHEDULES.OWNER_DAILY_SUMMARY, wrap('ownerDailySummary', sendOwnerDailySummaries)),
-    cron.schedule(CRON_SCHEDULES.END_OF_DAY_SUMMARY, wrap('endOfDaySummary', sendEndOfDaySummaries)),
     cron.schedule(CRON_SCHEDULES.VISIT_REMINDER_CHECK, wrap('visitReminder', sendVisitReminders)),
     cron.schedule(CRON_SCHEDULES.FOLLOW_UP_ALERT, wrap('followUpAlert', sendFollowUpAlerts)),
     cron.schedule(CRON_SCHEDULES.STALE_LEAD_ALERT, wrap('staleLeadAlert', sendStaleLeadAlerts)),
@@ -1031,10 +1084,55 @@ export function startCronScheduler(): void {
     })),
   );
   logger.info('Agent AI cron scheduler started', { jobs: tasks.length });
+  runStaffShiftBriefingBootCatchUp();
 }
 
 export function stopCronScheduler(): void {
   tasks.forEach((task) => task.stop());
   tasks.length = 0;
+  if (staffShiftBriefingTask) {
+    staffShiftBriefingTask.stop();
+    staffShiftBriefingTask = null;
+  }
   logger.info('Agent AI cron scheduler stopped');
+}
+
+function runStaffShiftBriefingBootCatchUp(): void {
+  void (async () => {
+    const started = Date.now();
+    try {
+      const result = await runStaffShiftBriefingPoll();
+      await logCronOutcome(
+        'staffShiftBriefingBootCatchUp',
+        'success',
+        Date.now() - started,
+        undefined,
+        result.affectedCompanyIds,
+      );
+    } catch (error: unknown) {
+      await logCronOutcome(
+        'staffShiftBriefingBootCatchUp',
+        'failed',
+        Date.now() - started,
+        error,
+      );
+      logger.warn('Staff shift briefing boot catch-up failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })();
+}
+
+/**
+ * Lightweight scheduler for worker runtimes — only staff check-in/out proactive messages.
+ * Uses Redis leader lock so it is safe alongside the API cron scheduler.
+ */
+export function startStaffShiftBriefingScheduler(): void {
+  if (!config.agentAi.cronEnabled || staffShiftBriefingTask) return;
+  staffShiftBriefingTask = cron.schedule(
+    CRON_SCHEDULES.STAFF_SHIFT_BRIEFING_POLL,
+    wrap('staffShiftBriefingPoll', runStaffShiftBriefingPoll),
+  );
+  logger.info('Staff shift briefing scheduler started (worker mode)');
+  runStaffShiftBriefingBootCatchUp();
 }
