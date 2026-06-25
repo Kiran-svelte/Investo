@@ -50,7 +50,8 @@ function trackCompanyIds(): { add: (id: string) => void; result: () => CronRunRe
 
 async function sendNotification(phone: string, companyId: string, message: string): Promise<void> {
   const { whatsappService } = await import('../whatsapp.service');
-  await whatsappService.sendCompanyTextMessage(phone, companyId, message);
+  // sendCompanyTextMessage signature is (to, text, companyId).
+  await whatsappService.sendCompanyTextMessage(phone, message, companyId);
 }
 
 const STAFF_SHIFT_BRIEFING_LOCK_TTL_SECONDS = 10 * 60;

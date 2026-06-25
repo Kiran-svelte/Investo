@@ -69,8 +69,8 @@ describe('processStaffShiftBriefings', () => {
     expect(mockSendCompanyTextMessage).toHaveBeenCalledTimes(1);
     expect(mockSendCompanyTextMessage).toHaveBeenCalledWith(
       '+919999999999',
-      'company-1',
       expect.stringContaining("You're checked in"),
+      'company-1',
     );
     expect(mockLogAgentAction).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'cron_morning_briefing', actorId: 'agent-1' }),
@@ -92,8 +92,8 @@ describe('processStaffShiftBriefings', () => {
     expect(mockSendCompanyTextMessage).toHaveBeenCalledTimes(1);
     expect(mockSendCompanyTextMessage).toHaveBeenCalledWith(
       '+919999999999',
-      'company-1',
       expect.stringContaining("You're checked out"),
+      'company-1',
     );
     expect(mockLogAgentAction).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'cron_eod_summary', actorId: 'agent-1' }),

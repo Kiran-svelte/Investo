@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.24",
-    "deployNote": "v0.1.24-buyer-outbound-delivery-guarantee",
+    "version": "0.1.25",
+    "deployNote": "v0.1.25-fix-cron-notification-arg-order",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {
