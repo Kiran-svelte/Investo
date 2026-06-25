@@ -315,8 +315,15 @@ describe('PROOF Area 9 — one customer reply per inbound turn', () => {
 
   test('orchestrator catch does not sendMessage — single dispatch via sendTurnResult', () => {
     const wa = read('services/whatsapp.service.ts');
-    const catchBlock = wa.slice(wa.indexOf('orchestratorCatch'), wa.indexOf('if (turnResult.text?.trim())'));
+    const catchBlock = wa.slice(wa.indexOf('orchestratorCatch'), wa.indexOf('if (turnResult.handled'));
     expect(catchBlock).not.toContain('await this.sendMessage(');
+  });
+
+  test('buyer outbound delivery guarantee forces plain-text fallback after sendTurnResult', () => {
+    const wa = read('services/whatsapp.service.ts');
+    expect(wa).toContain('resolveBuyerOutboundText');
+    expect(wa).toContain('sendTurnResult delivered nothing');
+    expect(wa).toContain('forcing plain-text fallback');
   });
 
   test('primary outbound budget enforced on customer sends', () => {

@@ -52,6 +52,10 @@ import {
 
 import { scheduleVisitFromWhatsApp } from './visitBooking.service';
 import { buildSafeBuyerFallback } from '../utils/safeBuyerFallback.util';
+import {
+  mergeTurnResultWithOutboundText,
+  resolveBuyerOutboundText,
+} from './whatsapp/buyerOutboundDelivery.service';
 import { detectBuyerAiStaffAssist } from '../utils/buyerAiTransparency.util';
 import { socketService, SOCKET_EVENTS } from './socket.service';
 import { notifyAgentOfNewLead } from './leadAssignment.service';
@@ -790,6 +794,7 @@ export class WhatsAppService {
           conversationId: string;
           leadId: string;
           customerName: string | null;
+          activeVisitPropertyName: string | null;
           propagation: InboundPropagationResult;
         }
       | undefined;
@@ -1239,9 +1244,11 @@ export class WhatsAppService {
           let deliveryOk = false;
           if (outboundClaimed) {
             try {
-              await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig!);
-              deliveryOk = true;
-              incrementOpsMetric('whatsapp_outbound');
+              deliveryOk = await this.sendTurnResult(customerPhone, actionResult.turnResult, whatsappConfig!);
+              if (!deliveryOk && outboundText) {
+                deliveryOk = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
+              }
+              if (deliveryOk) incrementOpsMetric('whatsapp_outbound');
             } catch (sendErr: unknown) {
               logger.error('Interactive action sendTurnResult failed', {
                 error: sendErr instanceof Error ? sendErr.message : String(sendErr),
@@ -1276,6 +1283,11 @@ export class WhatsAppService {
             action: actionResult.action,
             conversationId: conversation.id,
           });
+          const fallbackText = buildSafeBuyerFallback();
+          const outboundClaimed = await claimOutboundAiReply(companyId, msg.messageId);
+          if (outboundClaimed) {
+            await this.sendMessage(customerPhone, fallbackText, whatsappConfig!);
+          }
         }
 
         const { applyInteractiveActionSideEffects } = await import(
@@ -1443,12 +1455,13 @@ export class WhatsAppService {
       handled: turnResult.handled,
     });
 
-    if (turnResult.text?.trim()) {
+    if (turnResult.handled || turnResult.text?.trim()) {
       pendingBuyerOutbound = {
         turnResult,
         conversationId: conversation.id,
         leadId: lead.id,
         customerName: lead.customerName,
+        activeVisitPropertyName: preFetchedActiveVisitName,
         propagation,
       };
     }
@@ -1483,18 +1496,27 @@ export class WhatsAppService {
       });
     }
 
-    if (pendingBuyerOutbound?.turnResult.text?.trim()) {
-      const { turnResult, conversationId, leadId, customerName } = pendingBuyerOutbound;
-      const assistDetection = turnResult.staffAssist
+    if (pendingBuyerOutbound) {
+      const { turnResult, conversationId, leadId, customerName, activeVisitPropertyName } = pendingBuyerOutbound;
+      const outboundText = await resolveBuyerOutboundText({
+        conversationId,
+        inboundMessageId: msg.messageId,
+        turnResult,
+        customerMessage: msg.messageText,
+        activeVisitPropertyName,
+        customerName,
+      });
+      const deliverableTurn = mergeTurnResultWithOutboundText(turnResult, outboundText);
+      const assistDetection = deliverableTurn.staffAssist
         ? detectBuyerAiStaffAssist({
-          outboundText: turnResult.text ?? '',
+          outboundText,
           customerMessage: msg.messageText,
-          explicitReason: turnResult.staffAssist.reason,
-          explicitSummary: turnResult.staffAssist.summary,
-          explicitDetail: turnResult.staffAssist.detail,
+          explicitReason: deliverableTurn.staffAssist.reason,
+          explicitSummary: deliverableTurn.staffAssist.summary,
+          explicitDetail: deliverableTurn.staffAssist.detail,
         })
         : detectBuyerAiStaffAssist({
-          outboundText: turnResult.text ?? '',
+          outboundText,
           customerMessage: msg.messageText,
         });
       if (assistDetection) {
@@ -1504,7 +1526,7 @@ export class WhatsAppService {
           leadId,
           conversationId,
           customerMessage: msg.messageText,
-          aiReplyText: turnResult.text,
+          aiReplyText: outboundText,
           inboundMessageId: msg.messageId,
           reason: assistDetection.reason,
           summary: assistDetection.summary,
@@ -1520,24 +1542,32 @@ export class WhatsAppService {
         await simulateHumanReplyPacing({
           to: customerPhone,
           whatsappConfig: whatsappConfig!,
-          outboundTextLength: turnResult.text!.length,
+          outboundTextLength: outboundText.length,
           inboundMessageId: msg.messageId,
-          pacing: turnResult.replyPacing,
+          pacing: deliverableTurn.replyPacing,
         });
         logger.info('Buyer outbound pacing completed', {
           companyId,
           conversationId,
           pacingMs: Date.now() - pacingStartedAt,
-          mode: turnResult.replyPacing ?? 'minimal',
+          mode: deliverableTurn.replyPacing ?? 'minimal',
         });
         try {
-          await this.sendTurnResult(customerPhone, turnResult, whatsappConfig!);
-          outboundDelivered = true;
-          incrementOpsMetric('whatsapp_outbound');
-          await prisma.message.updateMany({
-            where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
-            data: { status: 'sent' },
-          }).catch(() => undefined);
+          outboundDelivered = await this.sendTurnResult(customerPhone, deliverableTurn, whatsappConfig!);
+          if (!outboundDelivered) {
+            logger.warn('sendTurnResult delivered nothing — forcing plain-text fallback', {
+              companyId,
+              conversationId,
+            });
+            outboundDelivered = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
+          }
+          if (outboundDelivered) {
+            incrementOpsMetric('whatsapp_outbound');
+            await prisma.message.updateMany({
+              where: { conversationId, status: 'pending', senderType: { in: ['ai', 'agent'] } },
+              data: { status: 'sent' },
+            }).catch(() => undefined);
+          }
         } catch (sendErr: unknown) {
           logger.error('sendTurnResult failed — marking pending messages as failed', {
             error: sendErr instanceof Error ? sendErr.message : String(sendErr),
@@ -1561,8 +1591,11 @@ export class WhatsAppService {
           customerPhone,
           messageId: msg.messageId,
           whatsappConfig: whatsappConfig!,
-          turnResult,
+          turnResult: deliverableTurn,
         });
+        if (!outboundDelivered) {
+          outboundDelivered = await this.sendMessage(customerPhone, outboundText, whatsappConfig!);
+        }
       }
       buyerTypingSession?.stop();
       buyerTypingSession = null;
@@ -1625,7 +1658,7 @@ export class WhatsAppService {
     if (!outboundClaimed) return false;
 
     try {
-      await this.sendTurnResult(input.customerPhone, {
+      const delivered = await this.sendTurnResult(input.customerPhone, {
         audience: 'buyer',
         handled: true,
         terminal: true,
@@ -1633,8 +1666,11 @@ export class WhatsAppService {
         components,
         replyPacing: 'none',
       }, input.whatsappConfig);
-      incrementOpsMetric('whatsapp_outbound');
-      return true;
+      if (delivered) {
+        incrementOpsMetric('whatsapp_outbound');
+        return true;
+      }
+      return this.sendMessage(input.customerPhone, text, input.whatsappConfig);
     } catch (err: unknown) {
       logger.error('tryResendStoredBuyerReply failed', {
         companyId: input.companyId,
@@ -2519,62 +2555,66 @@ export class WhatsAppService {
 
   /**
    * Send a complete buyer/staff turn: exactly one customer-visible WhatsApp message.
+   * @returns true when at least one WhatsApp payload was delivered.
    */
   async sendTurnResult(
     to: string,
     result: TurnResult,
     whatsappConfig: CompanyWhatsAppConfig,
-  ): Promise<void> {
-    if (!result.handled) return;
+  ): Promise<boolean> {
+    if (!result.handled) return false;
 
     const hasText = Boolean(result.text?.trim());
     const media = result.components?.find((c) => c.kind === 'media');
     const nonMediaComponents = result.components?.filter((c) => c.kind !== 'media');
 
-    if (!hasText && !media) return;
+    if (!hasText && !media) return false;
 
     // Media-only turn (e.g. brochure PDF as the sole payload)
     if (!hasText && media?.kind === 'media' && media.url) {
       if (media.mime.startsWith('image/')) {
         const imgResult = await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig);
-        if (!imgResult.success) {
+        if (!imgResult?.success) {
           logger.warn('WhatsApp sendImage failed (media-only turn)', {
-            error: imgResult.error,
+            error: imgResult?.error,
             urlPrefix: media.url.slice(0, 80),
           });
         }
-      } else {
-        const docResult = await this.sendDocument(to, media.url, 'document.pdf', media.caption ?? null, whatsappConfig);
-        if (!docResult.success) {
-          logger.warn('WhatsApp sendDocument failed (media-only turn)', {
-            error: docResult.error,
-            urlPrefix: media.url.slice(0, 80),
-          });
-        }
+        return Boolean(imgResult?.success);
       }
-      return;
+      const docResult = await this.sendDocument(to, media.url, 'document.pdf', media.caption ?? null, whatsappConfig);
+      if (!docResult?.success) {
+        logger.warn('WhatsApp sendDocument failed (media-only turn)', {
+          error: docResult?.error,
+          urlPrefix: media.url.slice(0, 80),
+        });
+      }
+      return Boolean(docResult?.success);
     }
 
     if (hasText) {
       let body = result.text!.trim();
       const mediaItems = (result.components ?? []).filter((c) => c.kind === 'media');
+      let mediaDelivered = false;
       for (let i = 0; i < mediaItems.length; i += 1) {
-        const media = mediaItems[i];
-        if (!media.url) continue;
-        if (media.mime.startsWith('image/')) {
-          const imgResult = await this.sendImage(to, media.url, media.caption ?? null, whatsappConfig);
+        const mediaItem = mediaItems[i];
+        if (!mediaItem.url) continue;
+        if (mediaItem.mime.startsWith('image/')) {
+          const imgResult = await this.sendImage(to, mediaItem.url, mediaItem.caption ?? null, whatsappConfig);
+          if (imgResult?.success) mediaDelivered = true;
           if (!imgResult.success) {
             logger.warn('WhatsApp sendImage failed in turn', {
               error: imgResult.error,
-              urlPrefix: media.url.slice(0, 80),
+              urlPrefix: mediaItem.url.slice(0, 80),
             });
           }
         } else {
-          const docResult = await this.sendDocument(to, media.url, 'brochure.pdf', media.caption ?? null, whatsappConfig);
+          const docResult = await this.sendDocument(to, mediaItem.url, 'brochure.pdf', mediaItem.caption ?? null, whatsappConfig);
+          if (docResult?.success) mediaDelivered = true;
           if (!docResult.success) {
             logger.warn('WhatsApp sendDocument failed in turn', {
               error: docResult.error,
-              urlPrefix: media.url.slice(0, 80),
+              urlPrefix: mediaItem.url.slice(0, 80),
             });
           }
         }
@@ -2582,8 +2622,11 @@ export class WhatsAppService {
           await new Promise((resolve) => setTimeout(resolve, 400));
         }
       }
-      await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);
+      const primaryDelivered = await this.sendPrimaryTurnPayload(to, body, nonMediaComponents, whatsappConfig);
+      return primaryDelivered || mediaDelivered;
     }
+
+    return false;
   }
 
   /**

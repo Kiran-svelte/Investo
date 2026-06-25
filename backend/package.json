@@ -1,7 +1,7 @@
 {
     "name": "investo-backend",
-    "version": "0.1.23",
-    "deployNote": "v0.1.23-staff-shift-briefing-poll",
+    "version": "0.1.24",
+    "deployNote": "v0.1.24-buyer-outbound-delivery-guarantee",
     "description": "Investo - Real Estate AI SaaS Platform Backend",
     "main": "dist/server.js",
     "scripts": {
