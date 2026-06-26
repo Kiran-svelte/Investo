@@ -14,6 +14,7 @@ const require = createRequire(import.meta.url);
 require('ts-node/register/transpile-only');
 
 const jwt = require('jsonwebtoken');
+const { generateSync } = require('otplib');
 const prisma = require('../src/config/prisma.ts').default;
 const { deleteCompanyPermanently } = require('../src/services/resourceDelete.service.ts');
 
@@ -110,8 +111,12 @@ function redactBody(body) {
   if (!body || typeof body !== 'object') return body;
   const json = JSON.parse(JSON.stringify(body));
   if (json?.data?.token) json.data.token = '[redacted]';
+  if (json?.data?.mfa_token) json.data.mfa_token = '[redacted]';
+  if (json?.mfa_token) json.mfa_token = '[redacted]';
   if (json?.data?.tokens) json.data.tokens = '[redacted]';
   if (json?.data?.inviteUrl) json.data.inviteUrl = '[redacted]';
+  if (json?.data?.secret) json.data.secret = '[redacted]';
+  if (json?.scim_token_plain) json.scim_token_plain = '[redacted]';
   return json;
 }
 
@@ -381,6 +386,7 @@ async function createAndAcceptCompany(index, superToken) {
     agencyName,
     companyId,
     adminEmail,
+    adminPassword,
     adminToken,
     adminUserId: userId,
     adminPhone,
@@ -389,6 +395,201 @@ async function createAndAcceptCompany(index, superToken) {
     staffId: staff.userId,
     operationsUserId: operations.userId,
     viewerUserId: viewer.userId,
+  };
+}
+
+async function proveEnterpriseIdentity(company) {
+  const settingsRes = await expectApi(
+    '/api/settings/identity',
+    {
+      method: 'PUT',
+      token: company.adminToken,
+      body: {
+        mfa_required: true,
+        mfa_methods: ['totp'],
+        scim_enabled: true,
+        rotate_scim_token: true,
+      },
+    },
+    200,
+    'identity_settings_update',
+  );
+  const identityConfig = settingsRes.body.data;
+  const scimToken = settingsRes.body.scim_token_plain;
+  assert(identityConfig?.mfa_required === true, 'identity_mfa_required_enabled', 'identity settings enabled MFA');
+  assert(identityConfig?.scim_enabled === true, 'identity_scim_enabled', 'identity settings enabled SCIM');
+  assert(scimToken, 'identity_scim_token_rotated', 'SCIM token was rotated and returned once');
+  record('identity_settings_update', 'company admin enabled MFA and SCIM with a rotated SCIM token', {
+    companyId: company.companyId,
+  });
+
+  const enrollGateRes = await expectApi(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      body: { email: company.adminEmail, password: company.adminPassword },
+    },
+    200,
+    'mfa_login_requires_enrollment',
+  );
+  assert(
+    enrollGateRes.body.data?.mfa_required === true && enrollGateRes.body.data?.mfa_purpose === 'mfa_enroll',
+    'mfa_login_requires_enrollment',
+    'company admin login requires MFA enrollment after policy is enabled',
+    { response: redactBody(enrollGateRes.body) },
+  );
+  const enrollToken = enrollGateRes.body.data?.mfa_token;
+  assert(enrollToken, 'mfa_enrollment_token', 'login returned MFA enrollment token');
+  record('mfa_login_requires_enrollment', 'login is gated for MFA enrollment after enabling company MFA', {
+    companyId: company.companyId,
+  });
+
+  const enrollRes = await expectApi(
+    '/api/auth/mfa/enroll-pending',
+    {
+      method: 'POST',
+      body: { mfa_token: enrollToken },
+    },
+    200,
+    'mfa_enroll_pending',
+  );
+  const deviceId = enrollRes.body.data?.device_id;
+  const secret = enrollRes.body.data?.secret;
+  assert(deviceId && secret, 'mfa_enroll_pending_shape', 'pending MFA enrollment returned device id and TOTP secret');
+
+  const enrollmentCode = generateSync({ secret });
+  const verifyEnrollRes = await expectApi(
+    '/api/auth/mfa/verify-enrollment-pending',
+    {
+      method: 'POST',
+      body: { mfa_token: enrollToken, device_id: deviceId, code: enrollmentCode },
+    },
+    200,
+    'mfa_verify_enrollment_pending',
+  );
+  assert(
+    verifyEnrollRes.body.data?.tokens?.access_token,
+    'mfa_verify_enrollment_pending_token',
+    'MFA enrollment verification returned an access token',
+  );
+  record('mfa_verify_enrollment_pending', 'company admin completed pending MFA enrollment and received tokens', {
+    companyId: company.companyId,
+  });
+
+  const verifyGateRes = await expectApi(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      body: { email: company.adminEmail, password: company.adminPassword },
+    },
+    200,
+    'mfa_login_requires_verify',
+  );
+  assert(
+    verifyGateRes.body.data?.mfa_required === true && verifyGateRes.body.data?.mfa_purpose === 'mfa_verify',
+    'mfa_login_requires_verify',
+    'subsequent company admin login requires MFA verification',
+    { response: redactBody(verifyGateRes.body) },
+  );
+  const verifyToken = verifyGateRes.body.data?.mfa_token;
+  assert(verifyToken, 'mfa_verify_token', 'login returned MFA verification token');
+
+  const verifyCode = generateSync({ secret });
+  const verifyLoginRes = await expectApi(
+    '/api/auth/mfa/verify',
+    {
+      method: 'POST',
+      body: { mfa_token: verifyToken, code: verifyCode },
+    },
+    200,
+    'mfa_verify_login',
+  );
+  assert(verifyLoginRes.body.data?.tokens?.access_token, 'mfa_verify_login_token', 'MFA verification returned tokens');
+  record('mfa_verify_login', 'company admin completed MFA verification challenge and received tokens', {
+    companyId: company.companyId,
+  });
+
+  const scimListRes = await expectApi(
+    '/scim/v2/Users',
+    { token: scimToken },
+    200,
+    'scim_users_list',
+  );
+  assert(
+    scimListRes.body.schemas?.includes('urn:ietf:params:scim:api:messages:2.0:ListResponse'),
+    'scim_users_list_shape',
+    'SCIM list users returned a ListResponse',
+  );
+  record('scim_users_list', 'SCIM bearer token can list tenant users', { companyId: company.companyId });
+
+  const scimExternalId = `${RUN_ID}-scim-user`;
+  const scimEmail = proofEmail('scim-user');
+  const scimCreateRes = await expectApi(
+    '/scim/v2/Users',
+    {
+      method: 'POST',
+      token: scimToken,
+      body: {
+        schemas: ['urn:ietf:params:scim:schemas:core:2.0:User'],
+        externalId: scimExternalId,
+        userName: scimEmail,
+        name: { formatted: 'Codex Proof SCIM User' },
+        active: true,
+      },
+    },
+    201,
+    'scim_user_create',
+  );
+  assert(scimCreateRes.body.externalId === scimExternalId, 'scim_user_create_shape', 'SCIM create returned externalId');
+  record('scim_user_create', 'SCIM created a tenant viewer user', {
+    companyId: company.companyId,
+    externalId: scimExternalId,
+  });
+
+  const scimPatchRes = await expectApi(
+    `/scim/v2/Users/${encodeURIComponent(scimExternalId)}`,
+    {
+      method: 'PATCH',
+      token: scimToken,
+      body: {
+        schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'],
+        Operations: [{ op: 'replace', path: 'active', value: false }],
+      },
+    },
+    200,
+    'scim_user_deactivate',
+  );
+  assert(scimPatchRes.body.active === false, 'scim_user_deactivate_shape', 'SCIM deactivate returned inactive user');
+  record('scim_user_deactivate', 'SCIM deactivated the provisioned tenant user', {
+    companyId: company.companyId,
+    externalId: scimExternalId,
+  });
+
+  await expectApi(
+    `/scim/v2/Users/${encodeURIComponent(scimExternalId)}`,
+    { method: 'DELETE', token: scimToken },
+    204,
+    'scim_user_delete',
+  );
+  record('scim_user_delete', 'SCIM delete completed as an idempotent deactivation', {
+    companyId: company.companyId,
+    externalId: scimExternalId,
+  });
+
+  const ssoConfigRes = await expectApi('/api/auth/sso/config', {}, 200, 'sso_config_observed');
+  const keycloakEnabled = ssoConfigRes.body.data?.keycloak_enabled === true;
+  record(
+    'sso_config_observed',
+    keycloakEnabled
+      ? 'live SSO config reports Keycloak enabled'
+      : 'live SSO config reports Keycloak disabled; SSO remains incomplete',
+    { keycloakEnabled },
+  );
+
+  return {
+    mfaVerified: true,
+    scimVerified: true,
+    ssoKeycloakEnabled: keycloakEnabled,
   };
 }
 
@@ -452,6 +653,7 @@ async function main() {
 
   const companyA = await createAndAcceptCompany(1, superToken);
   const companyB = await createAndAcceptCompany(2, superToken);
+  const identityProof = await proveEnterpriseIdentity(companyA);
 
   const duplicateEmailRes = await expectApi(
     '/api/users',
@@ -545,9 +747,14 @@ async function main() {
     proofPassed: true,
     enterpriseReady: false,
     enterpriseReadyReason: REQUIRE_RESEND_DELIVERY
-      ? 'Production onboarding, mail delivery, tenant isolation, and role checks passed; SSO/MFA/SCIM remain outside this proof runner.'
-      : 'Production onboarding, tenant isolation, and role checks passed with send-accepted mail only; Resend delivery-event proof was explicitly skipped.',
+      ? identityProof.ssoKeycloakEnabled
+        ? 'Production onboarding, mail delivery, tenant isolation, roles, MFA, SCIM, and SSO config checks passed; remaining enterprise readiness gates must be generated from the full matrix.'
+        : 'Production onboarding, mail delivery, tenant isolation, roles, MFA, and SCIM checks passed; SSO Keycloak remains disabled.'
+      : identityProof.ssoKeycloakEnabled
+        ? 'Production onboarding, tenant isolation, roles, MFA, SCIM, and SSO config checks passed with send-accepted mail only; Resend delivery-event proof was explicitly skipped.'
+        : 'Production onboarding, tenant isolation, roles, MFA, and SCIM checks passed with send-accepted mail only; Resend delivery-event proof was explicitly skipped and SSO Keycloak remains disabled.',
     resendDeliveryVerified: REQUIRE_RESEND_DELIVERY,
+    identityProof,
     runId: RUN_ID,
     cleanup: CLEANUP,
     apiBaseUrl: API_BASE_URL,

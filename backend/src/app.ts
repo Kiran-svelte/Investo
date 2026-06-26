@@ -109,9 +109,6 @@ app.use('/api/health', healthRoutes);
 app.use('/api/readiness', readinessRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/status', statusRoutes);
-app.use('/api/auth/sso', ssoRoutes);
-app.use('/api/auth/mfa', mfaRoutes);
-app.use('/scim/v2', scimRoutes);
 
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
@@ -131,6 +128,11 @@ app.use(readOnlyMiddleware);
 
 // Global rate limiting (per user: 100 req/min)
 app.use('/api/', userRateLimiter);
+
+// Identity auth routes require parsed request bodies; keep them after express.json().
+app.use('/api/auth/sso', sensitiveRateLimiter, ssoRoutes);
+app.use('/api/auth/mfa', sensitiveRateLimiter, mfaRoutes);
+app.use('/scim/v2', scimRoutes);
 
 // Auth routes with stricter rate limiting for login
 app.use('/api/auth', sensitiveRateLimiter, authRoutes);
