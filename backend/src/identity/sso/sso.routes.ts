@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 
 import config from '../../config';
+import logger from '../../config/logger';
 import { ssoService } from '../sso/sso.service';
 import { getPublicSsoConfig } from '../keycloak/platformKeycloak.service';
 import { normalizeAuthEmail } from '../../services/auth.service';
@@ -17,6 +18,10 @@ function redirectSsoError(res: Response, message: string): void {
   const url = new URL(`${config.frontend.baseUrl}/auth/sso`);
   url.searchParams.set('error', message.slice(0, 240));
   res.redirect(url.toString());
+}
+
+function isTestSsoCallbackAllowed(): boolean {
+  return (config.identity as { ssoTestIdp?: boolean }).ssoTestIdp === true && config.env !== 'production';
 }
 
 router.get('/start', async (req: Request, res: Response) => {
@@ -75,6 +80,16 @@ router.get('/callback', async (req: Request, res: Response) => {
 
   try {
     if (req.query.test === '1') {
+      if (!isTestSsoCallbackAllowed()) {
+        logger.warn('Blocked SSO test callback outside allowed test mode');
+        if (wantsJson) {
+          res.status(404).json({ error: 'SSO test callback is not available' });
+          return;
+        }
+        redirectSsoError(res, 'SSO test callback is not available');
+        return;
+      }
+
       const email = typeof req.query.email === 'string' ? req.query.email : '';
       if (!email) {
         if (wantsJson) {
