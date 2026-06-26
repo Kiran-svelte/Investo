@@ -35,12 +35,24 @@ import api from '../../services/api';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 
 interface InviteEmailDelivery {
-  status: 'pending' | 'sent' | 'failed';
+  status:
+    | 'pending'
+    | 'sent'
+    | 'delivered'
+    | 'delivery_delayed'
+    | 'failed'
+    | 'bounced'
+    | 'complained'
+    | 'suppressed'
+    | 'opened'
+    | 'clicked';
   sent: boolean;
   reason?: string;
   messageId?: string | null;
   lastAttemptAt?: string | null;
   sentAt?: string | null;
+  deliveredAt?: string | null;
+  lastEventAt?: string | null;
 }
 
 interface AgencyInvite {
@@ -144,6 +156,61 @@ const DEFAULT_INVITE_FORM: CreateInviteForm = {
   negotiatedMonthlyPrice: '',
   notes: '',
 };
+
+function renderEmailDeliveryBadge(delivery?: InviteEmailDelivery): React.ReactElement {
+  const status = delivery?.status || 'pending';
+  if (status === 'delivered' || status === 'opened' || status === 'clicked') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700"
+        title={delivery?.deliveredAt ? `Delivered ${formatDate(delivery.deliveredAt)}` : undefined}
+      >
+        <CheckCircle className="h-3 w-3" /> Delivered
+      </span>
+    );
+  }
+  if (status === 'sent') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700">
+        <CheckCircle className="h-3 w-3" /> Accepted
+      </span>
+    );
+  }
+  if (status === 'delivery_delayed') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700">
+        <Clock className="h-3 w-3" /> Delayed
+      </span>
+    );
+  }
+  if (['failed', 'bounced', 'complained', 'suppressed'].includes(status)) {
+    const label =
+      status === 'bounced'
+        ? 'Bounced'
+        : status === 'suppressed'
+          ? 'Suppressed'
+          : status === 'complained'
+            ? 'Complaint'
+            : 'Failed';
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
+        title={delivery?.reason || 'Email delivery failed'}
+      >
+        <AlertCircle className="h-3 w-3" /> {label}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">
+      <Clock className="h-3 w-3" /> Pending
+    </span>
+  );
+}
+
+function canResendInvite(delivery?: InviteEmailDelivery): boolean {
+  return !delivery || !['sent', 'delivered', 'opened', 'clicked'].includes(delivery.status);
+}
 
 const AgencyInvitesPage: React.FC = () => {
   const [invites, setInvites] = useState<AgencyInvite[]>([]);
@@ -560,22 +627,7 @@ const AgencyInvitesPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-sm text-ink-secondary">{inv.adminEmail}</td>
                       <td className="px-4 py-3 text-xs text-ink-secondary">
-                        {inv.emailDelivery?.status === 'sent' ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700">
-                            <CheckCircle className="h-3 w-3" /> Sent
-                          </span>
-                        ) : inv.emailDelivery?.status === 'failed' ? (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
-                            title={inv.emailDelivery.reason || 'Email delivery failed'}
-                          >
-                            <AlertCircle className="h-3 w-3" /> Failed
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">
-                            <Clock className="h-3 w-3" /> Pending
-                          </span>
-                        )}
+                        {renderEmailDeliveryBadge(inv.emailDelivery)}
                       </td>
                       <td className="px-4 py-3 text-sm text-ink-secondary">
                         {formatCurrency(inv.negotiatedMonthlyPrice)}
@@ -607,7 +659,7 @@ const AgencyInvitesPage: React.FC = () => {
                               <><Copy className="h-3 w-3" /> Copy</>
                             )}
                           </button>
-                          {inv.emailDelivery?.status !== 'sent' && (
+                          {canResendInvite(inv.emailDelivery) && (
                             <button
                               type="button"
                               id={`resend-invite-${inv.id}`}

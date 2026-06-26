@@ -22,12 +22,24 @@ const INVITE_ACCEPT_TRANSACTION_MAX_WAIT_MS = 10_000;
 const EMAIL_ERROR_MAX_LENGTH = 2000;
 
 export type AgencyInviteEmailDelivery = {
-  status: 'pending' | 'sent' | 'failed';
+  status:
+    | 'pending'
+    | 'sent'
+    | 'delivered'
+    | 'delivery_delayed'
+    | 'failed'
+    | 'bounced'
+    | 'complained'
+    | 'suppressed'
+    | 'opened'
+    | 'clicked';
   sent: boolean;
   reason?: string;
   messageId?: string | null;
   lastAttemptAt?: Date | null;
   sentAt?: Date | null;
+  deliveredAt?: Date | null;
+  lastEventAt?: Date | null;
 };
 
 export function getInviteTokenFingerprint(token: string): string {
@@ -45,15 +57,33 @@ export function buildAgencyInviteEmailDelivery(input: {
   lastError?: string | null;
   lastAttemptAt?: Date | null;
   sentAt?: Date | null;
+  deliveredAt?: Date | null;
+  lastEventAt?: Date | null;
 }): AgencyInviteEmailDelivery {
-  const status = input.status === 'sent' ? 'sent' : input.status === 'failed' ? 'failed' : 'pending';
+  const knownStatuses = new Set<AgencyInviteEmailDelivery['status']>([
+    'pending',
+    'sent',
+    'delivered',
+    'delivery_delayed',
+    'failed',
+    'bounced',
+    'complained',
+    'suppressed',
+    'opened',
+    'clicked',
+  ]);
+  const status = knownStatuses.has(input.status as AgencyInviteEmailDelivery['status'])
+    ? (input.status as AgencyInviteEmailDelivery['status'])
+    : 'pending';
   return {
     status,
-    sent: status === 'sent',
+    sent: status !== 'pending' && status !== 'failed',
     reason: input.lastError || undefined,
     messageId: input.messageId ?? null,
     lastAttemptAt: input.lastAttemptAt ?? null,
     sentAt: input.sentAt ?? null,
+    deliveredAt: input.deliveredAt ?? null,
+    lastEventAt: input.lastEventAt ?? null,
   };
 }
 
@@ -128,7 +158,7 @@ async function sendAndRecordAgencyInviteEmail(invite: {
   });
 
   if (mailResult.sent) {
-    logger.info('Agency invite email delivered', {
+    logger.info('Agency invite email accepted by Resend', {
       inviteId: invite.id,
       toEmail: invite.adminEmail,
       messageId: mailResult.messageId ?? null,

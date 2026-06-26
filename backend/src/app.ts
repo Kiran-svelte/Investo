@@ -74,6 +74,7 @@ import { requireFeature } from './middleware/featureGate';
 import billingAdminRoutes from './routes/billing-admin.routes';
 import agencyInviteRoutes from './routes/agencyInvite.routes';
 import cashfreeWebhookRoutes from './routes/cashfreeWebhook.routes';
+import resendWebhookRoutes from './routes/resendWebhook.routes';
 
 const app = express();
 
@@ -116,6 +117,8 @@ app.use('/scim/v2', scimRoutes);
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
 // Cashfree payment webhook — separate from WhatsApp webhook, no IP restriction needed
 app.use('/api/webhooks/cashfree', webhookRateLimiter, cashfreeWebhookRoutes);
+// Resend delivery events require raw body signature verification before express.json().
+app.use('/api/webhooks/resend', webhookRateLimiter, resendWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(cookieParser());

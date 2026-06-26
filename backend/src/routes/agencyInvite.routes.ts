@@ -167,6 +167,8 @@ router.get('/', authenticate, hasRole('super_admin'), async (_req: AuthRequest, 
           lastError: inv.emailLastError,
           lastAttemptAt: inv.emailLastAttemptAt,
           sentAt: inv.emailSentAt,
+          deliveredAt: inv.emailDeliveredAt,
+          lastEventAt: inv.emailLastEventAt,
         }),
       })),
     });
