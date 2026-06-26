@@ -18,6 +18,7 @@
         "baseline": "node scripts/enterprise-baseline.mjs",
         "synthetic": "node scripts/synthetic-monitor.mjs",
         "exit-gate": "node scripts/enterprise-exit-gate.mjs",
+        "proof:enterprise-production": "node scripts/enterprise-production-proof.mjs",
         "bootstrap-enterprise-tenants": "node scripts/bootstrap-enterprise-tenants.mjs",
         "migrate:deploy": "node scripts/apply-prisma-migrations.mjs",
         "benchmark:reply-speed": "node scripts/benchmark-whatsapp-reply.mjs",
