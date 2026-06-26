@@ -1,62 +1,59 @@
 {
   "ready": false,
-  "generated_at": "2026-06-17T06:42:46.129Z",
-  "finished_at": "2026-06-17T06:44:11.823Z",
+  "generated_at": "2026-06-26T00:00:00.000Z",
   "base_url": "https://investo-backend-production.up.railway.app",
-  "run_k6": false,
+  "source_of_truth": "enterprise-readiness-reset",
+  "definition_of_done": "Multiple companies, multiple users, role paths, tenant isolation, mail/onboarding, billing, and live Railway/Vercel proof must pass together.",
   "chunks_complete": false,
   "gates": [
     {
-      "id": "load",
-      "passed": true,
-      "detail": "k6 script present at infra/k6/load-test.js"
-    },
-    {
-      "id": "reliability",
+      "id": "invite_onboarding",
       "passed": false,
-      "detail": "fetch failed"
+      "detail": "Live production invite acceptance returned 500 on 2026-06-26; fix requires deploy plus production accept proof."
     },
     {
-      "id": "isolation",
-      "passed": true,
-      "detail": "src/tests/integration/tenantIsolation.matrix.test.ts passed"
-    },
-    {
-      "id": "iam",
-      "passed": true,
-      "detail": "MFA + SSO unit tests passed"
-    },
-    {
-      "id": "compliance",
-      "passed": true,
-      "detail": "src/tests/unit/dsr.service.test.ts passed"
-    },
-    {
-      "id": "observability",
+      "id": "mail_delivery",
       "passed": false,
-      "detail": "Status API disabled (FEATURE_PUBLIC_STATUS_API=false) — enable for exit gate"
+      "detail": "Invite mail delivery must be tracked as sent/failed and cannot be claimed sent until the provider accepts the message."
     },
     {
-      "id": "integrations",
+      "id": "platform_admin_tenant_scope",
       "passed": false,
-      "detail": "src/tests/unit/apiKey.service.test.ts passed; public API health HTTP 404"
+      "detail": "Platform admin tenant-scoped polling produced 400 before agency selection; regression tests and production UI proof are required."
     },
     {
-      "id": "ai_governance",
-      "passed": true,
-      "detail": "src/tests/unit/aiReviewQueue.service.test.ts passed"
+      "id": "tenant_isolation",
+      "passed": false,
+      "detail": "Tenant isolation matrix must pass for leads, users, notifications, analytics, conversations, visits, and billing after this reset."
     },
     {
-      "id": "support",
-      "passed": true,
-      "detail": "src/tests/unit/impersonation.service.test.ts passed"
+      "id": "role_matrix",
+      "passed": false,
+      "detail": "super_admin, company_admin, sales_agent, operations, and viewer path coverage must pass together."
+    },
+    {
+      "id": "enterprise_identity",
+      "passed": false,
+      "detail": "SSO/MFA/SCIM status is not complete enough to call the platform enterprise-ready."
+    },
+    {
+      "id": "production_proof",
+      "passed": false,
+      "detail": "Railway health, production smoke, Vercel UI flows, invite email, forgot-password email, and cross-company access proof are still required."
     }
   ],
   "failed_gates": [
-    "reliability",
-    "observability",
-    "integrations",
-    "chunks_incomplete"
+    "invite_onboarding",
+    "mail_delivery",
+    "platform_admin_tenant_scope",
+    "tenant_isolation",
+    "role_matrix",
+    "enterprise_identity",
+    "production_proof"
   ],
-  "chunk_status_path": "docs/enterprise/CHUNK_STATUS.json"
+  "chunk_status_path": "docs/enterprise/CHUNK_STATUS.json",
+  "notes": [
+    "This report intentionally supersedes the previous ready=true artifact.",
+    "Do not set ready=true from documentation alone; regenerate from live automated and production evidence."
+  ]
 }

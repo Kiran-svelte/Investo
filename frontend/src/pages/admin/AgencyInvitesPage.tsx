@@ -34,6 +34,15 @@ import {
 import api from '../../services/api';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 
+interface InviteEmailDelivery {
+  status: 'pending' | 'sent' | 'failed';
+  sent: boolean;
+  reason?: string;
+  messageId?: string | null;
+  lastAttemptAt?: string | null;
+  sentAt?: string | null;
+}
+
 interface AgencyInvite {
   id: string;
   agencyName: string;
@@ -43,6 +52,16 @@ interface AgencyInvite {
   companyId: string | null;
   negotiatedMonthlyPrice: number | null;
   inviteUrl: string;
+  emailDelivery?: InviteEmailDelivery;
+}
+
+interface CreateInviteResponse {
+  data: {
+    id: string;
+    inviteUrl: string;
+    emailDelivery: InviteEmailDelivery;
+  };
+  warning?: string;
 }
 
 interface CompanyBillingOverview {
@@ -140,7 +159,11 @@ const AgencyInvitesPage: React.FC = () => {
   const [createFormErrors, setCreateFormErrors] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [lastCreatedInviteUrl, setLastCreatedInviteUrl] = useState<string | null>(null);
+  const [lastCreatedInvite, setLastCreatedInvite] = useState<{
+    inviteUrl: string;
+    emailDelivery: InviteEmailDelivery;
+    warning?: string;
+  } | null>(null);
 
   // Update price modal
   const [updatingPriceFor, setUpdatingPriceFor] = useState<CompanyBillingOverview | null>(null);
@@ -150,6 +173,7 @@ const AgencyInvitesPage: React.FC = () => {
 
   // Action loading states
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
 
   const loadInvites = useCallback(async () => {
     setLoadingInvites(true);
@@ -220,14 +244,31 @@ const AgencyInvitesPage: React.FC = () => {
         payload.notes = createForm.notes.trim();
       }
 
-      const res = await api.post<{ data: { inviteUrl: string } }>('/agency-invites', payload);
-      setLastCreatedInviteUrl(res.data.data.inviteUrl);
+      const res = await api.post<CreateInviteResponse>('/agency-invites', payload);
+      setLastCreatedInvite({
+        inviteUrl: res.data.data.inviteUrl,
+        emailDelivery: res.data.data.emailDelivery,
+        warning: res.data.warning,
+      });
       setCreateForm(DEFAULT_INVITE_FORM);
       void loadInvites();
     } catch (err) {
       setCreateError(getApiErrorMessage(err, 'Failed to create invite.'));
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleResendInvite = async (inviteId: string) => {
+    setResendingInviteId(inviteId);
+    setPageError(null);
+    try {
+      await api.post(`/agency-invites/${inviteId}/resend`);
+      await loadInvites();
+    } catch (err) {
+      setPageError(getApiErrorMessage(err, 'Failed to resend invite email.'));
+    } finally {
+      setResendingInviteId(null);
     }
   };
 
@@ -302,7 +343,7 @@ const AgencyInvitesPage: React.FC = () => {
           id="create-invite-btn"
           onClick={() => {
             setShowCreateModal(true);
-            setLastCreatedInviteUrl(null);
+            setLastCreatedInvite(null);
             setCreateError(null);
           }}
           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
@@ -499,7 +540,7 @@ const AgencyInvitesPage: React.FC = () => {
             <table className="w-full">
               <thead className="investo-table-head border-b border-surface-border">
                 <tr>
-                  {['Agency', 'Email', 'Negotiated Price', 'Expires', 'Invite Link'].map((h) => (
+                  {['Agency', 'Email', 'Delivery', 'Negotiated Price', 'Expires', 'Invite Link'].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider"
@@ -518,6 +559,24 @@ const AgencyInvitesPage: React.FC = () => {
                         {inv.agencyName}
                       </td>
                       <td className="px-4 py-3 text-sm text-ink-secondary">{inv.adminEmail}</td>
+                      <td className="px-4 py-3 text-xs text-ink-secondary">
+                        {inv.emailDelivery?.status === 'sent' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700">
+                            <CheckCircle className="h-3 w-3" /> Sent
+                          </span>
+                        ) : inv.emailDelivery?.status === 'failed' ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
+                            title={inv.emailDelivery.reason || 'Email delivery failed'}
+                          >
+                            <AlertCircle className="h-3 w-3" /> Failed
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">
+                            <Clock className="h-3 w-3" /> Pending
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm text-ink-secondary">
                         {formatCurrency(inv.negotiatedMonthlyPrice)}
                       </td>
@@ -548,6 +607,21 @@ const AgencyInvitesPage: React.FC = () => {
                               <><Copy className="h-3 w-3" /> Copy</>
                             )}
                           </button>
+                          {inv.emailDelivery?.status !== 'sent' && (
+                            <button
+                              type="button"
+                              id={`resend-invite-${inv.id}`}
+                              disabled={resendingInviteId === inv.id}
+                              onClick={() => void handleResendInvite(inv.id)}
+                              className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 disabled:opacity-50"
+                            >
+                              {resendingInviteId === inv.id ? (
+                                <><Loader2 className="h-3 w-3 animate-spin" /> Sending</>
+                              ) : (
+                                <><RefreshCw className="h-3 w-3" /> Resend</>
+                              )}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -573,7 +647,7 @@ const AgencyInvitesPage: React.FC = () => {
               </h2>
               <button
                 type="button"
-                onClick={() => { setShowCreateModal(false); setLastCreatedInviteUrl(null); }}
+                onClick={() => { setShowCreateModal(false); setLastCreatedInvite(null); }}
                 className="text-gray-400 hover:text-gray-600"
                 aria-label="Close"
               >
@@ -581,19 +655,31 @@ const AgencyInvitesPage: React.FC = () => {
               </button>
             </div>
 
-            {lastCreatedInviteUrl ? (
+            {lastCreatedInvite ? (
               <div className="text-center py-4">
-                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                {lastCreatedInvite.emailDelivery.sent ? (
+                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                ) : (
+                  <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-3" />
+                )}
                 <p className="font-semibold text-gray-800">Invite created!</p>
                 <p className="text-sm text-gray-500 mt-1 mb-4">
-                  An invite email has been sent. Share this link directly:
+                  {lastCreatedInvite.emailDelivery.sent
+                    ? 'Invite email accepted for delivery. Share this link directly if needed:'
+                    : 'Email delivery did not complete. Copy this link or retry from the pending invites table:'}
                 </p>
+                {lastCreatedInvite.warning && (
+                  <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-800">
+                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                    <span>{lastCreatedInvite.warning}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 break-all">
-                  <span className="flex-1">{lastCreatedInviteUrl}</span>
+                  <span className="flex-1">{lastCreatedInvite.inviteUrl}</span>
                   <button
                     type="button"
                     id="copy-new-invite-url-btn"
-                    onClick={() => void navigator.clipboard.writeText(lastCreatedInviteUrl)}
+                    onClick={() => void navigator.clipboard.writeText(lastCreatedInvite.inviteUrl)}
                     className="flex-shrink-0 text-blue-600 hover:text-blue-700"
                   >
                     <Copy className="h-4 w-4" />
@@ -602,7 +688,7 @@ const AgencyInvitesPage: React.FC = () => {
                 <button
                   type="button"
                   id="create-invite-done-btn"
-                  onClick={() => { setShowCreateModal(false); setLastCreatedInviteUrl(null); }}
+                  onClick={() => { setShowCreateModal(false); setLastCreatedInvite(null); }}
                   className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
                 >
                   Done

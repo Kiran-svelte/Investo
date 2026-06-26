@@ -400,6 +400,11 @@ model AgencyInvite {
   negotiatedMonthlyPrice Decimal?  @map("negotiated_monthly_price") @db.Decimal(12, 2)
   companyId              String?   @map("company_id") @db.Uuid
   notes                  String?   @db.Text
+  emailDeliveryStatus    String    @default("pending") @map("email_delivery_status") @db.VarChar(20)
+  emailLastAttemptAt     DateTime? @map("email_last_attempt_at")
+  emailSentAt            DateTime? @map("email_sent_at")
+  emailMessageId         String?   @map("email_message_id") @db.VarChar(255)
+  emailLastError         String?   @map("email_last_error") @db.Text
   expiresAt              DateTime  @map("expires_at")
   acceptedAt             DateTime? @map("accepted_at")
   createdById            String    @map("created_by_id") @db.Uuid

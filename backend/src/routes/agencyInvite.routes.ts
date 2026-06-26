@@ -6,12 +6,15 @@ import { validate } from '../middleware/validate';
 import config from '../config';
 import logger from '../config/logger';
 import { normalizeIndianPhoneNumber, isIndianE164Phone } from '../models/validation';
-import { mapInviteAcceptError } from '../utils/inviteAcceptErrors';
+import { getInviteAcceptErrorCode, mapInviteAcceptError } from '../utils/inviteAcceptErrors';
 import {
   acceptAgencyInvite,
+  buildAgencyInviteEmailDelivery,
   createAgencyInvite,
+  getInviteTokenFingerprint,
   getInviteByToken,
   listAgencyInvites,
+  resendAgencyInvite,
 } from '../services/billing/agencyInvite.service';
 
 const router = Router();
@@ -80,10 +83,14 @@ router.post('/:token/accept', validate(acceptInviteSchema), async (req, res: Res
     if (mapped.status >= 500) {
       logger.error('Failed to accept agency invite', {
         error: err instanceof Error ? err.message : String(err),
-        token: req.params.token,
+        tokenFingerprint: getInviteTokenFingerprint(req.params.token),
+        code: getInviteAcceptErrorCode(mapped.error),
       });
     }
-    res.status(mapped.status).json({ error: mapped.error });
+    res.status(mapped.status).json({
+      error: mapped.error,
+      code: getInviteAcceptErrorCode(mapped.error),
+    });
   }
 });
 
@@ -105,11 +112,34 @@ router.post('/', authenticate, hasRole('super_admin'), validate(createInviteSche
       data: result,
       warning: result.emailDelivery.sent
         ? undefined
-        : `Invite created but email delivery failed (${result.emailDelivery.reason || 'unknown reason'}). Configure RESEND_API_KEY and MAIL_FROM.`,
+        : `Invite created but email delivery failed (${result.emailDelivery.reason || 'unknown reason'}). Copy the link or retry delivery after checking mail configuration.`,
     });
   } catch (err: unknown) {
     logger.error('Failed to create agency invite', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Failed to create invite' });
+  }
+});
+
+/** POST /api/agency-invites/:id/resend — super_admin */
+router.post('/:id/resend', authenticate, hasRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  if (!config.features.billing) {
+    res.status(410).json({ error: 'Billing is disabled' });
+    return;
+  }
+  try {
+    const result = await resendAgencyInvite(req.params.id);
+    res.json({
+      data: result,
+      warning: result.emailDelivery.sent
+        ? undefined
+        : `Invite email still not delivered (${result.emailDelivery.reason || 'unknown reason'}). Copy the link or check Resend delivery logs.`,
+    });
+  } catch (err: unknown) {
+    const mapped = mapInviteAcceptError(err);
+    res.status(mapped.status).json({
+      error: mapped.error,
+      code: getInviteAcceptErrorCode(mapped.error),
+    });
   }
 });
 
@@ -131,6 +161,13 @@ router.get('/', authenticate, hasRole('super_admin'), async (_req: AuthRequest, 
         companyId: inv.companyId,
         negotiatedMonthlyPrice: inv.negotiatedMonthlyPrice ? Number(inv.negotiatedMonthlyPrice) : null,
         inviteUrl: `${config.frontend.baseUrl}/accept-invite/${inv.token}`,
+        emailDelivery: buildAgencyInviteEmailDelivery({
+          status: inv.emailDeliveryStatus,
+          messageId: inv.emailMessageId,
+          lastError: inv.emailLastError,
+          lastAttemptAt: inv.emailLastAttemptAt,
+          sentAt: inv.emailSentAt,
+        }),
       })),
     });
   } catch (err: unknown) {

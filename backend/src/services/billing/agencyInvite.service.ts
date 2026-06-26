@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+import { Prisma } from '@prisma/client';
 import prisma from '../../config/prisma';
 import config from '../../config';
 import logger from '../../config/logger';
@@ -11,11 +12,50 @@ import {
 } from '../../constants/onboardingDefaults';
 import { bootstrapCompanyIdentityConfig } from '../../identity/identityConfig.service';
 import { normalizeAuthEmail } from '../auth.service';
-import { emailService } from '../email.service';
+import { emailService, type MailSendResult } from '../email.service';
 import { assertStaffPhoneAvailable } from '../../utils/staffPhoneUniqueness';
 import { ensureInvestoProPlan } from './subscription.service';
 
 const BCRYPT_ROUNDS = 12;
+const INVITE_ACCEPT_TRANSACTION_TIMEOUT_MS = 30_000;
+const INVITE_ACCEPT_TRANSACTION_MAX_WAIT_MS = 10_000;
+const EMAIL_ERROR_MAX_LENGTH = 2000;
+
+export type AgencyInviteEmailDelivery = {
+  status: 'pending' | 'sent' | 'failed';
+  sent: boolean;
+  reason?: string;
+  messageId?: string | null;
+  lastAttemptAt?: Date | null;
+  sentAt?: Date | null;
+};
+
+export function getInviteTokenFingerprint(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex').slice(0, 12);
+}
+
+function truncateEmailError(reason?: string): string | null {
+  if (!reason) return null;
+  return reason.slice(0, EMAIL_ERROR_MAX_LENGTH);
+}
+
+export function buildAgencyInviteEmailDelivery(input: {
+  status?: string | null;
+  messageId?: string | null;
+  lastError?: string | null;
+  lastAttemptAt?: Date | null;
+  sentAt?: Date | null;
+}): AgencyInviteEmailDelivery {
+  const status = input.status === 'sent' ? 'sent' : input.status === 'failed' ? 'failed' : 'pending';
+  return {
+    status,
+    sent: status === 'sent',
+    reason: input.lastError || undefined,
+    messageId: input.messageId ?? null,
+    lastAttemptAt: input.lastAttemptAt ?? null,
+    sentAt: input.sentAt ?? null,
+  };
+}
 
 function slugify(name: string): string {
   return name
@@ -56,6 +96,62 @@ async function cleanupOrphanAgencyCompanies(agencyName: string): Promise<void> {
   }
 }
 
+async function sendAndRecordAgencyInviteEmail(invite: {
+  id: string;
+  adminEmail: string;
+  agencyName: string;
+  token: string;
+  expiresAt: Date;
+}): Promise<AgencyInviteEmailDelivery> {
+  const attemptedAt = new Date();
+  const inviteUrl = `${config.frontend.baseUrl}/accept-invite/${invite.token}`;
+
+  const mailResult: MailSendResult = await emailService.sendAgencyInviteEmail({
+    toEmail: invite.adminEmail,
+    agencyName: invite.agencyName,
+    inviteUrl,
+    expiresAt: invite.expiresAt,
+  });
+
+  const status = mailResult.sent ? 'sent' : 'failed';
+  const deliveryData = {
+    emailDeliveryStatus: status,
+    emailLastAttemptAt: attemptedAt,
+    emailSentAt: mailResult.sent ? attemptedAt : null,
+    emailMessageId: mailResult.messageId ?? null,
+    emailLastError: mailResult.sent ? null : truncateEmailError(mailResult.reason),
+  };
+
+  await prisma.agencyInvite.update({
+    where: { id: invite.id },
+    data: deliveryData,
+  });
+
+  if (mailResult.sent) {
+    logger.info('Agency invite email delivered', {
+      inviteId: invite.id,
+      toEmail: invite.adminEmail,
+      messageId: mailResult.messageId ?? null,
+    });
+  } else {
+    logger.error('Agency invite email not delivered', {
+      inviteId: invite.id,
+      toEmail: invite.adminEmail,
+      reason: mailResult.reason,
+      action: 'Verify RESEND_API_KEY, MAIL_FROM sender/domain, and Resend suppression/delivery logs.',
+    });
+  }
+
+  return {
+    status,
+    sent: mailResult.sent,
+    reason: mailResult.reason,
+    messageId: mailResult.messageId ?? null,
+    lastAttemptAt: attemptedAt,
+    sentAt: mailResult.sent ? attemptedAt : null,
+  };
+}
+
 export async function createAgencyInvite(input: {
   agencyName: string;
   adminEmail: string;
@@ -67,7 +163,7 @@ export async function createAgencyInvite(input: {
   token: string;
   inviteUrl: string;
   expiresAt: Date;
-  emailDelivery: { sent: boolean; reason?: string };
+  emailDelivery: AgencyInviteEmailDelivery;
 }> {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date();
@@ -87,30 +183,14 @@ export async function createAgencyInvite(input: {
 
   const inviteUrl = `${config.frontend.baseUrl}/accept-invite/${token}`;
 
-  const mailResult = await emailService.sendAgencyInviteEmail({
-    toEmail: invite.adminEmail,
-    agencyName: invite.agencyName,
-    inviteUrl,
-    expiresAt: invite.expiresAt,
-  });
-  if (!mailResult.sent) {
-    logger.error('Agency invite email not delivered', {
-      inviteId: invite.id,
-      toEmail: invite.adminEmail,
-      reason: mailResult.reason,
-      action: 'Configure RESEND_API_KEY and MAIL_FROM in Railway backend service vars',
-    });
-  }
+  const emailDelivery = await sendAndRecordAgencyInviteEmail(invite);
 
   return {
     id: invite.id,
     token,
     inviteUrl,
     expiresAt,
-    emailDelivery: {
-      sent: mailResult.sent,
-      reason: mailResult.reason,
-    },
+    emailDelivery,
   };
 }
 
@@ -165,23 +245,23 @@ export async function acceptAgencyInvite(input: {
       },
     });
 
-    for (const featureKey of DEFAULT_ONBOARDING_FEATURES) {
-      await tx.companyFeature.create({
-        data: { companyId, featureKey, enabled: true },
-      });
-    }
+    await tx.companyFeature.createMany({
+      data: DEFAULT_ONBOARDING_FEATURES.map((featureKey) => ({
+        companyId,
+        featureKey,
+        enabled: true,
+      })),
+    });
 
-    for (const role of DEFAULT_ONBOARDING_ROLES) {
-      await tx.companyRole.create({
-        data: {
-          companyId,
-          roleName: role.roleName,
-          displayName: role.displayName,
-          permissions: role.permissions,
-          isDefault: true,
-        },
-      });
-    }
+    await tx.companyRole.createMany({
+      data: DEFAULT_ONBOARDING_ROLES.map((role) => ({
+        companyId,
+        roleName: role.roleName,
+        displayName: role.displayName,
+        permissions: role.permissions as Prisma.InputJsonObject,
+        isDefault: true,
+      })),
+    });
 
     await tx.aiSetting.create({
       data: {
@@ -217,12 +297,14 @@ export async function acceptAgencyInvite(input: {
       },
     });
 
-    await tx.billingEvent.create({
-      data: {
-        companyId,
-        eventType: 'trial_started',
-        payload: { trialEndsAt: trialEnds.toISOString() },
-      },
+    await tx.billingEvent.createMany({
+      data: [
+        {
+          companyId,
+          eventType: 'trial_started',
+          payload: { trialEndsAt: trialEnds.toISOString() },
+        },
+      ],
     });
 
     await tx.user.create({
@@ -244,15 +326,20 @@ export async function acceptAgencyInvite(input: {
       data: { acceptedAt: now, companyId },
     });
 
-    await tx.billingEvent.create({
-      data: {
-        companyId,
-        eventType: 'invite_accepted',
-        payload: { inviteId: invite.id },
-      },
+    await tx.billingEvent.createMany({
+      data: [
+        {
+          companyId,
+          eventType: 'invite_accepted',
+          payload: { inviteId: invite.id },
+        },
+      ],
     });
 
     return { companyId, userId };
+  }, {
+    maxWait: INVITE_ACCEPT_TRANSACTION_MAX_WAIT_MS,
+    timeout: INVITE_ACCEPT_TRANSACTION_TIMEOUT_MS,
   });
 
   try {
@@ -267,6 +354,24 @@ export async function acceptAgencyInvite(input: {
   logger.info('Agency invite accepted', { companyId, inviteId: invite.id, userId });
 
   return result;
+}
+
+export async function resendAgencyInvite(inviteId: string): Promise<{
+  id: string;
+  inviteUrl: string;
+  emailDelivery: AgencyInviteEmailDelivery;
+}> {
+  const invite = await prisma.agencyInvite.findUnique({ where: { id: inviteId } });
+  if (!invite) throw new Error('Invalid invite link');
+  if (invite.acceptedAt) throw new Error('Invite already accepted');
+  if (invite.expiresAt.getTime() < Date.now()) throw new Error('Invite has expired');
+
+  const emailDelivery = await sendAndRecordAgencyInviteEmail(invite);
+  return {
+    id: invite.id,
+    inviteUrl: `${config.frontend.baseUrl}/accept-invite/${invite.token}`,
+    emailDelivery,
+  };
 }
 
 export async function listAgencyInvites(createdById?: string) {

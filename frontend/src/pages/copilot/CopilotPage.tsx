@@ -4,6 +4,7 @@ import { Bot, Send, Loader2 } from 'lucide-react';
 import api from '../../services/api';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import { useAuth } from '../../context/AuthContext';
+import { useTenantContext } from '../../context/TenantContext';
 
 interface QuickAction {
   id: string;
@@ -21,12 +22,14 @@ interface ChatMessage {
 const CopilotPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { targetCompanyId, isPlatformAdmin } = useTenantContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const isViewer = user?.role === 'viewer';
+  const tenantReady = !isPlatformAdmin || Boolean(targetCompanyId);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,6 +37,10 @@ const CopilotPage: React.FC = () => {
 
   // Load prior copilot turns so the chat shows continuity across reloads.
   useEffect(() => {
+    if (!tenantReady) {
+      setMessages([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -57,11 +64,15 @@ const CopilotPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tenantReady, targetCompanyId]);
 
   const submitMessage = async (text: string, interactiveId?: string) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
+    if (!tenantReady) {
+      setError('Select an agency in Tenant context before using Copilot.');
+      return;
+    }
 
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: 'user', text: trimmed };
     setMessages((prev) => [...prev, userMsg]);
@@ -122,9 +133,11 @@ const CopilotPage: React.FC = () => {
           <div className="mx-auto max-w-2xl rounded-2xl border border-dashed border-surface-border bg-surface-subtle p-8 text-center">
             <Bot className="mx-auto mb-3 h-8 w-8 text-brand-600" />
             <p className="text-sm text-ink-secondary">
-              {t('copilot.empty', {
-                defaultValue: 'Try "visits today", "new leads today", or "get lead Rahul".',
-              })}
+              {tenantReady
+                ? t('copilot.empty', {
+                    defaultValue: 'Try "visits today", "new leads today", or "get lead Rahul".',
+                  })
+                : 'Select an agency in Tenant context before using Copilot.'}
             </p>
           </div>
         ) : (
@@ -151,7 +164,7 @@ const CopilotPage: React.FC = () => {
                       <button
                         key={action.id}
                         type="button"
-                        disabled={sending}
+                        disabled={sending || !tenantReady}
                         onClick={() => void submitMessage(action.title, action.id)}
                         className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-100 active:scale-95 transition-all disabled:opacity-50"
                       >
@@ -179,11 +192,11 @@ const CopilotPage: React.FC = () => {
             maxLength={1200}
             placeholder={t('copilot.placeholder', { defaultValue: 'Ask copilot…' })}
             className="flex-1 rounded-xl border border-surface-border bg-surface px-4 py-3 text-sm outline-none focus:border-brand-500"
-            disabled={sending}
+            disabled={sending || !tenantReady}
           />
           <button
             type="submit"
-            disabled={sending || !input.trim()}
+            disabled={sending || !input.trim() || !tenantReady}
             className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
