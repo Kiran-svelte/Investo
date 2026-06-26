@@ -230,6 +230,52 @@ function proofEmail(label) {
   return email;
 }
 
+async function createTenantProofUser({ index, adminToken, companyId, role, label, seedOffset }) {
+  const email = proofEmail(`${label}-${index}`);
+  const password = `Proof-${label}-${RUN_ID}-${index}-Aa1!`.slice(0, 60);
+  const phone = await nextUniquePhone(index * 10 + seedOffset);
+  const res = await expectApi(
+    '/api/users',
+    {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        name: `Codex Proof ${label} ${index}`,
+        email,
+        password,
+        phone,
+        role,
+      },
+    },
+    201,
+    `company_${index}_${label}_create`,
+  );
+  const userId = res.body.data?.id || res.body.id;
+  assert(userId, `company_${index}_${label}_shape`, `${role} creation returned user id`);
+  record(`company_${index}_${label}_create`, `${role} user created by company admin`, {
+    companyId,
+    userId,
+  });
+
+  const loginRes = await expectApi(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      body: { email, password },
+    },
+    200,
+    `company_${index}_${label}_login`,
+  );
+  assert(
+    loginRes.body.data?.tokens?.access_token,
+    `company_${index}_${label}_login_token`,
+    `${role} login returned access token`,
+  );
+  record(`company_${index}_${label}_login`, `${role} user can log in`, { companyId, userId });
+
+  return { email, phone, userId };
+}
+
 async function createAndAcceptCompany(index, superToken) {
   const agencyName = `Codex Proof ${RUN_ID} Company ${index}`;
   const adminEmail = proofEmail(`admin-${index}`);
@@ -305,30 +351,29 @@ async function createAndAcceptCompany(index, superToken) {
   assert(adminToken, `company_${index}_admin_login_token`, 'login returned access token');
   record(`company_${index}_admin_login`, 'company admin can log in after invite acceptance', { companyId, userId });
 
-  const staffEmail = proofEmail(`staff-${index}`);
-  const staffPassword = `ProofStaff-${RUN_ID}-${index}-Aa1!`.slice(0, 60);
-  const staffPhone = await nextUniquePhone(index * 10 + 1);
-  const staffRes = await expectApi(
-    '/api/users',
-    {
-      method: 'POST',
-      token: adminToken,
-      body: {
-        name: `Codex Proof Staff ${index}`,
-        email: staffEmail,
-        password: staffPassword,
-        phone: staffPhone,
-        role: 'sales_agent',
-      },
-    },
-    201,
-    `company_${index}_staff_create`,
-  );
-  const staffId = staffRes.body.data?.id || staffRes.body.id;
-  assert(staffId, `company_${index}_staff_shape`, 'staff creation returned user id');
-  record(`company_${index}_staff_create`, 'staff user created by company admin', {
+  const staff = await createTenantProofUser({
+    index,
+    adminToken,
     companyId,
-    staffId,
+    role: 'sales_agent',
+    label: 'staff',
+    seedOffset: 1,
+  });
+  const operations = await createTenantProofUser({
+    index,
+    adminToken,
+    companyId,
+    role: 'operations',
+    label: 'operations',
+    seedOffset: 2,
+  });
+  const viewer = await createTenantProofUser({
+    index,
+    adminToken,
+    companyId,
+    role: 'viewer',
+    label: 'viewer',
+    seedOffset: 3,
   });
 
   return {
@@ -339,9 +384,11 @@ async function createAndAcceptCompany(index, superToken) {
     adminToken,
     adminUserId: userId,
     adminPhone,
-    staffEmail,
-    staffPhone,
-    staffId,
+    staffEmail: staff.email,
+    staffPhone: staff.phone,
+    staffId: staff.userId,
+    operationsUserId: operations.userId,
+    viewerUserId: viewer.userId,
   };
 }
 

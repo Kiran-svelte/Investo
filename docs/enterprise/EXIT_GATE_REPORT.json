@@ -1,6 +1,6 @@
 {
   "ready": false,
-  "generated_at": "2026-06-26T09:56:00.000Z",
+  "generated_at": "2026-06-26T10:01:00.000Z",
   "base_url": "https://investo-backend-production.up.railway.app",
   "source_of_truth": "enterprise-readiness-reset",
   "definition_of_done": "Multiple companies, multiple users, role paths, tenant isolation, mail/onboarding, billing, and live Railway/Vercel proof must pass together.",
@@ -9,12 +9,12 @@
     {
       "id": "invite_onboarding",
       "passed": true,
-      "detail": "Production accepted-only proof proof-mqur9zhl created two companies, accepted both public invites, logged both admins in, created one staff user per company, and cleaned up synthetic data."
+      "detail": "Production accepted-only proof proof-mqurehfl created two companies, accepted both public invites, logged both admins in, created sales_agent, operations, and viewer users per company, and cleaned up synthetic data."
     },
     {
       "id": "mail_delivery",
       "passed": false,
-      "detail": "Resend accepted invite and forgot-password sends in proof-mqur9zhl, and webhook tracking is deployed at /api/webhooks/resend. Strict delivery-event proof remains blocked because production RESEND_API_KEY is send-only and RESEND_WEBHOOK_SECRET is not configured."
+      "detail": "Resend accepted invite and forgot-password sends in proof-mqurehfl, and webhook tracking is deployed at /api/webhooks/resend. Strict delivery-event proof remains blocked because production RESEND_API_KEY is send-only and RESEND_WEBHOOK_SECRET is not configured."
     },
     {
       "id": "platform_admin_tenant_scope",
@@ -24,12 +24,12 @@
     {
       "id": "tenant_isolation",
       "passed": true,
-      "detail": "Tenant isolation matrix passed locally, and production proof-mqur9zhl blocked cross-company user reads plus ignored non-super-admin target_company_id overrides."
+      "detail": "Tenant isolation matrix passed locally, and production proof-mqurehfl blocked cross-company user reads plus ignored non-super-admin target_company_id overrides."
     },
     {
       "id": "role_matrix",
-      "passed": false,
-      "detail": "Production proof covered super_admin, company_admin, and sales_agent creation/access. Operations and viewer live path coverage is still required before enterprise-ready can be true."
+      "passed": true,
+      "detail": "Production proof proof-mqurehfl covered super_admin, company_admin, sales_agent, operations, and viewer creation/login/access checks."
     },
     {
       "id": "enterprise_identity",
@@ -44,7 +44,6 @@
   ],
   "failed_gates": [
     "mail_delivery",
-    "role_matrix",
     "enterprise_identity",
     "production_proof"
   ],
