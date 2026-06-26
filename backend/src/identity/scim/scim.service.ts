@@ -4,6 +4,8 @@ import prisma from '../../config/prisma';
 import { normalizeAuthEmail } from '../../services/auth.service';
 import { deactivateScimUser } from '../sessionPolicy.service';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function prismaClient(): any {
   return prisma as any;
 }
@@ -127,10 +129,15 @@ export class ScimService {
   }
 
   private async findUser(companyId: string, externalOrId: string) {
+    const orFilters: Array<Record<string, string>> = [{ externalId: externalOrId }];
+    if (UUID_REGEX.test(externalOrId)) {
+      orFilters.push({ id: externalOrId });
+    }
+
     return prismaClient().user.findFirst({
       where: {
         companyId,
-        OR: [{ externalId: externalOrId }, { id: externalOrId }],
+        OR: orFilters,
       },
     });
   }
