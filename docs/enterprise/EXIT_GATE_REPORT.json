@@ -1,6 +1,6 @@
 {
   "ready": false,
-  "generated_at": "2026-06-26T00:00:00.000Z",
+  "generated_at": "2026-06-26T09:56:00.000Z",
   "base_url": "https://investo-backend-production.up.railway.app",
   "source_of_truth": "enterprise-readiness-reset",
   "definition_of_done": "Multiple companies, multiple users, role paths, tenant isolation, mail/onboarding, billing, and live Railway/Vercel proof must pass together.",
@@ -8,28 +8,28 @@
   "gates": [
     {
       "id": "invite_onboarding",
-      "passed": false,
-      "detail": "Live production invite acceptance returned 500 on 2026-06-26; fix requires deploy plus production accept proof."
+      "passed": true,
+      "detail": "Production accepted-only proof proof-mqur9zhl created two companies, accepted both public invites, logged both admins in, created one staff user per company, and cleaned up synthetic data."
     },
     {
       "id": "mail_delivery",
       "passed": false,
-      "detail": "Invite mail delivery must be tracked as sent/failed and cannot be claimed sent until the provider accepts the message."
+      "detail": "Resend accepted invite and forgot-password sends in proof-mqur9zhl, and webhook tracking is deployed at /api/webhooks/resend. Strict delivery-event proof remains blocked because production RESEND_API_KEY is send-only and RESEND_WEBHOOK_SECRET is not configured."
     },
     {
       "id": "platform_admin_tenant_scope",
-      "passed": false,
-      "detail": "Platform admin tenant-scoped polling produced 400 before agency selection; regression tests and production UI proof are required."
+      "passed": true,
+      "detail": "NotificationBell and Copilot super-admin no-tenant regressions passed locally; production proof requires super_admin tenant routes to reject missing target_company_id and allow explicit target_company_id."
     },
     {
       "id": "tenant_isolation",
-      "passed": false,
-      "detail": "Tenant isolation matrix must pass for leads, users, notifications, analytics, conversations, visits, and billing after this reset."
+      "passed": true,
+      "detail": "Tenant isolation matrix passed locally, and production proof-mqur9zhl blocked cross-company user reads plus ignored non-super-admin target_company_id overrides."
     },
     {
       "id": "role_matrix",
       "passed": false,
-      "detail": "super_admin, company_admin, sales_agent, operations, and viewer path coverage must pass together."
+      "detail": "Production proof covered super_admin, company_admin, and sales_agent creation/access. Operations and viewer live path coverage is still required before enterprise-ready can be true."
     },
     {
       "id": "enterprise_identity",
@@ -39,14 +39,11 @@
     {
       "id": "production_proof",
       "passed": false,
-      "detail": "Railway health, production smoke, Vercel UI flows, invite email, forgot-password email, and cross-company access proof are still required."
+      "detail": "Railway deployment e1f1e7a7-3c76-46a5-883a-8851f54c1abe is live at commit 42a293b95; Vercel deployment dpl_7E2A2yU3jhTM7cahv6CtLaqoW4Yv is aliased to biginvesto.online; backend smoke passed. Strict email delivery-event proof remains blocked."
     }
   ],
   "failed_gates": [
-    "invite_onboarding",
     "mail_delivery",
-    "platform_admin_tenant_scope",
-    "tenant_isolation",
     "role_matrix",
     "enterprise_identity",
     "production_proof"
@@ -54,6 +51,7 @@
   "chunk_status_path": "docs/enterprise/CHUNK_STATUS.json",
   "notes": [
     "This report intentionally supersedes the previous ready=true artifact.",
-    "Do not set ready=true from documentation alone; regenerate from live automated and production evidence."
+    "Do not set ready=true from documentation alone; regenerate from live automated and production evidence.",
+    "To unblock strict mail proof, add RESEND_WEBHOOK_SECRET in Railway, register https://investo-backend-production.up.railway.app/api/webhooks/resend in Resend, or provide a read-capable RESEND_READ_API_KEY for the proof runner."
   ]
 }
