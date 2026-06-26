@@ -1,6 +1,6 @@
 {
   "ready": false,
-  "generated_at": "2026-06-26T10:01:00.000Z",
+  "generated_at": "2026-06-26T10:14:00.000Z",
   "base_url": "https://investo-backend-production.up.railway.app",
   "source_of_truth": "enterprise-readiness-reset",
   "definition_of_done": "Multiple companies, multiple users, role paths, tenant isolation, mail/onboarding, billing, and live Railway/Vercel proof must pass together.",
@@ -34,12 +34,12 @@
     {
       "id": "enterprise_identity",
       "passed": false,
-      "detail": "SSO/MFA/SCIM status is not complete enough to call the platform enterprise-ready."
+      "detail": "SSO test callback auth-bypass was fixed and verified live (404 on /api/auth/sso/callback?test=1). SSO is still not enterprise-ready because live /api/auth/sso/config reports keycloak_enabled=false; MFA/SCIM still require full production proof."
     },
     {
       "id": "production_proof",
       "passed": false,
-      "detail": "Railway deployment e1f1e7a7-3c76-46a5-883a-8851f54c1abe is live at commit 42a293b95; Vercel deployment dpl_7E2A2yU3jhTM7cahv6CtLaqoW4Yv is aliased to biginvesto.online; backend smoke passed. Strict email delivery-event proof remains blocked."
+      "detail": "Railway deployment 7e8a763e-3607-48fe-bd16-1023faba8b62 is live at commit d29b085ce; Vercel deployment dpl_7E2A2yU3jhTM7cahv6CtLaqoW4Yv is aliased to biginvesto.online; backend smoke passed. Strict email delivery-event proof remains blocked."
     }
   ],
   "failed_gates": [
