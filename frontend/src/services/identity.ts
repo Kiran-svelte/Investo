@@ -22,6 +22,25 @@ export interface CompanyIdentityConfig {
   has_scim_token: boolean;
 }
 
+export interface PlatformIdentityFeatures {
+  sso: boolean;
+  mfa: boolean;
+  scim: boolean;
+  ip_allowlist: boolean;
+}
+
+export interface PublicSsoConfig {
+  keycloak_enabled: boolean;
+  keycloak_url: string | null;
+  realm: string | null;
+  login_hint_supported: boolean;
+}
+
+export interface SsoStartResult {
+  redirect_url: string;
+  state: string;
+}
+
 export interface BranchNode {
   id: string;
   company_id: string;
@@ -36,11 +55,6 @@ export interface MfaEnrollResult {
   device_id: string;
   otpauth_url: string;
   secret: string;
-}
-
-export interface SsoStartResult {
-  redirect_url: string;
-  state: string;
 }
 
 export interface LoginMfaPending {
@@ -64,39 +78,6 @@ function applySession(payload: LoginSuccessPayload): AuthUser {
   return payload.user;
 }
 
-export interface PublicSsoConfig {
-  keycloak_enabled: boolean;
-  keycloak_url: string | null;
-  realm: string | null;
-  login_hint_supported: boolean;
-}
-
-export async function getPublicSsoConfig(): Promise<PublicSsoConfig> {
-  const { data } = await api.get<ApiResponse<PublicSsoConfig>>('/auth/sso/config');
-  return data.data;
-}
-
-export async function startSsoLogin(email: string): Promise<SsoStartResult> {
-  const { data } = await api.get<ApiResponse<SsoStartResult>>('/auth/sso/start', {
-    params: { email },
-  });
-  return data.data;
-}
-
-export async function completeSsoFromRedirect(redirectUrl: string): Promise<LoginSuccessPayload> {
-  const parsed = new URL(redirectUrl, window.location.origin);
-  const { data } = await api.get<
-    ApiResponse<LoginSuccessPayload & { success?: boolean }>
-  >(parsed.pathname + parsed.search, {
-    headers: { Accept: 'application/json' },
-  });
-  return {
-    user: data.data.user,
-    tokens: data.data.tokens,
-    session: data.data.session,
-  };
-}
-
 export async function loginWithPassword(
   email: string,
   password: string,
@@ -111,6 +92,18 @@ export async function loginWithPassword(
   }
 
   return payload as LoginSuccessPayload;
+}
+
+export async function getPublicSsoConfig(): Promise<PublicSsoConfig> {
+  const { data } = await api.get<ApiResponse<PublicSsoConfig>>('/auth/sso/config');
+  return data.data;
+}
+
+export async function startSsoLogin(email: string): Promise<SsoStartResult> {
+  const { data } = await api.get<ApiResponse<SsoStartResult>>('/auth/sso/start', {
+    params: { email },
+  });
+  return data.data;
 }
 
 export async function verifyMfaLogin(mfaToken: string, code: string): Promise<AuthUser> {
@@ -158,9 +151,22 @@ export async function verifyMfaEnrollmentPending(
   return me.data.data;
 }
 
-export async function getIdentitySettings(): Promise<CompanyIdentityConfig> {
-  const { data } = await api.get<ApiResponse<CompanyIdentityConfig>>('/settings/identity');
-  return data.data;
+export async function getIdentitySettings(): Promise<{
+  config: CompanyIdentityConfig;
+  platformFeatures: PlatformIdentityFeatures;
+}> {
+  const { data } = await api.get<
+    ApiResponse<CompanyIdentityConfig> & { platform_features?: PlatformIdentityFeatures }
+  >('/settings/identity');
+  return {
+    config: data.data,
+    platformFeatures: data.platform_features ?? {
+      sso: false,
+      mfa: false,
+      scim: false,
+      ip_allowlist: false,
+    },
+  };
 }
 
 export async function updateIdentitySettings(
@@ -168,13 +174,26 @@ export async function updateIdentitySettings(
     sso_oidc_client_secret?: string | null;
     rotate_scim_token?: boolean;
   },
-): Promise<{ config: CompanyIdentityConfig; scim_token_plain: string | null }> {
+): Promise<{
+  config: CompanyIdentityConfig;
+  scim_token_plain: string | null;
+  platformFeatures: PlatformIdentityFeatures;
+}> {
   const { data } = await api.put<
-    ApiResponse<CompanyIdentityConfig> & { scim_token_plain?: string | null }
+    ApiResponse<CompanyIdentityConfig> & {
+      scim_token_plain?: string | null;
+      platform_features?: PlatformIdentityFeatures;
+    }
   >('/settings/identity', payload);
   return {
     config: data.data,
     scim_token_plain: data.scim_token_plain ?? null,
+    platformFeatures: data.platform_features ?? {
+      sso: false,
+      mfa: false,
+      scim: false,
+      ip_allowlist: false,
+    },
   };
 }
 

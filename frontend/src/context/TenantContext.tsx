@@ -1,7 +1,12 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
 
-import { getStoredTargetCompanyId, getStoredTargetCompanyName, setStoredTargetCompany } from '../utils/tenantContextStorage';
+import {
+  getStoredTargetCompanyId,
+  getStoredTargetCompanyName,
+  setStoredTargetCompany,
+  setTenantContextRequestScopeEnabled,
+} from '../utils/tenantContextStorage';
 
 type TenantContextValue = {
   targetCompanyId: string | null;
@@ -14,8 +19,11 @@ type TenantContextValue = {
 const TenantContext = createContext<TenantContextValue | undefined>(undefined);
 
 export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const isPlatformAdmin = user?.role === 'super_admin';
+
+  // Keep axios tenant scoping aligned before child effects issue requests.
+  setTenantContextRequestScopeEnabled(!isLoading && isPlatformAdmin);
 
   const [targetCompanyId, setTargetCompanyId] = useState<string | null>(() => getStoredTargetCompanyId());
   const [targetCompanyName, setTargetCompanyName] = useState<string | null>(() => getStoredTargetCompanyName());
@@ -29,6 +37,21 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const clearTargetCompany = useCallback(() => {
     setTargetCompany(null, null);
   }, [setTargetCompany]);
+
+  useEffect(() => {
+    if (isLoading) {
+      setTenantContextRequestScopeEnabled(false);
+      return;
+    }
+
+    setTenantContextRequestScopeEnabled(isPlatformAdmin);
+
+    if (!isPlatformAdmin) {
+      setTargetCompanyId(null);
+      setTargetCompanyName(null);
+      setStoredTargetCompany(null, null);
+    }
+  }, [isLoading, isPlatformAdmin]);
 
   const value = useMemo<TenantContextValue>(() => ({
     targetCompanyId: isPlatformAdmin ? targetCompanyId : null,

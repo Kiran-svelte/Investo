@@ -185,11 +185,15 @@ const Sidebar: React.FC = () => {
   const reduceMotion = useReducedMotion();
 
   const brand = (
-    <div className={`flex h-16 items-center border-b border-sidebar-border ${collapsed ? 'justify-center px-2' : 'gap-2 px-3'}`}>
-      <InvestoLogo height={collapsed ? 28 : 32} className={collapsed ? 'max-w-[2.5rem] object-left' : ''} />
-      {!collapsed && user?.role && (
-        <p className="min-w-0 truncate text-xs text-sidebar-text">{ROLE_LABELS[user.role] || user.role}</p>
-      )}
+    <div className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${collapsed ? 'justify-center px-2' : 'px-3'}`}>
+      <InvestoLogo
+        height={collapsed ? 30 : 34}
+        onDark
+        className={collapsed ? 'max-w-[2.75rem] object-left' : 'max-w-[11rem] object-left'}
+      />
+      {!collapsed && user?.role ? (
+        <p className="ml-2 min-w-0 truncate text-xs text-sidebar-text">{ROLE_LABELS[user.role] || user.role}</p>
+      ) : null}
     </div>
   );
 
@@ -255,6 +259,7 @@ const Sidebar: React.FC = () => {
         </button>
         <div className="flex h-full w-full flex-col" style={{ width: SIDEBAR_WIDTH_EXPANDED }}>
           {brand}
+          <div className="px-2 pt-3"><TenantCompanySwitcher /></div>
           <SidebarNav />
           {footer}
         </div>

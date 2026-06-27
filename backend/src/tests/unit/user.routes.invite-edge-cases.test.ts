@@ -15,12 +15,22 @@ function createUserApp(userRole: string = 'company_admin'): { app: Express; mock
   jest.resetModules();
 
   const mockAuthService: MockAuthService = {
-    register: jest.fn().mockResolvedValue({ id: 'new-user-1', email: 'new@example.com', role: 'operations' }),
+    register: jest.fn().mockResolvedValue({ id: 'new-user-1', email: 'new@example.com', role: 'sales_agent' }),
   };
 
   jest.doMock('../../config/prisma', () => ({
     __esModule: true,
-    default: {},
+    default: {
+      company: {
+        findFirst: jest.fn().mockResolvedValue({
+          plan: { maxAgents: 10 },
+        }),
+        findUnique: jest.fn().mockResolvedValue({ name: 'Test Co' }),
+      },
+      user: {
+        count: jest.fn().mockResolvedValue(1),
+      },
+    },
   }));
 
   jest.doMock('../../config/logger', () => ({
@@ -33,9 +43,23 @@ function createUserApp(userRole: string = 'company_admin'): { app: Express; mock
     },
   }));
 
+  jest.doMock('../../config', () => ({
+    __esModule: true,
+    default: {
+      frontend: { baseUrl: 'http://localhost:4173' },
+    },
+  }));
+
   jest.doMock('../../services/auth.service', () => ({
     __esModule: true,
     authService: mockAuthService,
+  }));
+
+  jest.doMock('../../services/email.service', () => ({
+    __esModule: true,
+    emailService: {
+      sendWelcomeInviteEmail: jest.fn().mockResolvedValue({ sent: true }),
+    },
   }));
 
   jest.doMock('../../middleware/auth', () => ({
@@ -87,6 +111,12 @@ function createUserApp(userRole: string = 'company_admin'): { app: Express; mock
     requireActivePaidSubscription: noopMiddleware(),
   }));
 
+  jest.doMock('../../identity/org/branchScope.service', () => ({
+    __esModule: true,
+    isOrgBranchesEnabled: () => false,
+    assertBranchBelongsToCompany: jest.fn(),
+  }));
+
   let userRoutes: any;
   jest.isolateModules(() => {
     userRoutes = require('../../routes/user.routes').default;
@@ -98,38 +128,60 @@ function createUserApp(userRole: string = 'company_admin'): { app: Express; mock
   return { app, mockAuthService };
 }
 
-describe('POST /api/users must_change_password', () => {
+describe('POST /api/users invite edge cases', () => {
   afterEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
   });
 
-  test('passes must_change_password through to authService.register', async () => {
+  test('returns 409 when email is already registered', async () => {
+    const { app, mockAuthService } = createUserApp('company_admin');
+    mockAuthService.register.mockRejectedValueOnce(new Error('Email already registered'));
+
+    const response = await request(app)
+      .post('/api/users')
+      .send({
+        name: 'Duplicate User',
+        email: 'dup@example.com',
+        password: 'Password123',
+        role: 'viewer',
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/email already registered/i);
+  }, 20_000);
+
+  test('rejects invalid email format before hitting auth service', async () => {
     const { app, mockAuthService } = createUserApp('company_admin');
 
     const response = await request(app)
       .post('/api/users')
       .send({
-        name: 'Ops User',
-        email: 'ops@example.com',
+        name: 'Bad Email',
+        email: 'not-an-email',
         password: 'Password123',
-        phone: '+919876543211',
-        role: 'operations',
-        must_change_password: true,
+        phone: '+919876543210',
+        role: 'sales_agent',
       });
+
+    expect(response.status).toBe(400);
+    expect(mockAuthService.register).not.toHaveBeenCalled();
+  });
+
+  test('register is only invoked once per accepted request', async () => {
+    const { app, mockAuthService } = createUserApp('company_admin');
+
+    const payload = {
+      name: 'Once User',
+      email: 'once@example.com',
+      password: 'Password123',
+      phone: '+919876543210',
+      role: 'sales_agent',
+    };
+
+    const response = await request(app).post('/api/users').send(payload);
 
     expect(response.status).toBe(201);
     expect(mockAuthService.register).toHaveBeenCalledTimes(1);
-
-    expect(mockAuthService.register).toHaveBeenCalledWith({
-      name: 'Ops User',
-      email: 'ops@example.com',
-      password: 'Password123',
-      phone: '+919876543211',
-      role: 'operations',
-      company_id: 'company-1',
-      must_change_password: true,
-      branch_id: null,
-    });
   });
 });

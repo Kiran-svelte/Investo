@@ -24,6 +24,10 @@ function prismaClient(): any {
   return prisma as any;
 }
 
+function isSsoTestIdpEnabled(): boolean {
+  return (config.identity as { ssoTestIdp?: boolean }).ssoTestIdp === true;
+}
+
 export interface SsoStartResult {
   redirect_url: string;
   state: string;
@@ -43,7 +47,7 @@ export class SsoService {
     const state = crypto.randomBytes(24).toString('hex');
     const nonce = crypto.randomBytes(16).toString('hex');
 
-    if (config.identity.ssoTestIdp && !isPlatformKeycloakEnabled()) {
+    if (isSsoTestIdpEnabled() && !isPlatformKeycloakEnabled()) {
       const existingUser = await prismaClient().user.findFirst({
         where: { email: normalizedEmail, status: 'active' },
         select: { id: true, companyId: true },
@@ -155,13 +159,13 @@ export class SsoService {
 
     let companyId = user?.companyId || params.company_id;
 
-    if (!companyId && !config.identity.ssoTestIdp) {
+    if (!companyId && !isSsoTestIdpEnabled()) {
       const resolution = await resolveCompanyForSsoLogin(normalizedEmail);
       if (!resolution) throw new Error('No SSO company mapping for email domain');
       companyId = resolution.companyId;
     }
 
-    if (!companyId && config.identity.ssoTestIdp) {
+    if (!companyId && isSsoTestIdpEnabled()) {
       throw new Error('No active account found for this email');
     }
 
@@ -178,7 +182,7 @@ export class SsoService {
     }
 
     if (!user) {
-      if (config.identity.ssoTestIdp || isPlatformKeycloakEnabled()) {
+      if (isSsoTestIdpEnabled() || isPlatformKeycloakEnabled()) {
         throw new Error('No active account found for this email. Ask your admin to invite you first.');
       }
       user = await prismaClient().user.create({

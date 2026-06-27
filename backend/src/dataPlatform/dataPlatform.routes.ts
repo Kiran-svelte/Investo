@@ -3,6 +3,7 @@ import { Router, Response } from 'express';
 import config from '../config';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { hasRole } from '../middleware/rbac';
+import { getCompanyId, strictTenantIsolation } from '../middleware/tenant';
 import { outboxService } from './outbox.service';
 import { tenantSearchService } from './tenantSearch.service';
 
@@ -11,8 +12,15 @@ const router = Router();
 router.use(authenticate);
 router.use(hasRole('company_admin', 'super_admin'));
 
+router.post('/outbox/process', hasRole('super_admin'), async (_req: AuthRequest, res: Response) => {
+  const processed = await outboxService.processPending();
+  res.json({ processed });
+});
+
+router.use(strictTenantIsolation);
+
 router.get('/search', async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -23,7 +31,7 @@ router.get('/search', async (req: AuthRequest, res: Response) => {
 });
 
 router.get('/outbox', async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -38,7 +46,7 @@ router.post('/outbox', async (req: AuthRequest, res: Response) => {
     res.status(503).json({ error: 'FEATURE_OUTBOX_EVENTS is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -58,11 +66,6 @@ router.post('/outbox', async (req: AuthRequest, res: Response) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
-
-router.post('/outbox/process', hasRole('super_admin'), async (_req: AuthRequest, res: Response) => {
-  const processed = await outboxService.processPending();
-  res.json({ processed });
 });
 
 export default router;

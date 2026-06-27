@@ -3,6 +3,7 @@ import { Router, Response } from 'express';
 import config from '../config';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { hasRole } from '../middleware/rbac';
+import { getCompanyId, strictTenantIsolation } from '../middleware/tenant';
 import { sandboxService } from './sandbox.service';
 import { approvalChainService, type ApprovalChainType } from './approvalChain.service';
 
@@ -10,9 +11,10 @@ const router = Router();
 
 router.use(authenticate);
 router.use(hasRole('company_admin', 'super_admin'));
+router.use(strictTenantIsolation);
 
 router.get('/sandbox', async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -26,7 +28,7 @@ router.post('/sandbox', async (req: AuthRequest, res: Response) => {
     res.status(503).json({ error: 'FEATURE_SANDBOX_TENANTS is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -45,7 +47,7 @@ router.post('/sandbox', async (req: AuthRequest, res: Response) => {
 });
 
 router.get('/approval-chains/:chainType', async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -60,7 +62,7 @@ router.put('/approval-chains/:chainType', async (req: AuthRequest, res: Response
     res.status(503).json({ error: 'FEATURE_APPROVAL_CHAINS is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;

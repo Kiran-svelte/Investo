@@ -76,7 +76,7 @@ function createAuthTestApp(frontendBaseUrl?: string, nodeEnv: string = 'developm
   };
 
   const mockEmailService: MockEmailService = {
-    sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+    sendPasswordResetEmail: jest.fn().mockResolvedValue({ sent: true, messageId: 'msg-1' }),
   };
 
   jest.doMock('../../config/prisma', () => ({
@@ -112,6 +112,16 @@ function createAuthTestApp(frontendBaseUrl?: string, nodeEnv: string = 'developm
       login: jest.fn(),
       refreshToken: jest.fn(),
       logout: jest.fn(),
+    },
+  }));
+
+  jest.doMock('../../identity/mfa/mfa.service', () => ({
+    __esModule: true,
+    mfaService: {
+      startPendingEnrollment: jest.fn(),
+      verifyPendingEnrollment: jest.fn(),
+      beginLoginChallenge: jest.fn(),
+      verifyLoginChallenge: jest.fn(),
     },
   }));
 
@@ -235,5 +245,27 @@ describe('Auth forgot-password reset URL generation', () => {
     expect(args.toName).toBe('Prod User');
     expect(typeof args.resetUrl).toBe('string');
     expect(args.resetUrl).toContain('https://app.investo.ai/reset-password');
+  });
+
+  test('returns 503 when user exists but email delivery fails', async () => {
+    const { app, mockPrisma, mockEmailService } = createAuthTestApp('https://app.investo.ai', 'production');
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'user-4',
+      email: 'fail@example.com',
+      name: 'Fail User',
+      status: 'active',
+    });
+    mockPrisma.passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.passwordResetToken.create.mockResolvedValue({ id: 'prt-4' });
+    mockEmailService.sendPasswordResetEmail.mockResolvedValueOnce({ sent: false, reason: 'mail_not_configured' });
+
+    const response = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'fail@example.com' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.success).toBe(false);
+    expect(response.body.message).toMatch(/unable to send password reset email/i);
   });
 });
