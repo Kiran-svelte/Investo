@@ -1,7 +1,7 @@
 # Deployment Success Report
 
 **Date**: April 12, 2026
-**Status**: ✅ ALL SYSTEMS LIVE
+**Status**: Historical record only. Superseded by `docs/enterprise/EXIT_GATE_REPORT.json`.
 
 ## Deployment Summary
 
@@ -11,7 +11,7 @@
 - **Build**: Successful (706.45 kB minified, 198.72 kB gzipped)
 - **Build Time**: 7.03s
 - **Last Updated**: 2026-04-12T11:33:00Z
-- **Token Used**: vcp_6Uc49iYrVJU0JHVZa8ZZ9p89ZRtyjjI8TL3KClTGZ3IS7czNbN3UtwHl
+- **Token Used**: [redacted; rotate any exposed Vercel token]
 
 ### Backend (Render)
 - **URL**: https://investo-backend-v2.onrender.com
@@ -21,7 +21,7 @@
 - **Build Status**: COMPLETE
 - **Health Check**: ✅ OK (Database: 59ms latency)
 - **Last Updated**: 2026-04-12T11:34:45Z
-- **API Key Used**: rnd_3WJ7aMpjt4GOwTYAG8JJXdetim3x
+- **API Key Used**: [redacted; rotate any exposed Render API key]
 
 ### Frontend (Render - Backup)
 - **URL**: https://investo-frontend-v2.onrender.com
@@ -103,4 +103,4 @@ Response:
 
 ---
 
-**Deployment Status**: All systems operational and ready for production use.
+**Deployment Status**: Historical only. Do not use this file as readiness evidence.

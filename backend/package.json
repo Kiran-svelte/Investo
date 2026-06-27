@@ -16,6 +16,7 @@
         "eval": "jest src/tests/evals --runInBand --detectOpenHandles --forceExit",
         "smoke": "node scripts/smoke-critical-paths.mjs",
         "baseline": "node scripts/enterprise-baseline.mjs",
+        "readiness:fullstack": "node scripts/fullstack-readiness-audit.mjs --write",
         "synthetic": "node scripts/synthetic-monitor.mjs",
         "exit-gate": "node scripts/enterprise-exit-gate.mjs",
         "proof:enterprise-production": "node scripts/enterprise-production-proof.mjs",

@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "readiness:fullstack": "cd backend && npm run readiness:fullstack",
+    "repo:untrack-generated": "node scripts/untrack-generated-artifacts.mjs"
+  },
   "dependencies": {
     "chrono-node": "^2.9.1",
     "pdf-parse": "^1.1.1"
