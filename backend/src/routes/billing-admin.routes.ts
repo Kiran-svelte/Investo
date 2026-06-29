@@ -14,6 +14,7 @@ import { validate } from '../middleware/validate';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import config from '../config';
+import { RESOLUTION_IDS } from '../constants/resolutionIds';
 import {
   markPastDue,
   activateSubscription,
@@ -21,6 +22,7 @@ import {
   logBillingEvent,
   buildSubscriptionSummary,
   countBillableSeats,
+  ensureTrialSubscriptionForCompany,
 } from '../services/billing/subscription.service';
 
 const router = Router();
@@ -31,6 +33,25 @@ router.use(hasRole('super_admin'));
 const updatePriceSchema = z.object({
   negotiated_monthly_price: z.number().positive().max(999999),
 });
+
+async function ensureBillingSubscriptionForAdminAction(
+  companyId: string,
+  adminId: string,
+  reason: string,
+  options?: { negotiatedMonthlyPrice?: number | null },
+) {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { id: true },
+  });
+  if (!company) return null;
+
+  return ensureTrialSubscriptionForCompany(companyId, {
+    adminId,
+    reason,
+    negotiatedMonthlyPrice: options?.negotiatedMonthlyPrice,
+  });
+}
 
 /**
  * GET /api/billing-admin/overview
@@ -74,6 +95,11 @@ router.get('/overview', async (_req: AuthRequest, res: Response) => {
             monthlyTotal: null,
             nextBillingDate: null,
             paymentMethod: null,
+            negotiatedMonthlyPrice: null,
+            basePriceMonthly: null,
+            includedSeats: null,
+            extraSeats: null,
+            seatCount: company._count.users,
           };
         }
 
@@ -129,9 +155,13 @@ router.post('/companies/:id/suspend', async (req: AuthRequest, res: Response) =>
 
   const companyId = req.params.id;
   try {
-    const sub = await prisma.companySubscription.findUnique({ where: { companyId } });
+    const sub = await ensureBillingSubscriptionForAdminAction(
+      companyId,
+      req.user!.id,
+      'manual_suspend',
+    );
     if (!sub) {
-      res.status(404).json({ error: { code: 'not_found', message: 'Subscription not found.' } });
+      res.status(404).json({ error: { code: 'not_found', message: 'Company not found.' } });
       return;
     }
 
@@ -163,9 +193,13 @@ router.post('/companies/:id/reactivate', async (req: AuthRequest, res: Response)
 
   const companyId = req.params.id;
   try {
-    const sub = await prisma.companySubscription.findUnique({ where: { companyId } });
+    const sub = await ensureBillingSubscriptionForAdminAction(
+      companyId,
+      req.user!.id,
+      'manual_reactivate',
+    );
     if (!sub) {
-      res.status(404).json({ error: { code: 'not_found', message: 'Subscription not found.' } });
+      res.status(404).json({ error: { code: 'not_found', message: 'Company not found.' } });
       return;
     }
 
@@ -199,9 +233,13 @@ router.post('/companies/:id/mark-past-due', async (req: AuthRequest, res: Respon
 
   const companyId = req.params.id;
   try {
-    const sub = await prisma.companySubscription.findUnique({ where: { companyId } });
+    const sub = await ensureBillingSubscriptionForAdminAction(
+      companyId,
+      req.user!.id,
+      'manual_mark_past_due',
+    );
     if (!sub) {
-      res.status(404).json({ error: { code: 'not_found', message: 'Subscription not found.' } });
+      res.status(404).json({ error: { code: 'not_found', message: 'Company not found.' } });
       return;
     }
 
@@ -238,25 +276,52 @@ router.patch(
     const newPrice = req.body.negotiated_monthly_price as number;
 
     try {
-      const sub = await prisma.companySubscription.findUnique({ where: { companyId } });
+      let sub = await prisma.companySubscription.findUnique({ where: { companyId } });
+      let backfilled = false;
       if (!sub) {
-        res.status(404).json({ error: { code: 'not_found', message: 'Subscription not found.' } });
-        return;
+        sub = await ensureBillingSubscriptionForAdminAction(
+          companyId,
+          req.user!.id,
+          'price_update',
+          { negotiatedMonthlyPrice: newPrice },
+        );
+        backfilled = true;
+        if (!sub) {
+          res.status(404).json({ error: { code: 'not_found', message: 'Company not found.' } });
+          return;
+        }
       }
 
-      await prisma.companySubscription.update({
-        where: { companyId },
-        data: { negotiatedMonthlyPrice: newPrice },
-      });
+      if (!backfilled) {
+        await prisma.companySubscription.update({
+          where: { companyId },
+          data: { negotiatedMonthlyPrice: newPrice },
+        });
+      }
 
       await logBillingEvent(companyId, 'price_updated', {
         oldPrice: sub.negotiatedMonthlyPrice ? Number(sub.negotiatedMonthlyPrice) : null,
         newPrice,
         adminId: req.user!.id,
+        subscriptionBackfilled: backfilled,
+        resolutionId: RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL,
       });
 
-      logger.info('Negotiated price updated', { companyId, newPrice, adminId: req.user!.id });
-      res.json({ data: { success: true, negotiatedMonthlyPrice: newPrice } });
+      logger.info('Negotiated price updated', {
+        companyId,
+        newPrice,
+        adminId: req.user!.id,
+        subscriptionBackfilled: backfilled,
+        resolutionId: RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL,
+      });
+      res.json({
+        data: {
+          success: true,
+          negotiatedMonthlyPrice: newPrice,
+          subscriptionBackfilled: backfilled,
+          resolutionId: RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL,
+        },
+      });
     } catch (err: unknown) {
       logger.error('Failed to update negotiated price', {
         companyId,

@@ -32,6 +32,7 @@ import {
   Users,
 } from 'lucide-react';
 import api from '../../services/api';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 
 interface InviteEmailDelivery {
@@ -156,6 +157,8 @@ const DEFAULT_INVITE_FORM: CreateInviteForm = {
   negotiatedMonthlyPrice: '',
   notes: '',
 };
+
+const DEFAULT_SUBSCRIPTION_PRICE = '12999';
 
 function renderEmailDeliveryBadge(delivery?: InviteEmailDelivery): React.ReactElement {
   const status = delivery?.status || 'pending';
@@ -396,7 +399,7 @@ const AgencyInvitesPage: React.FC = () => {
   };
 
   return (
-    <div className="investo-page space-y-6">
+    <div className="investo-page space-y-6" data-resolution-id={RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -489,6 +492,7 @@ const AgencyInvitesPage: React.FC = () => {
               <tbody className="divide-y divide-surface-border">
                 {billing.map((row) => {
                   const isActioning = actionLoadingId === row.companyId;
+                  const hasSubscription = row.billingStatus !== 'no_subscription';
                   return (
                     <tr key={row.companyId} className="hover:bg-surface-muted">
                       <td className="px-4 py-3">
@@ -512,6 +516,8 @@ const AgencyInvitesPage: React.FC = () => {
                             {formatCurrency(row.negotiatedMonthlyPrice)}{' '}
                             <span className="text-xs text-blue-500">*</span>
                           </span>
+                        ) : !hasSubscription ? (
+                          <span className="text-xs font-medium text-amber-700">Set price to start billing</span>
                         ) : (
                           formatCurrency(row.monthlyTotal)
                         )}
@@ -532,17 +538,22 @@ const AgencyInvitesPage: React.FC = () => {
                           <button
                             type="button"
                             id={`update-price-${row.companyId}`}
-                            title="Update negotiated price"
+                            title={hasSubscription ? 'Update negotiated price' : 'Start billing with negotiated price'}
                             onClick={() => {
                               setUpdatingPriceFor(row);
                               setNewPrice(
                                 row.negotiatedMonthlyPrice?.toString() ??
+                                  row.basePriceMonthly?.toString() ??
                                   row.monthlyTotal?.toString() ??
-                                  '',
+                                  DEFAULT_SUBSCRIPTION_PRICE,
                               );
                               setPriceUpdateError(null);
                             }}
-                            className="rounded-lg p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            className={`rounded-lg p-1.5 transition-colors ${
+                              hasSubscription
+                                ? 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                                : 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                            }`}
                           >
                             <DollarSign className="h-3.5 w-3.5" />
                           </button>
@@ -896,7 +907,7 @@ const AgencyInvitesPage: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 id="update-price-modal-title" className="text-base font-bold text-gray-900">
-                Update Price
+                {updatingPriceFor.billingStatus === 'no_subscription' ? 'Start Billing' : 'Update Price'}
               </h2>
               <button
                 type="button"
@@ -907,7 +918,9 @@ const AgencyInvitesPage: React.FC = () => {
               </button>
             </div>
             <p className="text-sm text-gray-500 mb-4">
-              Setting a negotiated price for{' '}
+              {updatingPriceFor.billingStatus === 'no_subscription'
+                ? 'Create a billing subscription and set a negotiated price for '
+                : 'Setting a negotiated price for '}
               <strong className="text-gray-700">{updatingPriceFor.companyName}</strong>.
             </p>
             <div className="relative mb-3">
@@ -923,6 +936,14 @@ const AgencyInvitesPage: React.FC = () => {
             </div>
             {priceUpdateError && (
               <p className="text-xs text-red-500 mb-3">{priceUpdateError}</p>
+            )}
+            {updatingPriceFor.billingStatus === 'no_subscription' && !priceUpdateError && (
+              <p
+                className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                data-resolution-id={RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL}
+              >
+                This company exists without a billing subscription. Updating the price will create the subscription and start its trial.
+              </p>
             )}
             <div className="flex gap-3">
               <button
@@ -941,7 +962,7 @@ const AgencyInvitesPage: React.FC = () => {
               >
                 {isUpdatingPrice ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
-                ) : 'Update'}
+                ) : updatingPriceFor.billingStatus === 'no_subscription' ? 'Start billing' : 'Update'}
               </button>
             </div>
           </div>

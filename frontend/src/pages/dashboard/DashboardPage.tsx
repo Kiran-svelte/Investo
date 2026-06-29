@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { dashboardPath, getRoleCapabilities } from '../../config/navigation.config';
@@ -8,6 +9,7 @@ import api from '../../services/api';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
 import PageLoader from '../../components/ui/PageLoader';
 import PageHeader from '../../components/ui/PageHeader';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 import { ensureArray } from '../../utils/safeApiData';
 import { trackClarityEvent } from '../../services/clarity';
 import {
@@ -70,6 +72,19 @@ const STATUS_BADGE: Record<string, string> = {
   confirmed: 'bg-green-100 text-green-700',
 };
 
+const ZERO_TRENDS: Trends = {
+  leads: 0,
+  visits: 0,
+  deals: 0,
+  conversations: 0,
+};
+
+function isNotFoundEndpointError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const payload = err.response?.data as { error?: unknown } | undefined;
+  return err.response?.status === 404 && payload?.error === 'Endpoint not found';
+}
+
 const DashboardPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -98,39 +113,55 @@ const DashboardPage: React.FC = () => {
 
     try {
       setLoadError(null);
-      const results = await Promise.allSettled([
-        api.get('/analytics/dashboard'),
-        api.get(`/analytics/trends?period=${period}`),
-        api.get('/analytics/recent-leads'),
-        api.get('/analytics/upcoming-visits'),
-      ]);
+      let bundle: {
+        stats?: DashboardStats | null;
+        trends?: Trends | null;
+        recent_leads?: RecentLead[];
+        upcoming_visits?: UpcomingVisit[];
+      } | null = null;
 
-      const labels = ['dashboard stats', 'trends', 'recent leads', 'upcoming visits'];
-      const failures: string[] = [];
-
-      const statsRes = results[0].status === 'fulfilled' ? results[0].value : null;
-      const trendsRes = results[1].status === 'fulfilled' ? results[1].value : null;
-      const leadsRes = results[2].status === 'fulfilled' ? results[2].value : null;
-      const visitsRes = results[3].status === 'fulfilled' ? results[3].value : null;
-
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          failures.push(`${labels[index]} (${getApiErrorMessage(result.reason, 'request failed')})`);
+      try {
+        const response = await api.get('/analytics/dashboard-bundle', { params: { period } });
+        bundle = response.data?.data ?? null;
+      } catch (err: unknown) {
+        if (!isNotFoundEndpointError(err)) {
+          throw err;
         }
-      });
+        trackClarityEvent('dashboard_bundle_fallback_used', {
+          resolutionId: RESOLUTION_IDS.DASHBOARD_BUNDLE_FALLBACK,
+          period,
+        });
 
-      setStats(statsRes?.data?.data ?? null);
-      setTrends(trendsRes?.data?.data ?? null);
-      setRecentLeads(ensureArray<RecentLead>(leadsRes?.data?.data));
-      setUpcomingVisits(ensureArray<UpcomingVisit>(visitsRes?.data?.data));
+        const [statsResult, trendsResult, leadsResult, visitsResult] = await Promise.allSettled([
+          api.get('/analytics/dashboard', { params: { period } }),
+          api.get('/analytics/trends', { params: { period } }),
+          api.get('/analytics/recent-leads'),
+          api.get('/analytics/upcoming-visits'),
+        ]);
 
-      if (failures.length === results.length) {
-        setLoadError('Could not load dashboard data. Try refreshing the page.');
-      } else if (failures.length > 0) {
-        setLoadError(`Some dashboard sections failed to load: ${failures.join('; ')}`);
-      } else {
-        trackClarityEvent('dashboard_loaded', { period });
+        if (statsResult.status === 'rejected') {
+          throw statsResult.reason;
+        }
+
+        bundle = {
+          stats: statsResult.value.data?.data ?? null,
+          trends: trendsResult.status === 'fulfilled'
+            ? trendsResult.value.data?.data ?? ZERO_TRENDS
+            : ZERO_TRENDS,
+          recent_leads: leadsResult.status === 'fulfilled'
+            ? ensureArray<RecentLead>(leadsResult.value.data?.data)
+            : [],
+          upcoming_visits: visitsResult.status === 'fulfilled'
+            ? ensureArray<UpcomingVisit>(visitsResult.value.data?.data)
+            : [],
+        };
       }
+
+      setStats(bundle?.stats ?? null);
+      setTrends(bundle?.trends ?? ZERO_TRENDS);
+      setRecentLeads(ensureArray<RecentLead>(bundle?.recent_leads));
+      setUpcomingVisits(ensureArray<UpcomingVisit>(bundle?.upcoming_visits));
+      trackClarityEvent('dashboard_loaded', { period });
     } catch (err: unknown) {
       setLoadError(getApiErrorMessage(err, 'Could not load dashboard data. Try refreshing the page.'));
       setStats(null);
@@ -233,7 +264,7 @@ const DashboardPage: React.FC = () => {
 
   return (
     <PageLoader loading={loading} skeleton="card" count={6}>
-    <div className="investo-page space-y-6">
+    <div className="investo-page space-y-6" data-resolution-id={RESOLUTION_IDS.DASHBOARD_BUNDLE_FALLBACK}>
       <PageHeader
         title={t('dashboard.title')}
         description={`${t('common.welcome')}, ${user?.name ?? ''}`}

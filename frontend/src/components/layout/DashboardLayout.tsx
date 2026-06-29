@@ -20,6 +20,7 @@ import PageTransition from './PageTransition';
 import PageErrorBoundary from '../PageErrorBoundary';
 import InvestoLoading from '../loading/InvestoLoading';
 import InvestoLogo from '../brand/InvestoLogo';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 import {
   LayoutDashboard,
   Users,
@@ -185,7 +186,10 @@ const Sidebar: React.FC = () => {
   const reduceMotion = useReducedMotion();
 
   const brand = (
-    <div className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${collapsed ? 'justify-center px-2' : 'px-3'}`}>
+    <div
+      className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${collapsed ? 'justify-center px-2' : 'px-3'}`}
+      data-resolution-id={RESOLUTION_IDS.DASHBOARD_SHELL_LOGO_COMPAT}
+    >
       <InvestoLogo
         height={collapsed ? 30 : 34}
         onDark

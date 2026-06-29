@@ -5,6 +5,7 @@ import {
   SUBSCRIPTION_PRICING,
   BILLABLE_USER_ROLES,
 } from '../../constants/subscriptionPricing';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 import type { BillingStatus, SubscriptionPaymentMethod } from '@prisma/client';
 
 export type SubscriptionSummary = {
@@ -199,6 +200,77 @@ export async function startTrialForCompany(
 
   await logBillingEvent(companyId, 'trial_started', { trialEndsAt: trialEnds.toISOString() });
   logger.info('Subscription trial started', { companyId, trialEndsAt: trialEnds.toISOString() });
+}
+
+export async function ensureTrialSubscriptionForCompany(
+  companyId: string,
+  options?: {
+    negotiatedMonthlyPrice?: number | null;
+    adminId?: string;
+    reason?: string;
+  },
+) {
+  const existing = await prisma.companySubscription.findUnique({ where: { companyId } });
+  if (existing) return existing;
+
+  const planId = await ensureInvestoProPlan();
+  const now = new Date();
+  const trialEnds = new Date(now);
+  trialEnds.setDate(trialEnds.getDate() + SUBSCRIPTION_PRICING.trialDays);
+
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: companyId },
+        data: { planId, status: 'active' },
+      });
+
+      const subscription = await tx.companySubscription.create({
+        data: {
+          companyId,
+          billingStatus: 'trialing',
+          trialStartedAt: now,
+          trialEndsAt: trialEnds,
+          basePriceMonthly: SUBSCRIPTION_PRICING.basePriceMonthlyInr,
+          includedSeats: SUBSCRIPTION_PRICING.includedSeats,
+          perSeatPriceInr: SUBSCRIPTION_PRICING.perSeatPriceInr,
+          ...(options?.negotiatedMonthlyPrice != null
+            ? { negotiatedMonthlyPrice: options.negotiatedMonthlyPrice }
+            : {}),
+        },
+      });
+
+      await tx.billingEvent.create({
+        data: {
+          companyId,
+          eventType: 'subscription_backfilled',
+          payload: {
+            trialEndsAt: trialEnds.toISOString(),
+            adminId: options?.adminId ?? null,
+            reason: options?.reason ?? 'billing_admin_backfill',
+            resolutionId: RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL,
+          },
+        },
+      });
+
+      return subscription;
+    });
+
+    logger.info('Subscription backfilled for existing company', {
+      companyId,
+      trialEndsAt: trialEnds.toISOString(),
+      adminId: options?.adminId,
+      reason: options?.reason,
+      resolutionId: RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL,
+    });
+    return created;
+  } catch (err: unknown) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const raced = await prisma.companySubscription.findUnique({ where: { companyId } });
+      if (raced) return raced;
+    }
+    throw err;
+  }
 }
 
 export async function activateSubscription(
