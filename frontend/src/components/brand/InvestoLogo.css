@@ -1,0 +1,39 @@
+.investo-logo {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  vertical-align: middle;
+}
+
+.investo-logo--glow {
+  filter: drop-shadow(0 0 10px rgba(250, 204, 21, 0.4))
+    drop-shadow(0 0 24px rgba(250, 204, 21, 0.22));
+  animation: investo-logo-glow 2.8s ease-in-out infinite;
+}
+
+.investo-logo--on-dark {
+  filter: drop-shadow(0 0 14px rgba(250, 204, 21, 0.35));
+}
+
+@keyframes investo-logo-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.35))
+      drop-shadow(0 0 18px rgba(250, 204, 21, 0.15));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 16px rgba(250, 204, 21, 0.55))
+      drop-shadow(0 0 32px rgba(250, 204, 21, 0.28));
+    transform: scale(1.02);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .investo-logo--glow {
+    animation: none;
+  }
+}

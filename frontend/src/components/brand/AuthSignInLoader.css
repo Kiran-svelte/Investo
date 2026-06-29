@@ -1,0 +1,121 @@
+.auth-signin-loader__curtain {
+  background: linear-gradient(165deg, #0f172a 0%, #0c1222 48%, #111827 100%);
+}
+
+.auth-signin-loader__grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+  opacity: 0.55;
+}
+
+.auth-signin-loader__shimmer {
+  background: linear-gradient(
+    108deg,
+    transparent 32%,
+    rgba(250, 204, 21, 0.42) 50%,
+    transparent 68%
+  );
+  background-size: 240% 100%;
+  animation: auth-signin-shimmer 2.4s ease-in-out infinite;
+}
+
+.auth-signin-loader__mesh-a {
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.22) 0%, transparent 68%);
+  animation: auth-signin-drift-a 9s ease-in-out infinite;
+}
+
+.auth-signin-loader__mesh-b {
+  background: radial-gradient(circle, rgba(20, 184, 166, 0.14) 0%, transparent 70%);
+  animation: auth-signin-drift-b 11s ease-in-out infinite;
+}
+
+.auth-signin-loader__ring-svg {
+  transform: rotate(-90deg);
+}
+
+.auth-signin-loader__ring-track {
+  stroke: rgba(255, 255, 255, 0.08);
+}
+
+.auth-signin-loader__ring-progress {
+  stroke: rgba(250, 204, 21, 0.85);
+  stroke-linecap: round;
+  animation: auth-signin-ring-spin 1.6s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes auth-signin-shimmer {
+  0% {
+    background-position: 130% 0;
+  }
+  100% {
+    background-position: -30% 0;
+  }
+}
+
+@keyframes auth-signin-drift-a {
+  0%,
+  100% {
+    transform: translate3d(-8%, -6%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, 8%, 0) scale(1.08);
+  }
+}
+
+@keyframes auth-signin-drift-b {
+  0%,
+  100% {
+    transform: translate3d(10%, 4%, 0) scale(1.05);
+  }
+  50% {
+    transform: translate3d(-6%, -8%, 0) scale(0.96);
+  }
+}
+
+@keyframes auth-signin-ring-spin {
+  0% {
+    stroke-dashoffset: 220;
+    transform: rotate(-90deg);
+  }
+  50% {
+    stroke-dashoffset: 60;
+  }
+  100% {
+    stroke-dashoffset: 220;
+    transform: rotate(270deg);
+  }
+}
+
+@keyframes auth-signin-ripple {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+.auth-signin-loader__ripple {
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  animation: auth-signin-ripple 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.auth-signin-loader__ripple--delay {
+  animation-delay: 0.8s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-signin-loader__shimmer,
+  .auth-signin-loader__mesh-a,
+  .auth-signin-loader__mesh-b,
+  .auth-signin-loader__ring-progress,
+  .auth-signin-loader__ripple {
+    animation: none;
+  }
+
+  .auth-signin-loader__shimmer {
+    opacity: 0.2;
+  }
+}

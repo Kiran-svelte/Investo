@@ -40,6 +40,7 @@ export interface AuthTokens {
 
 const TOKEN_KEY = 'investo_access_token';
 const REFRESH_KEY = 'investo_refresh_token';
+const SESSION_EXPIRED_NOTICE_KEY = 'investo_session_expired_notice';
 
 export const getAccessToken = (): string | null => {
   if (isCookieSessionMode()) return null;
@@ -61,6 +62,14 @@ export const clearTokens = (): void => {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   disableCookieSessionMode();
+};
+
+// INVESTO-20260629-AUTH-BRAND-RESTORE: restored login shell consumes this notice.
+export const consumeSessionExpiredNotice = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const present = sessionStorage.getItem(SESSION_EXPIRED_NOTICE_KEY) === '1';
+  sessionStorage.removeItem(SESSION_EXPIRED_NOTICE_KEY);
+  return present;
 };
 
 export function applyAuthSessionFromLoginResponse(session?: { storage?: string }): void {
