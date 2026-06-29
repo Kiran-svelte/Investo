@@ -26,6 +26,13 @@ export type CashfreeWebhookPayload = {
   };
 };
 
+export class CashfreeConfigurationError extends Error {
+  constructor() {
+    super('Cashfree payment gateway is not configured');
+    this.name = 'CashfreeConfigurationError';
+  }
+}
+
 function getBaseUrl(): string {
   return config.cashfree.sandbox
     ? 'https://sandbox.cashfree.com/pg'
@@ -51,7 +58,9 @@ export function generateOrderId(companyId: string): string {
 }
 
 /**
- * Create a Cashfree PG order. Falls back to dev-mode checkout when credentials are missing.
+ * INVESTO-20260629-PAYMENT-LOCKOUT:
+ * Create a Cashfree PG order. Dev-mode checkout is local-only; production must
+ * use real Cashfree credentials or return a safe setup error.
  */
 export async function createCashfreeOrder(input: {
   orderId: string;
@@ -64,6 +73,10 @@ export async function createCashfreeOrder(input: {
   paymentMethods?: ('card' | 'upi' | 'nb')[];
 }): Promise<CashfreeOrderResult> {
   if (!isCashfreeConfigured()) {
+    if (config.env === 'production') {
+      logger.error('Cashfree not configured in production', { orderId: input.orderId });
+      throw new CashfreeConfigurationError();
+    }
     logger.warn('Cashfree not configured — using dev-mode checkout', { orderId: input.orderId });
     return {
       orderId: input.orderId,
@@ -113,6 +126,9 @@ export async function createCashfreeOrder(input: {
 
 export async function fetchCashfreeOrder(orderId: string): Promise<{ status: string; paymentId?: string }> {
   if (!isCashfreeConfigured()) {
+    if (config.env === 'production') {
+      throw new CashfreeConfigurationError();
+    }
     return { status: 'ACTIVE' };
   }
 

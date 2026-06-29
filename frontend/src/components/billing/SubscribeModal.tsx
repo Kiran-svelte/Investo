@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import { useSubscription } from '../../context/SubscriptionContext';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 
 type PaymentMethod = 'card' | 'upi' | 'invoice' | 'bank_transfer';
 
@@ -81,7 +83,7 @@ const PAYMENT_METHODS: MethodOption[] = [
   {
     id: 'invoice',
     label: 'Invoice (Net 30)',
-    description: 'Receive a formal invoice. Account stays active on trust.',
+    description: 'Receive a formal invoice. Access resumes after payment confirmation.',
     icon: FileText,
     badge: 'Enterprise',
   },
@@ -144,19 +146,14 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
         setSuccessState({
           message:
             selectedMethod === 'invoice'
-              ? 'Invoice created. Your account is active!'
+              ? 'Invoice request created.'
               : 'Request received. Account activates after payment confirmation.',
           instructions: result.instructions,
         });
-        onSuccess();
         return;
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Payment initiation failed. Please try again.';
-      setError(message);
+      setError(getApiErrorMessage(err, 'Payment initiation failed. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -169,6 +166,7 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="subscribe-modal-title"
+      data-resolution-id={RESOLUTION_IDS.PAYMENT_LOCKOUT}
     >
       <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden">
         {/* Header */}

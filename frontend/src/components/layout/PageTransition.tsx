@@ -1,4 +1,4 @@
-import { motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from '../../lib/motion';
 import { useLocation, Outlet } from 'react-router-dom';
 
 /** Animates route content inside the dashboard shell (all roles). */

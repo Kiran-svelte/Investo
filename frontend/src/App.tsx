@@ -67,10 +67,11 @@ import {
   isPathAllowedForRole,
   resolveDashboardPath,
 } from './config/navigation.config';
-import { SubscriptionProvider } from './context/SubscriptionContext';
+import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext';
 import AcceptInvitePage from './pages/auth/AcceptInvitePage';
 import AgencyInvitesPage from './pages/admin/AgencyInvitesPage';
 import BillingPage from './pages/billing/BillingPage';
+import { RESOLUTION_IDS } from './constants/resolutionIds';
 
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
@@ -385,6 +386,57 @@ export const FeatureRoute: React.FC<{ featureKey: string }> = ({ featureKey }) =
   return <Outlet />;
 };
 
+export const SubscriptionAccessGuard: React.FC = () => {
+  const { user } = useAuth();
+  const { subscription, isLoading, hasAccess, needsPayment } = useSubscription();
+  const location = useLocation();
+
+  if (user?.role === 'super_admin') {
+    return <Outlet />;
+  }
+
+  if (isLoading) {
+    return <LoadingScreen variant="route" category="auth" embedded />;
+  }
+
+  const billingPath = dashboardPath('/billing');
+  const profilePath = dashboardPath('/profile');
+  const allowedRecoveryPath =
+    location.pathname === billingPath ||
+    location.pathname.startsWith(`${billingPath}/`) ||
+    location.pathname === profilePath ||
+    location.pathname.startsWith(`${profilePath}/`);
+
+  const locked = subscription != null && (hasAccess === false || needsPayment);
+  if (!locked || allowedRecoveryPath) {
+    return <Outlet />;
+  }
+
+  if (user?.role === 'company_admin') {
+    return (
+      <Navigate
+        to={billingPath}
+        replace
+        state={{
+          from: location.pathname,
+          resolutionId: RESOLUTION_IDS.PAYMENT_LOCKOUT,
+        }}
+      />
+    );
+  }
+
+  return (
+    <AccessFeedbackPage
+      eyebrow="Payment required"
+      title="Workspace locked until billing is restored"
+      description="Your company's trial has ended or payment is overdue. Ask a company admin to subscribe from Billing."
+      primaryHref={profilePath}
+      primaryLabel="Open my profile"
+      showBackAction={false}
+    />
+  );
+};
+
 const App: React.FC = () => {
   return (
     <BrowserRouter>
@@ -422,6 +474,7 @@ const App: React.FC = () => {
               <Route element={<OnboardingGuard />}>
                 <Route element={<PropertyKnowledgeGuard />}>
                 <Route path={DASHBOARD_BASE} element={<DashboardLayout />}>
+                  <Route element={<SubscriptionAccessGuard />}>
                   <Route path="profile" element={<ProfilePage />} />
                   <Route index element={<RoleAwareIndex />} />
                   <Route element={<RoleRoute path="/leads" />}>
@@ -543,6 +596,7 @@ const App: React.FC = () => {
                   </Route>
                   <Route element={<RoleRoute path="/error-logs" />}>
                     <Route path="error-logs" element={<ErrorLogsPage />} />
+                  </Route>
                   </Route>
                 </Route>
                 </Route>

@@ -40,4 +40,13 @@ describe('getApiErrorMessage', () => {
     };
     expect(getApiErrorMessage(err, 'Please fix highlighted fields.')).toBe('Please fix highlighted fields.');
   });
+
+  it('returns fallback for generic axios 403 message', () => {
+    const err = {
+      isAxiosError: true,
+      message: 'Request failed with status code 403',
+      response: { status: 403, data: {} },
+    };
+    expect(getApiErrorMessage(err, 'Only company admins can subscribe.')).toBe('Only company admins can subscribe.');
+  });
 });

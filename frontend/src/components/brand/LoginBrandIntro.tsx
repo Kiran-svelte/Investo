@@ -1,5 +1,5 @@
 import React from 'react';
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from '../../lib/motion';
 import InvestoLogo from './InvestoLogo';
 import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 

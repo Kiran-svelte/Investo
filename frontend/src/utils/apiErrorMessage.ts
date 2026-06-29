@@ -39,9 +39,7 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
     const rawMessage = err.message?.trim();
     if (rawMessage) {
       if (/^Request failed with status code \d+$/.test(rawMessage)) {
-        if (err.response?.status === 400) {
-          return fallback;
-        }
+        return fallback;
       }
       return rawMessage;
     }

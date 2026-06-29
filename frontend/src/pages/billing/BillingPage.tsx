@@ -33,6 +33,8 @@ import api from '../../services/api';
 import { useSubscription } from '../../context/SubscriptionContext';
 import { useAuth } from '../../context/AuthContext';
 import SubscribeModal from '../../components/billing/SubscribeModal';
+import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 
 /** Formats a number as Indian Rupees with no decimals. */
 function formatCurrency(amount: number): string {
@@ -96,6 +98,7 @@ const BillingPage: React.FC = () => {
   const [paymentConfirmResult, setPaymentConfirmResult] = useState<
     'success' | 'failed' | null
   >(null);
+  const [paymentConfirmError, setPaymentConfirmError] = useState<string | null>(null);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -106,9 +109,11 @@ const BillingPage: React.FC = () => {
       await api.post('/subscriptions/confirm', { order_id: orderId });
       await refresh();
       setPaymentConfirmResult('success');
+      setPaymentConfirmError(null);
       // Clear the ?order_id= query param from the URL
       navigate(window.location.pathname, { replace: true });
-    } catch {
+    } catch (err: unknown) {
+      setPaymentConfirmError(getApiErrorMessage(err, 'Payment could not be confirmed.'));
       setPaymentConfirmResult('failed');
     } finally {
       setConfirmingPayment(false);
@@ -192,6 +197,9 @@ const BillingPage: React.FC = () => {
             </a>{' '}
             with your order ID.
           </p>
+          {paymentConfirmError && (
+            <p className="mt-1 text-xs text-red-700">{paymentConfirmError}</p>
+          )}
         </div>
       </div>
     );
@@ -200,7 +208,7 @@ const BillingPage: React.FC = () => {
   // ─── No subscription yet ─────────────────────────────────────────────────────
   if (!subscription) {
     return (
-      <div className="investo-page">
+      <div className="investo-page" data-resolution-id={RESOLUTION_IDS.PAYMENT_LOCKOUT}>
         <div className="flex flex-col items-center justify-center h-64 text-center gap-4">
           <ShieldAlert className="h-12 w-12 text-gray-300" />
           <div>
@@ -265,7 +273,7 @@ const BillingPage: React.FC = () => {
   const hero = heroConfig[billingStatus ?? 'trialing'] ?? heroConfig.trialing;
 
   return (
-    <div className="investo-page space-y-6">
+    <div className="investo-page space-y-6" data-resolution-id={RESOLUTION_IDS.PAYMENT_LOCKOUT}>
       {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold text-ink-primary">Billing &amp; Subscription</h1>

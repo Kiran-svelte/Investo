@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from '../../lib/motion';
 import { useAuth } from '../../context/AuthContext';
 import useCompanyFeatures from '../../hooks/useCompanyFeatures';
 import {

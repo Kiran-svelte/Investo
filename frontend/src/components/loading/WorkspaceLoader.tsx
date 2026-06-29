@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from '../../lib/motion';
 import InvestoLogo from '../brand/InvestoLogo';
 import './WorkspaceLoader.css';
 

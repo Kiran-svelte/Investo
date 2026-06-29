@@ -75,6 +75,10 @@ import billingAdminRoutes from './routes/billing-admin.routes';
 import agencyInviteRoutes from './routes/agencyInvite.routes';
 import cashfreeWebhookRoutes from './routes/cashfreeWebhook.routes';
 import resendWebhookRoutes from './routes/resendWebhook.routes';
+import {
+  isSubscriptionRecoveryPath,
+  requireActivePaidSubscription,
+} from './middleware/subscriptionEnforcement';
 
 const app = express();
 
@@ -136,6 +140,20 @@ app.use('/scim/v2', scimRoutes);
 
 // Auth routes with stricter rate limiting for login
 app.use('/api/auth', sensitiveRateLimiter, authRoutes);
+
+// INVESTO-20260629-PAYMENT-LOCKOUT:
+// Expired billing tenants can reach billing/auth/recovery APIs only.
+// Normal tenant product APIs remain locked until subscription access is restored.
+app.use('/api', (req, res, next) => {
+  if (isSubscriptionRecoveryPath(req.path)) {
+    next();
+    return;
+  }
+
+  authenticate(req, res, () => {
+    void requireActivePaidSubscription(req, res, next);
+  });
+});
 
 // All protected routes: authenticate FIRST so company_id is available for
 // per-company rate limiters (companyRateLimiter keys on req.user.company_id).

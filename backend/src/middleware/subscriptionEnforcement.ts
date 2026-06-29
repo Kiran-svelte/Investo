@@ -14,8 +14,54 @@ import {
   computeMonthlyTotal,
 } from '../services/billing/subscription.service';
 import { SUBSCRIPTION_PRICING } from '../constants/subscriptionPricing';
+import { RESOLUTION_IDS } from '../constants/resolutionIds';
 
 const BYPASS_ROLES = new Set(['super_admin']);
+
+const SUBSCRIPTION_RECOVERY_PATH_PREFIXES = [
+  '/auth',
+  '/subscriptions',
+  '/agency-invites',
+  '/health',
+  '/readiness',
+  '/metrics',
+  '/status',
+  '/webhook',
+  '/webhooks',
+  '/features',
+  '/v1',
+];
+
+function normalizeApiPath(pathname: string): string {
+  if (pathname === '/api') return '/';
+  if (pathname.startsWith('/api/')) return pathname.slice('/api'.length);
+  return pathname || '/';
+}
+
+export function isSubscriptionRecoveryPath(pathname: string): boolean {
+  const normalized = normalizeApiPath(pathname);
+  return SUBSCRIPTION_RECOVERY_PATH_PREFIXES.some(
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
+  );
+}
+
+function sendSubscriptionAccessError(
+  req: AuthRequest,
+  res: Response,
+  status: number,
+  code: string,
+  message: string,
+  billingStatus?: string,
+): void {
+  res.status(status).json({
+    error: { code, message },
+    code,
+    message,
+    billingStatus,
+    resolutionId: RESOLUTION_IDS.PAYMENT_LOCKOUT,
+    requestId: (req as any).requestId,
+  });
+}
 
 export async function requireActivePaidSubscription(
   req: AuthRequest,
@@ -45,15 +91,18 @@ export async function requireActivePaidSubscription(
     });
 
     if (!company) {
-      res.status(403).json({ error: 'Company not found' });
+      sendSubscriptionAccessError(req, res, 403, 'company_not_found', 'Company not found');
       return;
     }
 
     if (!company.subscription) {
-      res.status(402).json({
-        error: 'subscription_required',
-        message: 'No active subscription. Contact support or subscribe from Billing.',
-      });
+      sendSubscriptionAccessError(
+        req,
+        res,
+        402,
+        'subscription_required',
+        'No active subscription. Contact support or subscribe from Billing.',
+      );
       return;
     }
 
@@ -65,11 +114,14 @@ export async function requireActivePaidSubscription(
     );
 
     if (!hasAccess) {
-      res.status(402).json({
-        error: 'subscription_inactive',
-        message: 'Your trial has ended or payment is overdue. Subscribe from Billing to continue.',
-        billingStatus: company.subscription.billingStatus,
-      });
+      sendSubscriptionAccessError(
+        req,
+        res,
+        402,
+        'subscription_inactive',
+        'Your trial has ended or payment is overdue. Subscribe from Billing to continue.',
+        company.subscription.billingStatus,
+      );
       return;
     }
 
