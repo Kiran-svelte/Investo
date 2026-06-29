@@ -1,11 +1,11 @@
 import './InvestoLogo.css';
 import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 
-// INVESTO-20260629-AUTH-BRAND-RESTORE: use the cropped transparent logo, not the padded square source.
+// INVESTO-20260629-ACTUAL-LOGO-ASSET: generated from the provided actual logo source.
 export const INVESTO_LOGO_SRC = '/big-investo-logo-cropped.png';
 
-/** Wide logo aspect ratio (w÷h) after transparent crop — keeps layout stable. */
-export const INVESTO_LOGO_ASPECT = 930 / 290;
+/** Wide logo aspect ratio after transparent crop; keeps layout stable. */
+export const INVESTO_LOGO_ASPECT = 1400 / 514;
 
 export type InvestoLogoProps = {
   className?: string;
@@ -13,9 +13,9 @@ export type InvestoLogoProps = {
   height?: number;
   width?: number;
   alt?: string;
-  /** Subtle gold pulse — login splash, loaders */
+  /** Subtle gold pulse for login splash and loaders. */
   glow?: boolean;
-  /** Extra glow on dark panels (sidebar, auth left rail) */
+  /** Extra glow on dark panels, including sidebar and auth rail. */
   onDark?: boolean;
   resolutionId?: string;
 };
@@ -48,7 +48,9 @@ export default function InvestoLogo({
       ]
         .filter(Boolean)
         .join(' ')}
-      data-resolution-id={resolutionId ?? (onDark ? RESOLUTION_IDS.DASHBOARD_SHELL_LOGO_COMPAT : undefined)}
+      data-resolution-id={
+        resolutionId ?? (onDark ? RESOLUTION_IDS.DASHBOARD_SHELL_LOGO_COMPAT : RESOLUTION_IDS.ACTUAL_LOGO_ASSET)
+      }
       decoding="async"
       draggable={false}
     />
