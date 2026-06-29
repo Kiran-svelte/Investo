@@ -13,7 +13,7 @@ Unique resolution identifier: `INVESTO-20260629-PAYMENT-LOCKOUT`
 - [x] Add focused tests for company-admin checkout authorization, expired-trial lockout, billing recovery route allowance, and frontend payment error messaging.
 - [x] Run focused backend Jest tests, backend build, focused frontend tests, and frontend build.
 - [x] Update this file's Review section with changed files, root cause, proof, and any production limitations.
-- [ ] Commit, push, deploy Railway backend and Vercel frontend, then re-check production health and payment recovery behavior.
+- [x] Commit, push, deploy Railway backend and Vercel frontend, then re-check production health and payment recovery behavior.
 
 ## Review
 
@@ -47,3 +47,11 @@ Production limitations to verify after deploy:
 
 - Real card/UPI activation still depends on valid Cashfree production environment values being present in Railway.
 - Live browser payment completion requires an authenticated expired company-admin session and a real/sandbox payment return path.
+
+Deployment proof:
+
+- Commit `10629bbf2` pushed to `kiran/main`.
+- Railway backend deploy `57318f0e-1dd7-43d6-9e0e-a77cac0ae65f` reached `SUCCESS`.
+- Railway live checks passed: `/api/health/live` 200 and `/api/health/internal` 200.
+- Vercel production deployment completed and aliased to `https://biginvesto.online`.
+- Frontend live checks passed: `https://biginvesto.online` 200 and `https://biginvesto.online/dashboard/billing` 200.

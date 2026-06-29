@@ -48,3 +48,8 @@ Actions:
 - Found frontend production build failing on typed `motion/react` animation props and narrowed the fix to the shared motion adapter for `INVESTO-20260629-PAYMENT-LOCKOUT`.
 - Found Vite build failing because npm resolved `motion-dom@12.40.0` under the `12.23.x` motion package family; pinned the motion package family with package overrides.
 - Verified backend focused payment tests, backend build, frontend focused guard/error tests, and frontend production build all pass.
+- Committed the fix as `10629bbf2` and pushed it to `kiran/main`.
+- First Railway upload from `backend/` failed because the service expects repo root with config at `backend/railway.toml`; redeployed from repo root.
+- Railway backend deploy `57318f0e-1dd7-43d6-9e0e-a77cac0ae65f` reached `SUCCESS`.
+- Vercel production deploy completed and aliased to `https://biginvesto.online`.
+- Live checks passed for Railway `/api/health/live`, Railway `/api/health/internal`, `https://biginvesto.online`, and `https://biginvesto.online/dashboard/billing`.
