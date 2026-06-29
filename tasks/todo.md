@@ -70,7 +70,7 @@ Unique resolution identifier: `INVESTO-20260629-CASHFREE-ACTIVATION`
 - [x] Frontend: show the exact payment-gateway activation message and keep invoice/bank-transfer alternatives clear.
 - [x] Propagate `INVESTO-20260629-CASHFREE-ACTIVATION` to affected backend/frontend modules and tests.
 - [x] Run focused backend tests, backend build, focused frontend tests, and frontend build.
-- [ ] Commit, push, redeploy Railway/Vercel, and recheck live production surfaces.
+- [x] Commit, push, redeploy Railway/Vercel, and recheck live production surfaces.
 
 ## Review
 
@@ -98,3 +98,10 @@ Proof:
 Production limitation:
 
 - Real UPI/card payment cannot complete until Cashfree enables transactions for the merchant account, or production is switched to another active gateway account.
+
+Deployment proof:
+
+- Commit `61f5977a6` pushed to `kiran/main`.
+- Railway backend deploy `63b30f93-494f-4bdb-b478-12d6943f28ba` reached `SUCCESS`.
+- Vercel production deploy `dpl_8uzEhWAegpT131jDs2by4fDuYagW` reached `READY` and was aliased to `https://biginvesto.online`.
+- Live checks passed: Railway `/api/health/live` 200, Railway `/api/health/internal` 200, and `https://biginvesto.online/dashboard/billing` 200.

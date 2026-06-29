@@ -73,3 +73,7 @@ Actions:
 - Updated the subscription checkout route to return `payment_gateway_account_not_enabled` with `INVESTO-20260629-CASHFREE-ACTIVATION`.
 - Updated the billing modal to surface backend resolution ids and corrected invoice copy to say access resumes after payment confirmation.
 - Verified focused backend tests, focused frontend tests, backend build, and frontend build all pass.
+- Committed the follow-up as `61f5977a6` and pushed it to `kiran/main`.
+- Railway backend deploy `63b30f93-494f-4bdb-b478-12d6943f28ba` reached `SUCCESS`.
+- Vercel production deploy `dpl_8uzEhWAegpT131jDs2by4fDuYagW` reached `READY` and was aliased to `https://biginvesto.online`.
+- Live checks passed for Railway `/api/health/live`, Railway `/api/health/internal`, and `https://biginvesto.online/dashboard/billing`.
