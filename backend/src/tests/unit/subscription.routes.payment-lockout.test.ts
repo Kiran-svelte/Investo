@@ -5,19 +5,29 @@ import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 jest.setTimeout(30000);
 
 type TestRole = 'company_admin' | 'sales_agent';
+type CheckoutFailure = 'cashfree_account_not_enabled';
 
-function createSubscriptionApp(role: TestRole = 'company_admin'): {
+function createSubscriptionApp(role: TestRole = 'company_admin', checkoutFailure?: CheckoutFailure): {
   app: Express;
   initiateCheckout: jest.Mock;
   confirmPayment: jest.Mock;
 } {
   jest.resetModules();
 
-  const initiateCheckout = jest.fn().mockResolvedValue({
-    paymentId: 'payment-1',
-    orderId: 'order-1',
-    checkoutUrl: 'https://payments.example.test/order-1',
-    amount: 1,
+  class CashfreeConfigurationError extends Error {}
+  class CashfreeAccountNotEnabledError extends Error {}
+
+  const initiateCheckout = jest.fn().mockImplementation(() => {
+    if (checkoutFailure === 'cashfree_account_not_enabled') {
+      return Promise.reject(new CashfreeAccountNotEnabledError('transactions are not enabled'));
+    }
+
+    return Promise.resolve({
+      paymentId: 'payment-1',
+      orderId: 'order-1',
+      checkoutUrl: 'https://payments.example.test/order-1',
+      amount: 1,
+    });
   });
   const confirmPayment = jest.fn().mockResolvedValue(true);
 
@@ -70,6 +80,11 @@ function createSubscriptionApp(role: TestRole = 'company_admin'): {
   jest.doMock('../../services/billing/checkout.service', () => ({
     initiateCheckout,
     confirmPayment,
+  }));
+
+  jest.doMock('../../services/billing/cashfree.service', () => ({
+    CashfreeConfigurationError,
+    CashfreeAccountNotEnabledError,
   }));
 
   jest.doMock('../../routes/invoice.routes', () => {
@@ -130,5 +145,19 @@ describe('subscription routes payment lockout recovery', () => {
     expect(response.body.error.code).toBe('order_id_required');
     expect(response.body.resolutionId).toBe(RESOLUTION_IDS.PAYMENT_LOCKOUT);
     expect(confirmPayment).not.toHaveBeenCalled();
+  });
+
+  test('returns exact Cashfree activation blocker when merchant transactions are disabled', async () => {
+    const { app, initiateCheckout } = createSubscriptionApp('company_admin', 'cashfree_account_not_enabled');
+
+    const response = await request(app)
+      .post('/api/subscriptions/checkout')
+      .send({ method: 'upi' });
+
+    expect(response.status).toBe(424);
+    expect(response.body.error.code).toBe('payment_gateway_account_not_enabled');
+    expect(response.body.message).toContain('Cashfree merchant account is not enabled');
+    expect(response.body.resolutionId).toBe(RESOLUTION_IDS.CASHFREE_ACTIVATION);
+    expect(initiateCheckout).toHaveBeenCalledTimes(1);
   });
 });

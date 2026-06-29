@@ -55,3 +55,46 @@ Deployment proof:
 - Railway live checks passed: `/api/health/live` 200 and `/api/health/internal` 200.
 - Vercel production deployment completed and aliased to `https://biginvesto.online`.
 - Frontend live checks passed: `https://biginvesto.online` 200 and `https://biginvesto.online/dashboard/billing` 200.
+
+---
+
+# Todo - INVESTO-20260629-CASHFREE-ACTIVATION
+
+Unique resolution identifier: `INVESTO-20260629-CASHFREE-ACTIVATION`
+
+## Plan
+
+- [x] Capture the live Cashfree checkout root cause and record it without exposing credentials.
+- [x] Backend: classify Cashfree merchant-account-disabled responses instead of returning generic checkout failure.
+- [x] Backend: stop creating invoices/payment rows before online Cashfree order creation succeeds.
+- [x] Frontend: show the exact payment-gateway activation message and keep invoice/bank-transfer alternatives clear.
+- [x] Propagate `INVESTO-20260629-CASHFREE-ACTIVATION` to affected backend/frontend modules and tests.
+- [x] Run focused backend tests, backend build, focused frontend tests, and frontend build.
+- [ ] Commit, push, redeploy Railway/Vercel, and recheck live production surfaces.
+
+## Review
+
+Root cause:
+
+- The live Cashfree order API rejected production UPI/card checkout with `transactions are not enabled for your payment gateway account`.
+- That is a Cashfree merchant-account activation blocker, not a frontend click handler or RBAC problem.
+- The app was also creating invoice/payment records before Cashfree accepted online orders, which could spam pending invoices on every failed card/UPI retry.
+
+Changes made under `INVESTO-20260629-CASHFREE-ACTIVATION`:
+
+- Backend now maps this Cashfree provider response to `payment_gateway_account_not_enabled` with resolution id `INVESTO-20260629-CASHFREE-ACTIVATION`.
+- Backend logs the sanitized provider status/code/message without exposing credentials.
+- Online checkout now creates Cashfree order first and only creates invoice/payment records after Cashfree returns a valid checkout session.
+- Frontend modal now displays the backend's exact gateway activation message and tags the error block with the backend resolution id.
+- Stale invoice copy was corrected so invoice/bank transfer do not imply immediate access before payment confirmation.
+
+Proof:
+
+- `backend`: `npm test -- --runTestsByPath src/tests/unit/subscription.routes.payment-lockout.test.ts src/tests/unit/payment-lockout.middleware.test.ts src/tests/unit/cashfree-activation.checkout.test.ts --runInBand` passed: 3 suites, 8 tests.
+- `frontend`: `npm test -- --run src/App.guards.test.tsx src/utils/apiErrorMessage.test.ts` passed: 2 files, 19 tests.
+- `backend`: `npm run build` passed.
+- `frontend`: `npm run build` passed.
+
+Production limitation:
+
+- Real UPI/card payment cannot complete until Cashfree enables transactions for the merchant account, or production is switched to another active gateway account.

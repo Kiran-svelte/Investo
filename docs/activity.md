@@ -53,3 +53,23 @@ Actions:
 - Railway backend deploy `57318f0e-1dd7-43d6-9e0e-a77cac0ae65f` reached `SUCCESS`.
 - Vercel production deploy completed and aliased to `https://biginvesto.online`.
 - Live checks passed for Railway `/api/health/live`, Railway `/api/health/internal`, `https://biginvesto.online`, and `https://biginvesto.online/dashboard/billing`.
+
+## 2026-06-29 - Cashfree checkout activation blocker
+
+Prompt:
+
+> what i said ??
+> isaid enable complete payment flow .. where users can seletc and pay and start suscription and go and do their daily works ..
+
+Actions:
+
+- Confirmed the live modal still fails on UPI/card payment start, so the previous deployment did not complete the online payment flow.
+- Checked Railway HTTP logs and found repeated `POST /api/subscriptions/checkout` 500 responses while product APIs correctly returned subscription lockout 402 responses.
+- Reproduced the Cashfree order creation call using the Railway production environment without exposing secret values.
+- Captured the Cashfree root cause: live Cashfree returned `transactions are not enabled for your payment gateway account`.
+- Started a follow-up fix under `INVESTO-20260629-CASHFREE-ACTIVATION` to classify this provider response, avoid invoice/payment spam on failed online checkout, and show an exact recovery message.
+- Added `CashfreeAccountNotEnabledError` handling around Cashfree order creation/fetch calls with sanitized provider logging.
+- Changed online checkout ordering so Cashfree must accept the order before invoice/payment rows are created.
+- Updated the subscription checkout route to return `payment_gateway_account_not_enabled` with `INVESTO-20260629-CASHFREE-ACTIVATION`.
+- Updated the billing modal to surface backend resolution ids and corrected invoice copy to say access resumes after payment confirmation.
+- Verified focused backend tests, focused frontend tests, backend build, and frontend build all pass.

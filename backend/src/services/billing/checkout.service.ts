@@ -105,7 +105,6 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
   }
 
   const orderId = generateOrderId(input.companyId);
-  const invoiceId = await generateSubscriptionInvoice(input.companyId);
 
   const returnUrl = `${config.frontend.baseUrl}/dashboard/billing?order_id=${encodeURIComponent(orderId)}`;
   const notifyUrl = `${config.apiPublicUrl}/api/webhooks/cashfree`;
@@ -124,6 +123,11 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
     paymentMethods: paymentMethods ? [...paymentMethods] : ['card', 'upi', 'nb'],
   });
 
+  // INVESTO-20260629-CASHFREE-ACTIVATION:
+  // Do not create an invoice/payment row until Cashfree accepts the order.
+  // A disabled merchant account should not spam pending invoices on retries.
+  const invoiceId = await generateSubscriptionInvoice(input.companyId);
+
   const payment = await prisma.payment.create({
     data: {
       companyId: input.companyId,
@@ -133,7 +137,11 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
       status: 'pending',
       method: input.method,
       cashfreeOrderId: order.orderId,
-      metadata: { paymentSessionId: order.paymentSessionId, devMode: order.devMode },
+      metadata: {
+        paymentSessionId: order.paymentSessionId,
+        devMode: order.devMode,
+        resolutionId: 'INVESTO-20260629-CASHFREE-ACTIVATION',
+      },
     },
   });
 

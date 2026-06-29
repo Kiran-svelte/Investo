@@ -14,7 +14,10 @@ import {
   startTrialForCompany,
 } from '../services/billing/subscription.service';
 import { initiateCheckout, confirmPayment } from '../services/billing/checkout.service';
-import { CashfreeConfigurationError } from '../services/billing/cashfree.service';
+import {
+  CashfreeAccountNotEnabledError,
+  CashfreeConfigurationError,
+} from '../services/billing/cashfree.service';
 import { SUBSCRIPTION_PRICING } from '../constants/subscriptionPricing';
 import { RESOLUTION_IDS } from '../constants/resolutionIds';
 
@@ -36,12 +39,13 @@ function sendBillingRouteError(
   status: number,
   code: string,
   message: string,
+  resolutionId: string = RESOLUTION_IDS.PAYMENT_LOCKOUT,
 ): void {
   res.status(status).json({
     error: { code, message },
     code,
     message,
-    resolutionId: RESOLUTION_IDS.PAYMENT_LOCKOUT,
+    resolutionId,
     requestId: (req as any).requestId,
   });
 }
@@ -155,6 +159,17 @@ router.post(
         );
         return;
       }
+      if (err instanceof CashfreeAccountNotEnabledError) {
+        sendBillingRouteError(
+          req,
+          res,
+          424,
+          'payment_gateway_account_not_enabled',
+          'Online card and UPI payments are blocked because the Cashfree merchant account is not enabled for transactions. Use bank transfer/invoice for now or ask platform support to activate Cashfree transactions.',
+          RESOLUTION_IDS.CASHFREE_ACTIVATION,
+        );
+        return;
+      }
       if (err instanceof Error && err.message === 'No subscription found') {
         sendBillingRouteError(
           req,
@@ -199,6 +214,17 @@ router.post('/confirm', requireCompanyBillingSelfService, async (req: AuthReques
         503,
         'payment_gateway_not_configured',
         'Online payment confirmation is temporarily unavailable. Contact support if payment was completed.',
+      );
+      return;
+    }
+    if (err instanceof CashfreeAccountNotEnabledError) {
+      sendBillingRouteError(
+        req,
+        res,
+        424,
+        'payment_gateway_account_not_enabled',
+        'Online payment confirmation is blocked because the Cashfree merchant account is not enabled for transactions.',
+        RESOLUTION_IDS.CASHFREE_ACTIVATION,
       );
       return;
     }

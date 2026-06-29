@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getApiErrorMessage } from './apiErrorMessage';
+import { getApiErrorMessage, getApiErrorResolutionId } from './apiErrorMessage';
 
 describe('getApiErrorMessage', () => {
   it('reads nested bulk import error message', () => {
@@ -48,5 +48,19 @@ describe('getApiErrorMessage', () => {
       response: { status: 403, data: {} },
     };
     expect(getApiErrorMessage(err, 'Only company admins can subscribe.')).toBe('Only company admins can subscribe.');
+  });
+
+  it('extracts resolution id from API payloads', () => {
+    const err = {
+      isAxiosError: true,
+      response: {
+        data: {
+          message: 'Online payments are blocked.',
+          resolutionId: 'INVESTO-20260629-CASHFREE-ACTIVATION',
+        },
+      },
+    };
+
+    expect(getApiErrorResolutionId(err)).toBe('INVESTO-20260629-CASHFREE-ACTIVATION');
   });
 });

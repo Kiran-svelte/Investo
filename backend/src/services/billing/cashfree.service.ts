@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import config from '../../config';
 import logger from '../../config/logger';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 
 export type CashfreeOrderResult = {
   orderId: string;
@@ -31,6 +32,44 @@ export class CashfreeConfigurationError extends Error {
     super('Cashfree payment gateway is not configured');
     this.name = 'CashfreeConfigurationError';
   }
+}
+
+export class CashfreeAccountNotEnabledError extends Error {
+  readonly providerMessage: string;
+
+  constructor(providerMessage: string) {
+    super('Cashfree merchant account is not enabled for transactions');
+    this.name = 'CashfreeAccountNotEnabledError';
+    this.providerMessage = providerMessage;
+  }
+}
+
+function getCashfreeErrorDetails(error: unknown): {
+  status?: number;
+  code?: string;
+  type?: string;
+  message?: string;
+} {
+  if (!axios.isAxiosError(error)) return {};
+
+  const data = error.response?.data as
+    | { code?: unknown; type?: unknown; message?: unknown }
+    | undefined;
+
+  return {
+    status: error.response?.status,
+    code: typeof data?.code === 'string' ? data.code : undefined,
+    type: typeof data?.type === 'string' ? data.type : undefined,
+    message: typeof data?.message === 'string' ? data.message : error.message,
+  };
+}
+
+function isCashfreeAccountNotEnabled(details: { status?: number; message?: string }): boolean {
+  return (
+    details.status === 400 &&
+    typeof details.message === 'string' &&
+    /transactions are not enabled/i.test(details.message)
+  );
 }
 
 function getBaseUrl(): string {
@@ -106,7 +145,27 @@ export async function createCashfreeOrder(input: {
     body.order_tags = { payment_methods: input.paymentMethods.join(',') };
   }
 
-  const response = await axios.post(`${getBaseUrl()}/orders`, body, { headers: getHeaders() });
+  let response;
+  try {
+    response = await axios.post(`${getBaseUrl()}/orders`, body, { headers: getHeaders() });
+  } catch (err: unknown) {
+    const details = getCashfreeErrorDetails(err);
+    logger.warn('Cashfree order creation rejected', {
+      orderId: input.orderId,
+      status: details.status,
+      code: details.code,
+      type: details.type,
+      message: details.message,
+      resolutionId: RESOLUTION_IDS.CASHFREE_ACTIVATION,
+    });
+
+    if (isCashfreeAccountNotEnabled(details)) {
+      throw new CashfreeAccountNotEnabledError(details.message || 'transactions are not enabled');
+    }
+
+    throw err;
+  }
+
   const paymentSessionId = response.data?.payment_session_id as string;
   if (!paymentSessionId) {
     throw new Error('Cashfree did not return payment_session_id');
@@ -132,7 +191,27 @@ export async function fetchCashfreeOrder(orderId: string): Promise<{ status: str
     return { status: 'ACTIVE' };
   }
 
-  const response = await axios.get(`${getBaseUrl()}/orders/${orderId}`, { headers: getHeaders() });
+  let response;
+  try {
+    response = await axios.get(`${getBaseUrl()}/orders/${orderId}`, { headers: getHeaders() });
+  } catch (err: unknown) {
+    const details = getCashfreeErrorDetails(err);
+    logger.warn('Cashfree order fetch rejected', {
+      orderId,
+      status: details.status,
+      code: details.code,
+      type: details.type,
+      message: details.message,
+      resolutionId: RESOLUTION_IDS.CASHFREE_ACTIVATION,
+    });
+
+    if (isCashfreeAccountNotEnabled(details)) {
+      throw new CashfreeAccountNotEnabledError(details.message || 'transactions are not enabled');
+    }
+
+    throw err;
+  }
+
   const orderStatus = (response.data?.order_status as string) || 'ACTIVE';
   const payments = response.data?.payments as Array<{ cf_payment_id?: string; payment_status?: string }> | undefined;
   const successPayment = payments?.find((p) => p.payment_status === 'SUCCESS');

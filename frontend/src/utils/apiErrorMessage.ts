@@ -3,7 +3,20 @@ import axios from 'axios';
 type ApiErrorPayload = {
   error?: string | { message?: string; code?: string };
   message?: string;
+  resolutionId?: string;
 };
+
+function extractResponsePayload(err: unknown): ApiErrorPayload | undefined {
+  if (axios.isAxiosError(err)) {
+    return err.response?.data as ApiErrorPayload | undefined;
+  }
+
+  if (err && typeof err === 'object' && 'response' in err) {
+    return (err as { response?: { data?: ApiErrorPayload } }).response?.data;
+  }
+
+  return undefined;
+}
 
 function extractFromPayload(payload: ApiErrorPayload | undefined): string | null {
   if (!payload) return null;
@@ -33,7 +46,7 @@ function extractFromPayload(payload: ApiErrorPayload | undefined): string | null
  */
 export function getApiErrorMessage(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
-    const fromPayload = extractFromPayload(err.response?.data as ApiErrorPayload | undefined);
+    const fromPayload = extractFromPayload(extractResponsePayload(err));
     if (fromPayload) return fromPayload;
 
     const rawMessage = err.message?.trim();
@@ -46,8 +59,7 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
   }
 
   if (err && typeof err === 'object' && 'response' in err) {
-    const response = (err as { response?: { data?: ApiErrorPayload } }).response;
-    const fromPayload = extractFromPayload(response?.data);
+    const fromPayload = extractFromPayload(extractResponsePayload(err));
     if (fromPayload) return fromPayload;
   }
 
@@ -60,4 +72,11 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
   }
 
   return fallback;
+}
+
+export function getApiErrorResolutionId(err: unknown): string | null {
+  const payload = extractResponsePayload(err);
+  return typeof payload?.resolutionId === 'string' && payload.resolutionId.trim()
+    ? payload.resolutionId
+    : null;
 }
