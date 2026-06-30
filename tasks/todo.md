@@ -173,7 +173,7 @@ Unique resolution identifier: `INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION
 - [x] Tests: add regression coverage proving project selection does not fall back to child property images/brochures.
 - [x] Tests: add coverage proving project-level image/PDF files still attach on project selection.
 - [x] Run focused backend tests and backend build.
-- [ ] Commit, push, and deploy backend after proof passes.
+- [x] Commit, push, and deploy backend after proof passes.
 
 ## Review
 
@@ -183,3 +183,7 @@ Unique resolution identifier: `INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION
 - Behavior: if a project has both a project-level PDF and project-level image, project selection can send both along with the property picker.
 - Proof: `npm test -- --runInBand src/tests/unit/projectBrowse.service.test.ts src/tests/unit/whatsappInteractiveOrchestrator.test.ts src/tests/unit/whatsapp-media.test.ts` passed: 3 suites, 50 tests.
 - Proof: `npm run build` passed in `backend`.
+- Commit `3f37c60f1` pushed to `kiran/main`.
+- Railway backend deploy `d4a1a87f-3c2a-4efc-b082-c14a7571629e` reached `SUCCESS`.
+- Railway live checks passed: `/api/health/live` 200 and `/api/health/internal` 200.
+- Production smoke passed against `https://investo-backend-production.up.railway.app`: `npm run smoke` passed with 11 smoke tests.

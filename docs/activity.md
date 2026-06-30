@@ -114,3 +114,9 @@ Actions:
 - Added regression coverage in `projectBrowse.service.test.ts` and `whatsappInteractiveOrchestrator.test.ts` with the same resolution identifier.
 - Ran focused backend tests: `npm test -- --runInBand src/tests/unit/projectBrowse.service.test.ts src/tests/unit/whatsappInteractiveOrchestrator.test.ts src/tests/unit/whatsapp-media.test.ts` passed: 3 suites, 50 tests.
 - Ran `npm run build` in `backend`; Prisma generate and TypeScript build passed.
+- Cherry-picked the scoped fix onto clean `kiran/main` worktree `D:\projects\Investo-media-isolation-deploy` to avoid deploying unrelated dirty branch history.
+- Pushed commit `3f37c60f1` to `kiran/main`.
+- Deployed Railway `investo-backend` production from the repo root; deployment `d4a1a87f-3c2a-4efc-b082-c14a7571629e` reached `SUCCESS`.
+- Verified live Railway `/api/health/live` returned 200.
+- Verified live Railway `/api/health/internal` returned 200.
+- Ran production smoke against `https://investo-backend-production.up.railway.app`; `npm run smoke` passed with 11 smoke tests.
