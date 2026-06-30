@@ -134,7 +134,13 @@ jest.mock('../../services/whatsapp/whatsappTurnOrchestrator.service', () => {
 import prisma from '../../config/prisma';
 import config from '../../config';
 import { resolveHeroMediaComponentFromPropertyIds } from '../../services/whatsapp/whatsappTurnOrchestrator.service';
-import { loadProjectProperties, buildPropertyDetailButtons, buildProjectPropertyListComponent } from '../../services/projectBrowse.service';
+import {
+  loadProjectProperties,
+  buildPropertyDetailButtons,
+  buildProjectPropertyListComponent,
+  resolveProjectBrochureMediaComponent,
+  resolveProjectHeroImageComponent,
+} from '../../services/projectBrowse.service';
 
 const baseParams = {
   lead: {
@@ -319,6 +325,45 @@ describe('whatsappInteractiveOrchestrator.service', () => {
       focusedPropertyId: null,
       recommendedPropertyIds: ['prop-a', 'prop-b'],
     });
+  });
+
+  test('INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION project select sends only project-scoped media plus property list', async () => {
+    (loadProjectProperties as jest.Mock).mockResolvedValue({
+      project: { id: 'proj-lake', name: 'Lake Vista', description: null },
+      properties: [
+        { id: 'prop-a', name: 'Unit A' },
+        { id: 'prop-b', name: 'Unit B' },
+      ],
+      hiddenListingCount: 0,
+    });
+    (buildProjectPropertyListComponent as jest.Mock).mockReturnValue({
+      kind: 'list',
+      title: 'Choose property',
+      sections: [{ title: 'Units', rows: [] }],
+    });
+    (resolveProjectBrochureMediaComponent as jest.Mock).mockResolvedValueOnce({
+      kind: 'media',
+      url: 'https://signed.example/project-brochure.pdf',
+      mime: 'application/pdf',
+      caption: 'Lake Vista',
+    });
+    (resolveProjectHeroImageComponent as jest.Mock).mockResolvedValueOnce({
+      kind: 'media',
+      url: 'https://signed.example/project-hero.jpg',
+      mime: 'image/jpeg',
+      caption: 'Lake Vista',
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'project-select-proj-lake',
+    });
+
+    expect(resolveProjectBrochureMediaComponent).toHaveBeenCalledWith('co-1', 'proj-lake', 'Lake Vista');
+    expect(resolveProjectHeroImageComponent).toHaveBeenCalledWith('co-1', 'proj-lake', 'Lake Vista');
+    const components = result?.turnResult?.components ?? [];
+    expect(components.filter((c) => c.kind === 'media')).toHaveLength(2);
+    expect(components.some((c) => c.kind === 'list')).toBe(true);
   });
 
   test('more-info attaches native property media to turn result', async () => {

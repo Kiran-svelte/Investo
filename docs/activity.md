@@ -97,3 +97,20 @@ Actions:
 - Vercel production deploy completed and aliased to `https://biginvesto.online`.
 - Live checks passed for Railway `/api/health/live`, Railway `/api/health/internal`, and `https://biginvesto.online/dashboard/billing`.
 - Confirmed unauthenticated `/api/notifications` returns auth `401`, not subscription lockout `402`, which proves the global subscription gate no longer intercepts product routes in default production mode.
+
+## 2026-06-30 - WhatsApp project/property media isolation
+
+Prompt:
+
+> this image is added to property but when project is selected why the image is sent ?? it should send when that property is choosed ,, why these mess ?? make everything isolated ,only when image and brochure are uploaded in project it should show when project is selected ,when images and docs uploaded inside property ,a agent should sent when user chosses it .. do it and test and deploy .
+
+Actions:
+
+- Started fix under identifier `INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION`.
+- Traced buyer WhatsApp project selection through `whatsappInteractiveOrchestrator.service.ts` and `projectBrowse.service.ts`.
+- Found root cause: project-level media resolvers fell back to child property brochures/images when no project-level file existed.
+- Updated `projectBrowse.service.ts` so project selection only resolves media from `property_project_files`.
+- Updated `whatsappInteractiveOrchestrator.service.ts` so project selection can attach project-level PDF and project-level image together with the property picker.
+- Added regression coverage in `projectBrowse.service.test.ts` and `whatsappInteractiveOrchestrator.test.ts` with the same resolution identifier.
+- Ran focused backend tests: `npm test -- --runInBand src/tests/unit/projectBrowse.service.test.ts src/tests/unit/whatsappInteractiveOrchestrator.test.ts src/tests/unit/whatsapp-media.test.ts` passed: 3 suites, 50 tests.
+- Ran `npm run build` in `backend`; Prisma generate and TypeScript build passed.

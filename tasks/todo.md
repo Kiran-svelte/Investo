@@ -158,3 +158,28 @@ Deployment proof:
 - Railway `/api/health/internal` returned 200.
 - `https://biginvesto.online/dashboard/billing` returned 200 and served bundle `assets/index-By9k1Hzd.js` containing `INVESTO-20260630-PRODUCTION-BILLING-BYPASS`.
 - Unauthenticated `/api/notifications` returned normal auth `401`, not subscription lockout `402`, confirming the global subscription gate is bypassed in production default mode.
+
+---
+
+# Todo - INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION
+
+Unique resolution identifier: `INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION`
+
+## Plan
+
+- [x] Root cause: trace WhatsApp project selection and property detail selection media resolution.
+- [x] Backend isolation: project selection must only attach project-level files from `property_project_files`.
+- [x] Backend isolation: property detail selection must continue attaching only the selected property's images and brochure.
+- [x] Tests: add regression coverage proving project selection does not fall back to child property images/brochures.
+- [x] Tests: add coverage proving project-level image/PDF files still attach on project selection.
+- [x] Run focused backend tests and backend build.
+- [ ] Commit, push, and deploy backend after proof passes.
+
+## Review
+
+- Root cause: `resolveProjectBrochureMediaComponent` and `resolveProjectHeroImageComponent` fell back to child property media when project-level media was missing.
+- Fix: project selection now only attaches PDFs/images uploaded to `property_project_files` for that project.
+- Fix: property images and property brochures remain attached only when the buyer taps a specific property (`more-info-*` / property details path).
+- Behavior: if a project has both a project-level PDF and project-level image, project selection can send both along with the property picker.
+- Proof: `npm test -- --runInBand src/tests/unit/projectBrowse.service.test.ts src/tests/unit/whatsappInteractiveOrchestrator.test.ts src/tests/unit/whatsapp-media.test.ts` passed: 3 suites, 50 tests.
+- Proof: `npm run build` passed in `backend`.

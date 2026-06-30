@@ -6,7 +6,7 @@
 import prisma from '../config/prisma';
 import type { WhatsAppComponent } from '../types/whatsapp-turn.types';
 import { storageService } from './storage.service';
-import { resolveBrochureUrlForWhatsApp, resolveFirstPropertyHeroMediaComponent } from './brochureDelivery.service';
+import { resolveBrochureUrlForWhatsApp, resolveStorageReferenceForWhatsApp } from './brochureDelivery.service';
 import { propertyDetailLabels, resolveBuyerLanguage, tBuyer, buyerButtonTitle } from '../utils/buyerI18n.util';
 
 export type ProjectBrowseFilters = {
@@ -356,6 +356,8 @@ export async function resolveProjectBrochureMediaComponent(
   projectId: string,
   caption?: string,
 ): Promise<WhatsAppComponent | null> {
+  // INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION:
+  // Project selection may attach only files uploaded at project scope.
   const file = await prisma.propertyProjectFile.findFirst({
     where: {
       companyId,
@@ -375,29 +377,7 @@ export async function resolveProjectBrochureMediaComponent(
         return { kind: 'media', url, mime: 'application/pdf', caption: caption ?? undefined };
       }
     } catch {
-      // fall through to property brochure
-    }
-  }
-
-  const propWithBrochure = await prisma.property.findFirst({
-    where: {
-      companyId,
-      projectId,
-      status: { in: ['available', 'upcoming'] },
-      brochureUrl: { not: null },
-    },
-    select: { brochureUrl: true, name: true },
-  });
-
-  if (propWithBrochure?.brochureUrl) {
-    const url = await resolveBrochureUrlForWhatsApp(propWithBrochure.brochureUrl);
-    if (url) {
-      return {
-        kind: 'media',
-        url,
-        mime: 'application/pdf',
-        caption: caption ?? propWithBrochure.name,
-      };
+      // No child-property fallback here; project media must stay project-scoped.
     }
   }
 
@@ -407,26 +387,46 @@ export async function resolveProjectBrochureMediaComponent(
 export async function resolveProjectHeroImageComponent(
   companyId: string,
   projectId: string,
+  caption?: string,
 ): Promise<WhatsAppComponent | null> {
-  const props = await prisma.property.findMany({
+  // INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION:
+  // Do not leak child property images when a buyer only selected the project.
+  const file = await prisma.propertyProjectFile.findFirst({
     where: {
       companyId,
       projectId,
-      status: { in: ['available', 'upcoming'] },
+      OR: [
+        { mimeType: { startsWith: 'image/' } },
+        { fileName: { endsWith: '.jpg', mode: 'insensitive' } },
+        { fileName: { endsWith: '.jpeg', mode: 'insensitive' } },
+        { fileName: { endsWith: '.png', mode: 'insensitive' } },
+        { fileName: { endsWith: '.webp', mode: 'insensitive' } },
+        { fileName: { endsWith: '.gif', mode: 'insensitive' } },
+      ],
     },
-    select: { name: true, images: true },
-    orderBy: { name: 'asc' },
+    orderBy: { createdAt: 'desc' },
   });
 
-  for (const prop of props) {
-    const media = await resolveFirstPropertyHeroMediaComponent({
-      images: prop.images,
-      caption: prop.name,
-    });
-    if (media) return media;
-  }
+  if (!file?.storageKey) return null;
 
-  return null;
+  const url = await resolveStorageReferenceForWhatsApp(storageService.getPublicUrl(file.storageKey));
+  if (!url) return null;
+
+  return {
+    kind: 'media',
+    url,
+    mime: projectImageMime(file.mimeType, file.fileName),
+    caption: caption ?? undefined,
+  };
+}
+
+function projectImageMime(mimeType: string | null, fileName: string): string {
+  if (mimeType?.startsWith('image/')) return mimeType;
+  if (/\.webp$/i.test(fileName)) return 'image/webp';
+  if (/\.png$/i.test(fileName)) return 'image/png';
+  if (/\.gif$/i.test(fileName)) return 'image/gif';
+  if (/\.jpe?g$/i.test(fileName)) return 'image/jpeg';
+  return 'image/jpeg';
 }
 
 export function formatProjectSelectedIntro(

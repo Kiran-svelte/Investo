@@ -1,3 +1,22 @@
+jest.mock('../../config/prisma', () => ({
+  __esModule: true,
+  default: {
+    propertyProjectFile: { findFirst: jest.fn() },
+    property: { findFirst: jest.fn(), findMany: jest.fn() },
+  },
+}));
+
+jest.mock('../../services/storage.service', () => ({
+  storageService: {
+    getPublicUrl: jest.fn((key: string) => `https://storage.example/${key}`),
+  },
+}));
+
+jest.mock('../../services/brochureDelivery.service', () => ({
+  resolveBrochureUrlForWhatsApp: jest.fn(async (url: string) => `https://signed.example/${encodeURIComponent(url)}`),
+  resolveStorageReferenceForWhatsApp: jest.fn(async (url: string) => `https://signed.example/${encodeURIComponent(url)}`),
+}));
+
 import {
   buildProjectSelectListComponent,
   buildProjectPropertyListComponent,
@@ -5,7 +24,15 @@ import {
   buildActiveVisitActionButtons,
   formatProjectCatalogIntro,
   formatProjectSelectedIntro,
+  resolveProjectBrochureMediaComponent,
+  resolveProjectHeroImageComponent,
 } from '../../services/projectBrowse.service';
+import prisma from '../../config/prisma';
+import { storageService } from '../../services/storage.service';
+import {
+  resolveBrochureUrlForWhatsApp,
+  resolveStorageReferenceForWhatsApp,
+} from '../../services/brochureDelivery.service';
 
 describe('projectBrowse.service', () => {
   const sampleProjects = [
@@ -19,6 +46,10 @@ describe('projectBrowse.service', () => {
       priceLabel: '₹81.0L–₹140.0L',
     },
   ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
   it('buildProjectSelectListComponent uses project-select ids and localized title', () => {
     const list = buildProjectSelectListComponent(sampleProjects, 'hi');
@@ -100,5 +131,55 @@ describe('projectBrowse.service', () => {
       'browse-projects',
       'call-me',
     ]);
+  });
+
+  it('INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION does not fall back to child property media for project selection', async () => {
+    (prisma.propertyProjectFile.findFirst as jest.Mock).mockResolvedValue(null);
+
+    const brochure = await resolveProjectBrochureMediaComponent('co-1', 'proj-investo', 'investo');
+    const hero = await resolveProjectHeroImageComponent('co-1', 'proj-investo', 'investo');
+
+    expect(brochure).toBeNull();
+    expect(hero).toBeNull();
+    expect(prisma.property.findFirst).not.toHaveBeenCalled();
+    expect(prisma.property.findMany).not.toHaveBeenCalled();
+  });
+
+  it('INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION attaches only project-level PDF and image files', async () => {
+    (prisma.propertyProjectFile.findFirst as jest.Mock)
+      .mockResolvedValueOnce({
+        storageKey: 'companies/co-1/projects/proj-investo/brochure.pdf',
+        mimeType: 'application/pdf',
+        fileName: 'investo-brochure.pdf',
+      })
+      .mockResolvedValueOnce({
+        storageKey: 'companies/co-1/projects/proj-investo/hero.webp',
+        mimeType: 'image/webp',
+        fileName: 'hero.webp',
+      });
+
+    const brochure = await resolveProjectBrochureMediaComponent('co-1', 'proj-investo', 'investo');
+    const hero = await resolveProjectHeroImageComponent('co-1', 'proj-investo', 'investo');
+
+    expect(storageService.getPublicUrl).toHaveBeenCalledWith('companies/co-1/projects/proj-investo/brochure.pdf');
+    expect(storageService.getPublicUrl).toHaveBeenCalledWith('companies/co-1/projects/proj-investo/hero.webp');
+    expect(resolveBrochureUrlForWhatsApp).toHaveBeenCalledWith(
+      'https://storage.example/companies/co-1/projects/proj-investo/brochure.pdf',
+    );
+    expect(resolveStorageReferenceForWhatsApp).toHaveBeenCalledWith(
+      'https://storage.example/companies/co-1/projects/proj-investo/hero.webp',
+    );
+    expect(brochure).toMatchObject({
+      kind: 'media',
+      mime: 'application/pdf',
+      caption: 'investo',
+    });
+    expect(hero).toMatchObject({
+      kind: 'media',
+      mime: 'image/webp',
+      caption: 'investo',
+    });
+    expect(prisma.property.findFirst).not.toHaveBeenCalled();
+    expect(prisma.property.findMany).not.toHaveBeenCalled();
   });
 });

@@ -834,10 +834,9 @@ async function handleProjectSelect(params: InteractiveActionParams): Promise<Int
   );
   if (brochure) {
     mediaComponents.push(brochure);
-  } else {
-    const hero = await resolveProjectHeroImageComponent(company.id, projectId);
-    if (hero) mediaComponents.push(hero);
   }
+  const hero = await resolveProjectHeroImageComponent(company.id, projectId, loaded.project.name);
+  if (hero) mediaComponents.push(hero);
 
   const listComponent = buildProjectPropertyListComponent(
     projectId,
