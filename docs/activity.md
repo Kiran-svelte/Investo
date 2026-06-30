@@ -77,3 +77,17 @@ Actions:
 - Railway backend deploy `63b30f93-494f-4bdb-b478-12d6943f28ba` reached `SUCCESS`.
 - Vercel production deploy `dpl_8uzEhWAegpT131jDs2by4fDuYagW` reached `READY` and was aliased to `https://biginvesto.online`.
 - Live checks passed for Railway `/api/health/live`, Railway `/api/health/internal`, and `https://biginvesto.online/dashboard/billing`.
+
+## 2026-06-30 - Production billing bypass hotfix
+
+Prompt:
+
+> revert it or make it non production .. in production users should use it wthout any payment for now , they cango to payment and pay , but shouldn't restrict any other flows or works now .
+
+Actions:
+
+- Kept the payment/billing screens available but changed subscription access enforcement to an explicit opt-in flag.
+- Added `INVESTO-20260630-PRODUCTION-BILLING-BYPASS`.
+- Added backend `FEATURE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true` gate so normal product APIs are not blocked while the flag is off.
+- Added frontend `VITE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true` gate so locked subscription status does not redirect users away from their normal work while the flag is off.
+- Updated tests to cover both bypass mode and explicit enforcement mode.

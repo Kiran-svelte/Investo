@@ -72,6 +72,7 @@ import AcceptInvitePage from './pages/auth/AcceptInvitePage';
 import AgencyInvitesPage from './pages/admin/AgencyInvitesPage';
 import BillingPage from './pages/billing/BillingPage';
 import { RESOLUTION_IDS } from './constants/resolutionIds';
+import { isSubscriptionAccessEnforcementEnabled } from './config/subscriptionAccess';
 
 export const ONBOARDING_ALLOWED_ROLES = new Set(['company_admin']);
 export const PROPERTY_MANAGEMENT_FEATURE_KEY = 'property_management';
@@ -391,7 +392,7 @@ export const SubscriptionAccessGuard: React.FC = () => {
   const { subscription, isLoading, hasAccess, needsPayment } = useSubscription();
   const location = useLocation();
 
-  if (user?.role === 'super_admin') {
+  if (user?.role === 'super_admin' || !isSubscriptionAccessEnforcementEnabled()) {
     return <Outlet />;
   }
 

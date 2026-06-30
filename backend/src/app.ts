@@ -76,6 +76,7 @@ import agencyInviteRoutes from './routes/agencyInvite.routes';
 import cashfreeWebhookRoutes from './routes/cashfreeWebhook.routes';
 import resendWebhookRoutes from './routes/resendWebhook.routes';
 import {
+  isSubscriptionAccessEnforcementEnabled,
   isSubscriptionRecoveryPath,
   requireActivePaidSubscription,
 } from './middleware/subscriptionEnforcement';
@@ -145,6 +146,11 @@ app.use('/api/auth', sensitiveRateLimiter, authRoutes);
 // Expired billing tenants can reach billing/auth/recovery APIs only.
 // Normal tenant product APIs remain locked until subscription access is restored.
 app.use('/api', (req, res, next) => {
+  if (!isSubscriptionAccessEnforcementEnabled()) {
+    next();
+    return;
+  }
+
   if (isSubscriptionRecoveryPath(req.path)) {
     next();
     return;

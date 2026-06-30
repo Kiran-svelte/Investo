@@ -4,7 +4,7 @@ import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 
 jest.setTimeout(30000);
 
-function createLockoutApp(options?: { hasAccess?: boolean }): {
+function createLockoutApp(options?: { hasAccess?: boolean; enforcementEnabled?: boolean }): {
   app: Express;
   prisma: { company: { findUnique: jest.Mock } };
 } {
@@ -25,7 +25,12 @@ function createLockoutApp(options?: { hasAccess?: boolean }): {
 
   jest.doMock('../../config', () => ({
     __esModule: true,
-    default: { features: { billing: true } },
+    default: {
+      features: {
+        billing: true,
+        subscriptionAccessEnforcement: options?.enforcementEnabled ?? true,
+      },
+    },
   }));
 
   jest.doMock('../../config/prisma', () => ({
@@ -96,6 +101,16 @@ describe('payment lockout middleware', () => {
     expect(response.status).toBe(402);
     expect(response.body.error.code).toBe('subscription_inactive');
     expect(response.body.resolutionId).toBe(RESOLUTION_IDS.PAYMENT_LOCKOUT);
+  });
+
+  test('bypasses product APIs when subscription access enforcement is disabled', async () => {
+    const { app, prisma } = createLockoutApp({ hasAccess: false, enforcementEnabled: false });
+
+    const response = await request(app).get('/api/leads');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([]);
+    expect(prisma.company.findUnique).not.toHaveBeenCalled();
   });
 
   test('allows subscription checkout recovery path while locked', async () => {

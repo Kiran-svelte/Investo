@@ -105,3 +105,46 @@ Deployment proof:
 - Railway backend deploy `63b30f93-494f-4bdb-b478-12d6943f28ba` reached `SUCCESS`.
 - Vercel production deploy `dpl_8uzEhWAegpT131jDs2by4fDuYagW` reached `READY` and was aliased to `https://biginvesto.online`.
 - Live checks passed: Railway `/api/health/live` 200, Railway `/api/health/internal` 200, and `https://biginvesto.online/dashboard/billing` 200.
+
+---
+
+# Todo - INVESTO-20260630-PRODUCTION-BILLING-BYPASS
+
+Unique resolution identifier: `INVESTO-20260630-PRODUCTION-BILLING-BYPASS`
+
+## Plan
+
+- [x] Keep Billing and checkout available, but stop subscription status from blocking normal production CRM/workspace routes.
+- [x] Backend: make subscription access enforcement opt-in through `FEATURE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true`.
+- [x] Backend: bypass global `/api` subscription gate and route-level paid-subscription middleware when the flag is off.
+- [x] Frontend: bypass `SubscriptionAccessGuard` when `VITE_SUBSCRIPTION_ACCESS_ENFORCEMENT` is not `true`.
+- [x] Keep tests proving both modes: bypass by default and lockout only when explicitly enabled.
+- [x] Run focused backend/frontend tests and builds.
+- [ ] Commit, push, deploy Railway/Vercel, and recheck production.
+
+## Review
+
+Root cause:
+
+- The previous payment-lockout implementation made production access depend on paid subscription state while the live Cashfree merchant account is not yet transaction-enabled.
+- That created the wrong production behavior for the current phase: users could see Billing, but expired/past-due state could block normal workspace routes.
+
+Changes made under `INVESTO-20260630-PRODUCTION-BILLING-BYPASS`:
+
+- Billing remains enabled, so users can still open Billing and attempt payment.
+- Backend access enforcement is now opt-in with `FEATURE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true`.
+- Backend global `/api` subscription gate and route-level paid-subscription middleware bypass product blocking while the flag is off.
+- Frontend `SubscriptionAccessGuard` bypasses redirects/lock screens unless `VITE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true`.
+- Tests cover both modes: production bypass by default and lockout when explicitly enabled.
+
+Proof:
+
+- `backend`: `npm test -- --runTestsByPath src/tests/unit/payment-lockout.middleware.test.ts src/tests/unit/subscription.routes.payment-lockout.test.ts src/tests/unit/cashfree-activation.checkout.test.ts --runInBand` passed: 3 suites, 9 tests.
+- `frontend`: `npm test -- --run src/App.guards.test.tsx src/utils/apiErrorMessage.test.ts` passed: 2 files, 20 tests.
+- `backend`: `npm run build` passed.
+- `frontend`: `npm run build` passed.
+
+Production expectation:
+
+- With the new default, production users should be able to continue normal CRM/workspace flows regardless of trial/payment state.
+- Billing remains available for users to attempt payment, but Cashfree card/UPI still depends on the merchant account being transaction-enabled.

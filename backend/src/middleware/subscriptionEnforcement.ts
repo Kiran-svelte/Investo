@@ -1,6 +1,7 @@
 /**
  * Subscription enforcement middleware.
- * Enforces trial/active/past_due grace access and seat limits when FEATURE_BILLING is enabled.
+ * Enforces trial/active/past_due grace access and seat limits only when
+ * FEATURE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true.
  */
 
 import { Response, NextFunction } from 'express';
@@ -45,6 +46,10 @@ export function isSubscriptionRecoveryPath(pathname: string): boolean {
   );
 }
 
+export function isSubscriptionAccessEnforcementEnabled(): boolean {
+  return config.features.billing && config.features.subscriptionAccessEnforcement;
+}
+
 function sendSubscriptionAccessError(
   req: AuthRequest,
   res: Response,
@@ -68,7 +73,7 @@ export async function requireActivePaidSubscription(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  if (!config.features.billing) {
+  if (!isSubscriptionAccessEnforcementEnabled()) {
     next();
     return;
   }
@@ -136,7 +141,7 @@ export async function requireActivePaidSubscription(
 
 export function enforcePlanLimit(resource: 'agents' | 'leads' | 'properties') {
   return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-    if (!config.features.billing) {
+    if (!isSubscriptionAccessEnforcementEnabled()) {
       next();
       return;
     }
@@ -212,7 +217,7 @@ export function enforcePlanLimit(resource: 'agents' | 'leads' | 'properties') {
   };
 }
 
-if (config.features.billing) {
+if (isSubscriptionAccessEnforcementEnabled()) {
   logger.info('Subscription enforcement: ENABLED', {
     module: 'subscriptionEnforcement',
     trialDays: SUBSCRIPTION_PRICING.trialDays,

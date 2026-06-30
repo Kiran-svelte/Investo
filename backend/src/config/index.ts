@@ -688,6 +688,12 @@ const config = {
     billingOps: process.env.FEATURE_BILLING_OPS === 'true',
     /** Commercial subscription + Cashfree checkout. ON by default; set FEATURE_BILLING=false to disable. */
     billing: process.env.FEATURE_BILLING !== 'false',
+    /**
+     * INVESTO-20260630-PRODUCTION-BILLING-BYPASS:
+     * Keep Billing/checkout visible, but do not block CRM/product routes unless
+     * this is explicitly enabled after the payment gateway is production-ready.
+     */
+    subscriptionAccessEnforcement: process.env.FEATURE_SUBSCRIPTION_ACCESS_ENFORCEMENT === 'true',
     /** Chunk 12 — support impersonation + tenant health. Default OFF. */
     supportOps: process.env.FEATURE_SUPPORT_OPS === 'true',
     /** Chunk 13 — sandbox tenants + approval chains. Default OFF. */
