@@ -120,7 +120,7 @@ Unique resolution identifier: `INVESTO-20260630-PRODUCTION-BILLING-BYPASS`
 - [x] Frontend: bypass `SubscriptionAccessGuard` when `VITE_SUBSCRIPTION_ACCESS_ENFORCEMENT` is not `true`.
 - [x] Keep tests proving both modes: bypass by default and lockout only when explicitly enabled.
 - [x] Run focused backend/frontend tests and builds.
-- [ ] Commit, push, deploy Railway/Vercel, and recheck production.
+- [x] Commit, push, deploy Railway/Vercel, and recheck production.
 
 ## Review
 
@@ -148,3 +148,13 @@ Production expectation:
 
 - With the new default, production users should be able to continue normal CRM/workspace flows regardless of trial/payment state.
 - Billing remains available for users to attempt payment, but Cashfree card/UPI still depends on the merchant account being transaction-enabled.
+
+Deployment proof:
+
+- Commit `20befab75` pushed to `kiran/main`.
+- Railway backend deploy `417f12e2-d307-4a58-aa3e-5ba12f33886b` reached `SUCCESS`.
+- Vercel production deploy completed and aliased to `https://biginvesto.online`.
+- Railway `/api/health/live` returned 200.
+- Railway `/api/health/internal` returned 200.
+- `https://biginvesto.online/dashboard/billing` returned 200 and served bundle `assets/index-By9k1Hzd.js` containing `INVESTO-20260630-PRODUCTION-BILLING-BYPASS`.
+- Unauthenticated `/api/notifications` returned normal auth `401`, not subscription lockout `402`, confirming the global subscription gate is bypassed in production default mode.

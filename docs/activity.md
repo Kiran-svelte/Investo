@@ -91,3 +91,9 @@ Actions:
 - Added backend `FEATURE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true` gate so normal product APIs are not blocked while the flag is off.
 - Added frontend `VITE_SUBSCRIPTION_ACCESS_ENFORCEMENT=true` gate so locked subscription status does not redirect users away from their normal work while the flag is off.
 - Updated tests to cover both bypass mode and explicit enforcement mode.
+- Verified focused backend tests, focused frontend tests, backend build, and frontend build all pass.
+- Committed the bypass as `20befab75` and pushed it to `kiran/main`.
+- Railway backend deploy `417f12e2-d307-4a58-aa3e-5ba12f33886b` reached `SUCCESS`.
+- Vercel production deploy completed and aliased to `https://biginvesto.online`.
+- Live checks passed for Railway `/api/health/live`, Railway `/api/health/internal`, and `https://biginvesto.online/dashboard/billing`.
+- Confirmed unauthenticated `/api/notifications` returns auth `401`, not subscription lockout `402`, which proves the global subscription gate no longer intercepts product routes in default production mode.
