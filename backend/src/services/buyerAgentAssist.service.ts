@@ -2,7 +2,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { notificationEngine } from './notification.engine';
 import { logAgentAction } from './agent-action-log.service';
-import { formatDateIST, formatTimeIST } from './agent/response-formatter.service';
+import { formatDateIST, maskPhone } from './agent/response-formatter.service';
 
 export type BuyerAssistReason =
   | 'escalation_request'
@@ -54,18 +54,15 @@ const REASON_LABELS: Record<BuyerAssistReason, string> = {
 const ASSIST_DEDUP_MS = 15 * 60 * 1000;
 
 function buildWhatsAppAlert(input: NotifyBuyerAgentAssistInput, label: string): string {
-  const nowIst = `${formatDateIST(new Date())} ${formatTimeIST(new Date())} IST`;
+  const nowIst = `${formatDateIST(new Date())} IST`;
+  const safeLabel = label.replace(/â€”|—/g, '-');
   const lines = [
     `🔔 *AI needs your help*`,
     ``,
-    `Reason: *${label}*`,
+    `Reason: *${safeLabel}*`,
     `Time: ${nowIst}`,
     input.customerName ? `Customer: *${input.customerName}*` : null,
-    input.customerPhone ? `Phone: ${input.customerPhone}` : null,
-    input.leadId ? `Lead ID: ${input.leadId}` : null,
-    input.conversationId ? `Conversation: ${input.conversationId}` : null,
-    input.workflowId ? `Workflow: ${input.workflowId}` : null,
-    input.failedStep ? `Failed step: ${input.failedStep}` : null,
+    input.customerPhone ? `Phone: ${maskPhone(input.customerPhone)}` : null,
     ``,
     `Summary: ${input.summary}`,
   ];
@@ -77,7 +74,7 @@ function buildWhatsAppAlert(input: NotifyBuyerAgentAssistInput, label: string): 
     lines.push(``, `*AI replied:*`, `"${input.aiReplyText.trim().slice(0, 300)}"`);
   }
   if (input.detail?.trim()) {
-    lines.push(``, `Technical detail: ${input.detail.trim().slice(0, 400)}`);
+    lines.push(``, `Diagnostic: available in Investo action logs.`);
   }
 
   lines.push(
@@ -86,7 +83,19 @@ function buildWhatsAppAlert(input: NotifyBuyerAgentAssistInput, label: string): 
     `Open *Investo dashboard → Conversations* to take over, or use CRM copilot to update the lead.`,
   );
 
-  return lines.filter((line): line is string => line !== null).join('\n');
+  return lines
+    .filter((line): line is string => line !== null)
+    .map((line) => {
+      if (line.includes('AI needs your help')) return '*AI needs your help*';
+      if (line === 'The AI is still active on WhatsApp for this customer.') {
+        return 'AI state is unchanged by this alert.';
+      }
+      if (line.includes('Investo dashboard')) {
+        return 'Next action: review the conversation in Investo and take over if manual ownership is needed.';
+      }
+      return line;
+    })
+    .join('\n');
 }
 
 async function wasAssistRecentlySent(input: NotifyBuyerAgentAssistInput): Promise<boolean> {
@@ -124,7 +133,7 @@ async function wasAssistRecentlySent(input: NotifyBuyerAgentAssistInput): Promis
  * cannot complete an action. Does NOT change conversation status — AI stays active.
  */
 export async function notifyBuyerAgentAssistNeeded(input: NotifyBuyerAgentAssistInput): Promise<void> {
-  const label = REASON_LABELS[input.reason] ?? REASON_LABELS.unknown;
+  const label = (REASON_LABELS[input.reason] ?? REASON_LABELS.unknown).replace(/â€”|—/g, '-');
   const inAppTitle = `AI assist: ${label}`;
   const inAppMessage = input.summary.slice(0, 500);
   const whatsAppBody = buildWhatsAppAlert(input, label);

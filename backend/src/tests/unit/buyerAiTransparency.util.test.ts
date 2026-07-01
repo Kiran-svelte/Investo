@@ -11,7 +11,7 @@ describe('buyerAiTransparency.util', () => {
     expect(shouldNotifyStaffForBuyerAiFailure('Sorry, I had a brief issue. Could you repeat that?')).toBe(true);
     expect(
       shouldNotifyStaffForBuyerAiFailure(
-        "I could not fetch your visit details just now. Please type *Talk to agent* for help.",
+        'I could not safely fetch your visit details just now. Our team is being notified, and I will only use confirmed visit information.',
       ),
     ).toBe(true);
   });

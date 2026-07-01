@@ -49,6 +49,7 @@ describe('buyerAgentAssist.service', () => {
       conversationId: 'conv-1',
       reason: 'ai_action_blocked',
       summary: 'Buyer AI could not respond',
+      detail: 'H9 LLM timeout or generation failure',
       customerMessage: 'book visit tomorrow 4pm',
       aiReplyText: "I'm sorry, I'm temporarily unable to respond.",
     });
@@ -68,6 +69,15 @@ describe('buyerAgentAssist.service', () => {
         message: expect.stringMatching(/AI replied/i),
       }),
     );
+    const message = (notificationEngine.notifyAgentByWhatsApp as jest.Mock).mock.calls[0][0].message as string;
+    expect(message).toContain('Phone: 9190XXXXXX34');
+    expect(message).not.toContain('Lead ID:');
+    expect(message).not.toContain('Conversation:');
+    expect(message).not.toContain('lead-1');
+    expect(message).not.toContain('conv-1');
+    expect(message).not.toContain('919000001234');
+    expect(message).not.toContain('Technical detail:');
+    expect(message).toContain('Diagnostic: available in Investo action logs.');
   });
 
   it('notifyBuyerAgentAssistNeeded notifies assigned agent without changing conversation', async () => {

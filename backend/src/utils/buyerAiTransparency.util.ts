@@ -3,6 +3,10 @@ import type { BuyerAssistReason } from '../services/buyerAgentAssist.service';
 /** Snippets in buyer-visible replies that mean AI/system failed — staff must be alerted. */
 const STAFF_ALERT_SNIPPETS = [
   "I'm sorry, I'm temporarily unable to respond",
+  'I could not safely complete that request just now',
+  'I could not safely fetch your visit details just now',
+  'I could not safely verify new visit details just now',
+  'Our team is being notified',
   'Sorry, I had a brief issue',
   "I couldn't fetch your visit details just now",
   'I could not fetch your visit details just now',
@@ -31,7 +35,10 @@ export type BuyerStaffAssistDetection = {
 };
 
 export function isGenericSafeBuyerFallback(text: string): boolean {
-  return text.includes("I'm sorry, I'm temporarily unable to respond");
+  return (
+    text.includes("I'm sorry, I'm temporarily unable to respond") ||
+    text.includes('I could not safely complete that request just now')
+  );
 }
 
 /**
@@ -80,6 +87,13 @@ export function detectBuyerAiStaffAssist(input: {
   if (text.includes('fetch your visit details') || text.includes('brief delay')) {
     reason = 'visit_booking_failure';
     summary = 'Buyer AI could not fetch visit details — customer may need manual help';
+  }
+
+  if (text.includes('visit details') || text.includes('brief delay')) {
+    reason = 'visit_booking_failure';
+    summary = 'Buyer AI could not verify visit details - customer may need manual help';
+  } else {
+    summary = 'Buyer AI could not safely complete the request - agent follow-up needed';
   }
 
   return {

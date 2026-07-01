@@ -40,7 +40,6 @@ import {
 } from './customerInboundQueue.service';
 import { type QuickReplyRecentAction } from '../utils/contextQuickReplies.util';
 import { resolveStageAfterHumanEscalationReset } from '../utils/buyerLeadProgress.util';
-import { resolveBuyerComponents } from './buyer/buyerButtonPolicy.service';
 import {
   beginOutboundTurn,
   claimPrimaryOutboundSend,
@@ -2445,30 +2444,28 @@ export class WhatsAppService {
     whatsappConfig: CompanyWhatsAppConfig,
     bodyFallback?: string,
   ): Promise<void> {
-    const interactive = components.find((c) => c.kind === 'buttons' || c.kind === 'list');
-    if (!interactive) return;
+    logger.info('WAI-TRUST-20260701-03 suppressed buyer contextual quick replies', {
+      to: maskPhoneNumberForLogs(to),
+      componentCount: components.length,
+      hasBodyFallback: Boolean(bodyFallback?.trim()),
+    });
+    void whatsappConfig;
+    return;
+  }
 
-    if (interactive.kind === 'buttons') {
-      await this.sendInteractiveButtons(
-        to,
-        bodyFallback ?? 'Tap an option below:',
-        interactive.buttons,
-        null,
-        null,
-        whatsappConfig,
-      ).catch(() => undefined);
-      return;
+  private buyerDeliverableComponents(result: TurnResult): WhatsAppComponent[] | undefined {
+    const components = result.components ?? [];
+    if (result.audience !== 'buyer') return components.length ? components : undefined;
+
+    const deliverable = components.filter((component) => component.kind === 'media');
+    const strippedCount = components.length - deliverable.length;
+    if (strippedCount > 0) {
+      logger.info('WAI-TRUST-20260701-03 stripped buyer reply/list components', {
+        strippedCount,
+        mediaCount: deliverable.length,
+      });
     }
-
-    await this.sendInteractiveList(
-      to,
-      bodyFallback ?? 'Choose an option:',
-      interactive.title,
-      interactive.sections,
-      null,
-      null,
-      whatsappConfig,
-    ).catch(() => undefined);
+    return deliverable.length ? deliverable : undefined;
   }
 
   /**
@@ -2564,9 +2561,10 @@ export class WhatsAppService {
   ): Promise<boolean> {
     if (!result.handled) return false;
 
+    const deliverableComponents = this.buyerDeliverableComponents(result);
     const hasText = Boolean(result.text?.trim());
-    const media = result.components?.find((c) => c.kind === 'media');
-    const nonMediaComponents = result.components?.filter((c) => c.kind !== 'media');
+    const media = deliverableComponents?.find((c) => c.kind === 'media');
+    const nonMediaComponents = deliverableComponents?.filter((c) => c.kind !== 'media');
 
     if (!hasText && !media) return false;
 
@@ -2594,7 +2592,7 @@ export class WhatsAppService {
 
     if (hasText) {
       let body = result.text!.trim();
-      const mediaItems = (result.components ?? []).filter((c) => c.kind === 'media');
+      const mediaItems = (deliverableComponents ?? []).filter((c) => c.kind === 'media');
       let mediaDelivered = false;
       for (let i = 0; i < mediaItems.length; i += 1) {
         const mediaItem = mediaItems[i];
@@ -2666,33 +2664,13 @@ export class WhatsAppService {
     },
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
-    let browseFilters = context.browseFilters;
-    const lang = context.leadLanguage
-      ? (await import('../utils/buyerI18n.util')).resolveBuyerLanguage({ leadLanguage: context.leadLanguage })
-      : 'en';
-    if (!browseFilters && context.companyId) {
-      const { getCompanyBrowseSnapshot, buildDiscoveryButtonSet } = await import('./companyInventoryBrowse.service');
-      const snapshot = await getCompanyBrowseSnapshot(context.companyId);
-      browseFilters = buildDiscoveryButtonSet(snapshot, lang);
-    }
-    const components = resolveBuyerComponents({
+    logger.info('WAI-TRUST-20260701-03 skipped buyer contextual quick-reply generation', {
+      to: maskPhoneNumberForLogs(to),
       stage,
-      outboundText: context.outboundText ?? '',
-      recentAction: context.recentAction,
-      propertyId: context.propertyId,
-      recommendedPropertyIds: context.recommendedPropertyIds,
-      properties: context.properties,
-      hasActiveVisit: context.hasActiveVisit,
-      hasCompletedVisit: context.hasCompletedVisit,
-      visitStatus: context.visitStatus,
-      visitProperty: context.visitProperty,
-      visitTime: context.visitTime,
-      visitPropertyProjectId: context.visitPropertyProjectId,
-      visitPropertyId: context.visitPropertyId,
-      browseFilters,
-      language: lang,
+      hasOutboundText: Boolean(context.outboundText?.trim()),
     });
-    await this.sendTurnComponents(to, components, whatsappConfig, context.outboundText);
+    void whatsappConfig;
+    return;
   }
 
   /**
@@ -3068,8 +3046,8 @@ function buildAiFallbackMessage(input: {
   if (input.isVisitQuery) {
     const salutation = formatCustomerSalutation(input.customerName);
     return (
-      `I could not fetch your visit details just now${salutation}. ` +
-      `Please try again in a moment, or type *Talk to agent* for help.`
+      `I could not safely fetch your visit details just now${salutation}. ` +
+      `Our team is being notified, and I will only use confirmed visit information.`
     );
   }
 

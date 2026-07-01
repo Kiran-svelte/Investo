@@ -42,6 +42,16 @@ Actions:
 - Identified screenshot issues: duplicate/stale buyer buttons, generic AI failure for a simple location request, unclear callback controls, staff alert PII/internal-ID leakage, duplicated staff alert time, and noisy technical alert copy.
 - Reviewed the impacted modules: `backend/src/services/whatsapp.service.ts`, `backend/src/services/whatsapp/whatsappTurnOrchestrator.service.ts`, `backend/src/services/whatsapp/whatsappInteractiveOrchestrator.service.ts`, `backend/src/services/customerCallBooking.service.ts`, `backend/src/utils/safeBuyerFallback.util.ts`, `backend/src/utils/buyerAiTransparency.util.ts`, `backend/src/services/buyerAgentAssist.service.ts`, and related unit tests.
 - Replaced the stale `tasks/todo.md` checklist with the active `WAI-TRUST-20260701` plan while preserving the prior completed enterprise-gap task note.
+- Implemented `WAI-TRUST-20260701-03`: suppressed buyer native reply buttons/lists at the delivery boundary while preserving media sends.
+- Implemented `WAI-TRUST-20260701-04`: added deterministic H2.4 location/address/map replies using verified property DB fields.
+- Implemented `WAI-TRUST-20260701-05`: replaced generic AI failure text with transparent staff-follow-up language and updated failure detection.
+- Implemented `WAI-TRUST-20260701-02`: sanitized staff assist WhatsApp alerts by masking phone numbers, removing raw lead/conversation/workflow IDs, fixing duplicated time, and replacing technical detail with action-log diagnostics.
+- Preserved and included `WAI-TRUST-20260701-08` callback expiry/reschedule handling already present in the active worktree because it directly fixes stale callback controls from the screenshots.
+- Ran focused proof: `npm test -- --runInBand src/tests/unit/whatsapp-media.test.ts src/tests/unit/whatsapp-turn-orchestrator.test.ts src/tests/unit/whatsappTurnOrchestrator.handlers.test.ts src/tests/unit/safeBuyerFallback.util.test.ts src/tests/unit/buyerAiTransparency.util.test.ts src/tests/unit/whatsapp-response-sanitizer.test.ts src/tests/unit/buyerAgentAssist.service.test.ts`; result PASS, 7 suites and 64 tests.
+- Ran adjacent proof: `npm test -- --runInBand src/tests/unit/whatsappTurnOrchestrator.rapport.test.ts src/tests/unit/whatsappInteractiveOrchestrator.test.ts src/tests/unit/interactive-buttons.test.ts src/tests/unit/customerCallBooking.service.test.ts`; result PASS, 4 suites and 50 tests.
+- Ran `npm run build` in `backend`; result PASS.
+- Ran `npm run smoke` in `backend`; result PASS, including Railway live health probe and 11 smoke tests.
+- Checked deployment context: Vercel CLI logged in, Railway CLI logged in, Railway linked to project `Investo` production service `investo-backend`.
 
 ## 2026-07-01 - Expired callback active-state bug
 

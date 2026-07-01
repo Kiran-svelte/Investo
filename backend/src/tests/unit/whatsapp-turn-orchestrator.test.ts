@@ -1,6 +1,8 @@
 import {
   buildBuyerRapportTurnResult,
+  buildBuyerPropertyLocationReply,
   enforceTurnComponentBudget,
+  isBuyerLocationRequest,
   isHumanTakeoverActive,
   resolveHeroMediaComponent,
 } from '../../services/whatsapp/whatsappTurnOrchestrator.service';
@@ -57,5 +59,27 @@ describe('whatsappTurnOrchestrator.service', () => {
     expect(budget).toHaveLength(3);
     expect(budget.filter((c) => c.kind === 'media')).toHaveLength(2);
     expect(budget[budget.length - 1]?.kind).toBe('buttons');
+  });
+
+  test('isBuyerLocationRequest detects direct location asks without catching browse preferences', () => {
+    expect(isBuyerLocationRequest('Locations')).toBe(true);
+    expect(isBuyerLocationRequest('send map for Sunset Heights 1102')).toBe(true);
+    expect(isBuyerLocationRequest('I need 3 BHK in Whitefield')).toBe(false);
+  });
+
+  test('buildBuyerPropertyLocationReply uses verified address and map pin only when present', () => {
+    const reply = buildBuyerPropertyLocationReply({
+      id: 'prop-1',
+      name: 'Sunset Heights 1102',
+      locationArea: 'Whitefield',
+      locationCity: 'Bangalore',
+      locationPincode: '560066',
+      latitude: { toString: () => '12.96980000' },
+      longitude: { toString: () => '77.74990000' },
+    });
+
+    expect(reply).toContain('*Sunset Heights 1102*');
+    expect(reply).toContain('Address: Whitefield, Bangalore, 560066, India');
+    expect(reply).toContain('https://www.google.com/maps?q=12.96980000%2C77.74990000');
   });
 });

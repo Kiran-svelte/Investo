@@ -185,6 +185,7 @@ describe('whatsappTurnOrchestrator handlers (chunk 09)', () => {
   };
 
   it('declares callCommit and H-call before H3 in cascade', () => {
+    expect(BUYER_HANDLER_CASCADE.indexOf('H2.4')).toBeLessThan(BUYER_HANDLER_CASCADE.indexOf('H2.5'));
     expect(BUYER_HANDLER_CASCADE.indexOf('callCommit')).toBeGreaterThan(BUYER_HANDLER_CASCADE.indexOf('H2.5'));
     expect(BUYER_HANDLER_CASCADE.indexOf('H-call')).toBe(BUYER_HANDLER_CASCADE.indexOf('callCommit') + 1);
     expect(BUYER_HANDLER_CASCADE.indexOf('H3')).toBeGreaterThan(BUYER_HANDLER_CASCADE.indexOf('H-call'));

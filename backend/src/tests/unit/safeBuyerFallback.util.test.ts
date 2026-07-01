@@ -15,7 +15,7 @@ describe('safeBuyerFallback.util', () => {
     expect(shouldNotifyStaffForBuyerAiFailure('Sorry, I had a brief issue. Could you repeat that?')).toBe(true);
     expect(
       shouldNotifyStaffForBuyerAiFailure(
-        "I couldn't fetch your visit details just now, Raj. Please try again in a moment, or type *Talk to agent* for help.",
+        'I could not safely fetch your visit details just now, Raj. Our team is being notified, and I will only use confirmed visit information.',
       ),
     ).toBe(true);
   });

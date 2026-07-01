@@ -924,7 +924,7 @@ ${personalityBlock}`;
           hour12: true,
         });
         return {
-          text: `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\nReply *Confirm*, *Reschedule*, or *Cancel*.`,
+          text: `You have a visit to *${prop}* on ${when} (${request.activeVisit.status}).\n\nTell me a new preferred time here, or reply *cancel visit* if you want to cancel.`,
           detectedLanguage: 'en',
         };
       }

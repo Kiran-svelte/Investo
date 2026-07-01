@@ -20,7 +20,7 @@ describe('whatsappResponseSanitizer.service', () => {
       bannedPhraseContext: { hasPriorOutbound: true, stage: 'shortlist' },
     });
     expect(text.toLowerCase()).not.toContain('connection issue');
-    expect(text).toContain('Talk to agent');
+    expect(text).toContain('Our team is being notified');
   });
 
   test('sanitizeBuyerOutbound runs full pipeline without false booking claims', async () => {

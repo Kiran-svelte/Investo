@@ -24,15 +24,18 @@ export function buildSafeBuyerFallback(ctx: SafeBuyerFallbackContext = {}): stri
     const when = formatDateIST(new Date(visit.scheduledAt));
     const prop = visit.propertyName;
     return (
-      `I'm having a brief delay. Your visit to *${prop}* on ${when} is still on record. ` +
-      `Reply *Confirm*, *Reschedule*, or *Cancel*.`
+      `I could not safely verify new visit details just now. Your visit to *${prop}* on ${when} is still on record. ` +
+      `Our team is being notified. Tell me a new preferred time here, or reply *cancel visit* if you want to cancel.`
     );
   }
-  return "I'm sorry, I'm temporarily unable to respond. Please type *Talk to agent* for immediate help.";
+  return (
+    'I could not safely complete that request just now. ' +
+    'Our team is being notified, and I will continue using only verified property and visit details.'
+  );
 }
 
 /** Stage-bleed safe reply when LLM asks for budget/area during visit_booking. */
 export function buildVisitBookingStageSafeReply(propertyName?: string | null): string {
   const prop = propertyName ? `*${propertyName}*` : 'your selected property';
-  return `Let's lock in your visit to ${prop}. Tap a time button above, or tell me your preferred date and time.`;
+  return `Let's lock in your visit to ${prop}. Tell me your preferred date and time here, and I will confirm only after it is recorded.`;
 }

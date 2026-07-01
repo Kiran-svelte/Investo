@@ -71,8 +71,8 @@ export async function resolveBuyerOutboundText(input: BuyerOutboundRecoveryInput
   if (isVisitQuery) {
     const salutation = input.customerName?.trim() ? `, ${input.customerName.trim()}` : '';
     return (
-      `I could not fetch your visit details just now${salutation}. ` +
-      'Please try again in a moment, or type *Talk to agent* for help.'
+      `I could not safely fetch your visit details just now${salutation}. ` +
+      'Our team is being notified, and I will only use confirmed visit information.'
     );
   }
 

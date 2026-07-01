@@ -102,6 +102,7 @@ import {
   resolveBuyerAiPropertyCatalog,
 } from '../buyer/buyerScopedCatalog.service';
 import { validateBuyerOutboundForTurn } from '../buyer/buyerOutboundValidator.service';
+import { buildAddressFromProperty } from '../geocoding.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -125,6 +126,16 @@ type PropertySummary = {
   name: string;
   brochureUrl?: string | null;
   images?: string[];
+};
+
+type LocationPropertyRow = {
+  id: string;
+  name: string;
+  locationArea: string | null;
+  locationCity: string | null;
+  locationPincode: string | null;
+  latitude: unknown;
+  longitude: unknown;
 };
 
 // ---------------------------------------------------------------------------
@@ -858,6 +869,171 @@ async function handleReturningBuyerPivotTurn(
   });
 
   return { audience: 'buyer', handled: true, terminal: true, text: pivotReply };
+}
+
+// ---------------------------------------------------------------------------
+// H2.4: Deterministic property-location fast-path
+// ---------------------------------------------------------------------------
+
+export function isBuyerLocationRequest(messageText: string): boolean {
+  const t = messageText.trim();
+  if (!t) return false;
+
+  if (/^\s*(locations?|addresses?|maps?|directions?|route|site\s+address|google\s+maps?)\s*$/i.test(t)) {
+    return true;
+  }
+
+  if (
+    /\b(book|schedule|cancel|reschedule|price|cost|budget|discount|brochure|pdf)\b/i.test(t) ||
+    /\b(\d)\s*bhk\b/i.test(t)
+  ) {
+    return false;
+  }
+
+  return (
+    /\b(show|send|share|give|need|want|where|what|which)\b[\s\S]{0,50}\b(location|address|map|directions|route|pin)\b/i.test(t) ||
+    /\b(location|address|map|directions|route|pin)\b[\s\S]{0,50}\b(for|of|to)\b/i.test(t)
+  );
+}
+
+function coordinateToString(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof (value as { toString?: unknown }).toString === 'function') {
+    const text = (value as { toString: () => string }).toString().trim();
+    return text && text !== '[object Object]' ? text : null;
+  }
+  return null;
+}
+
+export function buildBuyerPropertyLocationReply(property: LocationPropertyRow): string {
+  const address = buildAddressFromProperty({
+    locationArea: property.locationArea,
+    locationCity: property.locationCity,
+    locationPincode: property.locationPincode,
+    name: property.name,
+  });
+  const lat = coordinateToString(property.latitude);
+  const lng = coordinateToString(property.longitude);
+
+  const lines = [`*${property.name}*`];
+  if (address) {
+    lines.push(`Address: ${address}`);
+  } else {
+    lines.push('Verified address is not available in records yet.');
+  }
+
+  if (lat && lng) {
+    lines.push(`Map: https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`);
+  } else {
+    lines.push('Verified map pin is not available in records yet.');
+  }
+
+  return lines.join('\n');
+}
+
+async function buildBuyerLocationClarifyReply(propertyIds: readonly string[], companyId: string): Promise<string> {
+  const rows = await prisma.property.findMany({
+    where: { companyId, id: { in: [...propertyIds] } },
+    select: { id: true, name: true },
+    take: 5,
+  });
+  const orderedRows = propertyIds
+    .map((id) => rows.find((row) => row.id === id))
+    .filter((row): row is { id: string; name: string } => Boolean(row));
+
+  if (!orderedRows.length) {
+    return 'Which property location do you need? Reply with the project or listing name.';
+  }
+
+  return [
+    'Which property location do you need?',
+    ...orderedRows.map((row, index) => `${index + 1}. ${row.name}`),
+    'Reply with the number or property name.',
+  ].join('\n');
+}
+
+async function resolveBuyerLocationProperty(
+  ctx: BuyerTurnRuntimeContext,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
+): Promise<{ property: LocationPropertyRow | null; clarifyText?: string }> {
+  const resolved = await resolvePropertyForBuyerTurn(ctx, ctx.input.conversationSelectedPropertyId);
+  if (resolved.ambiguousMatches?.length) {
+    return { property: null, clarifyText: buildPropertyAmbiguityClarifyReply(resolved.ambiguousMatches) };
+  }
+
+  let propertyId = resolved.availablePropertyId
+    ?? ctx.input.conversationSelectedPropertyId
+    ?? (ctx.input.conversationRecommendedPropertyIds.length === 1 ? ctx.input.conversationRecommendedPropertyIds[0] : null)
+    ?? liveCtx.activeVisit?.propertyId
+    ?? null;
+
+  if (!propertyId && ctx.input.conversationRecommendedPropertyIds.length > 1) {
+    return {
+      property: null,
+      clarifyText: await buildBuyerLocationClarifyReply(ctx.input.conversationRecommendedPropertyIds, ctx.companyId),
+    };
+  }
+
+  if (!propertyId) return { property: null };
+
+  const property = await prisma.property.findFirst({
+    where: { id: propertyId, companyId: ctx.companyId },
+    select: {
+      id: true,
+      name: true,
+      locationArea: true,
+      locationCity: true,
+      locationPincode: true,
+      latitude: true,
+      longitude: true,
+    },
+  });
+
+  if (!property) return { property: null };
+  propertyId = property.id;
+  return { property };
+}
+
+async function handleBuyerLocationTurn(
+  ctx: BuyerTurnRuntimeContext,
+  visitCommit: Awaited<ReturnType<typeof tryCommitCustomerVisitBooking>>,
+  liveCtx: Awaited<ReturnType<typeof getLiveLeadContext>>,
+): Promise<TurnResult | null> {
+  if (visitCommit.committed || visitCommit.workflowSuggestion) return null;
+  if (!isBuyerLocationRequest(ctx.input.messageText)) return null;
+
+  logOutboundBranch('H2_4', 'whatsappTurnOrchestrator:propertyLocation', 'buyer_location_fast_path', {
+    messagePreview: ctx.input.messageText.slice(0, 40),
+  });
+
+  const resolved = await resolveBuyerLocationProperty(ctx, liveCtx);
+  const reply = resolved.property
+    ? buildBuyerPropertyLocationReply(resolved.property)
+    : resolved.clarifyText ?? 'Which property location do you need? Reply with the project or listing name.';
+  const safeReply = stripBuyerInternalMetadata(reply);
+
+  await prisma.message.create({
+    data: { conversationId: ctx.input.conversationId, senderType: 'ai', content: safeReply, status: 'sent' },
+  });
+
+  if (resolved.property?.id && resolved.property.id !== ctx.input.conversationSelectedPropertyId) {
+    await prisma.conversation.update({
+      where: { id: ctx.input.conversationId },
+      data: { selectedPropertyId: resolved.property.id },
+    }).catch(() => undefined);
+  }
+
+  fireMemoryExtraction({
+    leadId: ctx.input.leadId,
+    messageText: ctx.input.messageText,
+    outboundText: safeReply,
+    workflowId: 'property_location_lookup',
+    liveCtx,
+  });
+
+  return { audience: 'buyer', handled: true, terminal: true, text: safeReply, replyPacing: 'minimal' };
 }
 
 // ---------------------------------------------------------------------------
@@ -2618,6 +2794,10 @@ export async function orchestrateWhatsAppBuyerTurn(
   const h2b = await handleReturningBuyerPivotTurn(ctx, visitCommit);
   if (h2b) return withDefaultReplyPacing(h2b);
 
+  // H2.4 must run before H2.5/H9 so simple location requests never receive LLM failure copy.
+  const h2_4 = await handleBuyerLocationTurn(ctx, visitCommit, liveCtx);
+  if (h2_4) return withDefaultReplyPacing(h2_4);
+
   // H2.5 must run BEFORE callCommit and H3-H7 so property-browsing intents
   // never reach the LLM (H9) where temperature variance causes spurious escalation.
   const h2_5 = await handlePropertyBrowsingTurn(ctx, visitCommit, liveCtx, activeState.stage);
@@ -2766,6 +2946,7 @@ export const BUYER_HANDLER_CASCADE = [
   'H1b',
   'H2',
   'H2b',
+  'H2.4',
   'H2.5',
   'callCommit',
   'H-call',
