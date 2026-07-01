@@ -70,3 +70,8 @@ Actions:
 - Added regression coverage in `callRequest.service.test.ts` and `whatsappInteractiveOrchestrator.test.ts`.
 - Ran focused backend tests: `npm test -- --runInBand src/tests/unit/callRequest.service.test.ts src/tests/unit/customerCallBooking.service.test.ts src/tests/unit/whatsappInteractiveOrchestrator.test.ts` passed: 3 suites, 29 tests.
 - Ran `npm run build` in `backend`; Prisma generate and TypeScript build passed.
+- Created clean deploy worktree `D:\projects\Investo-callback-expiry-deploy` from commit `8197f3c5b` to avoid deploying unrelated dirty workspace changes.
+- Verified the clean worktree after `npm ci`: focused tests passed again (3 suites, 29 tests) and `npm run build` passed.
+- Deployed clean source to Railway `investo-backend`; deployment `e8d36b67-b798-4032-8a63-329887e133ca` succeeded.
+- Confirmed newer Railway deployment `c09547f2-c6fb-46ca-9a14-711857409fcd` also succeeded and includes commit `8197f3c5b` via ancestor commit `06a91fd96`.
+- Verified live backend after deploy: `/api/health/live` returned `status: ok`; `/api/health/internal` returned `status: ok`.

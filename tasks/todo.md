@@ -36,6 +36,8 @@ Unique resolution identifiers:
 - `WAI-TRUST-20260701-02`: staff assist WhatsApp alerts now mask customer phone numbers and omit raw lead/conversation/workflow identifiers.
 - Proof: `npm test -- --runInBand src/tests/unit/callRequest.service.test.ts src/tests/unit/customerCallBooking.service.test.ts src/tests/unit/whatsappInteractiveOrchestrator.test.ts` passed: 3 suites, 29 tests.
 - Proof: `npm run build` passed in `backend`.
+- Deploy proof: clean Railway deploy `e8d36b67-b798-4032-8a63-329887e133ca` succeeded, then newer deployment `c09547f2-c6fb-46ca-9a14-711857409fcd` succeeded and includes commit `8197f3c5b`.
+- Live proof: `https://investo-backend-production.up.railway.app/api/health/live` returned `status: ok`; `/api/health/internal` returned `status: ok`.
 - Proof: focused WhatsApp/fallback/staff suites passed: 7 suites, 64 tests.
 - Proof: adjacent WhatsApp interaction suites passed: 4 suites, 50 tests.
 - Proof: `npm run smoke` passed, including Railway health live probe and 11 smoke tests.
