@@ -120,3 +120,24 @@ Actions:
 - Verified live Railway `/api/health/live` returned 200.
 - Verified live Railway `/api/health/internal` returned 200.
 - Ran production smoke against `https://investo-backend-production.up.railway.app`; `npm run smoke` passed with 11 smoke tests.
+
+## 2026-07-01 - Pending visit requests missing from Calendar
+
+Prompt:
+
+> user requested for site visit ,but not shown , it will be only shown once after the vsiit is confirmed wtf ??
+
+Actions:
+
+- Started fix under identifier `INVESTO-20260701-PENDING-VISIT-CALENDAR`.
+- Created clean worktree `D:\projects\Investo-calendar-pending-visits` from fetched `kiran/main` to avoid unrelated dirty workspace changes.
+- Traced dashboard Calendar UI to `frontend/src/pages/calendar/CalendarPage.tsx`; it loads `/api/calendar/events` and already has `pending_approval` rendering styles.
+- Traced backend calendar aggregation to `backend/src/routes/calendar.routes.ts`; it returns `visits` and `call_requests`, but does not include pending visit rows from `booking_approval_requests`.
+- Identified root cause: buyer-requested visits are stored as pending booking approvals until agent confirmation, so the dashboard Calendar has no event to render before confirmation.
+- Updated `backend/src/routes/calendar.routes.ts` so `/api/calendar/events` includes non-expired pending visit approvals as `pending_approval` events with `approval_id` and `resolution_id`.
+- Added `PATCH /api/calendar/visit-approvals/:id/status` for dashboard confirm/decline of visible pending visit requests.
+- Updated `frontend/src/pages/calendar/CalendarPage.tsx` so pending approval events show as requested visits, use the calendar approval endpoint, and do not expose delete actions for synthetic approval events.
+- Added focused regression coverage in `backend/src/tests/unit/calendar.routes.test.ts`.
+- Ran focused backend test: `npm test -- --runInBand src/tests/unit/calendar.routes.test.ts` passed: 1 suite, 3 tests.
+- Ran `npm run build` in `backend`; Prisma generate and TypeScript build passed.
+- Ran `npm run build` in `frontend`; TypeScript and Vite production build passed.

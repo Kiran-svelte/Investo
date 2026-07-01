@@ -187,3 +187,30 @@ Unique resolution identifier: `INVESTO-20260630-PROJECT-PROPERTY-MEDIA-ISOLATION
 - Railway backend deploy `d4a1a87f-3c2a-4efc-b082-c14a7571629e` reached `SUCCESS`.
 - Railway live checks passed: `/api/health/live` 200 and `/api/health/internal` 200.
 - Production smoke passed against `https://investo-backend-production.up.railway.app`: `npm run smoke` passed with 11 smoke tests.
+
+---
+
+# Todo - INVESTO-20260701-PENDING-VISIT-CALENDAR
+
+Unique resolution identifier: `INVESTO-20260701-PENDING-VISIT-CALENDAR`
+
+## Plan
+
+- [x] Root cause: trace buyer-requested site visit storage through approval-first booking and the dashboard Calendar event API.
+- [x] Backend fix: make `/api/calendar/events` include pending buyer visit approvals as tenant-scoped `pending_approval` visit events before agent confirmation.
+- [x] Backend safety: preserve company/agent scoping, date-range filtering, and avoid duplicating confirmed visits.
+- [x] Frontend UX: keep Calendar rendering pending visit requests clearly and avoid invalid update/delete actions for synthetic approval events.
+- [x] Tests: add focused regression proof for pending visit approvals appearing in Calendar events.
+- [x] Build/test: run focused backend tests and backend build; run frontend build if the Calendar page changes.
+- [ ] Deploy: commit, push, deploy backend to Railway and frontend to Vercel if touched, then smoke-check production.
+
+## Review
+
+- Root cause: Calendar aggregated `visits` and `call_requests`, but buyer-requested visits are stored in `booking_approval_requests` until agent approval, so pending requests were invisible before confirmation.
+- Backend fix: `/api/calendar/events` now returns pending visit approvals as `pending_approval` visit events tagged with `INVESTO-20260701-PENDING-VISIT-CALENDAR`.
+- Backend fix: `PATCH /api/calendar/visit-approvals/:id/status` lets the dashboard confirm/decline those visible pending requests using the existing visit approval resolver.
+- Frontend fix: Calendar displays pending requests as `Requested`, calls the calendar approval endpoint for confirm/decline, and hides delete actions for synthetic approval events.
+- Proof: `npm test -- --runInBand src/tests/unit/calendar.routes.test.ts` passed: 1 suite, 3 tests.
+- Proof: `npm run build` passed in `backend`.
+- Proof: `npm run build` passed in `frontend`.
+- Pending: commit, push, production deploy, and live smoke checks.

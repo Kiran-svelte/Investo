@@ -5,8 +5,11 @@ import { AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/rbac';
 import { strictTenantIsolation, getCompanyId } from '../middleware/tenant';
 import { ensureCallRequestsSchema, type CallRequestStatus } from '../services/callRequest.service';
+import { getBookingApprovalById } from '../services/bookingApproval.service';
+import { resolveVisitApproval } from '../services/visitPendingApproval.service';
 
 const router = Router();
+const PENDING_VISIT_CALENDAR_ID = 'INVESTO-20260701-PENDING-VISIT-CALENDAR';
 
 type CalendarEvent = {
   id: string;
@@ -23,6 +26,9 @@ type CalendarEvent = {
   duration_minutes: number;
   status: string;
   notes: string | null;
+  approval_id?: string | null;
+  is_pending_approval?: boolean;
+  resolution_id?: string;
 };
 
 type CallCalendarRow = {
@@ -35,6 +41,19 @@ type CallCalendarRow = {
   notes: string | null;
   customer_name: string | null;
   customer_phone: string | null;
+  agent_name: string | null;
+};
+
+type PendingVisitApprovalCalendarRow = {
+  approval_id: string;
+  lead_id: string;
+  property_id: string | null;
+  agent_id: string;
+  scheduled_at: Date;
+  customer_name: string | null;
+  customer_phone: string | null;
+  property_name: string | null;
+  property_area: string | null;
   agent_name: string | null;
 };
 
@@ -132,7 +151,14 @@ router.get('/events', authorize('visits', 'read'), async (req: AuthRequest, res:
       callAgentClause = ` AND cr.agent_id = $${callParams.length}::uuid`;
     }
 
-    const [visits, calls] = await Promise.all([
+    const pendingVisitParams: unknown[] = [companyId, from, to];
+    let pendingVisitAgentClause = '';
+    if (scopedAgentId) {
+      pendingVisitParams.push(scopedAgentId);
+      pendingVisitAgentClause = ` AND bar.agent_id = $${pendingVisitParams.length}::uuid`;
+    }
+
+    const [visits, calls, pendingVisitApprovals] = await Promise.all([
       prisma.visit.findMany({
         where: visitWhere,
         include: {
@@ -166,9 +192,66 @@ router.get('/events', authorize('visits', 'read'), async (req: AuthRequest, res:
          LIMIT 500`,
         ...callParams,
       ),
+      prisma.$queryRawUnsafe<PendingVisitApprovalCalendarRow[]>(
+        `SELECT
+           bar.id::text AS approval_id,
+           bar.lead_id::text,
+           bar.property_id::text,
+           bar.agent_id::text,
+           bar.scheduled_at,
+           COALESCE(bar.customer_name, l.customer_name) AS customer_name,
+           COALESCE(bar.customer_phone, l.phone) AS customer_phone,
+           p.name AS property_name,
+           p.location_area AS property_area,
+           u.name AS agent_name
+         FROM booking_approval_requests bar
+         LEFT JOIN leads l ON l.id = bar.lead_id
+         LEFT JOIN properties p ON p.id = bar.property_id
+         LEFT JOIN users u ON u.id = bar.agent_id
+         WHERE bar.company_id = $1::uuid
+           AND bar.kind = 'visit'
+           AND bar.status = 'pending'
+           AND bar.expires_at > now()
+           AND bar.scheduled_at >= $2
+           AND bar.scheduled_at <= $3
+           ${pendingVisitAgentClause}
+           AND NOT EXISTS (
+             SELECT 1
+             FROM visits v
+             WHERE v.company_id = bar.company_id
+               AND v.lead_id = bar.lead_id
+               AND v.scheduled_at = bar.scheduled_at
+               AND v.status IN ('scheduled', 'confirmed')
+           )
+         ORDER BY bar.scheduled_at ASC
+         LIMIT 500`,
+        ...pendingVisitParams,
+      ),
     ]);
 
     const events: CalendarEvent[] = [
+      // INVESTO-20260701-PENDING-VISIT-CALENDAR:
+      // Buyer-requested visits live in booking_approval_requests until agent approval.
+      // Expose them as calendar events so staff can see and act before confirmation.
+      ...pendingVisitApprovals.map((approval) => ({
+        id: `visit-approval-${approval.approval_id}`,
+        type: 'visit' as const,
+        lead_id: approval.lead_id,
+        customer_name: approval.customer_name,
+        customer_phone: approval.customer_phone,
+        property_id: approval.property_id,
+        property_name: approval.property_name,
+        property_area: approval.property_area,
+        agent_id: approval.agent_id,
+        agent_name: approval.agent_name,
+        scheduled_at: new Date(approval.scheduled_at).toISOString(),
+        duration_minutes: 60,
+        status: 'pending_approval',
+        notes: 'Buyer requested this site visit. Waiting for agent confirmation.',
+        approval_id: approval.approval_id,
+        is_pending_approval: true,
+        resolution_id: PENDING_VISIT_CALENDAR_ID,
+      })),
       ...visits.map((visit) => ({
         id: visit.id,
         type: 'visit' as const,
@@ -212,6 +295,61 @@ router.get('/events', authorize('visits', 'read'), async (req: AuthRequest, res:
     }
     logger.error('Failed to fetch calendar events', { error: message });
     res.status(500).json({ error: 'Failed to fetch calendar events' });
+  }
+});
+
+router.patch('/visit-approvals/:id/status', authorize('visits', 'update'), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = getCompanyId(req);
+    const target = String(req.body?.status || '');
+    if (target !== 'scheduled' && target !== 'cancelled') {
+      res.status(400).json({
+        error: 'status must be scheduled or cancelled',
+        code: 'invalid_pending_visit_status',
+        resolution_id: PENDING_VISIT_CALENDAR_ID,
+      });
+      return;
+    }
+
+    const approval = await getBookingApprovalById(req.params.id);
+    if (!approval || approval.companyId !== companyId) {
+      res.status(404).json({
+        error: 'Pending visit request not found',
+        code: 'pending_visit_not_found',
+        resolution_id: PENDING_VISIT_CALENDAR_ID,
+      });
+      return;
+    }
+    if (approval.kind !== 'visit' || approval.status !== 'pending') {
+      res.status(409).json({
+        error: 'This visit request is no longer pending',
+        code: 'pending_visit_already_resolved',
+        resolution_id: PENDING_VISIT_CALENDAR_ID,
+      });
+      return;
+    }
+    if (req.user!.role === 'sales_agent' && approval.agentId !== req.user!.id) {
+      res.status(403).json({
+        error: 'Can only update assigned visit requests',
+        code: 'pending_visit_agent_scope',
+        resolution_id: PENDING_VISIT_CALENDAR_ID,
+      });
+      return;
+    }
+
+    const approved = target === 'scheduled';
+    const result = await resolveVisitApproval(approval.id, approved, companyId, approval.agentId);
+    res.status(result.ok ? 200 : 400).json({
+      data: { ok: result.ok, message: result.message },
+      resolution_id: PENDING_VISIT_CALENDAR_ID,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('Failed to update pending visit approval', { error: message, resolutionId: PENDING_VISIT_CALENDAR_ID });
+    res.status(500).json({
+      error: 'Failed to update pending visit approval',
+      resolution_id: PENDING_VISIT_CALENDAR_ID,
+    });
   }
 });
 

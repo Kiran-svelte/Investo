@@ -16,6 +16,7 @@ interface Visit {
   id: string;
   type: 'visit' | 'call';
   lead_id: string;
+  property_id?: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   property_name: string | null;
@@ -26,6 +27,9 @@ interface Visit {
   duration_minutes: number;
   status: string;
   notes: string | null;
+  approval_id?: string | null;
+  is_pending_approval?: boolean;
+  resolution_id?: string;
 }
 
 interface Lead { id: string; customer_name: string | null; phone: string; }
@@ -42,6 +46,14 @@ const STATUS_COLORS: Record<string, string> = {
   completed: 'bg-surface-subtle text-ink-secondary border-surface-border',
   cancelled: 'bg-red-100 text-red-700 border-red-200',
   no_show: 'bg-orange-100 text-orange-700 border-orange-200',
+};
+const STATUS_LABELS: Record<string, string> = {
+  pending_approval: 'Requested',
+  scheduled: 'Scheduled',
+  confirmed: 'Confirmed',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  no_show: 'No show',
 };
 const VISIT_TRANSITIONS: Record<string, string[]> = {
   pending_approval: ['scheduled', 'cancelled'],
@@ -153,10 +165,15 @@ const CalendarPage: React.FC = () => {
 
   const getVisitsForDay = (date: Date) => visits.filter(v => new Date(v.scheduled_at).toDateString() === date.toDateString());
 
-  const updateVisitStatus = async (visitId: string, newStatus: string) => {
+  const updateVisitStatus = async (visit: Visit, newStatus: string) => {
     setStatusUpdating(true);
     try {
-      await api.patch(`/visits/${visitId}/status`, { status: newStatus });
+      if (visit.approval_id && visit.status === 'pending_approval') {
+        // INVESTO-20260701-PENDING-VISIT-CALENDAR: pending buyer requests are approval rows, not visit rows.
+        await api.patch(`/calendar/visit-approvals/${visit.approval_id}/status`, { status: newStatus });
+      } else {
+        await api.patch(`/visits/${visit.id}/status`, { status: newStatus });
+      }
       await loadVisits();
       setSelectedVisit(null);
     } catch (err: any) {
@@ -167,6 +184,13 @@ const CalendarPage: React.FC = () => {
   const canSchedule = capabilities.canScheduleVisits;
   const iconForEvent = (visit: Visit) => (visit.type === 'call' ? Phone : (STATUS_ICONS[visit.status] || Clock));
   const eventTitle = (visit: Visit) => visit.type === 'call' ? 'Callback' : (visit.property_name || 'Visit');
+  const statusLabel = (status: string) => STATUS_LABELS[status] || status.replace('_', ' ');
+  const statusActionLabel = (visit: Visit, status: string) => {
+    if (visit.approval_id && visit.status === 'pending_approval') {
+      return status === 'scheduled' ? 'Confirm visit' : 'Decline';
+    }
+    return status.replace('_', ' ');
+  };
 
   return (
     <div className="investo-page space-y-4">
@@ -252,7 +276,7 @@ const CalendarPage: React.FC = () => {
                   className={`p-4 rounded-xl border cursor-pointer hover:shadow-sm transition-shadow ${STATUS_COLORS[visit.status]}`}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2"><StatusIcon className="h-5 w-5" /><span className="font-semibold">{time.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span><span className="text-sm">({visit.duration_minutes}min)</span></div>
-                    <span className="text-xs font-medium uppercase">{visit.status}</span>
+                    <span className="text-xs font-medium uppercase">{statusLabel(visit.status)}</span>
                   </div>
                   <div className="space-y-1 text-sm">
                     <div className="flex items-center gap-2"><User className="h-4 w-4" />{visit.customer_name || 'Unknown'}</div>
@@ -313,7 +337,7 @@ const CalendarPage: React.FC = () => {
                 <StatusIcon className="h-5 w-5" />
                 <span className="font-semibold">{time.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} at {time.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
-              <span className="text-xs font-medium uppercase">{visit.status}</span>
+              <span className="text-xs font-medium uppercase">{statusLabel(visit.status)}</span>
             </div>
             <div className="space-y-1 text-sm">
               <div className="flex items-center gap-2"><User className="h-4 w-4 text-ink-faint" />{visit.customer_name || 'Unknown'}</div>
@@ -340,8 +364,16 @@ const CalendarPage: React.FC = () => {
                 <div><span className="text-ink-muted">Duration</span><p className="font-medium">{selectedVisit.duration_minutes} min</p></div>
                 <div><span className="text-ink-muted">{selectedVisit.type === 'call' ? 'Type' : 'Property'}</span><p className="font-medium">{eventTitle(selectedVisit)}</p></div>
                 <div><span className="text-ink-muted">Agent</span><p className="font-medium">{selectedVisit.agent_name || '-'}</p></div>
-                <div><span className="text-ink-muted">Status</span><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[selectedVisit.status]}`}>{selectedVisit.status}</span></div>
+                <div><span className="text-ink-muted">Status</span><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[selectedVisit.status]}`}>{statusLabel(selectedVisit.status)}</span></div>
               </div>
+              {selectedVisit.approval_id && (
+                <div
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                  data-resolution-id={selectedVisit.resolution_id || 'INVESTO-20260701-PENDING-VISIT-CALENDAR'}
+                >
+                  Buyer requested this visit. Confirm or decline to notify the buyer and update the calendar.
+                </div>
+              )}
               {selectedVisit.notes && <div><span className="text-sm text-ink-muted">Notes</span><p className="text-sm bg-surface-muted p-2 rounded mt-1">{selectedVisit.notes}</p></div>}
               {visitActionError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
@@ -353,15 +385,15 @@ const CalendarPage: React.FC = () => {
                   <p className="text-sm font-medium text-ink-secondary mb-2">Update Status:</p>
                   <div className="flex flex-wrap gap-2">
                     {(VISIT_TRANSITIONS[selectedVisit.status] || []).map(status => (
-                      <button key={status} onClick={() => updateVisitStatus(selectedVisit.id, status)} disabled={statusUpdating}
+                      <button key={status} onClick={() => updateVisitStatus(selectedVisit, status)} disabled={statusUpdating}
                         className={`px-3 py-1.5 text-sm font-medium rounded-lg border disabled:opacity-50 ${STATUS_COLORS[status]} hover:opacity-80`}>
-                        {statusUpdating && <Loader2 className="h-3 w-3 animate-spin inline mr-1" />}{status.replace('_', ' ')}
+                        {statusUpdating && <Loader2 className="h-3 w-3 animate-spin inline mr-1" />}{statusActionLabel(selectedVisit, status)}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
-              {selectedVisit.type === 'visit' && <div className="pt-3 border-t">
+              {selectedVisit.type === 'visit' && !selectedVisit.approval_id && <div className="pt-3 border-t">
                 <button
                   type="button"
                   disabled={visitDeleting}
