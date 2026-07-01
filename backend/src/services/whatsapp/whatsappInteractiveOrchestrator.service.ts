@@ -586,8 +586,18 @@ async function handleCallCancel(params: InteractiveActionParams): Promise<Intera
 }
 
 async function handleCallReschedule(params: InteractiveActionParams): Promise<InteractiveActionResult> {
+  const { lead, company } = params;
+  const lang = leadLang(lead);
+  const { findActiveCallRequest } = await import('../callRequest.service');
+  const active = await findActiveCallRequest({ companyId: company.id, leadId: lead.id });
+  if (!active) {
+    return {
+      handled: true,
+      action: 'callback-reschedule-no-active-callback',
+      turnResult: buyerTurn(tBuyer(lang, 'interactive_call_reschedule_not_found')),
+    };
+  }
   await setConversationAwaitingCallTime(params.conversation.id).catch(() => undefined);
-  const lang = leadLang(params.lead);
   return {
     handled: true,
     action: 'callback-reschedule-prompt',

@@ -2,6 +2,8 @@ import { tryOrchestratedInteractiveAction } from '../../services/whatsapp/whatsa
 import { enforceTurnComponentBudget } from '../../services/whatsapp/whatsappTurnOrchestrator.service';
 import { mergeInteractiveNewState } from '../../services/whatsapp/whatsappInteractivePersist.service';
 
+const mockFindActiveCallRequest = jest.fn(async (_input?: unknown) => null);
+
 jest.mock('../../config', () => ({
   __esModule: true,
   default: {
@@ -102,6 +104,7 @@ jest.mock('../../services/companyInventoryBrowse.service', () => ({
 }));
 
 jest.mock('../../services/callRequest.service', () => ({
+  findActiveCallRequest: (input: unknown) => mockFindActiveCallRequest(input),
   scheduleCallRequest: jest.fn(async () => ({
     success: true,
     call: { agent_id: 'agent-1' },
@@ -155,6 +158,7 @@ const baseParams = {
 describe('whatsappInteractiveOrchestrator.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFindActiveCallRequest.mockResolvedValue(null);
     config.features.buyerFocusStack = false;
     config.features.buttonScopeValidate = false;
     config.features.secondVisitPolicy = false;
@@ -194,6 +198,39 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     if (result?.turnResult?.components?.length) {
       expect(result.turnResult.components[0]).toMatchObject({ kind: 'buttons' });
     }
+  });
+
+  test('WAI-TRUST-20260701-08 stale call-reschedule button does not ask for another preferred time', async () => {
+    mockFindActiveCallRequest.mockResolvedValue(null);
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'call-reschedule',
+    });
+
+    expect(result?.handled).toBe(true);
+    expect(result?.action).toBe('callback-reschedule-no-active-callback');
+    expect(result?.turnResult?.text).toMatch(/already passed|no longer active/i);
+    expect(prisma.conversation.update).not.toHaveBeenCalled();
+  });
+
+  test('WAI-TRUST-20260701-08 live call-reschedule button asks for a fresh preferred time', async () => {
+    mockFindActiveCallRequest.mockResolvedValue({
+      id: 'call-1',
+      status: 'confirmed',
+      scheduled_at: new Date(Date.now() + 60 * 60 * 1000),
+      agent_id: 'agent-1',
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'call-reschedule',
+    });
+
+    expect(result?.handled).toBe(true);
+    expect(result?.action).toBe('callback-reschedule-prompt');
+    expect(result?.turnResult?.text).toMatch(/preferred call time/i);
+    expect(prisma.conversation.update).toHaveBeenCalled();
   });
 
   test('filter shortlist builds list + hero within budget', async () => {

@@ -243,6 +243,7 @@ type BuyerCopyKey =
   | 'interactive_call_cancel_not_found'
   | 'interactive_call_cancel_confirmed'
   | 'interactive_call_cancelled'
+  | 'interactive_call_reschedule_not_found'
   | 'interactive_call_reschedule_prompt'
   | 'interactive_visit_time_parse_failed'
   | 'interactive_visit_property_unavailable'
@@ -1296,6 +1297,10 @@ const COPY: Record<BuyerCopyKey, Record<BuyerLang, string>> = {
   interactive_call_cancelled: langPack(
     "*Callback cancelled*\n\nReply anytime if you'd like to schedule a new call with our team.",
     '*Callback cancel ho gaya*\n\nNayi call schedule karni ho to kabhi bhi reply karein.',
+  ),
+  interactive_call_reschedule_not_found: langPack(
+    "That callback time has already passed or is no longer active. Please share a fresh time like *tomorrow 3pm* if you'd like a new call.",
+    'Woh callback time pass ho chuka hai ya active nahi hai. Nayi call ke liye fresh time batayein, jaise *kal 3pm*.',
   ),
   interactive_call_reschedule_prompt: langPack(
     'Sure — share your preferred call time (e.g. *tomorrow 6pm*, *Friday 4pm*, or *next Saturday 11am*).',

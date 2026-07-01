@@ -76,8 +76,10 @@ jest.mock('../../config/logger', () => ({
 
 import prisma from '../../config/prisma';
 import {
+  activeCallLookupCutoff,
   confirmCallRequest,
   ensureCallRequestsSchema,
+  findActiveCallRequest,
   resolveCallApproval,
   scheduleCallRequest,
 } from '../../services/callRequest.service';
@@ -119,6 +121,22 @@ describe('callRequest.service', () => {
   it('does not run runtime DDL for call_requests (Prisma migration owns schema)', async () => {
     await ensureCallRequestsSchema();
     expect(mockExecuteRaw).not.toHaveBeenCalled();
+  });
+
+  it('WAI-TRUST-20260701-08 filters active callbacks at current time without post-slot grace', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-07-01T16:43:00.000Z'));
+    mockQueryRaw.mockResolvedValueOnce([]);
+
+    await findActiveCallRequest({ companyId: 'company-1', leadId: 'lead-1' });
+
+    const [sql, companyId, leadId, cutoff] = mockQueryRaw.mock.calls[0];
+    expect(sql).toContain('scheduled_at >= $3');
+    expect(sql).not.toContain("interval '2 hours'");
+    expect(companyId).toBe('company-1');
+    expect(leadId).toBe('lead-1');
+    expect(cutoff).toEqual(activeCallLookupCutoff(new Date('2026-07-01T16:43:00.000Z')));
+    jest.useRealTimers();
   });
 
   it('creates buyer call requests as pending approval without customer reminder jobs', async () => {

@@ -35,6 +35,14 @@ export interface CallRequestRow {
   agent_confirmed_at: Date | null;
 }
 
+const ACTIVE_CALLBACK_LOOKUP_GRACE_MS = 0;
+
+export function activeCallLookupCutoff(now = new Date()): Date {
+  // WAI-TRUST-20260701-08: once the preferred callback time passes, the buyer
+  // must not keep seeing active callback controls or "notified team" copy.
+  return new Date(now.getTime() - ACTIVE_CALLBACK_LOOKUP_GRACE_MS);
+}
+
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
     pending_approval: 'Pending approval',
@@ -66,16 +74,18 @@ export async function findActiveCallRequest(input: {
   leadId: string;
 }): Promise<CallRequestRow | null> {
   await ensureCallRequestsSchema();
+  const cutoff = activeCallLookupCutoff();
   const rows = await prisma.$queryRawUnsafe<CallRequestRow[]>(
     `SELECT id, company_id, lead_id, agent_id, scheduled_at, duration_minutes, status, notes, agent_confirmed_at
      FROM call_requests
      WHERE company_id = $1::uuid AND lead_id = $2::uuid
        AND status IN ('pending_approval', 'scheduled', 'confirmed')
-       AND scheduled_at >= now() - interval '2 hours'
+       AND scheduled_at >= $3
      ORDER BY scheduled_at ASC
      LIMIT 1`,
     input.companyId,
     input.leadId,
+    cutoff,
   );
   return rows[0] ?? null;
 }
