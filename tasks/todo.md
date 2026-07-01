@@ -202,7 +202,7 @@ Unique resolution identifier: `INVESTO-20260701-PENDING-VISIT-CALENDAR`
 - [x] Frontend UX: keep Calendar rendering pending visit requests clearly and avoid invalid update/delete actions for synthetic approval events.
 - [x] Tests: add focused regression proof for pending visit approvals appearing in Calendar events.
 - [x] Build/test: run focused backend tests and backend build; run frontend build if the Calendar page changes.
-- [ ] Deploy: commit, push, deploy backend to Railway and frontend to Vercel if touched, then smoke-check production.
+- [x] Deploy: commit, push, deploy backend to Railway and frontend to Vercel if touched, then smoke-check production.
 
 ## Review
 
@@ -213,4 +213,9 @@ Unique resolution identifier: `INVESTO-20260701-PENDING-VISIT-CALENDAR`
 - Proof: `npm test -- --runInBand src/tests/unit/calendar.routes.test.ts` passed: 1 suite, 3 tests.
 - Proof: `npm run build` passed in `backend`.
 - Proof: `npm run build` passed in `frontend`.
-- Pending: commit, push, production deploy, and live smoke checks.
+- Commit `35e8c01b2` pushed to `kiran/main`.
+- Railway backend deploy `79a8f504-f113-403b-a81d-89ec27b76a3f` reached `SUCCESS`.
+- Vercel frontend deploy `https://frontend-5v5yvi2a2-traderlighter11-7085s-projects.vercel.app` completed and was aliased to `https://biginvesto.online`.
+- Live checks passed: Railway `/api/health/live` 200, Railway `/api/health/internal` 200, and `https://biginvesto.online/dashboard/calendar` 200.
+- Production frontend bundle `assets/index-BnZVSYI1.js` contains `INVESTO-20260701-PENDING-VISIT-CALENDAR`.
+- Production smoke passed against `https://investo-backend-production.up.railway.app`: `npm run smoke` passed with 11 smoke tests.

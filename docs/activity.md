@@ -141,3 +141,10 @@ Actions:
 - Ran focused backend test: `npm test -- --runInBand src/tests/unit/calendar.routes.test.ts` passed: 1 suite, 3 tests.
 - Ran `npm run build` in `backend`; Prisma generate and TypeScript build passed.
 - Ran `npm run build` in `frontend`; TypeScript and Vite production build passed.
+- Committed `35e8c01b2` (`fix: show pending visit requests in calendar`) and pushed it to `kiran/main`.
+- Deployed Railway `investo-backend` production; deployment `79a8f504-f113-403b-a81d-89ec27b76a3f` reached `SUCCESS`.
+- Deployed Vercel production to `https://frontend-5v5yvi2a2-traderlighter11-7085s-projects.vercel.app` and aliased it to `https://biginvesto.online`.
+- Verified live Railway `/api/health/live` returned 200.
+- Verified live Railway `/api/health/internal` returned 200.
+- Verified `https://biginvesto.online/dashboard/calendar` returned 200 and served bundle `assets/index-BnZVSYI1.js` containing `INVESTO-20260701-PENDING-VISIT-CALENDAR`.
+- Ran production smoke against `https://investo-backend-production.up.railway.app`; `npm run smoke` passed with 11 smoke tests.
