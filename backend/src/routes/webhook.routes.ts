@@ -454,15 +454,30 @@ async function processWebhook(body: any): Promise<WebhookProcessSummary> {
 
           if (!config.langgraph?.enabled && config.enterpriseAgent?.enabled) {
             try {
-              const bridgeResp = await runEnterpriseAgent({ phone: '+' + customerPhone, message: messageText, conversationState: undefined });
+              const bridgeResp = await runEnterpriseAgent({
+                phone: '+' + customerPhone,
+                message: messageText,
+                companyId: companyResolution.company.id,
+                conversationState: undefined,
+              });
               if (config.enterpriseAgent.mode === 'replace' && bridgeResp?.ok) {
-                outcome.propagationStatus = 'success';
-                outcome.status = 'processed';
-                outcome.reason = 'handled_by_enterprise_agent';
-                summary.processed += 1;
-                summary.outcomes.push(outcome);
-                logger.info('Message handled by EnterpriseAgent bridge; skipping default processing', { messageId });
-                continue;
+                // INVESTO-FIX-2026-07-01: bridge previously generated a reply but never sent it,
+                // leaving the customer with no response at all. Send it back before skipping default processing.
+                const replyText = bridgeResp.data?.text;
+                if (replyText) {
+                  await whatsappService.sendCompanyTextMessage(customerPhoneE164, replyText, companyResolution.company.id);
+                } else {
+                  logger.warn('EnterpriseAgent bridge returned ok with no reply text; falling back to default processing', { messageId });
+                }
+                if (replyText) {
+                  outcome.propagationStatus = 'success';
+                  outcome.status = 'processed';
+                  outcome.reason = 'handled_by_enterprise_agent';
+                  summary.processed += 1;
+                  summary.outcomes.push(outcome);
+                  logger.info('Message handled by EnterpriseAgent bridge and reply sent', { messageId });
+                  continue;
+                }
               }
             } catch (bridgeErr: any) {
               logger.warn('EnterpriseAgent bridge failed; continuing default processing', { error: bridgeErr?.message });

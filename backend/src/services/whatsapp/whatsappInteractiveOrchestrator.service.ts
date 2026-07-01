@@ -169,6 +169,8 @@ function scopeValidateButtons(
 export async function persistInteractiveAiTranscript(
   conversationId: string,
   text: string | undefined,
+  // INVESTO-FIX-2026-07-01: flag whether this turn also carried buttons/list components
+  hasComponents?: boolean,
 ): Promise<void> {
   const content = text?.trim();
   if (!content) return;
@@ -190,6 +192,8 @@ export async function persistInteractiveAiTranscript(
       senderType: 'ai',
       content,
       status: 'sent',
+      // INVESTO-FIX-2026-07-01: mark as interactive so the frontend knows buttons/list accompanied this reply
+      ...(hasComponents ? { messageType: 'interactive' } : {}),
     },
   });
 }
@@ -199,7 +203,11 @@ async function finalizeInteractiveResult(
   result: InteractiveActionResult | null,
 ): Promise<InteractiveActionResult | null> {
   if (result?.turnResult?.text?.trim()) {
-    await persistInteractiveAiTranscript(conversationId, result.turnResult.text);
+    await persistInteractiveAiTranscript(
+      conversationId,
+      result.turnResult.text,
+      Boolean(result.turnResult.components?.length),
+    );
   }
   return result;
 }

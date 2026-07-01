@@ -240,10 +240,14 @@ describe('conversation send endpoint mode handling', () => {
       'Project brochure',
       expect.any(Object),
     );
+    // INVESTO-FIX-2026-07-01: content is now a short fallback; the URL/caption live in mediaUrl/mediaCaption
     expect(mockPrisma.message.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          content: expect.stringContaining('[Document] Brochure.pdf: https://cdn.example.com/brochure.pdf'),
+          content: '[Document] Brochure.pdf',
+          messageType: 'document',
+          mediaUrl: 'https://cdn.example.com/brochure.pdf',
+          mediaCaption: 'Project brochure',
         }),
       }),
     );

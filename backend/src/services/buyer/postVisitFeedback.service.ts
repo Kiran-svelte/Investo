@@ -348,6 +348,8 @@ export async function deliverPostVisitFeedbackPrompt(input: {
         senderType: 'ai',
         content: bodyText,
         status: 'sent',
+        // INVESTO-FIX-2026-07-01: mark as interactive when this prompt was delivered with buttons
+        ...(buttons.length ? { messageType: 'interactive' } : {}),
       },
     }).catch(() => undefined);
   }

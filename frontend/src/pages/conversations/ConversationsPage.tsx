@@ -12,6 +12,7 @@ import useConfirmDialog from '../../hooks/useConfirmDialog';
 import {
   Search, MessageSquare, User, Bot, UserCheck,
   ArrowRight, Trash2, Loader2, CheckCheck, AlertCircle, Clock3,
+  FileText, // INVESTO-FIX-2026-07-01: icon for document media messages
 } from 'lucide-react';
 import { deleteConversation } from '../../services/resourceDelete';
 
@@ -39,6 +40,11 @@ interface Message {
   created_at: string;
   delivery_status?: 'sent' | 'delivered' | 'read' | 'failed' | null;
   failed_reason?: string | null;
+  // INVESTO-FIX-2026-07-01: media fields for image/document/video/audio/interactive messages
+  message_type?: string;
+  media_url?: string | null;
+  mime_type?: string | null;
+  media_caption?: string | null;
 }
 
 type ComposerMode = 'text' | 'document' | 'quick_reply';
@@ -121,6 +127,11 @@ const ConversationsPage: React.FC = () => {
     created_at: raw.created_at || raw.createdAt || new Date().toISOString(),
     delivery_status: raw.delivery_status || raw.deliveryStatus || raw.status || null,
     failed_reason: raw.failed_reason || raw.failedReason || null,
+    // INVESTO-FIX-2026-07-01: pass through media fields from the API
+    message_type: raw.message_type || raw.messageType || 'text',
+    media_url: raw.media_url || raw.mediaUrl || null,
+    mime_type: raw.mime_type || raw.mimeType || null,
+    media_caption: raw.media_caption || raw.mediaCaption || null,
   });
 
   const loadConversations = async () => {
@@ -644,7 +655,50 @@ const ConversationsPage: React.FC = () => {
                             : 'Agent'}
                         </span>
                       </div>
-                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      {/* INVESTO-FIX-2026-07-01: render media messages (image/document/video/audio) instead of collapsing them into plain text */}
+                      {msg.message_type === 'image' && msg.media_url ? (
+                        <div>
+                          <img
+                            src={msg.media_url}
+                            alt={msg.media_caption || 'Image'}
+                            className="max-w-full rounded-lg"
+                          />
+                          {msg.media_caption && (
+                            <p className="text-sm whitespace-pre-wrap mt-1">{msg.media_caption}</p>
+                          )}
+                        </div>
+                      ) : msg.message_type === 'document' && msg.media_url ? (
+                        <div>
+                          <a
+                            href={msg.media_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm underline break-all"
+                          >
+                            <FileText className="h-4 w-4 flex-shrink-0" />
+                            {msg.content}
+                          </a>
+                          {msg.media_caption && (
+                            <p className="text-sm whitespace-pre-wrap mt-1">{msg.media_caption}</p>
+                          )}
+                        </div>
+                      ) : msg.message_type === 'video' && msg.media_url ? (
+                        <div>
+                          <video controls className="max-w-full rounded-lg" src={msg.media_url} />
+                          {msg.media_caption && (
+                            <p className="text-sm whitespace-pre-wrap mt-1">{msg.media_caption}</p>
+                          )}
+                        </div>
+                      ) : msg.message_type === 'audio' && msg.media_url ? (
+                        <div>
+                          <audio controls className="max-w-full" src={msg.media_url} />
+                          {msg.media_caption && (
+                            <p className="text-sm whitespace-pre-wrap mt-1">{msg.media_caption}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      )}
                       <div
                         className={`mt-1 flex flex-wrap items-center gap-2 text-xs ${
                           isCustomer ? 'text-ink-faint' : 'opacity-75'

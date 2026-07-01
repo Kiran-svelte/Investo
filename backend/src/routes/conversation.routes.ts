@@ -89,6 +89,11 @@ function mapMessageToDTO(msg: any) {
     meta_message_id: msg.metaMessageId || null,
     failed_reason: msg.failedReason || null,
     status: msg.status,
+    // INVESTO-FIX-2026-07-01: surface media fields to the frontend so images/documents/video/audio render properly
+    message_type: msg.messageType || 'text',
+    media_url: msg.mediaUrl || null,
+    mime_type: msg.mimeType || null,
+    media_caption: msg.mediaCaption || null,
     created_at: msg.createdAt?.toISOString?.() || msg.createdAt,
   };
 }
@@ -141,11 +146,9 @@ function buildMessageContent(payload: any): string {
   }
 
   if (payload.mode === 'document') {
+    // INVESTO-FIX-2026-07-01: content is now a short fallback only; the raw URL lives in mediaUrl instead
     const fileName = payload.filename?.trim() || 'document.pdf';
-    const caption = payload.caption?.trim();
-    return caption
-      ? `${caption}\n\n[Document] ${fileName}: ${payload.document_url}`
-      : `[Document] ${fileName}: ${payload.document_url}`;
+    return `[Document] ${fileName}`;
   }
 
   const buttonTitles = payload.buttons.map((button: { title: string }) => button.title).join(' | ');
@@ -579,6 +582,23 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
       return;
     }
 
+    // INVESTO-FIX-2026-07-01: populate messageType/mediaUrl/mimeType/mediaCaption for media/interactive sends
+    const mediaFields: {
+      messageType?: string;
+      mediaUrl?: string;
+      mimeType?: string;
+      mediaCaption?: string;
+    } = {};
+    if (payload.mode === 'document') {
+      mediaFields.messageType = 'document';
+      mediaFields.mediaUrl = payload.document_url;
+      if (payload.caption?.trim()) {
+        mediaFields.mediaCaption = payload.caption.trim();
+      }
+    } else if (payload.mode === 'quick_reply') {
+      mediaFields.messageType = 'interactive';
+    }
+
     const msg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -586,6 +606,7 @@ const sendConversationMessageHandler = async (req: AuthRequest, res: Response) =
         content: buildMessageContent(payload),
         whatsappMessageId: outboundMessageId,
         status: 'sent',
+        ...mediaFields,
       },
     });
 

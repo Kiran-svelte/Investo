@@ -77,8 +77,17 @@ export function createBrochureTools(context: ToolContext): AgentTool[] {
           `Here is the brochure for *${property.name}* (PDF attached).\n\n` +
           `Feel free to reply with any questions!`;
 
+        // INVESTO-FIX-2026-07-01: record this as a document message with the brochure URL/caption instead of collapsing it into plain text content
         await prisma.message.create({
-          data: { conversationId: conversation.id, senderType: 'agent', content: intro },
+          data: {
+            conversationId: conversation.id,
+            senderType: 'agent',
+            content: `[Document] ${property.name} brochure`,
+            messageType: 'document',
+            mediaUrl: property.brochureUrl,
+            mimeType: 'application/pdf',
+            mediaCaption: intro,
+          },
         });
 
         const { whatsappService } = await import('../../whatsapp.service');

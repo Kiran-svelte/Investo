@@ -556,6 +556,12 @@ model Message {
   metaMessageId     String?       @map("meta_message_id") @db.VarChar(255)
   failedReason      String?       @map("failed_reason") @db.Text
   status            MessageStatus @default(sent)
+  /// INVESTO-FIX-2026-07-01: structured media fields so image/document/interactive
+  /// messages can be rendered natively instead of collapsing into a text summary.
+  messageType       String        @default("text") @map("message_type") @db.VarChar(20)
+  mediaUrl          String?       @map("media_url") @db.Text
+  mimeType          String?       @map("mime_type") @db.VarChar(100)
+  mediaCaption      String?       @map("media_caption") @db.Text
   createdAt         DateTime      @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id])
