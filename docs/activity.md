@@ -52,6 +52,12 @@ Actions:
 - Ran `npm run build` in `backend`; result PASS.
 - Ran `npm run smoke` in `backend`; result PASS, including Railway live health probe and 11 smoke tests.
 - Checked deployment context: Vercel CLI logged in, Railway CLI logged in, Railway linked to project `Investo` production service `investo-backend`.
+- Committed `06a91fd96` with message `Fix WhatsApp buyer trust fallbacks`.
+- Pushed branch `fix/whatsapp-media-and-fallback` to remote `kiran`.
+- Railway deployment: first upload `141e1dc4-cde5-460e-93c8-4893f769da71` was removed before activation because a newer deployment superseded it; retried with commit-specific message.
+- Railway deployment: upload `c09547f2-c6fb-46ca-9a14-711857409fcd` succeeded for `investo-backend` production; `/api/health/live` returned `{"status":"ok"}` and post-deploy `npm run smoke` passed.
+- Vercel deployment: root static project `investo-ai-html` deployed and was Ready, but its root alias returned HTTP 404 because it is not the app frontend.
+- Vercel deployment: app frontend project deployed as `dpl_H2d88E3a6kYajCUFABNQ8HTsuBTY`; `https://biginvesto.online` returned HTTP 200 and Vercel inspect reported Ready.
 
 ## 2026-07-01 - Expired callback active-state bug
 

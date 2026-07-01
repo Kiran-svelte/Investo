@@ -23,8 +23,8 @@ Unique resolution identifiers:
 - [x] Expire callback context after the preferred time so old confirmed calls do not trigger "notified team" or Change Time/Cancel controls. (`WAI-TRUST-20260701-08`)
 - [x] Update focused unit tests for delivery, fallback, staff alert, handler order, and deterministic location behavior. (`WAI-TRUST-20260701-07`)
 - [x] Run focused Jest tests and backend build; run smoke if the environment supports it. (`WAI-TRUST-20260701-07`)
-- [ ] Deploy and verify using the configured deployment targets/credentials available in the project context. (`WAI-TRUST-20260701-07`)
-- [ ] Commit and push successful changes to the current repository branch.
+- [x] Deploy and verify using the configured deployment targets/credentials available in the project context. (`WAI-TRUST-20260701-07`)
+- [x] Commit and push successful changes to the current repository branch.
 
 ## Review
 
@@ -41,6 +41,9 @@ Unique resolution identifiers:
 - Proof: focused WhatsApp/fallback/staff suites passed: 7 suites, 64 tests.
 - Proof: adjacent WhatsApp interaction suites passed: 4 suites, 50 tests.
 - Proof: `npm run smoke` passed, including Railway health live probe and 11 smoke tests.
+- Deploy: committed `06a91fd96` and pushed branch `fix/whatsapp-media-and-fallback` to `kiran`.
+- Deploy: Railway `investo-backend` production upload `c09547f2-c6fb-46ca-9a14-711857409fcd` succeeded; live health returned `{"status":"ok"}`.
+- Deploy: Vercel frontend production `dpl_H2d88E3a6kYajCUFABNQ8HTsuBTY` succeeded; `https://biginvesto.online` returned HTTP 200.
 
 ## Previous Completed Task
 
