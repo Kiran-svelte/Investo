@@ -29,6 +29,7 @@ jest.mock('../../config', () => ({
   default: {
     agentAi: { enabled: true, llmEnabled: true, copilotEnabled: true, model: 'gpt-4o' },
     ai: { openaiApiKey: 'sk-test', openaiModel: 'gpt-4o' },
+    features: {},
   },
 }));
 
@@ -231,7 +232,7 @@ describe('workflow-engine.service', () => {
       JSON.stringify({
         workflow: 'schedule_visit',
         confidence: 0.91,
-        parameters: { leadName: 'Asha', scheduledAt: '2026-06-20T10:30:00+05:30' },
+        parameters: { leadName: 'Asha', scheduledAt: '2030-06-20T10:30:00+05:30' },
       }),
     );
 
@@ -246,7 +247,7 @@ describe('workflow-engine.service', () => {
 
     expect(llm).toHaveBeenCalledTimes(1);
     expect(classified.workflowId).toBe('schedule_visit');
-    expect(classified.parameters.scheduledAt).toBe('2026-06-20T10:30:00+05:30');
+    expect(classified.parameters.scheduledAt).toBe('2030-06-20T10:30:00+05:30');
   });
 
   it('post-processes plain details misclassification away from brochure_request', async () => {

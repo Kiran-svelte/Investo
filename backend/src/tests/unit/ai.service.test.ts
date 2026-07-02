@@ -74,6 +74,7 @@ describe('ai.service buyer path (chunk 07)', () => {
 
     const aiService = loadAiService({
       db: { url: 'postgresql://test', ssl: false },
+      features: {},
       ai: {
         provider: 'openai',
         openaiApiKey: 'test-openai-key',
@@ -133,6 +134,7 @@ describe('ai.service buyer path (chunk 07)', () => {
 
     const aiService = loadAiService({
       db: { url: 'postgresql://test', ssl: false },
+      features: {},
       ai: {
         provider: 'openai',
         openaiApiKey: 'test-openai-key',

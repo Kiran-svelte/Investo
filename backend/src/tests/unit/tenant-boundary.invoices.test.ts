@@ -45,6 +45,16 @@ function createInvoiceApp(userRole: string): { app: Express; mockPrisma: MockPri
     default: mockPrisma,
   }));
 
+  // These tests assert the billing-disabled boundary; pin the flag instead of
+  // relying on the real config default (which is billing ON).
+  jest.doMock('../../config', () => ({
+    __esModule: true,
+    default: {
+      env: 'test',
+      features: { billing: false },
+    },
+  }));
+
   jest.doMock('../../config/logger', () => ({
     __esModule: true,
     default: {

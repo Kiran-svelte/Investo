@@ -1,7 +1,11 @@
 /// <reference types="jest" />
 
-import express, { Express } from 'express';
+import express, { Express, RequestHandler } from 'express';
 import request from 'supertest';
+
+function noopMiddleware(): RequestHandler {
+  return (_req, _res, next) => next();
+}
 
 jest.setTimeout(30000);
 

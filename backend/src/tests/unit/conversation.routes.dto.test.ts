@@ -101,6 +101,7 @@ function createConversationApp(): { app: Express; mockPrisma: MockPrisma } {
     __esModule: true,
     default: {
       whatsapp: { verifyToken: 'wa-verify-1' },
+      features: {},
     },
   }));
 

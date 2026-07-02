@@ -44,6 +44,7 @@ describe('AIService fallback behavior', () => {
 
     const aiService = loadAiService({
       db: { url: 'postgresql://test', ssl: false },
+      features: {},
       ai: {
         provider: 'openai',
         openaiApiKey: 'test-openai-key',
@@ -90,6 +91,7 @@ describe('AIService fallback behavior', () => {
 
     const aiService = loadAiService({
       db: { url: 'postgresql://test', ssl: false },
+      features: {},
       ai: {
         provider: 'openai',
         openaiApiKey: 'test-openai-key',
@@ -168,6 +170,7 @@ describe('AIService fallback behavior', () => {
 
     const aiService = loadAiService({
       db: { url: 'postgresql://test', ssl: false },
+      features: {},
       ai: {
         provider: 'openai',
         openaiApiKey: 'test-openai-key',

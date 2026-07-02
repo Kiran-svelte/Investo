@@ -13,6 +13,7 @@ const mockPrisma = {
   user: { findMany: jest.fn() },
   company: { findUnique: jest.fn() },
   agentSession: { findUnique: jest.fn() },
+  lead: { findMany: jest.fn(async () => []) },
 };
 
 jest.mock('../../config/prisma', () => ({
@@ -24,6 +25,7 @@ jest.mock('../../config', () => ({
   __esModule: true,
   default: {
     agentAi: { enabled: true, copilotEnabled: true, llmEnabled: false },
+    features: {},
     whatsapp: { phoneNumberId: '', accessToken: '', verifyToken: '' },
   },
 }));
