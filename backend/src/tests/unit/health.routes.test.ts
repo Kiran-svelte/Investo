@@ -63,6 +63,9 @@ function createHealthApp(prismaBehavior: 'ok' | 'fail'): { app: Express; mockPri
     default: {
       env: 'test',
       storage: { provider: 'aws' },
+      features: {},
+      neonAuth: { url: '' },
+      whatsappQueue: { inboundWorkerIntervalMs: 1000, inboundWorkerBatchSize: 10, inboundMaxAttempts: 3 },
     },
   }));
 
@@ -160,7 +163,7 @@ describe('GET /api/health', () => {
 
     const response = await request(app).get('/api/health/enterprise').set('x-test-role', 'super_admin').expect(200);
 
-    expect(response.body.baseline_version).toBe('chunk-01');
+    expect(response.body.baseline_version).toBe('live-v2');
     expect(response.body.domains).toHaveLength(12);
     expect(response.body.redis_status).toBe('ok');
     expect(response.body.overall_score).toBeGreaterThan(0);

@@ -89,7 +89,7 @@ function clampScore(value: number): MaturityScore {
 export function resolveEffectiveWorkerMode(env: NodeJS.ProcessEnv = process.env): PlatformWorkerMode {
   if (env.RUN_BACKGROUND_WORKERS_ON_API === 'true') return 'api_colocated';
   if (env.RUN_BACKGROUND_WORKERS_ON_API === 'false') return 'dedicated_worker';
-  if (config.features.asyncWhatsAppPipeline) return 'api_colocated';
+  if (config.features?.asyncWhatsAppPipeline) return 'api_colocated';
   if (env.RUN_BACKGROUND_WORKERS_ON_API !== 'false' && config.env !== 'production') return 'api_colocated';
   return resolvePlatformWorkerMode(env);
 }

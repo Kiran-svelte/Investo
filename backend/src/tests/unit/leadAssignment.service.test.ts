@@ -2,6 +2,8 @@ const mockUserFindMany = jest.fn();
 const mockLeadGroupBy = jest.fn();
 const mockUserFindUnique = jest.fn();
 const mockLeadFindUnique = jest.fn();
+const mockUserFindFirst = jest.fn();
+const mockLeadFindFirst = jest.fn();
 const mockSendCompanyTextMessage = jest.fn().mockResolvedValue(true);
 
 jest.mock('../../config/prisma', () => ({
@@ -10,10 +12,12 @@ jest.mock('../../config/prisma', () => ({
     user: {
       findMany: (...args: unknown[]) => mockUserFindMany(...args),
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
+      findFirst: (...args: unknown[]) => mockUserFindFirst(...args),
     },
     lead: {
       groupBy: (...args: unknown[]) => mockLeadGroupBy(...args),
       findUnique: (...args: unknown[]) => mockLeadFindUnique(...args),
+      findFirst: (...args: unknown[]) => mockLeadFindFirst(...args),
     },
   },
 }));
@@ -60,8 +64,8 @@ describe('assignLeadRoundRobin', () => {
   test('notifies assigned agent via WhatsApp when leadId is provided', async () => {
     mockUserFindMany.mockResolvedValueOnce([{ id: 'agent-a' }]);
     mockLeadGroupBy.mockResolvedValueOnce([]);
-    mockUserFindUnique.mockResolvedValueOnce({ name: 'Alice', phone: '+919000000001' });
-    mockLeadFindUnique.mockResolvedValueOnce({
+    mockUserFindFirst.mockResolvedValueOnce({ name: 'Alice', phone: '+919000000001' });
+    mockLeadFindFirst.mockResolvedValueOnce({
       customerName: 'Bob',
       phone: '+919000000002',
       source: 'whatsapp',

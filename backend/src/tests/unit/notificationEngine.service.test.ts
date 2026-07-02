@@ -1,5 +1,6 @@
 const mockNotificationCreate = jest.fn().mockResolvedValue({ id: 'notif-1' });
 const mockUserFindUnique = jest.fn();
+const mockUserFindFirst = jest.fn();
 const mockUserFindMany = jest.fn().mockResolvedValue([]);
 const mockLeadFindUnique = jest.fn();
 const mockSendCompanyTextMessage = jest.fn().mockResolvedValue(true);
@@ -11,6 +12,7 @@ jest.mock('../../config/prisma', () => ({
     user: {
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
       findMany: (...args: unknown[]) => mockUserFindMany(...args),
+      findFirst: (...args: unknown[]) => mockUserFindFirst(...args),
     },
     lead: { findUnique: (...args: unknown[]) => mockLeadFindUnique(...args) },
   },
@@ -119,7 +121,7 @@ describe('notificationEngine.onLeadAssigned()', () => {
   });
 
   test('creates lead_assigned notification when agent exists', async () => {
-    mockUserFindUnique.mockResolvedValueOnce({ id: 'agent-1', name: 'Alice' });
+    mockUserFindFirst.mockResolvedValue({ id: 'agent-1', name: 'Alice' });
 
     await notificationEngine.onLeadAssigned(
       { id: 'lead-1', companyId: 'company-1', customerName: 'Bob', phone: '+91999' },
@@ -138,7 +140,7 @@ describe('notificationEngine.onLeadAssigned()', () => {
   });
 
   test('skips notification when agent not found', async () => {
-    mockUserFindUnique.mockResolvedValueOnce(null);
+    mockUserFindFirst.mockResolvedValue(null);
 
     await notificationEngine.onLeadAssigned(
       { id: 'lead-1', companyId: 'company-1', customerName: 'Bob', phone: '+91999' },
@@ -152,6 +154,7 @@ describe('notificationEngine.onLeadAssigned()', () => {
 describe('notificationEngine.onVisitStatusChange()', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserFindFirst.mockResolvedValue({ id: 'agent-1' });
     mockUserFindUnique.mockResolvedValue({ phone: '+919888877777' });
   });
 

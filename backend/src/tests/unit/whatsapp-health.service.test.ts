@@ -39,6 +39,25 @@ describe('WhatsAppHealthService (security: token handling)', () => {
       getRedis: () => null,
     }));
 
+    jest.doMock('../../config/prisma', () => ({
+      __esModule: true,
+      default: {
+        company: {
+          findFirst: jest.fn(),
+          findUnique: jest.fn(async () => ({
+            settings: { whatsapp: { accessToken, phoneNumberId: '123456789' } },
+          })),
+          findMany: jest.fn(async () => [
+            {
+              id: 'co-1',
+              slug: 'tenant-co',
+              settings: { whatsapp: { accessToken, phoneNumberId: '123456789' } },
+            },
+          ]),
+        },
+      },
+    }));
+
     let WhatsAppHealthService: any;
     jest.isolateModules(() => {
       WhatsAppHealthService = require('../../services/whatsappHealth.service').WhatsAppHealthService;

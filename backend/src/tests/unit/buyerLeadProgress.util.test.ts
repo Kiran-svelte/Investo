@@ -42,6 +42,7 @@ describe('buyerLeadProgress.util', () => {
         activeVisit: {
           visitId: 'v1',
           propertyId: 'p1',
+          projectId: null,
           propertyName: 'Lake Vista',
           status: 'confirmed',
           scheduledAt: new Date(),

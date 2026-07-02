@@ -6,7 +6,6 @@ import {
   isPostVisitBuyer,
   isAdvancedLeadStatus,
 } from '../utils/buyerLeadProgress.util';
-import { isFeatureEnabledForLead } from '../utils/featureRollout.util';
 import type { LiveLeadContext } from './liveLeadContext.service';
 import {
   buildCallAwareGreeting,
@@ -51,13 +50,10 @@ export function isBuyerRapportMessage(message: string, ctx?: BuyerRapportContext
   if (!t || EXPLICIT_INTENT.test(t)) return false;
   if (!isRapportPhrase(t)) return false;
   const isBareGreeting = /^(hi|hello|hey|good\s+(morning|afternoon|evening))[\s,!]*$/i.test(t);
-  // Visited / negotiating buyers saying "interested in 3BHK" must reach shortlist/LLM — not rapport welcome.
-  if (
-    !isBareGreeting
-    && ctx?.leadId
-    && isFeatureEnabledForLead(ctx.leadId, 'advancedLeadUx')
-    && isAdvancedLeadStatus(ctx?.leadStatus)
-  ) {
+  // Visited / negotiating buyers saying "interested in 3BHK" must reach shortlist/LLM — not
+  // rapport welcome. Applies to all advanced-status leads, independent of rollout bucketing:
+  // a generic welcome to a qualified buyer is always the wrong reply.
+  if (!isBareGreeting && isAdvancedLeadStatus(ctx?.leadStatus)) {
     return false;
   }
   if (isBareGreeting && ctx?.hasPriorOutbound) return true;

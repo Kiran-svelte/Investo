@@ -5,6 +5,7 @@ function emptyLiveCtx(overrides: Partial<LiveLeadContext> = {}): LiveLeadContext
     leadStatus: 'new',
     leadName: null,
     activeVisit: null,
+    upcomingVisits: [],
     recentCompletedVisit: null,
     recentCancelledVisit: null,
     activeCall: null,

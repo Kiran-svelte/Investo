@@ -11,7 +11,7 @@ describe('propertyImportUploadToken.util', () => {
   it('signs and verifies upload tokens for the same company', () => {
     const uploadToken = 'upload-abc';
     const companyId = 'company-1';
-    const expiresAtMs = buildPropertyImportUploadExpiry(new Date('2026-06-13T12:00:00Z'));
+    const expiresAtMs = buildPropertyImportUploadExpiry(new Date());
 
     const sig = signPropertyImportUploadToken(uploadToken, companyId, expiresAtMs);
 
@@ -20,7 +20,7 @@ describe('propertyImportUploadToken.util', () => {
 
   it('rejects tokens for a different company', () => {
     const uploadToken = 'upload-abc';
-    const expiresAtMs = buildPropertyImportUploadExpiry(new Date('2026-06-13T12:00:00Z'));
+    const expiresAtMs = buildPropertyImportUploadExpiry(new Date());
     const sig = signPropertyImportUploadToken(uploadToken, 'company-a', expiresAtMs);
 
     expect(verifyPropertyImportUploadToken(uploadToken, 'company-b', expiresAtMs, sig)).toBe(false);
