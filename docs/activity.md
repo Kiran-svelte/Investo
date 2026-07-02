@@ -142,3 +142,13 @@ Actions:
 - Completed `AUTH-BRAND-20260702`: corrected logo asset in place, auth logo motion restored; optimized `frontend/public/big-investo-logo.png` from 5419x1989 / 3.3MB to 1090x400 / 319KB.
 - Ran `npm run build` in `frontend`; result PASS.
 - Committed the WhatsApp trust changes and brand changes (excluding pre-existing generated `backend/dist` churn), pushed the branch and fast-forwarded `main` on the `kiran` remote, then deployed backend (Railway) and frontend (Vercel).
+
+## 2026-07-02 - Auth brand motion follow-up
+
+Actions:
+
+- Added `AUTH-BRAND-20260702-02` follow-up motion directly to `frontend/src/pages/auth/LoginPage.tsx`: animated left-panel lighting, large logo movement, footer entrance, and sign-in content entrance.
+- Kept login submission, MFA routing, SSO routing, and auth field behavior unchanged.
+- Changed the frontend HTML description separator to ASCII in `frontend/index.html` to avoid encoding artifacts.
+- Ran `npm run build` in `frontend`; result PASS.
+- Verified local preview `/login` with Playwright screenshots on desktop and mobile; desktop rendered two visible corrected logo images, and mobile had no horizontal overflow.
