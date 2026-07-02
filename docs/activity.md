@@ -81,3 +81,64 @@ Actions:
 - Deployed clean source to Railway `investo-backend`; deployment `e8d36b67-b798-4032-8a63-329887e133ca` succeeded.
 - Confirmed newer Railway deployment `c09547f2-c6fb-46ca-9a14-711857409fcd` also succeeded and includes commit `8197f3c5b` via ancestor commit `06a91fd96`.
 - Verified live backend after deploy: `/api/health/live` returned `status: ok`; `/api/health/internal` returned `status: ok`.
+
+## 2026-07-02 - WhatsApp media and dynamic button regression
+
+Prompt:
+
+> y everytime it is sending the image ?? only when property is selected it should send .
+> 2. and y buttons are disabled or not there ?? i said you to remove buttons which are harcoded and make it hybrid and real time (like ony when buttons arerequired it shows ,but for sure it should show or else user feel lost , and real time in the sense for example:- when project is selected and location is not set for that project then location button shouldn't appear , and shoudln't impact other buttoons ) , you have removed completely .wtf
+>
+> Screenshots supplied:
+> `C:\Users\kiran\AppData\Local\Temp\codex-clipboard-6ade2df1-7a2f-47d7-a442-df82f39f7494.png`
+> `C:\Users\kiran\AppData\Local\Temp\codex-clipboard-d1f9da20-7e45-4ff8-9d58-3339e777f51d.png`
+
+Actions:
+
+- Started regression fix under `WAI-TRUST-20260702`.
+- Confirmed the prior `WAI-TRUST-20260701-03` change over-suppressed buyer buttons/lists at the WhatsApp delivery boundary.
+- Confirmed the H9 full-AI path can attach property detail media from stale selected-property context even when the buyer did not select or request a property.
+- Implemented `WAI-TRUST-20260702-02`: restored dynamic buyer button/list delivery in `sendTurnResult`, `sendTurnComponents`, and `sendContextualQuickReplies`.
+- Implemented `WAI-TRUST-20260702-01`: added `shouldAttachPropertyDetailMediaForBuyerTurn` and gated H9 detail/hero media so stale selected-property context cannot resend images on unrelated replies.
+- Implemented `WAI-TRUST-20260702-03`: added property location availability checks and routed them through property detail buttons, buyer button policy, scope validation, and direct more-info handling.
+- Added regression tests for restored WhatsApp interactive delivery, media gating, location button availability, and property-bound location button scope validation.
+- Ran focused proof: `npm test -- --runInBand src/tests/unit/whatsapp-media.test.ts src/tests/unit/whatsapp-turn-orchestrator.test.ts src/tests/unit/projectBrowse.service.test.ts src/tests/unit/buyerSituationButtons.util.test.ts src/tests/unit/buyerButtonPolicy.service.test.ts src/tests/unit/buyerButtonScope.service.test.ts`; result PASS, 6 suites and 70 tests.
+- Ran `git diff --check -- backend/src docs/activity.md tasks/todo.md`; result PASS for touched source/doc files. Full `git diff --check` remains blocked by pre-existing generated `backend/dist` whitespace churn.
+- Ran `npm run build` in `backend`; result PASS.
+- Ran `npm run smoke` in `backend`; local smoke suite passed 11 tests, but the command failed overall because live Railway health probes were unreachable from this environment.
+- Attempted to stage source/doc changes for commit; blocked because Git could not create `.git/index.lock` due `.git` write permission denial in this session. No commit or push was possible.
+
+## 2026-07-02 - Login brand logo and auth animation regression
+
+Prompt:
+
+> what's this ?? why logo n everything changed ??
+>
+> this is our actuall logo and where are the animations ,etc ??
+>
+> Screenshot supplied:
+> `C:\Users\kiran\AppData\Local\Temp\codex-clipboard-7d2466d3-8b6c-4edc-8eb6-391e5614293b.png`
+>
+> Logo supplied:
+> `C:\Users\kiran\Downloads\ardiere Inc. (3).png`
+
+Actions:
+
+- Started scoped branding repair under `AUTH-BRAND-20260702`.
+- Confirmed the live Vercel app at `https://biginvesto.online/login` is the frontend project and currently loads `/big-investo-logo.png`.
+- Confirmed the existing `frontend/public/big-investo-logo.png` is a generated gray replacement logo, not the supplied yellow/blue BIG INVESTO logo.
+- Updated `tasks/todo.md` so `AUTH-BRAND-20260702` tracks corrected logo replacement, restored auth motion, shared brand component consistency, proof, commit, push, and deploy.
+
+## 2026-07-02 - Production polish loop: unblock pending WhatsApp trust + auth brand work
+
+Prompt:
+
+> /loop production polish the entire product, make it fully reliable and fully functioning, especially the WhatsApp AI reply and UI actions/pages/colours/themes and messaging/action delays; test, push to main and deploy (Railway + Vercel); keep a codebase map note instead of re-reading the codebase every time.
+
+Actions:
+
+- Created persistent codebase map memory note (`investo-codebase-map`) so future loop iterations skip full re-exploration.
+- Re-verified the previously blocked `WAI-TRUST-20260702` working-tree changes: focused Jest run passed (6 suites, 70 tests).
+- Completed `AUTH-BRAND-20260702`: corrected logo asset in place, auth logo motion restored; optimized `frontend/public/big-investo-logo.png` from 5419x1989 / 3.3MB to 1090x400 / 319KB.
+- Ran `npm run build` in `frontend`; result PASS.
+- Committed the WhatsApp trust changes and brand changes (excluding pre-existing generated `backend/dist` churn), pushed the branch and fast-forwarded `main` on the `kiran` remote, then deployed backend (Railway) and frontend (Vercel).

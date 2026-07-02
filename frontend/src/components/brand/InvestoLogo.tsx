@@ -17,6 +17,7 @@ export default function InvestoLogo({
       src={INVESTO_LOGO_SRC}
       alt={alt}
       height={height}
+      style={{ height, width: 'auto' }}
       className={`block w-auto max-w-full object-contain ${className}`.trim()}
       decoding="async"
     />
