@@ -121,6 +121,7 @@ jest.mock('../../services/projectBrowse.service', () => ({
   resolveProjectBrochureMediaComponent: jest.fn(async () => null),
   resolveProjectHeroImageComponent: jest.fn(async () => null),
   formatProjectSelectedIntro: jest.fn(() => ''),
+  hasPropertyLocationData: jest.fn(() => true),
   buildActiveVisitActionButtons: jest.fn(() => ({
     kind: 'buttons',
     buttons: [
