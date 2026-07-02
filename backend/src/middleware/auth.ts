@@ -7,6 +7,10 @@ import logger from '../config/logger';
 import { cacheGet, cacheSet } from '../config/redis';
 import { readAccessTokenFromCookies } from '../utils/authSessionCookies.util';
 import { ipAllowlistMiddleware } from './ipAllowlist';
+import {
+  canAuthenticateCompanyForBillingRecovery,
+  PAYMENT_RECOVERY_ACCESS_RESOLUTION_ID,
+} from '../utils/paymentRecoveryAccess';
 
 const AUTH_CACHE_TTL_SECONDS = 300; // 5 minutes
 
@@ -138,11 +142,21 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
 
     if (user.role !== 'super_admin') {
       const company = await prisma.company.findFirst({
-        where: { id: user.companyId, status: 'active' },
+        where: { id: user.companyId },
+        select: {
+          status: true,
+          subscription: { select: { billingStatus: true } },
+        },
       });
 
-      if (!company) {
-        res.status(403).json({ error: 'Company is inactive or suspended' });
+      if (!canAuthenticateCompanyForBillingRecovery(company)) {
+        res.status(403).json({
+          error: {
+            code: 'company_inactive',
+            message: 'Company is inactive or suspended',
+          },
+          resolutionId: PAYMENT_RECOVERY_ACCESS_RESOLUTION_ID,
+        });
         return;
       }
     }

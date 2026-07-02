@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-20T09:45:00.000Z",
+  "updated_at": "2026-06-27T04:25:36.744Z",
   "spec": "main_docs/chunks/README.md",
   "product_framing": "docs/NECESSARY.md",
   "execution_order": "07 → 01 → 03 → 04 → 02 → 06 → 05",
@@ -157,27 +157,38 @@
       "title": "Team Access: Roles, Invites, MFA, SSO & SCIM",
       "pillar": 5,
       "priority": "P1",
-      "status": "in_progress",
+      "status": "complete",
       "done_criteria": [
-        "SSO migration 20260620000000_sso_oidc_client_secret applied to Railway",
-        "OIDC callback completes (ssoOidc.service.ts + ssoState.service.ts wired)",
+        "SSO migration and identity schema are active on Railway",
+        "OIDC callback completes against Keycloak and returns to biginvesto.online",
         "identity-settings.routes.ts: PUT /identity saves issuer+client+secret",
-        "SSO_TEST_IDP=false in production (after staging proof)"
+        "SSO_TEST_IDP=false in production",
+        "MFA enrollment/login enforcement passes production proof",
+        "SCIM list/create/deactivate/delete passes production proof"
       ],
-      "gaps_pending": [
-        "SSO migration not yet applied to Railway DB (needs prisma migrate deploy)",
-        "SSO_TEST_IDP still true in production — flip after staging OIDC e2e proof"
+      "gaps_closed": [
+        "Keycloak SSO config/start smoke passed 4/4",
+        "Browser SSO callback returned to https://biginvesto.online/auth/sso/complete",
+        "Production proof proof-mqut1k9d verified MFA and SCIM lifecycle",
+        "SSO test callback auth-bypass remains blocked in production"
       ],
-      "notes": "identity-settings.routes.ts PUT /identity already saves sso_oidc_issuer, sso_oidc_client_id, sso_oidc_client_secret via upsertCompanyIdentityConfig. ssoOidc.service.ts and ssoState.service.ts are implemented. Migration SQL exists. Needs Railway deploy."
+      "completed_at": "2026-06-26T10:48:47.900Z",
+      "proof": {
+        "sso_config": "node scripts/production-keycloak-sso-smoke.mjs",
+        "browser_callback": "Playwright browser SSO flow returned to /auth/sso/complete",
+        "production": "PROOF_REQUIRE_RESEND_DELIVERY=false railway run --service investo-backend --environment production --no-local -- npm run proof:enterprise-production (proof-mqut1k9d)"
+      },
+      "notes": "Identity is now complete for SSO/MFA/SCIM proof. Overall enterprise readiness is still false until strict Resend delivery-event proof and repo/deploy hygiene blockers are closed."
     }
   ],
   "exit_gate": {
     "ready": false,
     "pending_items": [
-      "Apply SSO migration to Railway (pillar-05)",
-      "SSO_TEST_IDP=false in production after staging OIDC proof (pillar-05)",
-      "Post-deploy smoke test: 20/20 on production",
-      "GET /api/readiness green on pilot tenant"
+      "Strict Resend delivery-event proof: delivered, bounced, delayed, suppressed, and failed events",
+      "Register production Resend webhook or provide read-capable RESEND_READ_API_KEY",
+      "Remove tracked generated/vendor/env artifacts from Git tracking",
+      "Run full-stack readiness audit cleanly",
+      "GET /api/readiness green on pilot tenant after mail proof"
     ]
   }
 }

@@ -12,10 +12,45 @@ const router = Router();
 router.use(authenticate);
 router.use(hasRole('company_admin', 'super_admin'));
 
+function resolveGovernanceCompanyId(req: AuthRequest, res: Response): string | null {
+  if (req.user?.role === 'super_admin') {
+    const targetCompanyId = typeof req.query.target_company_id === 'string'
+      ? req.query.target_company_id.trim()
+      : '';
+
+    if (!targetCompanyId) {
+      res.status(400).json({
+        error: 'target_company_id query parameter is required for platform AI governance access',
+      });
+      return null;
+    }
+
+    return targetCompanyId;
+  }
+
+  const companyId = req.user?.company_id;
+  if (!companyId) {
+    res.status(400).json({ error: 'Company context required' });
+    return null;
+  }
+
+  return companyId;
+}
+
 router.get('/prompts', async (req: AuthRequest, res: Response) => {
   const name = typeof req.query.name === 'string' ? req.query.name : undefined;
   const versions = await promptVersionService.listVersions(name);
-  res.json({ versions, enabled: promptVersionService.isEnabled() });
+  res.json({
+    versions: versions.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      version: row.version,
+      status: row.status,
+      active: row.status === 'active',
+      createdAt: row.createdAt,
+    })),
+    enabled: promptVersionService.isEnabled(),
+  });
 });
 
 router.post('/prompts', async (req: AuthRequest, res: Response) => {
@@ -42,13 +77,23 @@ router.post('/prompts/:name/:version/activate', async (req: AuthRequest, res: Re
 });
 
 router.get('/ai-review-queue', async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+  const companyId = resolveGovernanceCompanyId(req, res);
   if (!companyId) {
-    res.status(400).json({ error: 'Company context required' });
     return;
   }
   const items = await aiReviewQueueService.listPending(companyId);
-  res.json({ items, enabled: aiReviewQueueService.isEnabled(), threshold: aiReviewQueueService.getRiskThreshold() });
+  res.json({
+    items: items.map((row: any) => ({
+      id: row.id,
+      messageId: row.messageId,
+      riskScore: row.riskScore,
+      reason: row.reason || null,
+      status: row.status,
+      createdAt: row.createdAt,
+    })),
+    enabled: aiReviewQueueService.isEnabled(),
+    threshold: aiReviewQueueService.getRiskThreshold(),
+  });
 });
 
 router.post('/ai-review-queue/:id/review', async (req: AuthRequest, res: Response) => {
@@ -56,10 +101,13 @@ router.post('/ai-review-queue/:id/review', async (req: AuthRequest, res: Respons
     res.status(503).json({ error: 'FEATURE_AI_REVIEW_QUEUE is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = resolveGovernanceCompanyId(req, res);
   const userId = req.user?.id;
-  if (!companyId || !userId) {
-    res.status(400).json({ error: 'Company context required' });
+  if (!companyId) {
+    return;
+  }
+  if (!userId) {
+    res.status(400).json({ error: 'User context required' });
     return;
   }
   const status = req.body?.status;
@@ -76,9 +124,8 @@ router.post('/message-archives', async (req: AuthRequest, res: Response) => {
     res.status(503).json({ error: 'FEATURE_MESSAGE_ARCHIVE is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = resolveGovernanceCompanyId(req, res);
   if (!companyId) {
-    res.status(400).json({ error: 'Company context required' });
     return;
   }
   const { message_id, content } = req.body || {};
@@ -95,9 +142,8 @@ router.post('/message-archives', async (req: AuthRequest, res: Response) => {
 });
 
 router.get('/message-archives/:messageId/verify', async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+  const companyId = resolveGovernanceCompanyId(req, res);
   if (!companyId) {
-    res.status(400).json({ error: 'Company context required' });
     return;
   }
   const content = typeof req.query.content === 'string' ? req.query.content : '';

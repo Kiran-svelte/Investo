@@ -528,7 +528,7 @@ const config = {
     siemLogDrain: (process.env.SIEM_LOG_DRAIN || process.env.LOG_DRAIN_URL || '').trim(),
   },
   identity: {
-    ssoTestIdp: process.env.SSO_TEST_IDP === 'true',
+    ssoTestIdp: process.env.SSO_TEST_IDP === 'true' && process.env.NODE_ENV !== 'production',
     ssoCallbackBaseUrl: (
       process.env.SSO_CALLBACK_BASE_URL
       || process.env.BACKEND_PUBLIC_URL
@@ -537,7 +537,7 @@ const config = {
     ).replace(/\/+$/, ''),
   },
   keycloak: {
-    enabled: process.env.KEYCLOAK_ENABLED === 'true',
+    enabled: process.env.FEATURE_SSO === 'true' && process.env.KEYCLOAK_ENABLED === 'true',
     baseUrl: (process.env.KEYCLOAK_URL || process.env.KEYCLOAK_PUBLIC_URL || '').replace(/\/+$/, ''),
     realm: (process.env.KEYCLOAK_REALM || 'investo').trim(),
     clientId: (process.env.KEYCLOAK_CLIENT_ID || 'investo-app').trim(),
@@ -665,7 +665,7 @@ const config = {
     /** When true with tenantQuotas, return 429 on exceed; otherwise warn-only headers. */
     quotaHardEnforce: process.env.FEATURE_QUOTA_HARD_ENFORCE === 'true',
     quotaAdminOverrides: process.env.FEATURE_QUOTA_ADMIN_OVERRIDES !== 'false',
-    sso: process.env.FEATURE_SSO !== 'false',
+    sso: process.env.FEATURE_SSO === 'true',
     mfa: process.env.FEATURE_MFA !== 'false',
     scim: process.env.FEATURE_SCIM !== 'false',
     orgBranches: process.env.FEATURE_ORG_BRANCHES !== 'false',
@@ -688,6 +688,12 @@ const config = {
     billingOps: process.env.FEATURE_BILLING_OPS === 'true',
     /** Commercial subscription + Cashfree checkout. ON by default; set FEATURE_BILLING=false to disable. */
     billing: process.env.FEATURE_BILLING !== 'false',
+    /**
+     * INVESTO-20260630-PRODUCTION-BILLING-BYPASS:
+     * Keep Billing/checkout visible, but do not block CRM/product routes unless
+     * this is explicitly enabled after the payment gateway is production-ready.
+     */
+    subscriptionAccessEnforcement: process.env.FEATURE_SUBSCRIPTION_ACCESS_ENFORCEMENT === 'true',
     /** Chunk 12 — support impersonation + tenant health. Default OFF. */
     supportOps: process.env.FEATURE_SUPPORT_OPS === 'true',
     /** Chunk 13 — sandbox tenants + approval chains. Default OFF. */

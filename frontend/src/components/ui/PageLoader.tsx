@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'motion/react';
+import { motion } from '../../lib/motion';
 import SkeletonLoader, { type SkeletonType } from '../loading/SkeletonLoader';
 
 interface PageLoaderProps {

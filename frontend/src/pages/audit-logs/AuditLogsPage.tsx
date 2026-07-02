@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
+import TenantContextRequired from '../../components/layout/TenantContextRequired';
+import { useTenantContext } from '../../context/TenantContext';
 import {
   ClipboardList, Search, Calendar, User,
   FileText, Globe, ChevronLeft, ChevronRight
@@ -32,6 +34,8 @@ const ACTION_COLORS: Record<string, string> = {
 
 const AuditLogsPage: React.FC = () => {
   const { t } = useTranslation();
+  const { targetCompanyId, isPlatformAdmin } = useTenantContext();
+  const tenantReady = !isPlatformAdmin || Boolean(targetCompanyId);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -43,6 +47,13 @@ const AuditLogsPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadLogs = async () => {
+    if (!tenantReady) {
+      setLogs([]);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       setLoadError(null);
@@ -66,7 +77,7 @@ const AuditLogsPage: React.FC = () => {
 
   useEffect(() => {
     loadLogs();
-  }, [page, actionFilter, resourceFilter]);
+  }, [page, actionFilter, resourceFilter, tenantReady, targetCompanyId]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +112,15 @@ const AuditLogsPage: React.FC = () => {
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
       </div>
+    );
+  }
+
+  if (!tenantReady) {
+    return (
+      <TenantContextRequired
+        surface="Audit Logs"
+        description="Platform audit access is tenant-scoped. Select an agency first so audit records, filters, and exports cannot mix companies."
+      />
     );
   }
 

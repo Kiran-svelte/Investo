@@ -10,11 +10,11 @@ import {
 } from '../../services/notifications';
 import { dashboardPath } from '../../config/navigation.config';
 import useCompanyFeatures from '../../hooks/useCompanyFeatures';
-import { useAuth } from '../../context/AuthContext';
+import { useTenantContext } from '../../context/TenantContext';
 
 export default function NotificationBell() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { targetCompanyId, isPlatformAdmin } = useTenantContext();
   const { isFeatureEnabled } = useCompanyFeatures();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
@@ -22,8 +22,9 @@ export default function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const enabled =
-    user?.role === 'super_admin' || isFeatureEnabled('notifications');
+  const enabled = isPlatformAdmin
+    ? Boolean(targetCompanyId)
+    : isFeatureEnabled('notifications');
 
   const load = useCallback(async () => {
     if (!enabled) return;

@@ -40,6 +40,7 @@ export interface AuthTokens {
 
 const TOKEN_KEY = 'investo_access_token';
 const REFRESH_KEY = 'investo_refresh_token';
+const SESSION_EXPIRED_NOTICE_KEY = 'investo_session_expired_notice';
 
 export const getAccessToken = (): string | null => {
   if (isCookieSessionMode()) return null;
@@ -61,6 +62,14 @@ export const clearTokens = (): void => {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   disableCookieSessionMode();
+};
+
+// INVESTO-20260629-AUTH-BRAND-RESTORE: restored login shell consumes this notice.
+export const consumeSessionExpiredNotice = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const present = sessionStorage.getItem(SESSION_EXPIRED_NOTICE_KEY) === '1';
+  sessionStorage.removeItem(SESSION_EXPIRED_NOTICE_KEY);
+  return present;
 };
 
 export function applyAuthSessionFromLoginResponse(session?: { storage?: string }): void {
@@ -118,7 +127,7 @@ export const isTransientAuthError = (error: unknown): boolean => {
 // Axios instance
 // ──────────────────────────────────────────────
 
-import { getStoredTargetCompanyId } from '../utils/tenantContextStorage';
+import { getRequestTargetCompanyId } from '../utils/tenantContextStorage';
 
 const PRODUCTION_API_URL = 'https://investo-backend-production.up.railway.app/api';
 
@@ -140,6 +149,12 @@ const TENANT_SCOPED_PREFIXES = [
   '/error-logs',
   '/audit',
   '/agent-action-logs',
+  '/governance',
+  '/compliance',
+  '/billing-ops',
+  '/data-platform',
+  '/enterprise-config',
+  '/quota',
   '/onboarding',
   '/readiness',
 ];
@@ -154,9 +169,6 @@ function resolveRequestTargetCompanyId(
   params: Record<string, unknown> | undefined,
   data: unknown,
 ): string | null {
-  const stored = getStoredTargetCompanyId();
-  if (stored) return stored;
-
   const fromParams = typeof params?.target_company_id === 'string' ? params.target_company_id.trim() : '';
   if (fromParams) return fromParams;
 
@@ -165,7 +177,7 @@ function resolveRequestTargetCompanyId(
     if (typeof fromBody === 'string' && fromBody.trim()) return fromBody.trim();
   }
 
-  return null;
+  return getRequestTargetCompanyId();
 }
 
 const getApiBaseUrl = (): string => {
@@ -203,6 +215,7 @@ function isWarmupPath(url?: string): boolean {
     || url.includes('/auth/refresh')
     || url.includes('/onboarding/status')
     || url.includes('/features')
+    || url.includes('/analytics/dashboard-bundle')
   );
 }
 

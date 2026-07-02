@@ -301,11 +301,19 @@ const SettingsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!capabilities.canManageTenantSettings) return;
     if (activeTab === 'company') loadCompany();
     else if (activeTab === 'conversion') loadConversion();
     else if (activeTab === 'roles') loadRoles();
     else if (activeTab === 'features') loadFeatures();
-  }, [activeTab, loadCompany, loadConversion, loadRoles, loadFeatures]);
+  }, [
+    activeTab,
+    capabilities.canManageTenantSettings,
+    loadCompany,
+    loadConversion,
+    loadRoles,
+    loadFeatures,
+  ]);
 
   const saveConversion = async (e: React.FormEvent) => {
     e.preventDefault();

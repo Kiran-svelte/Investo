@@ -3,6 +3,7 @@ import { Router, Response } from 'express';
 import config from '../config';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { hasRole } from '../middleware/rbac';
+import { getCompanyId, strictTenantIsolation } from '../middleware/tenant';
 import { meteringInvoiceService } from './meteringInvoice.service';
 
 const router = Router();
@@ -10,8 +11,14 @@ const router = Router();
 router.use(authenticate);
 router.use(hasRole('company_admin', 'super_admin'));
 
+router.get('/allowances', (_req: AuthRequest, res: Response) => {
+  res.json({ allowances: meteringInvoiceService.getIncludedAllowances() });
+});
+
+router.use(strictTenantIsolation);
+
 router.get('/invoices', async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -25,7 +32,7 @@ router.post('/invoices/generate', async (req: AuthRequest, res: Response) => {
     res.status(503).json({ error: 'FEATURE_BILLING_OPS is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -47,10 +54,6 @@ router.post('/invoices/generate', async (req: AuthRequest, res: Response) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
-
-router.get('/allowances', (_req: AuthRequest, res: Response) => {
-  res.json({ allowances: meteringInvoiceService.getIncludedAllowances() });
 });
 
 export default router;

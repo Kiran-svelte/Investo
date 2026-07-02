@@ -76,4 +76,40 @@ describe('scim lifecycle', () => {
     expect(resource.emails).toEqual([{ value: 'new@acme.test', primary: true }]);
     expect(resource.active).toBe(true);
   });
+
+  it('patches non-UUID external ids without querying the UUID id field', async () => {
+    mockPrisma.user.findFirst.mockResolvedValueOnce({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      companyId: 'company-1',
+      email: 'old@acme.test',
+      name: 'SCIM User',
+      externalId: 'scim-external-999',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockPrisma.user.update.mockResolvedValueOnce({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      companyId: 'company-1',
+      email: 'updated@acme.test',
+      name: 'SCIM User',
+      externalId: 'scim-external-999',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = new ScimService();
+    const resource = await service.patchUser('company-1', 'scim-external-999', {
+      Operations: [{ op: 'replace', path: 'userName', value: 'updated@acme.test' }],
+    });
+
+    expect(resource.userName).toBe('updated@acme.test');
+    expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
+      where: {
+        companyId: 'company-1',
+        OR: [{ externalId: 'scim-external-999' }],
+      },
+    });
+  });
 });

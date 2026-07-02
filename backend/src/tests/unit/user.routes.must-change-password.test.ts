@@ -113,7 +113,7 @@ describe('POST /api/users must_change_password', () => {
         name: 'Ops User',
         email: 'ops@example.com',
         password: 'Password123',
-        phone: null,
+        phone: '+919876543211',
         role: 'operations',
         must_change_password: true,
       });
@@ -125,10 +125,11 @@ describe('POST /api/users must_change_password', () => {
       name: 'Ops User',
       email: 'ops@example.com',
       password: 'Password123',
-      phone: null,
+      phone: '+919876543211',
       role: 'operations',
       company_id: 'company-1',
       must_change_password: true,
+      branch_id: null,
     });
   });
 });

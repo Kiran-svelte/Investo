@@ -5,7 +5,7 @@
  * Handles four payment methods:
  *   - card: Redirects to Cashfree hosted checkout (card payment)
  *   - upi: Redirects to Cashfree hosted checkout (UPI)
- *   - invoice: Trust-based Net-30. Account activates immediately.
+ *   - invoice: Net-30 request. Account resumes after payment confirmation.
  *   - bank_transfer: Shows bank details. Account activates after payment confirmation.
  *
  * @param isOpen - Whether the modal is visible.
@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import { useSubscription } from '../../context/SubscriptionContext';
+import { getApiErrorMessage, getApiErrorResolutionId } from '../../utils/apiErrorMessage';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 
 type PaymentMethod = 'card' | 'upi' | 'invoice' | 'bank_transfer';
 
@@ -81,7 +83,7 @@ const PAYMENT_METHODS: MethodOption[] = [
   {
     id: 'invoice',
     label: 'Invoice (Net 30)',
-    description: 'Receive a formal invoice. Account stays active on trust.',
+    description: 'Receive a formal invoice. Access resumes after payment confirmation.',
     icon: FileText,
     badge: 'Enterprise',
   },
@@ -102,7 +104,10 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
   const { refresh } = useSubscription();
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    resolutionId: string;
+  } | null>(null);
   const [successState, setSuccessState] = useState<{
     message: string;
     instructions?: string;
@@ -144,19 +149,17 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
         setSuccessState({
           message:
             selectedMethod === 'invoice'
-              ? 'Invoice created. Your account is active!'
+              ? 'Invoice request created.'
               : 'Request received. Account activates after payment confirmation.',
           instructions: result.instructions,
         });
-        onSuccess();
         return;
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Payment initiation failed. Please try again.';
-      setError(message);
+      setError({
+        message: getApiErrorMessage(err, 'Payment initiation failed. Please try again.'),
+        resolutionId: getApiErrorResolutionId(err) || RESOLUTION_IDS.PAYMENT_LOCKOUT,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -169,6 +172,7 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="subscribe-modal-title"
+      data-resolution-id={RESOLUTION_IDS.PAYMENT_LOCKOUT}
     >
       <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden">
         {/* Header */}
@@ -287,9 +291,12 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
 
               {/* Error message */}
               {error && (
-                <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <div
+                  className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                  data-resolution-id={error.resolutionId}
+                >
                   <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                  <span>{error}</span>
+                  <span>{error.message}</span>
                 </div>
               )}
 
@@ -316,8 +323,8 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                   <p className="font-semibold">Net-30 Invoice</p>
                   <p className="mt-0.5">
-                    Your account will remain fully active. We'll send a formal invoice
-                    to your registered email. Payment is due within 30 days.
+                    We'll generate a formal invoice for your registered email.
+                    Access resumes after payment is confirmed by the platform team.
                   </p>
                 </div>
               )}

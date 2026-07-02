@@ -12,10 +12,11 @@ import {
   ProtectedRoute,
   PROPERTY_MANAGEMENT_FEATURE_KEY,
   RoleRoute,
+  SubscriptionAccessGuard,
 } from './App';
 import { getOnboardingCompletionCacheKey } from './utils/onboardingCompletionCache';
 
-const { authState, featureState, apiMock } = vi.hoisted(() => ({
+const { authState, featureState, subscriptionState, apiMock } = vi.hoisted(() => ({
   authState: {
     isLoading: false,
     isAuthenticated: true,
@@ -34,6 +35,20 @@ const { authState, featureState, apiMock } = vi.hoisted(() => ({
     features: {},
     error: null,
   },
+  subscriptionState: {
+    enforcementEnabled: false,
+    isLoading: false,
+    subscription: {
+      billingStatus: 'active',
+      hasAccess: true,
+      needsPayment: false,
+    },
+    billingStatus: 'active',
+    trialDaysRemaining: null,
+    hasAccess: true,
+    needsPayment: false,
+    refresh: vi.fn(),
+  },
   apiMock: {
     get: vi.fn(),
   },
@@ -49,9 +64,44 @@ vi.mock('./context/CompanyFeaturesContext', () => ({
   CompanyFeaturesProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+vi.mock('./context/SubscriptionContext', () => ({
+  useSubscription: () => subscriptionState,
+  SubscriptionProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
+vi.mock('./config/subscriptionAccess', () => ({
+  isSubscriptionAccessEnforcementEnabled: () => subscriptionState.enforcementEnabled,
+}));
+
 vi.mock('./services/api', () => ({
   default: apiMock,
 }));
+
+vi.mock('./components/analytics/ClarityAnalytics', () => ({
+  default: () => null,
+}));
+
+vi.mock('motion/react', async () => {
+  const React = await vi.importActual<typeof import('react')>('react');
+  const Component = ({ children, ...props }: { children?: ReactNode }) => React.createElement('div', props, children);
+  return {
+    motion: new Proxy({}, { get: () => Component }),
+    AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+    LayoutGroup: ({ children }: { children?: ReactNode }) => <>{children}</>,
+    useReducedMotion: () => true,
+  };
+});
+
+vi.mock('./components/loading/InvestoLoading', () => ({
+  default: () => <div>Loading</div>,
+}));
+
+vi.mock('./components/layout/DashboardLayout', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    default: () => <actual.Outlet />,
+  };
+});
 
 vi.mock('./context/SocketContext', () => ({
   SocketProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -69,6 +119,16 @@ describe('route guard behavior', () => {
     authState.mustChangePassword = false;
     featureState.loading = false;
     featureState.isFeatureEnabled.mockReturnValue(true);
+    subscriptionState.enforcementEnabled = false;
+    subscriptionState.isLoading = false;
+    subscriptionState.subscription = {
+      billingStatus: 'active',
+      hasAccess: true,
+      needsPayment: false,
+    };
+    subscriptionState.billingStatus = 'active';
+    subscriptionState.hasAccess = true;
+    subscriptionState.needsPayment = false;
   });
 
   it('shows role feedback when super_admin opens a tenant leads route', () => {
@@ -260,5 +320,108 @@ describe('route guard behavior', () => {
 
     expect(await screen.findByText('Change password page')).toBeInTheDocument();
     expect(screen.queryByText('Dashboard page')).not.toBeInTheDocument();
+  });
+
+  it('redirects locked company_admin users to billing', async () => {
+    subscriptionState.enforcementEnabled = true;
+    subscriptionState.subscription = {
+      billingStatus: 'past_due',
+      hasAccess: false,
+      needsPayment: true,
+    };
+    subscriptionState.billingStatus = 'past_due';
+    subscriptionState.hasAccess = false;
+    subscriptionState.needsPayment = true;
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard/leads']}>
+        <Routes>
+          <Route element={<SubscriptionAccessGuard />}>
+            <Route path="/dashboard/leads" element={<div>Leads page</div>} />
+            <Route path="/dashboard/billing" element={<div>Billing page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Billing page')).toBeInTheDocument();
+    expect(screen.queryByText('Leads page')).not.toBeInTheDocument();
+  });
+
+  it('allows locked company_admin users to stay on billing', () => {
+    subscriptionState.enforcementEnabled = true;
+    subscriptionState.subscription = {
+      billingStatus: 'suspended',
+      hasAccess: false,
+      needsPayment: true,
+    };
+    subscriptionState.billingStatus = 'suspended';
+    subscriptionState.hasAccess = false;
+    subscriptionState.needsPayment = true;
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard/billing']}>
+        <Routes>
+          <Route element={<SubscriptionAccessGuard />}>
+            <Route path="/dashboard/billing" element={<div>Billing page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Billing page')).toBeInTheDocument();
+  });
+
+  it('shows payment-required feedback for locked staff users', () => {
+    subscriptionState.enforcementEnabled = true;
+    authState.user.role = 'sales_agent';
+    subscriptionState.subscription = {
+      billingStatus: 'past_due',
+      hasAccess: false,
+      needsPayment: true,
+    };
+    subscriptionState.billingStatus = 'past_due';
+    subscriptionState.hasAccess = false;
+    subscriptionState.needsPayment = true;
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard/leads']}>
+        <Routes>
+          <Route element={<SubscriptionAccessGuard />}>
+            <Route path="/dashboard/leads" element={<div>Leads page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText('Leads page')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Workspace locked until billing is restored' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /open my profile/i })).toHaveAttribute('href', '/dashboard/profile');
+  });
+
+  it('allows locked users through when subscription access enforcement is disabled', () => {
+    subscriptionState.enforcementEnabled = false;
+    subscriptionState.subscription = {
+      billingStatus: 'past_due',
+      hasAccess: false,
+      needsPayment: true,
+    };
+    subscriptionState.billingStatus = 'past_due';
+    subscriptionState.hasAccess = false;
+    subscriptionState.needsPayment = true;
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard/leads']}>
+        <Routes>
+          <Route element={<SubscriptionAccessGuard />}>
+            <Route path="/dashboard/leads" element={<div>Leads page</div>} />
+            <Route path="/dashboard/billing" element={<div>Billing page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Leads page')).toBeInTheDocument();
+    expect(screen.queryByText('Billing page')).not.toBeInTheDocument();
   });
 });

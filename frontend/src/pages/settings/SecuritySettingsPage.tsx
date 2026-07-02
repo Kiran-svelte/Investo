@@ -1,19 +1,17 @@
 import React from 'react';
-import { AlertTriangle, KeyRound, RefreshCw, Shield, Users } from 'lucide-react';
+import { RefreshCw, Shield, Users } from 'lucide-react';
 import {
   getIdentitySettings,
   updateIdentitySettings,
   type CompanyIdentityConfig,
+  type PlatformIdentityFeatures,
 } from '../../services/identity';
 
 const SecuritySettingsPage: React.FC = () => {
   const [config, setConfig] = React.useState<CompanyIdentityConfig | null>(null);
-  const [allowedDomainsInput, setAllowedDomainsInput] = React.useState('');
+  const [platformFeatures, setPlatformFeatures] = React.useState<PlatformIdentityFeatures | null>(null);
   const [ipAllowlistInput, setIpAllowlistInput] = React.useState('');
   const [ipAllowlistEnabled, setIpAllowlistEnabled] = React.useState(false);
-  const [oidcIssuerInput, setOidcIssuerInput] = React.useState('');
-  const [oidcClientIdInput, setOidcClientIdInput] = React.useState('');
-  const [oidcClientSecretInput, setOidcClientSecretInput] = React.useState('');
   const [scimTokenPlain, setScimTokenPlain] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -25,13 +23,10 @@ const SecuritySettingsPage: React.FC = () => {
     setError(null);
     try {
       const data = await getIdentitySettings();
-      setConfig(data);
-      setAllowedDomainsInput(data.allowed_domains.join(', '));
-      setIpAllowlistInput(data.ip_allowlist.join(', '));
-      setIpAllowlistEnabled(data.ip_allowlist_enabled);
-      setOidcIssuerInput(data.sso_oidc_issuer || '');
-      setOidcClientIdInput(data.sso_oidc_client_id || '');
-      setOidcClientSecretInput('');
+      setConfig(data.config);
+      setPlatformFeatures(data.platformFeatures);
+      setIpAllowlistInput(data.config.ip_allowlist.join(', '));
+      setIpAllowlistEnabled(data.config.ip_allowlist_enabled);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load security settings');
     } finally {
@@ -49,34 +44,21 @@ const SecuritySettingsPage: React.FC = () => {
     setError(null);
     setMessage(null);
     try {
-      const allowed_domains = allowedDomainsInput
-        .split(',')
-        .map((value) => value.trim().toLowerCase())
-        .filter(Boolean);
       const ip_allowlist = ipAllowlistInput
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean);
       const result = await updateIdentitySettings({
-        sso_enabled: config.sso_enabled,
-        sso_provider: config.sso_provider,
-        sso_oidc_issuer: oidcIssuerInput.trim() || null,
-        sso_oidc_client_id: oidcClientIdInput.trim() || null,
-        sso_oidc_client_secret: oidcClientSecretInput.trim() || undefined,
         scim_enabled: config.scim_enabled,
         mfa_required: config.mfa_required,
         mfa_methods: config.mfa_methods,
-        allowed_domains,
         ip_allowlist_enabled: ipAllowlistEnabled,
         ip_allowlist,
       });
       setConfig(result.config);
-      setAllowedDomainsInput(result.config.allowed_domains.join(', '));
+      setPlatformFeatures(result.platformFeatures);
       setIpAllowlistInput(result.config.ip_allowlist.join(', '));
       setIpAllowlistEnabled(result.config.ip_allowlist_enabled);
-      setOidcIssuerInput(result.config.sso_oidc_issuer || '');
-      setOidcClientIdInput(result.config.sso_oidc_client_id || '');
-      setOidcClientSecretInput('');
       setMessage('Security settings saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
@@ -92,6 +74,7 @@ const SecuritySettingsPage: React.FC = () => {
     try {
       const result = await updateIdentitySettings({ rotate_scim_token: true, scim_enabled: true });
       setConfig(result.config);
+      setPlatformFeatures(result.platformFeatures);
       setScimTokenPlain(result.scim_token_plain);
       setMessage('New SCIM token generated. Copy it now — it will not be shown again.');
     } catch (err) {
@@ -121,7 +104,7 @@ const SecuritySettingsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-semibold text-ink-primary">Security & Identity</h1>
           <p className="mt-1 text-sm text-ink-muted">
-            Configure SSO, MFA policy, SCIM provisioning, and allowed email domains.
+            Configure MFA policy, SCIM provisioning, and office IP allowlist.
           </p>
         </div>
         <button
@@ -134,12 +117,21 @@ const SecuritySettingsPage: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
-        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-        <p className="text-sm">
-          Enterprise IAM features require platform flags (`FEATURE_SSO`, `FEATURE_MFA`, `FEATURE_SCIM`) on the backend.
-          Settings below take effect once those flags are enabled in your environment.
-        </p>
+      <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+        <Shield className="mt-0.5 h-5 w-5 shrink-0" />
+        <div className="text-sm">
+          <p className="font-semibold">Enterprise identity modules on this environment.</p>
+          {platformFeatures ? (
+            <p className="mt-1">
+              Platform: SSO {platformFeatures.sso ? 'on' : 'off'} | MFA {platformFeatures.mfa ? 'on' : 'off'} | SCIM {platformFeatures.scim ? 'on' : 'off'} | IP allowlist {platformFeatures.ip_allowlist ? 'on' : 'off'}
+            </p>
+          ) : null}
+          <p className="mt-1 text-emerald-800">
+            {platformFeatures?.sso
+              ? 'SSO is managed by the platform identity provider.'
+              : 'Staff sign in with email and password. SSO is not enabled on this environment.'}
+          </p>
+        </div>
       </div>
 
       {message ? (
@@ -164,87 +156,6 @@ const SecuritySettingsPage: React.FC = () => {
           />
           Require TOTP MFA for all users in this company
         </label>
-      </section>
-
-      <section className="rounded-xl border border-surface-border bg-white p-5">
-        <div className="flex items-center gap-2">
-          <KeyRound className="h-5 w-5 text-brand-700" />
-          <h2 className="text-lg font-semibold text-ink-primary">Single sign-on</h2>
-        </div>
-        <label className="mt-4 flex items-center gap-3 text-sm text-ink-secondary">
-          <input
-            type="checkbox"
-            checked={config.sso_enabled}
-            onChange={(event) => setConfig({ ...config, sso_enabled: event.target.checked })}
-          />
-          Enable company SSO
-        </label>
-        <div className="mt-4">
-          <label htmlFor="allowed-domains" className="block text-sm font-medium text-ink-secondary">
-            Allowed email domains (comma-separated)
-          </label>
-          <input
-            id="allowed-domains"
-            value={allowedDomainsInput}
-            onChange={(event) => setAllowedDomainsInput(event.target.value)}
-            className="investo-input mt-1.5"
-            placeholder="acme.com, acme.in"
-          />
-        </div>
-        <div className="mt-4 space-y-4 rounded-lg border border-surface-border bg-surface-muted p-4">
-          <p className="text-sm font-medium text-ink-primary">OIDC provider (Google Workspace, Okta, Azure AD)</p>
-          <p className="text-xs text-ink-muted">
-            Redirect URI for your IdP:
-            {' '}
-            <span className="font-mono break-all">
-              {(() => {
-                const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-                return apiBase ? `${apiBase}/auth/sso/callback` : 'https://<your-api-host>/api/auth/sso/callback';
-              })()}
-            </span>
-          </p>
-          <div>
-            <label htmlFor="oidc-issuer" className="block text-sm font-medium text-ink-secondary">
-              Issuer URL
-            </label>
-            <input
-              id="oidc-issuer"
-              value={oidcIssuerInput}
-              onChange={(event) => setOidcIssuerInput(event.target.value)}
-              className="investo-input mt-1.5"
-              placeholder="https://accounts.google.com or https://your-org.okta.com/oauth2/default"
-            />
-          </div>
-          <div>
-            <label htmlFor="oidc-client-id" className="block text-sm font-medium text-ink-secondary">
-              Client ID
-            </label>
-            <input
-              id="oidc-client-id"
-              value={oidcClientIdInput}
-              onChange={(event) => setOidcClientIdInput(event.target.value)}
-              className="investo-input mt-1.5"
-              placeholder="your-oauth-client-id"
-            />
-          </div>
-          <div>
-            <label htmlFor="oidc-client-secret" className="block text-sm font-medium text-ink-secondary">
-              Client secret
-            </label>
-            <input
-              id="oidc-client-secret"
-              type="password"
-              value={oidcClientSecretInput}
-              onChange={(event) => setOidcClientSecretInput(event.target.value)}
-              className="investo-input mt-1.5"
-              placeholder={config.has_oidc_client_secret ? 'Leave blank to keep existing secret' : 'Paste client secret'}
-              autoComplete="new-password"
-            />
-            {config.has_oidc_client_secret ? (
-              <p className="mt-1 text-xs text-emerald-700">Client secret is configured.</p>
-            ) : null}
-          </div>
-        </div>
       </section>
 
       <section className="rounded-xl border border-surface-border bg-white p-5">

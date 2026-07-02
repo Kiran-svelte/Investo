@@ -74,6 +74,12 @@ import { requireFeature } from './middleware/featureGate';
 import billingAdminRoutes from './routes/billing-admin.routes';
 import agencyInviteRoutes from './routes/agencyInvite.routes';
 import cashfreeWebhookRoutes from './routes/cashfreeWebhook.routes';
+import resendWebhookRoutes from './routes/resendWebhook.routes';
+import {
+  isSubscriptionAccessEnforcementEnabled,
+  isSubscriptionRecoveryPath,
+  requireActivePaidSubscription,
+} from './middleware/subscriptionEnforcement';
 
 const app = express();
 
@@ -108,14 +114,13 @@ app.use('/api/health', healthRoutes);
 app.use('/api/readiness', readinessRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/status', statusRoutes);
-app.use('/api/auth/sso', ssoRoutes);
-app.use('/api/auth/mfa', mfaRoutes);
-app.use('/scim/v2', scimRoutes);
 
 // Webhook routes (signature verified; light rate limit against abuse)
 app.use('/api/webhook', webhookRateLimiter, whatsappAiRateLimiter, webhookRoutes);
 // Cashfree payment webhook — separate from WhatsApp webhook, no IP restriction needed
 app.use('/api/webhooks/cashfree', webhookRateLimiter, cashfreeWebhookRoutes);
+// Resend delivery events require raw body signature verification before express.json().
+app.use('/api/webhooks/resend', webhookRateLimiter, resendWebhookRoutes);
 
 // Body parsing (for all non-webhook routes)
 app.use(cookieParser());
@@ -129,8 +134,32 @@ app.use(readOnlyMiddleware);
 // Global rate limiting (per user: 100 req/min)
 app.use('/api/', userRateLimiter);
 
+// Identity auth routes require parsed request bodies; keep them after express.json().
+app.use('/api/auth/sso', sensitiveRateLimiter, ssoRoutes);
+app.use('/api/auth/mfa', sensitiveRateLimiter, mfaRoutes);
+app.use('/scim/v2', scimRoutes);
+
 // Auth routes with stricter rate limiting for login
 app.use('/api/auth', sensitiveRateLimiter, authRoutes);
+
+// INVESTO-20260629-PAYMENT-LOCKOUT:
+// Expired billing tenants can reach billing/auth/recovery APIs only.
+// Normal tenant product APIs remain locked until subscription access is restored.
+app.use('/api', (req, res, next) => {
+  if (!isSubscriptionAccessEnforcementEnabled()) {
+    next();
+    return;
+  }
+
+  if (isSubscriptionRecoveryPath(req.path)) {
+    next();
+    return;
+  }
+
+  authenticate(req, res, () => {
+    void requireActivePaidSubscription(req, res, next);
+  });
+});
 
 // All protected routes: authenticate FIRST so company_id is available for
 // per-company rate limiters (companyRateLimiter keys on req.user.company_id).

@@ -50,30 +50,34 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
 
   if (input.method === 'invoice') {
     const invoiceId = await generateSubscriptionInvoice(input.companyId);
-    await activateSubscription(input.companyId, 'invoice');
-    await markInvoicePaid(invoiceId, `TRUST-INVOICE-${Date.now()}`, 'invoice');
-
     const payment = await prisma.payment.create({
       data: {
         companyId: input.companyId,
         subscriptionId: sub.id,
         invoiceId,
         amount: monthlyTotal,
-        status: 'success',
+        status: 'pending',
         method: 'invoice',
-        paidAt: new Date(),
-        metadata: { netDays: 30, trustBased: true },
+        metadata: {
+          netDays: 30,
+          awaitingPayment: true,
+          resolutionId: 'INVESTO-20260629-PAYMENT-LOCKOUT',
+        },
       },
     });
 
-    await logBillingEvent(input.companyId, 'checkout_invoice_trust', { invoiceId, paymentId: payment.id });
+    await logBillingEvent(input.companyId, 'checkout_invoice_requested', {
+      invoiceId,
+      paymentId: payment.id,
+      resolutionId: 'INVESTO-20260629-PAYMENT-LOCKOUT',
+    });
 
     return {
       paymentId: payment.id,
       invoiceId,
       amount: monthlyTotal,
       instructions:
-        'Your account is active. An invoice has been generated with Net 30 payment terms. Our team will follow up for payment.',
+        'Invoice generated with Net 30 terms. Access resumes after payment is received and confirmed.',
     };
   }
 
@@ -87,7 +91,7 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
         amount: monthlyTotal,
         status: 'pending',
         method: 'bank_transfer',
-        metadata: { awaitingTransfer: true },
+        metadata: { awaitingTransfer: true, resolutionId: 'INVESTO-20260629-PAYMENT-LOCKOUT' },
       },
     });
 
@@ -101,7 +105,6 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
   }
 
   const orderId = generateOrderId(input.companyId);
-  const invoiceId = await generateSubscriptionInvoice(input.companyId);
 
   const returnUrl = `${config.frontend.baseUrl}/dashboard/billing?order_id=${encodeURIComponent(orderId)}`;
   const notifyUrl = `${config.apiPublicUrl}/api/webhooks/cashfree`;
@@ -120,6 +123,11 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
     paymentMethods: paymentMethods ? [...paymentMethods] : ['card', 'upi', 'nb'],
   });
 
+  // INVESTO-20260629-CASHFREE-ACTIVATION:
+  // Do not create an invoice/payment row until Cashfree accepts the order.
+  // A disabled merchant account should not spam pending invoices on retries.
+  const invoiceId = await generateSubscriptionInvoice(input.companyId);
+
   const payment = await prisma.payment.create({
     data: {
       companyId: input.companyId,
@@ -129,7 +137,11 @@ export async function initiateCheckout(input: CheckoutInput): Promise<CheckoutRe
       status: 'pending',
       method: input.method,
       cashfreeOrderId: order.orderId,
-      metadata: { paymentSessionId: order.paymentSessionId, devMode: order.devMode },
+      metadata: {
+        paymentSessionId: order.paymentSessionId,
+        devMode: order.devMode,
+        resolutionId: 'INVESTO-20260629-CASHFREE-ACTIVATION',
+      },
     },
   });
 

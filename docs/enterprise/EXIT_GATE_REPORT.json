@@ -1,62 +1,55 @@
 {
   "ready": false,
-  "generated_at": "2026-06-17T06:42:46.129Z",
-  "finished_at": "2026-06-17T06:44:11.823Z",
+  "generated_at": "2026-06-26T10:48:47.900Z",
   "base_url": "https://investo-backend-production.up.railway.app",
-  "run_k6": false,
+  "source_of_truth": "enterprise-readiness-reset",
+  "definition_of_done": "Multiple companies, multiple users, role paths, tenant isolation, mail/onboarding, billing, and live Railway/Vercel proof must pass together.",
   "chunks_complete": false,
   "gates": [
     {
-      "id": "load",
+      "id": "invite_onboarding",
       "passed": true,
-      "detail": "k6 script present at infra/k6/load-test.js"
+      "detail": "Production accepted-only proof proof-mqut1k9d created two companies, accepted both public invites, logged both admins in, created sales_agent, operations, and viewer users per company, and cleaned up synthetic data."
     },
     {
-      "id": "reliability",
+      "id": "mail_delivery",
       "passed": false,
-      "detail": "fetch failed"
+      "detail": "Resend accepted invite and forgot-password sends in proof-mqut1k9d, and webhook tracking is deployed at /api/webhooks/resend. Strict delivery-event proof remains blocked because production RESEND_API_KEY is send-only and RESEND_WEBHOOK_SECRET is not configured."
     },
     {
-      "id": "isolation",
+      "id": "platform_admin_tenant_scope",
       "passed": true,
-      "detail": "src/tests/integration/tenantIsolation.matrix.test.ts passed"
+      "detail": "NotificationBell and Copilot super-admin no-tenant regressions passed locally; production proof proof-mqut1k9d verified super_admin tenant routes reject missing target_company_id and allow explicit target_company_id."
     },
     {
-      "id": "iam",
+      "id": "tenant_isolation",
       "passed": true,
-      "detail": "MFA + SSO unit tests passed"
+      "detail": "Tenant isolation matrix passed locally, and production proof-mqut1k9d blocked cross-company user reads plus ignored non-super-admin target_company_id overrides."
     },
     {
-      "id": "compliance",
+      "id": "role_matrix",
       "passed": true,
-      "detail": "src/tests/unit/dsr.service.test.ts passed"
+      "detail": "Production proof proof-mqut1k9d covered super_admin, company_admin, sales_agent, operations, and viewer creation/login/access checks."
     },
     {
-      "id": "observability",
+      "id": "enterprise_identity",
+      "passed": true,
+      "detail": "SSO test callback auth-bypass remains fixed; Keycloak SSO config/start smoke passed 4/4; browser SSO callback returned to https://biginvesto.online/auth/sso/complete; production proof proof-mqut1k9d verified MFA enrollment/login enforcement plus SCIM list/create/deactivate/delete."
+    },
+    {
+      "id": "production_proof",
       "passed": false,
-      "detail": "Status API disabled (FEATURE_PUBLIC_STATUS_API=false) — enable for exit gate"
-    },
-    {
-      "id": "integrations",
-      "passed": false,
-      "detail": "src/tests/unit/apiKey.service.test.ts passed; public API health HTTP 404"
-    },
-    {
-      "id": "ai_governance",
-      "passed": true,
-      "detail": "src/tests/unit/aiReviewQueue.service.test.ts passed"
-    },
-    {
-      "id": "support",
-      "passed": true,
-      "detail": "src/tests/unit/impersonation.service.test.ts passed"
+      "detail": "Railway deployment 807c584b-26e9-43d5-91d2-9abeb692e9eb is live at commit 8471cc2c8e88b7aebe4810a0bb998dc7d76968a7; Vercel deployment dpl_7E2A2yU3jhTM7cahv6CtLaqoW4Yv is aliased to biginvesto.online; backend smoke, Keycloak SSO smoke, browser SSO callback, and accepted-mail enterprise proof passed. Strict email delivery-event proof remains blocked."
     }
   ],
   "failed_gates": [
-    "reliability",
-    "observability",
-    "integrations",
-    "chunks_incomplete"
+    "mail_delivery",
+    "production_proof"
   ],
-  "chunk_status_path": "docs/enterprise/CHUNK_STATUS.json"
+  "chunk_status_path": "docs/enterprise/CHUNK_STATUS.json",
+  "notes": [
+    "This report intentionally supersedes the previous ready=true artifact.",
+    "Do not set ready=true from documentation alone; regenerate from live automated and production evidence.",
+    "To unblock strict mail proof, add RESEND_WEBHOOK_SECRET in Railway, register https://investo-backend-production.up.railway.app/api/webhooks/resend in Resend, or provide a read-capable RESEND_READ_API_KEY for the proof runner."
+  ]
 }

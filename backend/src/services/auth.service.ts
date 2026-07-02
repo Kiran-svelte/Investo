@@ -8,6 +8,7 @@ import { provisionNeonIdentity } from './identityProvisioning.service';
 import { assertStaffPhoneAvailable } from '../utils/staffPhoneUniqueness';
 import { requiresStaffPhone, STAFF_PHONE_REQUIRED_MESSAGE } from '../constants/staffPhonePolicy';
 import { syncKeycloakUser } from '../identity/keycloak/keycloakAdmin.service';
+import { canAuthenticateCompanyForBillingRecovery } from '../utils/paymentRecoveryAccess';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -126,9 +127,13 @@ export class AuthService {
 
     if (user.role !== 'super_admin') {
       const company = await prisma.company.findFirst({
-        where: { id: user.companyId, status: 'active' },
+        where: { id: user.companyId },
+        select: {
+          status: true,
+          subscription: { select: { billingStatus: true } },
+        },
       });
-      if (!company) {
+      if (!canAuthenticateCompanyForBillingRecovery(company)) {
         throw new Error('Company is inactive');
       }
     }
@@ -171,9 +176,13 @@ export class AuthService {
 
     if (user.role !== 'super_admin') {
       const company = await prisma.company.findFirst({
-        where: { id: user.companyId, status: 'active' },
+        where: { id: user.companyId },
+        select: {
+          status: true,
+          subscription: { select: { billingStatus: true } },
+        },
       });
-      if (!company) {
+      if (!canAuthenticateCompanyForBillingRecovery(company)) {
         throw new Error('Company is inactive');
       }
     }

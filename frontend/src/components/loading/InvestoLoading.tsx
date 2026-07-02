@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from '../../lib/motion';
 import { Loader2, LogOut, Sparkles, LayoutDashboard, Shield } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import InvestoLogo from '../brand/InvestoLogo';

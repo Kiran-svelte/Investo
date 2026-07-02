@@ -1,0 +1,553 @@
+{
+  "ready": false,
+  "generated_at": "2026-06-27T04:31:45.279Z",
+  "summary": "Big Investo is only enterprise-ready when live proof, repo hygiene, product UX, tenant isolation, mail delivery, identity, billing, workflows, and operations pass together. This audit intentionally blocks readiness on any open P0/P1 full-stack gap.",
+  "inputs": {
+    "exit_gate_report": "docs/enterprise/EXIT_GATE_REPORT.json",
+    "chunk_status": "docs/enterprise/CHUNK_STATUS.json",
+    "exit_gate_ready": false,
+    "exit_gate_failed_gates": [
+      "mail_delivery",
+      "production_proof"
+    ],
+    "chunk_status_exit_ready": false,
+    "in_progress_chunks": [],
+    "backend_test_count": 257,
+    "frontend_e2e_count": 7,
+    "tracked_generated_artifact_count": 47459,
+    "dirty_generated_artifact_count": 183,
+    "tokenized_remote_count": 0,
+    "tracked_secret_pattern_count": 0
+  },
+  "domains": [
+    {
+      "id": "market_fde_operating_model",
+      "name": "Market and FDE operating model",
+      "stance": "upgrade",
+      "score": 67,
+      "status": "blocked",
+      "keep": [
+        "Real buyer/agency workflows and role journeys as the product spine."
+      ],
+      "remove": [
+        "Vague readiness claims and docs-only readiness."
+      ],
+      "upgrade": [
+        "Add per-ICP market proof: paid pilot, onboarding time, first-value time, retained usage, and support burden."
+      ],
+      "checks": [
+        {
+          "id": "market_docs",
+          "passed": true,
+          "severity": "pass",
+          "message": "Market/role docs exist.",
+          "action": "Keep the ICP, journey, and buyer proof docs current."
+        },
+        {
+          "id": "production_proof_runner",
+          "passed": true,
+          "severity": "pass",
+          "message": "Production proof runner exists.",
+          "action": "Maintain it as the source for live proof."
+        },
+        {
+          "id": "market_ready_truth",
+          "passed": false,
+          "severity": "blocker",
+          "message": "Readiness report is not ready=true.",
+          "action": "Do not sell as enterprise-ready until all gates pass live."
+        }
+      ],
+      "blockers": [
+        "Readiness report is not ready=true."
+      ],
+      "warnings": []
+    },
+    {
+      "id": "frontend_ux_workflows",
+      "name": "Frontend UX, role paths, and workflow coverage",
+      "stance": "upgrade",
+      "score": 100,
+      "status": "keep",
+      "keep": [
+        "Role-specific flows and invite journey E2E coverage."
+      ],
+      "remove": [
+        "Decorative or marketing-first screens that hide the actual CRM workflow."
+      ],
+      "upgrade": [
+        "Add Playwright suites for platform admin no-tenant state, tenant-selected state, company admin, sales agent, operations, viewer, mobile."
+      ],
+      "checks": [
+        {
+          "id": "frontend_package",
+          "passed": true,
+          "severity": "pass",
+          "message": "Frontend package exists.",
+          "action": "Keep buildable Vite app."
+        },
+        {
+          "id": "frontend_e2e_depth",
+          "passed": true,
+          "severity": "pass",
+          "message": "Frontend E2E specs discovered: 7.",
+          "action": "Add role-by-role and mobile visual proofs for admin/staff/viewer flows."
+        },
+        {
+          "id": "invite_e2e",
+          "passed": true,
+          "severity": "pass",
+          "message": "Invite user journey E2E exists.",
+          "action": "Keep invite onboarding under E2E."
+        }
+      ],
+      "blockers": [],
+      "warnings": []
+    },
+    {
+      "id": "backend_domain_integrity",
+      "name": "Backend domain integrity and tenant isolation",
+      "stance": "keep",
+      "score": 100,
+      "status": "keep",
+      "keep": [
+        "Company-scoped APIs, explicit super-admin target context, and production role proof."
+      ],
+      "remove": [
+        "Implicit tenant scoping and generic 500s in business workflows."
+      ],
+      "upgrade": [
+        "Expand matrix from users into leads, analytics, conversations, visits, billing, notifications, and property imports."
+      ],
+      "checks": [
+        {
+          "id": "backend_package",
+          "passed": true,
+          "severity": "pass",
+          "message": "Backend package exists.",
+          "action": "Keep backend build and smoke gates."
+        },
+        {
+          "id": "backend_test_depth",
+          "passed": true,
+          "severity": "pass",
+          "message": "Backend tests discovered: 257.",
+          "action": "Keep expanding contract and isolation tests."
+        },
+        {
+          "id": "tenant_isolation_gate",
+          "passed": true,
+          "severity": "pass",
+          "message": "Tenant isolation gate is passing in current report.",
+          "action": "Block release on any tenant isolation regression."
+        },
+        {
+          "id": "role_matrix_gate",
+          "passed": true,
+          "severity": "pass",
+          "message": "Role matrix gate is passing in current report.",
+          "action": "Block release on role matrix regression."
+        }
+      ],
+      "blockers": [],
+      "warnings": []
+    },
+    {
+      "id": "ai_whatsapp_workflows",
+      "name": "AI, WhatsApp, and workflow reliability",
+      "stance": "upgrade",
+      "score": 100,
+      "status": "keep",
+      "keep": [
+        "Single-reply contract, takeover-safe behavior, and smoke-tested buyer scenarios."
+      ],
+      "remove": [
+        "Manual-only WhatsApp confidence and hidden delivery failures."
+      ],
+      "upgrade": [
+        "Add queue/worker proofs, idempotency dashboards, and per-tenant WhatsApp credential isolation evidence."
+      ],
+      "checks": [
+        {
+          "id": "handset_scenarios",
+          "passed": true,
+          "severity": "pass",
+          "message": "Physical handset scenario script exists.",
+          "action": "Run with real device evidence before pilot claims."
+        },
+        {
+          "id": "e2e_handset_proof",
+          "passed": true,
+          "severity": "pass",
+          "message": "E2E handset proof script exists.",
+          "action": "Keep buyer/staff WhatsApp proof separate from synthetic tests."
+        },
+        {
+          "id": "smoke_script",
+          "passed": true,
+          "severity": "pass",
+          "message": "Critical path smoke script exists.",
+          "action": "Run it before every release."
+        }
+      ],
+      "blockers": [],
+      "warnings": []
+    },
+    {
+      "id": "mail_onboarding_delivery",
+      "name": "Mail, onboarding, and invite delivery",
+      "stance": "block",
+      "score": 67,
+      "status": "blocked",
+      "keep": [
+        "Accepted-send tracking, webhook ingestion, resend/retry UI."
+      ],
+      "remove": [
+        "UI copy that says email sent when provider did not accept the message."
+      ],
+      "upgrade": [
+        "Finish delivery-event proof: delivered, bounced, delayed, suppressed, failed, resend retry."
+      ],
+      "checks": [
+        {
+          "id": "strict_mail_delivery",
+          "passed": false,
+          "severity": "blocker",
+          "message": "Strict mail delivery gate is not passing.",
+          "action": "Configure Resend webhook secret or read-capable audit key, then rerun proof."
+        },
+        {
+          "id": "invite_proof",
+          "passed": true,
+          "severity": "pass",
+          "message": "Invite production proof runner exists.",
+          "action": "Keep invite create/accept/resend in production proof."
+        },
+        {
+          "id": "resend_webhook_route",
+          "passed": true,
+          "severity": "pass",
+          "message": "Resend webhook route exists.",
+          "action": "Register the production webhook and validate Svix signatures live."
+        }
+      ],
+      "blockers": [
+        "Strict mail delivery gate is not passing."
+      ],
+      "warnings": []
+    },
+    {
+      "id": "identity_security_compliance",
+      "name": "Identity, security, and compliance",
+      "stance": "keep",
+      "score": 100,
+      "status": "keep",
+      "keep": [
+        "Keycloak SSO, MFA, SCIM, DR, incident, and on-call runbooks."
+      ],
+      "remove": [
+        "Production test SSO callback paths and any tokenized secrets in code/remotes."
+      ],
+      "upgrade": [
+        "Add security regression tests for IP allowlist, DSR, audit logs, token rotation, and incident drills."
+      ],
+      "checks": [
+        {
+          "id": "identity_gate",
+          "passed": true,
+          "severity": "pass",
+          "message": "Enterprise identity gate is passing in current report.",
+          "action": "Keep SSO/MFA/SCIM proof live."
+        },
+        {
+          "id": "sso_routes",
+          "passed": true,
+          "severity": "pass",
+          "message": "SSO routes exist.",
+          "action": "Do not remove SSO routes while FEATURE_SSO=true."
+        },
+        {
+          "id": "mfa_routes",
+          "passed": true,
+          "severity": "pass",
+          "message": "MFA routes exist.",
+          "action": "Keep MFA route order behind JSON parser."
+        },
+        {
+          "id": "scim_routes",
+          "passed": true,
+          "severity": "pass",
+          "message": "SCIM routes exist.",
+          "action": "Keep SCIM externalId lookup safe."
+        },
+        {
+          "id": "runbooks",
+          "passed": true,
+          "severity": "pass",
+          "message": "Incident, DR, and on-call runbooks exist.",
+          "action": "Update with latest Railway/Vercel/Keycloak/Resend operating steps."
+        }
+      ],
+      "blockers": [],
+      "warnings": []
+    },
+    {
+      "id": "billing_commercial_ops",
+      "name": "Billing and commercial operations",
+      "stance": "upgrade",
+      "score": 100,
+      "status": "keep",
+      "keep": [
+        "Agency invite billing model and platform admin billing surface."
+      ],
+      "remove": [
+        "Manual spreadsheet billing as the operating system."
+      ],
+      "upgrade": [
+        "Add live proof for subscription state transitions, invoices, payment failures, and tenant suspension UX."
+      ],
+      "checks": [
+        {
+          "id": "billing_gate",
+          "passed": true,
+          "severity": "pass",
+          "message": "No explicit billing failed gate in current report.",
+          "action": "Add billing proof instead of relying on absence of failure."
+        },
+        {
+          "id": "billing_admin_routes",
+          "passed": true,
+          "severity": "pass",
+          "message": "Billing admin routes exist.",
+          "action": "Prove billing status, past due, suspend/reactivate, and invoice flows."
+        },
+        {
+          "id": "admin_billing_ui",
+          "passed": true,
+          "severity": "pass",
+          "message": "Admin UI area exists.",
+          "action": "Add billing UI E2E coverage and empty/error states."
+        }
+      ],
+      "blockers": [],
+      "warnings": []
+    },
+    {
+      "id": "observability_operations",
+      "name": "Observability, operations, and reliability",
+      "stance": "upgrade",
+      "score": 100,
+      "status": "keep",
+      "keep": [
+        "Smoke, synthetic monitor, health endpoints, and on-call docs."
+      ],
+      "remove": [
+        "Readiness reports that drift from live deployments."
+      ],
+      "upgrade": [
+        "Add Grafana/status-page/on-call proof, RTO/RPO drills, and SLO alert evidence."
+      ],
+      "checks": [
+        {
+          "id": "smoke_gate",
+          "passed": true,
+          "severity": "pass",
+          "message": "Smoke gate exists.",
+          "action": "Keep smoke as a release gate."
+        },
+        {
+          "id": "synthetic_monitor",
+          "passed": true,
+          "severity": "pass",
+          "message": "Synthetic monitor script exists.",
+          "action": "Run on schedule and alert on failure."
+        },
+        {
+          "id": "on_call_doc",
+          "passed": true,
+          "severity": "pass",
+          "message": "On-call doc exists.",
+          "action": "Back it with live schedule and escalation proof."
+        },
+        {
+          "id": "fresh_evidence",
+          "passed": true,
+          "severity": "pass",
+          "message": "Exit gate report is fresh within 7 days.",
+          "action": "Regenerate evidence after every runtime or env change."
+        }
+      ],
+      "blockers": [],
+      "warnings": []
+    },
+    {
+      "id": "repo_deploy_hygiene",
+      "name": "Repository and deploy hygiene",
+      "stance": "block",
+      "score": 60,
+      "status": "blocked",
+      "keep": [
+        "Source, migrations, tests, docs, and environment examples."
+      ],
+      "remove": [
+        "Tracked .env, build outputs, node_modules, caches, tokenized remotes, and stale readiness artifacts."
+      ],
+      "upgrade": [
+        "Add CI job for this audit, dependency install from lockfiles, and clean deploy source checks."
+      ],
+      "checks": [
+        {
+          "id": "tracked_artifacts",
+          "passed": false,
+          "severity": "blocker",
+          "message": "Tracked generated/vendor/env artifacts: 47459.",
+          "action": "Run npm run repo:untrack-generated -- --apply in a git-writable environment, then commit the removals."
+        },
+        {
+          "id": "dirty_artifacts",
+          "passed": false,
+          "severity": "blocker",
+          "message": "Dirty generated/vendor/env artifacts: 183.",
+          "action": "Do not commit generated artifacts; run npm run repo:untrack-generated -- --apply and keep local artifacts ignored."
+        },
+        {
+          "id": "tokenized_remotes",
+          "passed": true,
+          "severity": "pass",
+          "message": "Tokenized/suspicious remotes: 0.",
+          "action": "Use clean remotes only."
+        },
+        {
+          "id": "tracked_secret_patterns",
+          "passed": true,
+          "severity": "pass",
+          "message": "Tracked files with secret-like patterns: 0.",
+          "action": "Rotate leaked credentials and purge tracked secrets."
+        },
+        {
+          "id": "stale_chunk_status",
+          "passed": true,
+          "severity": "pass",
+          "message": "CHUNK_STATUS is not older than EXIT_GATE_REPORT.",
+          "action": "Regenerate or deprecate stale chunk readiness artifacts."
+        }
+      ],
+      "blockers": [
+        "Tracked generated/vendor/env artifacts: 47459.",
+        "Dirty generated/vendor/env artifacts: 183."
+      ],
+      "warnings": []
+    }
+  ],
+  "blockers": [
+    {
+      "id": "market_ready_truth",
+      "passed": false,
+      "severity": "blocker",
+      "message": "Readiness report is not ready=true.",
+      "action": "Do not sell as enterprise-ready until all gates pass live."
+    },
+    {
+      "id": "strict_mail_delivery",
+      "passed": false,
+      "severity": "blocker",
+      "message": "Strict mail delivery gate is not passing.",
+      "action": "Configure Resend webhook secret or read-capable audit key, then rerun proof."
+    },
+    {
+      "id": "tracked_artifacts",
+      "passed": false,
+      "severity": "blocker",
+      "message": "Tracked generated/vendor/env artifacts: 47459.",
+      "action": "Run npm run repo:untrack-generated -- --apply in a git-writable environment, then commit the removals."
+    },
+    {
+      "id": "dirty_artifacts",
+      "passed": false,
+      "severity": "blocker",
+      "message": "Dirty generated/vendor/env artifacts: 183.",
+      "action": "Do not commit generated artifacts; run npm run repo:untrack-generated -- --apply and keep local artifacts ignored."
+    }
+  ],
+  "warnings": [],
+  "next_moves": [
+    {
+      "severity": "blocker",
+      "id": "market_ready_truth",
+      "action": "Do not sell as enterprise-ready until all gates pass live."
+    },
+    {
+      "severity": "blocker",
+      "id": "strict_mail_delivery",
+      "action": "Configure Resend webhook secret or read-capable audit key, then rerun proof."
+    },
+    {
+      "severity": "blocker",
+      "id": "tracked_artifacts",
+      "action": "Run npm run repo:untrack-generated -- --apply in a git-writable environment, then commit the removals."
+    },
+    {
+      "severity": "blocker",
+      "id": "dirty_artifacts",
+      "action": "Do not commit generated artifacts; run npm run repo:untrack-generated -- --apply and keep local artifacts ignored."
+    }
+  ],
+  "samples": {
+    "tracked_generated_artifacts": [
+      "backend/.env",
+      "backend/dist/app.d.ts",
+      "backend/dist/app.d.ts.map",
+      "backend/dist/app.js",
+      "backend/dist/app.js.map",
+      "backend/dist/config/bootstrapDatabase.d.ts",
+      "backend/dist/config/bootstrapDatabase.d.ts.map",
+      "backend/dist/config/bootstrapDatabase.js",
+      "backend/dist/config/bootstrapDatabase.js.map",
+      "backend/dist/config/database.d.ts",
+      "backend/dist/config/database.d.ts.map",
+      "backend/dist/config/database.js",
+      "backend/dist/config/database.js.map",
+      "backend/dist/config/index.d.ts",
+      "backend/dist/config/index.d.ts.map",
+      "backend/dist/config/index.js",
+      "backend/dist/config/index.js.map",
+      "backend/dist/config/logger.d.ts",
+      "backend/dist/config/logger.d.ts.map",
+      "backend/dist/config/logger.js",
+      "backend/dist/config/logger.js.map",
+      "backend/dist/config/migrate.d.ts",
+      "backend/dist/config/migrate.d.ts.map",
+      "backend/dist/config/migrate.js",
+      "backend/dist/config/migrate.js.map"
+    ],
+    "dirty_generated_artifacts": [
+      "backend/.env",
+      "backend/dist/app.js",
+      "backend/dist/config/bootstrapDatabase.js",
+      "backend/dist/config/index.js",
+      "backend/dist/config/prisma.js",
+      "backend/dist/config/redis.js",
+      "backend/dist/constants/agent-ai.constants.js",
+      "backend/dist/middleware/subscriptionEnforcement.js",
+      "backend/dist/models/validation.js",
+      "backend/dist/routes/analytics.routes.js",
+      "backend/dist/routes/auth.routes.js",
+      "backend/dist/routes/company.routes.js",
+      "backend/dist/routes/conversation.routes.js",
+      "backend/dist/routes/health.routes.js",
+      "backend/dist/routes/invoice.routes.js",
+      "backend/dist/routes/onboarding.routes.js",
+      "backend/dist/routes/subscription.routes.js",
+      "backend/dist/routes/user.routes.js",
+      "backend/dist/routes/webhook.routes.js",
+      "backend/dist/server.js",
+      "backend/dist/services/agent/agent-router.service.js",
+      "backend/dist/services/agent/cron-scheduler.service.js",
+      "backend/dist/services/agent/tools/lead-tools.js",
+      "backend/dist/services/auth.service.js",
+      "backend/dist/services/automation.service.js"
+    ],
+    "tokenized_remotes": [],
+    "tracked_secret_pattern_files": []
+  }
+}

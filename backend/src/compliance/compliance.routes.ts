@@ -3,6 +3,7 @@ import { Router, Response } from 'express';
 import config from '../config';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { hasRole } from '../middleware/rbac';
+import { getCompanyId, strictTenantIsolation } from '../middleware/tenant';
 import { dsrService } from './dsr.service';
 import { retentionService } from './retention.service';
 import { legalHoldService } from './legalHold.service';
@@ -11,6 +12,8 @@ import { dpaService } from './dpa.service';
 const router = Router();
 
 router.use(authenticate);
+router.use(hasRole('company_admin', 'super_admin'));
+router.use(strictTenantIsolation);
 
 function featureDisabled(res: Response): boolean {
   if (
@@ -45,7 +48,7 @@ function serializeRetentionPolicy(policy: Record<string, unknown>) {
   };
 }
 
-router.get('/status', hasRole('company_admin', 'super_admin'), (_req: AuthRequest, res: Response) => {
+router.get('/status', (_req: AuthRequest, res: Response) => {
   res.json({
     dsr: config.features.dsr === true,
     retention: config.features.complianceRetention === true,
@@ -54,12 +57,12 @@ router.get('/status', hasRole('company_admin', 'super_admin'), (_req: AuthReques
   });
 });
 
-router.get('/dsr', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+router.get('/dsr', async (req: AuthRequest, res: Response) => {
   if (!config.features.dsr) {
     res.status(503).json({ error: 'FEATURE_DSR is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -68,12 +71,12 @@ router.get('/dsr', hasRole('company_admin', 'super_admin'), async (req: AuthRequ
   res.json({ requests });
 });
 
-router.post('/dsr', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+router.post('/dsr', async (req: AuthRequest, res: Response) => {
   if (!config.features.dsr) {
     res.status(503).json({ error: 'FEATURE_DSR is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   const userId = req.user?.id;
   if (!companyId || !userId) {
     res.status(400).json({ error: 'Company context required' });
@@ -100,12 +103,12 @@ router.post('/dsr', hasRole('company_admin', 'super_admin'), async (req: AuthReq
   }
 });
 
-router.post('/dsr/:id/process', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+router.post('/dsr/:id/process', async (req: AuthRequest, res: Response) => {
   if (!config.features.dsr) {
     res.status(503).json({ error: 'FEATURE_DSR is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -136,9 +139,9 @@ router.post('/dsr/:id/process', hasRole('company_admin', 'super_admin'), async (
   }
 });
 
-router.get('/retention', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+router.get('/retention', async (req: AuthRequest, res: Response) => {
   if (featureDisabled(res)) return;
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -147,12 +150,12 @@ router.get('/retention', hasRole('company_admin', 'super_admin'), async (req: Au
   res.json({ policy: serializeRetentionPolicy(policy as Record<string, unknown>) });
 });
 
-router.put('/retention', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+router.put('/retention', async (req: AuthRequest, res: Response) => {
   if (!config.features.complianceRetention) {
     res.status(503).json({ error: 'FEATURE_COMPLIANCE_RETENTION is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -161,8 +164,8 @@ router.put('/retention', hasRole('company_admin', 'super_admin'), async (req: Au
   res.json({ policy: serializeRetentionPolicy(policy as Record<string, unknown>) });
 });
 
-router.get('/legal-holds', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+router.get('/legal-holds', async (req: AuthRequest, res: Response) => {
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -171,12 +174,12 @@ router.get('/legal-holds', hasRole('company_admin', 'super_admin'), async (req: 
   res.json({ holds });
 });
 
-router.post('/legal-holds', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+router.post('/legal-holds', async (req: AuthRequest, res: Response) => {
   if (!config.features.complianceLegalHold) {
     res.status(503).json({ error: 'FEATURE_COMPLIANCE_LEGAL_HOLD is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   const userId = req.user?.id;
   if (!companyId || !userId) {
     res.status(400).json({ error: 'Company context required' });
@@ -197,8 +200,8 @@ router.post('/legal-holds', hasRole('company_admin', 'super_admin'), async (req:
   res.status(201).json({ hold });
 });
 
-router.post('/legal-holds/:id/release', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+router.post('/legal-holds/:id/release', async (req: AuthRequest, res: Response) => {
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;
@@ -207,12 +210,12 @@ router.post('/legal-holds/:id/release', hasRole('company_admin', 'super_admin'),
   res.json({ released: true });
 });
 
-router.post('/dpa/accept', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+router.post('/dpa/accept', async (req: AuthRequest, res: Response) => {
   if (!config.features.complianceDpa) {
     res.status(503).json({ error: 'FEATURE_COMPLIANCE_DPA is disabled' });
     return;
   }
-  const companyId = req.user?.company_id;
+  const companyId = getCompanyId(req);
   const userId = req.user?.id;
   if (!companyId || !userId) {
     res.status(400).json({ error: 'Company context required' });
@@ -222,8 +225,8 @@ router.post('/dpa/accept', hasRole('company_admin', 'super_admin'), async (req: 
   res.status(201).json({ acceptance });
 });
 
-router.get('/dpa/status', hasRole('company_admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
-  const companyId = req.user?.company_id;
+router.get('/dpa/status', async (req: AuthRequest, res: Response) => {
+  const companyId = getCompanyId(req);
   if (!companyId) {
     res.status(400).json({ error: 'Company context required' });
     return;

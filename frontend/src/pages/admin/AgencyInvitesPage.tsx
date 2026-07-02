@@ -32,7 +32,29 @@ import {
   Users,
 } from 'lucide-react';
 import api from '../../services/api';
+import { RESOLUTION_IDS } from '../../constants/resolutionIds';
 import { getApiErrorMessage } from '../../utils/apiErrorMessage';
+
+interface InviteEmailDelivery {
+  status:
+    | 'pending'
+    | 'sent'
+    | 'delivered'
+    | 'delivery_delayed'
+    | 'failed'
+    | 'bounced'
+    | 'complained'
+    | 'suppressed'
+    | 'opened'
+    | 'clicked';
+  sent: boolean;
+  reason?: string;
+  messageId?: string | null;
+  lastAttemptAt?: string | null;
+  sentAt?: string | null;
+  deliveredAt?: string | null;
+  lastEventAt?: string | null;
+}
 
 interface AgencyInvite {
   id: string;
@@ -43,6 +65,16 @@ interface AgencyInvite {
   companyId: string | null;
   negotiatedMonthlyPrice: number | null;
   inviteUrl: string;
+  emailDelivery?: InviteEmailDelivery;
+}
+
+interface CreateInviteResponse {
+  data: {
+    id: string;
+    inviteUrl: string;
+    emailDelivery: InviteEmailDelivery;
+  };
+  warning?: string;
 }
 
 interface CompanyBillingOverview {
@@ -126,6 +158,63 @@ const DEFAULT_INVITE_FORM: CreateInviteForm = {
   notes: '',
 };
 
+const DEFAULT_SUBSCRIPTION_PRICE = '12999';
+
+function renderEmailDeliveryBadge(delivery?: InviteEmailDelivery): React.ReactElement {
+  const status = delivery?.status || 'pending';
+  if (status === 'delivered' || status === 'opened' || status === 'clicked') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-700"
+        title={delivery?.deliveredAt ? `Delivered ${formatDate(delivery.deliveredAt)}` : undefined}
+      >
+        <CheckCircle className="h-3 w-3" /> Delivered
+      </span>
+    );
+  }
+  if (status === 'sent') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700">
+        <CheckCircle className="h-3 w-3" /> Accepted
+      </span>
+    );
+  }
+  if (status === 'delivery_delayed') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700">
+        <Clock className="h-3 w-3" /> Delayed
+      </span>
+    );
+  }
+  if (['failed', 'bounced', 'complained', 'suppressed'].includes(status)) {
+    const label =
+      status === 'bounced'
+        ? 'Bounced'
+        : status === 'suppressed'
+          ? 'Suppressed'
+          : status === 'complained'
+            ? 'Complaint'
+            : 'Failed';
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
+        title={delivery?.reason || 'Email delivery failed'}
+      >
+        <AlertCircle className="h-3 w-3" /> {label}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">
+      <Clock className="h-3 w-3" /> Pending
+    </span>
+  );
+}
+
+function canResendInvite(delivery?: InviteEmailDelivery): boolean {
+  return !delivery || !['sent', 'delivered', 'opened', 'clicked'].includes(delivery.status);
+}
+
 const AgencyInvitesPage: React.FC = () => {
   const [invites, setInvites] = useState<AgencyInvite[]>([]);
   const [billing, setBilling] = useState<CompanyBillingOverview[]>([]);
@@ -140,7 +229,11 @@ const AgencyInvitesPage: React.FC = () => {
   const [createFormErrors, setCreateFormErrors] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [lastCreatedInviteUrl, setLastCreatedInviteUrl] = useState<string | null>(null);
+  const [lastCreatedInvite, setLastCreatedInvite] = useState<{
+    inviteUrl: string;
+    emailDelivery: InviteEmailDelivery;
+    warning?: string;
+  } | null>(null);
 
   // Update price modal
   const [updatingPriceFor, setUpdatingPriceFor] = useState<CompanyBillingOverview | null>(null);
@@ -150,6 +243,7 @@ const AgencyInvitesPage: React.FC = () => {
 
   // Action loading states
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
 
   const loadInvites = useCallback(async () => {
     setLoadingInvites(true);
@@ -220,14 +314,31 @@ const AgencyInvitesPage: React.FC = () => {
         payload.notes = createForm.notes.trim();
       }
 
-      const res = await api.post<{ data: { inviteUrl: string } }>('/agency-invites', payload);
-      setLastCreatedInviteUrl(res.data.data.inviteUrl);
+      const res = await api.post<CreateInviteResponse>('/agency-invites', payload);
+      setLastCreatedInvite({
+        inviteUrl: res.data.data.inviteUrl,
+        emailDelivery: res.data.data.emailDelivery,
+        warning: res.data.warning,
+      });
       setCreateForm(DEFAULT_INVITE_FORM);
       void loadInvites();
     } catch (err) {
       setCreateError(getApiErrorMessage(err, 'Failed to create invite.'));
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleResendInvite = async (inviteId: string) => {
+    setResendingInviteId(inviteId);
+    setPageError(null);
+    try {
+      await api.post(`/agency-invites/${inviteId}/resend`);
+      await loadInvites();
+    } catch (err) {
+      setPageError(getApiErrorMessage(err, 'Failed to resend invite email.'));
+    } finally {
+      setResendingInviteId(null);
     }
   };
 
@@ -288,7 +399,7 @@ const AgencyInvitesPage: React.FC = () => {
   };
 
   return (
-    <div className="investo-page space-y-6">
+    <div className="investo-page space-y-6" data-resolution-id={RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -302,7 +413,7 @@ const AgencyInvitesPage: React.FC = () => {
           id="create-invite-btn"
           onClick={() => {
             setShowCreateModal(true);
-            setLastCreatedInviteUrl(null);
+            setLastCreatedInvite(null);
             setCreateError(null);
           }}
           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
@@ -381,6 +492,7 @@ const AgencyInvitesPage: React.FC = () => {
               <tbody className="divide-y divide-surface-border">
                 {billing.map((row) => {
                   const isActioning = actionLoadingId === row.companyId;
+                  const hasSubscription = row.billingStatus !== 'no_subscription';
                   return (
                     <tr key={row.companyId} className="hover:bg-surface-muted">
                       <td className="px-4 py-3">
@@ -404,6 +516,8 @@ const AgencyInvitesPage: React.FC = () => {
                             {formatCurrency(row.negotiatedMonthlyPrice)}{' '}
                             <span className="text-xs text-blue-500">*</span>
                           </span>
+                        ) : !hasSubscription ? (
+                          <span className="text-xs font-medium text-amber-700">Set price to start billing</span>
                         ) : (
                           formatCurrency(row.monthlyTotal)
                         )}
@@ -424,17 +538,22 @@ const AgencyInvitesPage: React.FC = () => {
                           <button
                             type="button"
                             id={`update-price-${row.companyId}`}
-                            title="Update negotiated price"
+                            title={hasSubscription ? 'Update negotiated price' : 'Start billing with negotiated price'}
                             onClick={() => {
                               setUpdatingPriceFor(row);
                               setNewPrice(
                                 row.negotiatedMonthlyPrice?.toString() ??
+                                  row.basePriceMonthly?.toString() ??
                                   row.monthlyTotal?.toString() ??
-                                  '',
+                                  DEFAULT_SUBSCRIPTION_PRICE,
                               );
                               setPriceUpdateError(null);
                             }}
-                            className="rounded-lg p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            className={`rounded-lg p-1.5 transition-colors ${
+                              hasSubscription
+                                ? 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                                : 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                            }`}
                           >
                             <DollarSign className="h-3.5 w-3.5" />
                           </button>
@@ -499,7 +618,7 @@ const AgencyInvitesPage: React.FC = () => {
             <table className="w-full">
               <thead className="investo-table-head border-b border-surface-border">
                 <tr>
-                  {['Agency', 'Email', 'Negotiated Price', 'Expires', 'Invite Link'].map((h) => (
+                  {['Agency', 'Email', 'Delivery', 'Negotiated Price', 'Expires', 'Invite Link'].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-semibold text-ink-secondary uppercase tracking-wider"
@@ -518,6 +637,9 @@ const AgencyInvitesPage: React.FC = () => {
                         {inv.agencyName}
                       </td>
                       <td className="px-4 py-3 text-sm text-ink-secondary">{inv.adminEmail}</td>
+                      <td className="px-4 py-3 text-xs text-ink-secondary">
+                        {renderEmailDeliveryBadge(inv.emailDelivery)}
+                      </td>
                       <td className="px-4 py-3 text-sm text-ink-secondary">
                         {formatCurrency(inv.negotiatedMonthlyPrice)}
                       </td>
@@ -548,6 +670,21 @@ const AgencyInvitesPage: React.FC = () => {
                               <><Copy className="h-3 w-3" /> Copy</>
                             )}
                           </button>
+                          {canResendInvite(inv.emailDelivery) && (
+                            <button
+                              type="button"
+                              id={`resend-invite-${inv.id}`}
+                              disabled={resendingInviteId === inv.id}
+                              onClick={() => void handleResendInvite(inv.id)}
+                              className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 disabled:opacity-50"
+                            >
+                              {resendingInviteId === inv.id ? (
+                                <><Loader2 className="h-3 w-3 animate-spin" /> Sending</>
+                              ) : (
+                                <><RefreshCw className="h-3 w-3" /> Resend</>
+                              )}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -573,7 +710,7 @@ const AgencyInvitesPage: React.FC = () => {
               </h2>
               <button
                 type="button"
-                onClick={() => { setShowCreateModal(false); setLastCreatedInviteUrl(null); }}
+                onClick={() => { setShowCreateModal(false); setLastCreatedInvite(null); }}
                 className="text-gray-400 hover:text-gray-600"
                 aria-label="Close"
               >
@@ -581,19 +718,31 @@ const AgencyInvitesPage: React.FC = () => {
               </button>
             </div>
 
-            {lastCreatedInviteUrl ? (
+            {lastCreatedInvite ? (
               <div className="text-center py-4">
-                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                {lastCreatedInvite.emailDelivery.sent ? (
+                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                ) : (
+                  <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-3" />
+                )}
                 <p className="font-semibold text-gray-800">Invite created!</p>
                 <p className="text-sm text-gray-500 mt-1 mb-4">
-                  An invite email has been sent. Share this link directly:
+                  {lastCreatedInvite.emailDelivery.sent
+                    ? 'Invite email accepted for delivery. Share this link directly if needed:'
+                    : 'Email delivery did not complete. Copy this link or retry from the pending invites table:'}
                 </p>
+                {lastCreatedInvite.warning && (
+                  <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-800">
+                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                    <span>{lastCreatedInvite.warning}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 break-all">
-                  <span className="flex-1">{lastCreatedInviteUrl}</span>
+                  <span className="flex-1">{lastCreatedInvite.inviteUrl}</span>
                   <button
                     type="button"
                     id="copy-new-invite-url-btn"
-                    onClick={() => void navigator.clipboard.writeText(lastCreatedInviteUrl)}
+                    onClick={() => void navigator.clipboard.writeText(lastCreatedInvite.inviteUrl)}
                     className="flex-shrink-0 text-blue-600 hover:text-blue-700"
                   >
                     <Copy className="h-4 w-4" />
@@ -602,7 +751,7 @@ const AgencyInvitesPage: React.FC = () => {
                 <button
                   type="button"
                   id="create-invite-done-btn"
-                  onClick={() => { setShowCreateModal(false); setLastCreatedInviteUrl(null); }}
+                  onClick={() => { setShowCreateModal(false); setLastCreatedInvite(null); }}
                   className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
                 >
                   Done
@@ -758,7 +907,7 @@ const AgencyInvitesPage: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 id="update-price-modal-title" className="text-base font-bold text-gray-900">
-                Update Price
+                {updatingPriceFor.billingStatus === 'no_subscription' ? 'Start Billing' : 'Update Price'}
               </h2>
               <button
                 type="button"
@@ -769,7 +918,9 @@ const AgencyInvitesPage: React.FC = () => {
               </button>
             </div>
             <p className="text-sm text-gray-500 mb-4">
-              Setting a negotiated price for{' '}
+              {updatingPriceFor.billingStatus === 'no_subscription'
+                ? 'Create a billing subscription and set a negotiated price for '
+                : 'Setting a negotiated price for '}
               <strong className="text-gray-700">{updatingPriceFor.companyName}</strong>.
             </p>
             <div className="relative mb-3">
@@ -785,6 +936,14 @@ const AgencyInvitesPage: React.FC = () => {
             </div>
             {priceUpdateError && (
               <p className="text-xs text-red-500 mb-3">{priceUpdateError}</p>
+            )}
+            {updatingPriceFor.billingStatus === 'no_subscription' && !priceUpdateError && (
+              <p
+                className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                data-resolution-id={RESOLUTION_IDS.BILLING_SUBSCRIPTION_BACKFILL}
+              >
+                This company exists without a billing subscription. Updating the price will create the subscription and start its trial.
+              </p>
             )}
             <div className="flex gap-3">
               <button
@@ -803,7 +962,7 @@ const AgencyInvitesPage: React.FC = () => {
               >
                 {isUpdatingPrice ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
-                ) : 'Update'}
+                ) : updatingPriceFor.billingStatus === 'no_subscription' ? 'Start billing' : 'Update'}
               </button>
             </div>
           </div>
