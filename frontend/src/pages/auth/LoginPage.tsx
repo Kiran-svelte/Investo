@@ -67,7 +67,7 @@ const LoginPage: React.FC = () => {
     let authSucceeded = false;
 
     try {
-      setLoginStatus('Signing in…');
+      setLoginStatus('Signing in...');
       const result = await login(email, password);
       if (isMfaPending(result)) {
         const target = result.mfa_purpose === 'mfa_enroll' ? '/auth/mfa/enroll' : '/auth/mfa/verify';
@@ -77,7 +77,7 @@ const LoginPage: React.FC = () => {
         });
         return;
       }
-      setLoginStatus('Opening your workspace…');
+      setLoginStatus('Opening your workspace...');
       const nextPath = await resolvePostAuthPath(result);
       setPendingPath(nextPath);
       authSucceeded = true;
@@ -130,7 +130,7 @@ const LoginPage: React.FC = () => {
               Sign in to manage leads, properties, visits, and AI conversations for your team.
             </p>
           </div>
-          <p className="text-xs text-slate-500">BIG INVESTO · Real estate operations platform</p>
+          <p className="text-xs text-slate-500">BIG INVESTO - Real estate operations platform</p>
         </div>
 
         <div className="flex flex-1 flex-col">
@@ -211,7 +211,7 @@ const LoginPage: React.FC = () => {
                       onChange={(e) => setPassword(e.target.value)}
                       disabled={isSubmitting || isSplash}
                       className="investo-input mt-1.5"
-                      placeholder="••••••••"
+                      placeholder="********"
                     />
                   </div>
 

@@ -242,7 +242,7 @@ export default function AuthSignInLoader({ active, message }: AuthSignInLoaderPr
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.35 }}
                 >
-                  Securing your session — please wait
+                  Securing your session - please wait
                 </motion.p>
 
                 <motion.div

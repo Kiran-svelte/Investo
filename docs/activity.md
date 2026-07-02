@@ -303,3 +303,6 @@ Actions:
 - Changed the frontend HTML description separator to ASCII in `frontend/index.html` to avoid encoding artifacts.
 - Ran `npm run build` in `frontend`; result PASS.
 - Verified local preview `/login` with Playwright screenshots on desktop and mobile; desktop rendered two visible corrected logo images, and mobile had no horizontal overflow.
+- Resolved the branch after merging `kiran/main`; kept the richer `LoginBrandIntro` auth animation path and corrected logo asset.
+- Cleaned touched auth copy to ASCII-safe text, added glow to the settled form logo, and reran `npm run build` in `frontend`; result PASS.
+- Verified merged local preview `/login` again with Playwright: desktop rendered two visible `/big-investo-logo-cropped.png` logo images and had no horizontal overflow.

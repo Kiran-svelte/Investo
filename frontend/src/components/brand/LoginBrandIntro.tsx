@@ -79,6 +79,7 @@ export function LoginBrandMarkSlot({
     >
       <InvestoLogo
         height={height}
+        glow
         className="max-w-[min(100%,300px)]"
         resolutionId={RESOLUTION_IDS.AUTH_BRAND_RESTORE}
       />
