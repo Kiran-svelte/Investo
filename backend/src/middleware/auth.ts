@@ -14,7 +14,7 @@ import {
 
 const AUTH_CACHE_TTL_SECONDS = 300; // 5 minutes
 
-const neonJwksUri = config.neonAuth.url ? `${config.neonAuth.url}/.well-known/jwks.json` : '';
+const neonJwksUri = config.neonAuth?.url ? `${config.neonAuth.url}/.well-known/jwks.json` : '';
 const neonJwksClient = neonJwksUri
   ? jwksClient({
       jwksUri: neonJwksUri,

@@ -309,3 +309,15 @@ Actions:
 - Pushed branch `fix/whatsapp-media-and-fallback` to `kiran`.
 - Deployed frontend production to Vercel deployment `dpl_FeqKCKjs2aP2RcAqqVYkq23Ux9kA`; Vercel aliased it to `https://biginvesto.online`.
 - Verified live `https://biginvesto.online/login`: HTTP 200, corrected logo asset HTTP 200, Vercel inspect `Ready`, and Playwright rendered two visible `/big-investo-logo-cropped.png` logo images with no horizontal overflow.
+
+## 2026-07-02 - Polish loop iteration 1 completion: merge, deploy, perf fixes
+
+Actions:
+
+- Merged diverged `kiran/main` (26 commits: enterprise SSO/SCIM, payment lockout, Cashfree, richer brand components) into `fix/whatsapp-media-and-fallback`; resolved brand-file conflicts in favor of main's LoginBrandIntro/AuthSignInLoader implementation and union-merged doc logs.
+- Fixed post-merge test breaks: added `hasPropertyLocationData` to projectBrowse mocks in `whatsappInteractiveOrchestrator.test.ts` and `interactive-buttons.test.ts`; all focused suites pass (88 tests + 15 tests).
+- Pushed branch and fast-forwarded `main` on `kiran` (`d7d4ef79b -> 1fa0a2e77`).
+- Deploy proof: Railway deployment `7f1b14b8-18b7-497b-a6e9-bb0a19325e37` SUCCESS; `/api/health/live` returned status ok (fresh uptime); `/api/health/internal` returned 200.
+- Deploy proof: Vercel production `frontend-b2ra4zbth` Ready; `https://biginvesto.online/login` returned 200 and served the optimized logo.
+- Ran `npm run benchmark:reply-speed`: prod health p50=378ms p95=1349ms; found and fixed `load-health.perf.test.ts` crash caused by `config.neonAuth.url` read without optional chaining in `src/middleware/auth.ts` (module-load crash under partial config mocks); perf suites now 3/3 pass.
+- Optimized brand assets with palette quantization: `big-investo-logo.png` 3.3MB -> 78KB, `big-investo-logo-cropped.png` 392KB -> 70KB.
