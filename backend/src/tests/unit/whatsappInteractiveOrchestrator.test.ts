@@ -81,6 +81,9 @@ jest.mock('../../services/projectBrowse.service', () => ({
   resolveProjectHeroImageComponent: jest.fn(async () => null),
   formatProjectSelectedIntro: jest.fn(() => ''),
   hasPropertyLocationData: jest.fn(() => true),
+  hasEffectiveLocationData: jest.fn(() => true),
+  resolveEffectiveLocation: jest.fn((property: unknown) => property),
+  PROJECT_LOCATION_SELECT: { locationArea: true, locationCity: true, locationPincode: true, latitude: true, longitude: true },
   buildActiveVisitActionButtons: jest.fn(() => ({
     kind: 'buttons',
     buttons: [
@@ -446,6 +449,78 @@ describe('whatsappInteractiveOrchestrator.service', () => {
     expect(resolvePropertyDetailMediaComponents).toHaveBeenCalled();
     const media = (result?.turnResult?.components ?? []).filter((c) => c.kind === 'media');
     expect(media).toHaveLength(2);
+  });
+
+  test('repeat more-info tap on already-focused property does not resend media', async () => {
+    const unit = {
+      id: 'prop-unit-1',
+      name: 'Sunset 1102',
+      companyId: 'co-1',
+      status: 'available',
+      priceMin: 9000000,
+      priceMax: 9500000,
+      propertyType: 'apartment',
+      bedrooms: 2,
+      locationArea: 'Whitefield',
+      locationCity: 'Bengaluru',
+      builder: 'Builder',
+      reraNumber: 'RERA',
+      brochureUrl: 'investo/companies/co/properties/p/brochure/x.pdf',
+      images: ['investo/companies/co/properties/p/image/x.jpg'],
+      projectId: 'proj-sunset',
+      amenities: [],
+      description: 'Nice unit',
+      extendedAttributes: {},
+    };
+    (prisma.property.findFirst as jest.Mock).mockResolvedValue(unit);
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue(null);
+    (buildPropertyDetailButtons as jest.Mock).mockReturnValue({
+      kind: 'buttons',
+      buttons: [{ id: 'book-visit-prop-unit-1', title: 'Book Visit' }],
+    });
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'more-info-prop-unit-1',
+      conversation: { id: 'conv-1', selectedPropertyId: 'prop-unit-1', commitments: {} },
+    });
+
+    expect(result?.action).toBe('more-info-sent');
+    const media = (result?.turnResult?.components ?? []).filter((c) => c.kind === 'media');
+    expect(media).toHaveLength(0);
+    const buttons = (result?.turnResult?.components ?? []).filter((c) => c.kind === 'buttons');
+    expect(buttons).toHaveLength(1);
+  });
+
+  test('book-visit tap clears stale awaiting-call-time marker so time replies book the visit', async () => {
+    (prisma.property.findFirst as jest.Mock).mockResolvedValue({
+      id: 'prop-sunset',
+      name: 'Sunset Heights',
+      projectId: null,
+    });
+    (prisma.visit.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.conversation.findUnique as jest.Mock).mockResolvedValue({
+      commitments: { awaitingCallTime: true },
+    });
+    (prisma.conversation.update as jest.Mock).mockResolvedValue({});
+
+    const result = await tryOrchestratedInteractiveAction({
+      ...baseParams,
+      interactiveId: 'book-visit-prop-sunset',
+      conversation: {
+        id: 'conv-1',
+        selectedPropertyId: 'prop-sunset',
+        commitments: { awaitingCallTime: true },
+      },
+    });
+
+    expect(result?.action).toBe('book-visit-initiated');
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'conv-1' },
+        data: { commitments: expect.not.objectContaining({ awaitingCallTime: true }) },
+      }),
+    );
   });
 
   test('more-info sets focusedPropertyId when buyerFocusStack ON', async () => {

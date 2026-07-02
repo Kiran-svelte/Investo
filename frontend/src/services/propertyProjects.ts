@@ -4,12 +4,25 @@ export interface PropertyProject {
   id: string;
   name: string;
   description: string | null;
+  location_area: string | null;
+  location_city: string | null;
+  location_pincode: string | null;
+  latitude: number | null;
+  longitude: number | null;
   sort_order: number;
   property_count: number;
   draft_count: number;
   file_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface PropertyProjectLocationInput {
+  location_area?: string | null;
+  location_city?: string | null;
+  location_pincode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface PropertyProjectFile {
@@ -36,14 +49,14 @@ export async function listPropertyProjects(): Promise<{
 export async function createPropertyProject(input: {
   name: string;
   description?: string | null;
-}): Promise<PropertyProject> {
+} & PropertyProjectLocationInput): Promise<PropertyProject> {
   const res = await api.post<{ data: PropertyProject }>('/property-projects', input);
   return res.data.data;
 }
 
 export async function updatePropertyProject(
   id: string,
-  input: { name?: string; description?: string | null },
+  input: { name?: string; description?: string | null } & PropertyProjectLocationInput,
 ): Promise<PropertyProject> {
   const res = await api.put<{ data: PropertyProject }>(`/property-projects/${id}`, input);
   return res.data.data;

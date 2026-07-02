@@ -2905,27 +2905,46 @@ export class WhatsAppService {
       const propertyId = interactiveId.replace('location-', '');
       const property = await prisma.property.findFirst({
         where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
+        include: { project: { select: { locationArea: true, locationCity: true, locationPincode: true, latitude: true, longitude: true } } },
       });
 
       if (!property) {
         return { handled: false };
       }
 
-      const lat = property.latitude !== null && property.latitude !== undefined ? Number(property.latitude) : null;
-      const lng = property.longitude !== null && property.longitude !== undefined ? Number(property.longitude) : null;
+      const { resolveEffectiveLocation } = await import('./projectBrowse.service');
+      const effective = resolveEffectiveLocation(property, property.project ?? null);
 
-      const formatAddress = (p: typeof property) => {
-        const parts = [p.locationArea, p.locationCity, p.locationPincode].filter(Boolean);
-        return parts.length > 0 ? parts.join(', ') : '';
-      };
+      const lat = effective.latitude !== null && effective.latitude !== undefined ? Number(effective.latitude) : null;
+      const lng = effective.longitude !== null && effective.longitude !== undefined ? Number(effective.longitude) : null;
 
-      const addressText = formatAddress(property) || 'Address not available';
+      const addressParts = [effective.locationArea, effective.locationCity, effective.locationPincode]
+        .map((part) => (typeof part === 'string' ? part.trim() : ''))
+        .filter(Boolean);
+      const addressText = addressParts.join(', ');
+      const hasCoords = lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
+
       let locationText: string;
-      if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
+      if (hasCoords) {
         const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-        locationText = `📍 *${property.name}*\n\n${addressText}\n\nOpen in Maps: ${mapsUrl}`;
+        locationText = `📍 *${property.name}*\n\n${addressText || 'Exact address on the map below.'}\n\nOpen in Maps: ${mapsUrl}`;
+      } else if (addressText) {
+        locationText = `📍 *${property.name}*\n\n${addressText}`;
       } else {
-        locationText = `📍 *${property.name}*\n\n${addressText}\n\nPlease contact us for directions.`;
+        // No location on the unit or its project — be honest and get a human on it.
+        locationText = `I don't have the exact location for *${property.name}* on file yet. I've asked our team to send you directions shortly.`;
+        if (lead.assignedAgentId) {
+          await prisma.notification.create({
+            data: {
+              companyId: company.id,
+              userId: lead.assignedAgentId,
+              type: 'agent_takeover',
+              title: '📍 Location Missing - Buyer Asked',
+              message: `${lead.customerName || lead.phone} asked for the location of ${property.name}, but no location is set on the property or its project. Please send directions and update the listing.`,
+              data: { leadId: lead.id, propertyId: property.id, propertyName: property.name },
+            },
+          }).catch(() => undefined);
+        }
       }
 
       return {

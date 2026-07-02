@@ -636,13 +636,18 @@ model WhatsAppDeadLetter {
 }
 
 model PropertyProject {
-  id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  name            String   @db.VarChar(255)
+  description     String?  @db.Text
+  locationArea    String?  @map("location_area") @db.VarChar(100)
+  locationCity    String?  @map("location_city") @db.VarChar(100)
+  locationPincode String?  @map("location_pincode") @db.VarChar(10)
+  latitude        Decimal? @db.Decimal(10, 8)
+  longitude       Decimal? @db.Decimal(11, 8)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   company      Company               @relation(fields: [companyId], references: [id])
   properties   Property[]

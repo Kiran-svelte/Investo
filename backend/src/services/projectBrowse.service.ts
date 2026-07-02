@@ -59,6 +59,44 @@ export function hasPropertyLocationData(property: PropertyLocationAvailabilityIn
   return hasAddress || (lat !== null && lng !== null);
 }
 
+/**
+ * Effective location for buyer-facing replies: the unit's own fields win,
+ * missing pieces fall back to the parent project's location.
+ */
+export function resolveEffectiveLocation(
+  property: PropertyLocationAvailabilityInput,
+  project?: PropertyLocationAvailabilityInput | null,
+): PropertyLocationAvailabilityInput {
+  if (!project) return property;
+  const propertyHasCoords =
+    finiteNumber(property.latitude) !== null && finiteNumber(property.longitude) !== null;
+  return {
+    locationArea: property.locationArea?.trim() ? property.locationArea : project.locationArea ?? null,
+    locationCity: property.locationCity?.trim() ? property.locationCity : project.locationCity ?? null,
+    locationPincode: property.locationPincode?.trim()
+      ? property.locationPincode
+      : project.locationPincode ?? null,
+    latitude: propertyHasCoords ? property.latitude : project.latitude ?? null,
+    longitude: propertyHasCoords ? property.longitude : project.longitude ?? null,
+  };
+}
+
+/** Location availability including project fallback. */
+export function hasEffectiveLocationData(
+  property: PropertyLocationAvailabilityInput,
+  project?: PropertyLocationAvailabilityInput | null,
+): boolean {
+  return hasPropertyLocationData(resolveEffectiveLocation(property, project));
+}
+
+export const PROJECT_LOCATION_SELECT = {
+  locationArea: true,
+  locationCity: true,
+  locationPincode: true,
+  latitude: true,
+  longitude: true,
+} as const;
+
 function formatPriceRange(min: unknown, max: unknown): string | null {
   const toNum = (v: unknown): number | null => {
     if (v == null) return null;

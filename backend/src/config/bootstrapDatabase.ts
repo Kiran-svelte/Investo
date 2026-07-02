@@ -260,6 +260,23 @@ async function applyCompatibilityPatches(): Promise<void> {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE property_import_drafts ADD COLUMN IF NOT EXISTS project_id UUID NULL REFERENCES property_projects(id) ON DELETE SET NULL
   `);
+  // Project-level location: WhatsApp location replies fall back to these when a unit
+  // has no location of its own; editable from the CRM projects board.
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE property_projects ADD COLUMN IF NOT EXISTS location_area VARCHAR(100)
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE property_projects ADD COLUMN IF NOT EXISTS location_city VARCHAR(100)
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE property_projects ADD COLUMN IF NOT EXISTS location_pincode VARCHAR(10)
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE property_projects ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8)
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE property_projects ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8)
+  `);
 
   // Agent action log — AI transparency / audit trail (90-day TTL via cron purge).
   await prisma.$executeRawUnsafe(`

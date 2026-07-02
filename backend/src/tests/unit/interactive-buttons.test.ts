@@ -122,6 +122,9 @@ jest.mock('../../services/projectBrowse.service', () => ({
   resolveProjectHeroImageComponent: jest.fn(async () => null),
   formatProjectSelectedIntro: jest.fn(() => ''),
   hasPropertyLocationData: jest.fn(() => true),
+  hasEffectiveLocationData: jest.fn(() => true),
+  resolveEffectiveLocation: jest.fn((property: unknown) => property),
+  PROJECT_LOCATION_SELECT: { locationArea: true, locationCity: true, locationPincode: true, latitude: true, longitude: true },
   buildActiveVisitActionButtons: jest.fn(() => ({
     kind: 'buttons',
     buttons: [

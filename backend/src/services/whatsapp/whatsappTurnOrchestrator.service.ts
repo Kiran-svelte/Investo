@@ -103,7 +103,11 @@ import {
 } from '../buyer/buyerScopedCatalog.service';
 import { validateBuyerOutboundForTurn } from '../buyer/buyerOutboundValidator.service';
 import { buildAddressFromProperty } from '../geocoding.service';
-import { hasPropertyLocationData } from '../projectBrowse.service';
+import {
+  hasEffectiveLocationData,
+  resolveEffectiveLocation,
+  PROJECT_LOCATION_SELECT,
+} from '../projectBrowse.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -1017,12 +1021,25 @@ async function resolveBuyerLocationProperty(
       locationPincode: true,
       latitude: true,
       longitude: true,
+      project: { select: PROJECT_LOCATION_SELECT },
     },
   });
 
   if (!property) return { property: null };
   propertyId = property.id;
-  return { property };
+  // Unit location wins; missing pieces fall back to the parent project's location.
+  const effective = resolveEffectiveLocation(property, property.project ?? null);
+  return {
+    property: {
+      id: property.id,
+      name: property.name,
+      locationArea: effective.locationArea ?? null,
+      locationCity: effective.locationCity ?? null,
+      locationPincode: effective.locationPincode ?? null,
+      latitude: effective.latitude ?? null,
+      longitude: effective.longitude ?? null,
+    },
+  };
 }
 
 async function handleBuyerLocationTurn(
@@ -2229,8 +2246,25 @@ async function handleFullAiTurn(
   const componentRecommendedPropertyIds = hasPropertyContextPatch
     ? propertyContextPatch.recommendedPropertyIds
     : aiResponse.newState?.recommendedProperties;
+  const projectIdsForLocation = [
+    ...new Set(
+      allRawProperties
+        .map((p) => (p as { projectId?: string | null }).projectId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const projectLocationRows = projectIdsForLocation.length
+    ? await prisma.propertyProject.findMany({
+        where: { id: { in: projectIdsForLocation }, companyId: ctx.companyId },
+        select: { id: true, ...PROJECT_LOCATION_SELECT },
+      })
+    : [];
+  const projectLocationById = new Map(projectLocationRows.map((row) => [row.id, row]));
   const locationAvailablePropertyIds = allRawProperties
-    .filter((p) => hasPropertyLocationData(p))
+    .filter((p) => {
+      const projectId = (p as { projectId?: string | null }).projectId;
+      return hasEffectiveLocationData(p, projectId ? projectLocationById.get(projectId) ?? null : null);
+    })
     .map((p) => p.id);
   const interactiveComponents = resolveBuyerComponents({
     stage: aiResponse.newState?.stage ?? conversationState.stage,

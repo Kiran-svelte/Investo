@@ -25,15 +25,25 @@ import { mapPropertyToSnakeCaseDTO } from './property.routes';
 
 const router = Router();
 
+const projectLocationFields = {
+  location_area: z.string().max(100).optional().nullable(),
+  location_city: z.string().max(100).optional().nullable(),
+  location_pincode: z.string().max(10).optional().nullable(),
+  latitude: z.number().min(-90).max(90).optional().nullable(),
+  longitude: z.number().min(-180).max(180).optional().nullable(),
+};
+
 const createProjectSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(5000).optional().nullable(),
+  ...projectLocationFields,
 });
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(5000).optional().nullable(),
   sort_order: z.number().int().min(0).optional(),
+  ...projectLocationFields,
 });
 
 const assignPropertySchema = z.object({
@@ -67,6 +77,11 @@ function mapProject(row: {
   id: string;
   name: string;
   description: string | null;
+  locationArea?: string | null;
+  locationCity?: string | null;
+  locationPincode?: string | null;
+  latitude?: unknown;
+  longitude?: unknown;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -76,6 +91,11 @@ function mapProject(row: {
     id: row.id,
     name: row.name,
     description: row.description,
+    location_area: row.locationArea ?? null,
+    location_city: row.locationCity ?? null,
+    location_pincode: row.locationPincode ?? null,
+    latitude: row.latitude !== null && row.latitude !== undefined ? Number(row.latitude) : null,
+    longitude: row.longitude !== null && row.longitude !== undefined ? Number(row.longitude) : null,
     sort_order: row.sortOrder,
     property_count: row._count?.properties ?? 0,
     draft_count: row._count?.importDrafts ?? 0,
@@ -83,6 +103,16 @@ function mapProject(row: {
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   };
+}
+
+function projectLocationDataFromBody(body: Record<string, unknown>): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  if (body.location_area !== undefined) data.locationArea = body.location_area || null;
+  if (body.location_city !== undefined) data.locationCity = body.location_city || null;
+  if (body.location_pincode !== undefined) data.locationPincode = body.location_pincode || null;
+  if (body.latitude !== undefined) data.latitude = body.latitude;
+  if (body.longitude !== undefined) data.longitude = body.longitude;
+  return data;
 }
 
 /**
@@ -130,6 +160,7 @@ router.post(
           name: req.body.name,
           description: req.body.description ?? null,
           sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+          ...projectLocationDataFromBody(req.body),
         },
         include: { _count: { select: { properties: true, importDrafts: true, files: true } } },
       });
@@ -165,6 +196,7 @@ router.put(
           ...(req.body.name !== undefined ? { name: req.body.name } : {}),
           ...(req.body.description !== undefined ? { description: req.body.description } : {}),
           ...(req.body.sort_order !== undefined ? { sortOrder: req.body.sort_order } : {}),
+          ...projectLocationDataFromBody(req.body),
         },
         include: { _count: { select: { properties: true, importDrafts: true, files: true } } },
       });

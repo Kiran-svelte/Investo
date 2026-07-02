@@ -321,3 +321,23 @@ Actions:
 - Deploy proof: Vercel production `frontend-b2ra4zbth` Ready; `https://biginvesto.online/login` returned 200 and served the optimized logo.
 - Ran `npm run benchmark:reply-speed`: prod health p50=378ms p95=1349ms; found and fixed `load-health.perf.test.ts` crash caused by `config.neonAuth.url` read without optional chaining in `src/middleware/auth.ts` (module-load crash under partial config mocks); perf suites now 3/3 pass.
 - Optimized brand assets with palette quantization: `big-investo-logo.png` 3.3MB -> 78KB, `big-investo-logo-cropped.png` 392KB -> 70KB.
+
+## 2026-07-02 - WhatsApp flow loopholes from buyer screenshots: visit/callback merge, stale location buttons, repeated media, missing project location
+
+Prompt:
+
+> Screenshots show: location button appears though project has no location (and CRM has no way to set one), Book Visit reply "Tomorrow at 1pm" produced "Callback request sent ... 02/07/2026 01:00 pm", property card re-sent on every tap. "I bet you can't find and fix everything."
+
+Root causes found and fixed (`WAI-FLOW-20260702`):
+
+- `WAI-FLOW-20260702-01` visit/callback hijack: `handleBookVisit` sets stage `visit_booking` but a stale `awaitingCallTime` commitment from an earlier call flow bypassed the visit guard in `tryCommitCustomerCallBooking`, so a bare time reply created a callback instead of booking the visit. Book Visit now clears the stale marker at the pivot.
+- `WAI-FLOW-20260702-02` wrong day parsed: `parseTimeOnlyIST` matched "1pm" inside "Tomorrow at 1pm" before chrono ran, booking TODAY 1pm. Explicit date words now bypass the time-only shortcut, and chrono parses with an IST reference (server runs UTC) so buyer-facing dates are correct.
+- `WAI-FLOW-20260702-03` repeated media: every `more-info`/`View Listing` tap re-attached hero/brochure media. Media now attaches only when the property becomes newly focused; repeat taps send fresh details text + buttons without images.
+- `WAI-FLOW-20260702-04` project location: added `location_area/location_city/location_pincode/latitude/longitude` to `property_projects` (schema + boot compatibility patch + migration), project routes accept/return them, the CRM projects board gets a location field on create plus a per-project Set location editor, and WhatsApp location paths (H2.4 fast path, location button availability, location tap handler) fall back property → project. When neither has location, the buyer gets an honest reply and the assigned agent is notified to send directions.
+- Fixed missing `svix` dependency install locally (enterprise merge added it to package.json; local node_modules was stale — also unblocks resendWebhook suites).
+
+Proof:
+
+- Focused suites passed: whatsappInteractiveOrchestrator (18), interactive-buttons (15), parseDateTime/callIntent/dateTime, customerCallBooking, callRequest, customerVisitBooking, whatsapp-turn-orchestrator, whatsapp-media, projectBrowse, buyerButtonPolicy/Scope, visitIntentFromMessage: 9 suites 83 tests + 2 suites 33 tests, all green.
+- New regression tests: "Tomorrow at 1pm" books tomorrow IST; "Friday 10am" books upcoming Friday IST; book-visit clears stale awaiting-call-time; repeat more-info tap sends no media.
+- `npm run build` passed in both `backend` and `frontend`.

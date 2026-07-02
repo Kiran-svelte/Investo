@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   ImageIcon,
   Loader2,
+  MapPin,
   Plus,
   Trash2,
   Upload,
@@ -17,6 +18,7 @@ import {
   deletePropertyProject,
   deletePropertyProjectFile,
   listProjectFiles,
+  updatePropertyProject,
   uploadProjectFile,
   type PropertyProject,
   type PropertyProjectFile,
@@ -128,6 +130,10 @@ export default function PropertyProjectsBoard({
   } | null>(null);
   const [uploadNotice, setUploadNotice] = useState<Record<string, string>>({});
   const [boardError, setBoardError] = useState<string | null>(null);
+  const [newLocation, setNewLocation] = useState('');
+  const [editingLocationProjectId, setEditingLocationProjectId] = useState<string | null>(null);
+  const [locationDraft, setLocationDraft] = useState('');
+  const [savingLocation, setSavingLocation] = useState(false);
 
   const byProject = useCallback(
     (projectId: string | null) =>
@@ -143,20 +149,44 @@ export default function PropertyProjectsBoard({
     [importDrafts],
   );
 
+  const parseLocationInput = (raw: string): { location_area?: string | null; location_city?: string | null } => {
+    const trimmed = raw.trim();
+    if (!trimmed) return { location_area: null, location_city: null };
+    const [area, ...rest] = trimmed.split(',').map((part) => part.trim()).filter(Boolean);
+    return { location_area: area || null, location_city: rest.join(', ') || null };
+  };
+
   const handleCreateProject = async () => {
     const name = newName.trim();
     if (!name) return;
     setCreating(true);
     try {
       setBoardError(null);
-      await createPropertyProject({ name });
+      await createPropertyProject({ name, ...parseLocationInput(newLocation) });
       setNewName('');
+      setNewLocation('');
       onRefresh();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { error?: string } } };
       setBoardError(getApiErrorMessage(ax, 'Failed to create project'));
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleSaveLocation = async (projectId: string) => {
+    setSavingLocation(true);
+    try {
+      setBoardError(null);
+      await updatePropertyProject(projectId, parseLocationInput(locationDraft));
+      setEditingLocationProjectId(null);
+      setLocationDraft('');
+      onRefresh();
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } } };
+      setBoardError(getApiErrorMessage(ax, 'Failed to save project location'));
+    } finally {
+      setSavingLocation(false);
     }
   };
 
@@ -416,6 +446,14 @@ export default function PropertyProjectsBoard({
             className="min-w-[200px] flex-1 rounded-lg border px-3 py-2 text-sm"
             onKeyDown={(e) => e.key === 'Enter' && void handleCreateProject()}
           />
+          <input
+            type="text"
+            value={newLocation}
+            onChange={(e) => setNewLocation(e.target.value)}
+            placeholder="Location (e.g. Whitefield, Bengaluru)"
+            className="min-w-[180px] flex-1 rounded-lg border px-3 py-2 text-sm"
+            onKeyDown={(e) => e.key === 'Enter' && void handleCreateProject()}
+          />
           <button
             type="button"
             onClick={() => void handleCreateProject()}
@@ -464,6 +502,22 @@ export default function PropertyProjectsBoard({
             </button>
             {project && canManage && (
               <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingLocationProjectId(
+                      editingLocationProjectId === project.id ? null : project.id,
+                    );
+                    setLocationDraft(
+                      [project.location_area, project.location_city].filter(Boolean).join(', '),
+                    );
+                  }}
+                  className="investo-btn-secondary text-xs"
+                  title="Set project location (used for WhatsApp location replies)"
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                  {project.location_area || project.location_city ? 'Location' : 'Set location'}
+                </button>
                 <button
                   type="button"
                   onClick={() => handleFilePick(project.id)}
@@ -526,9 +580,41 @@ export default function PropertyProjectsBoard({
               key,
               project ? project.name : 'Unassigned',
               project
-                ? `${count} propert${count === 1 ? 'y' : 'ies'} · drag listings here`
+                ? `${count} propert${count === 1 ? 'y' : 'ies'}${
+                    project.location_area || project.location_city
+                      ? ` · 📍 ${[project.location_area, project.location_city].filter(Boolean).join(', ')}`
+                      : ''
+                  } · drag listings here`
                 : `${count} not in any project · drag here to unassign`,
               <>
+                {project && editingLocationProjectId === project.id && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-brand-200 bg-brand-50/60 p-2">
+                    <MapPin className="h-4 w-4 text-brand-600" />
+                    <input
+                      type="text"
+                      value={locationDraft}
+                      onChange={(e) => setLocationDraft(e.target.value)}
+                      placeholder="Area, City (e.g. Whitefield, Bengaluru)"
+                      className="min-w-[180px] flex-1 rounded-lg border px-3 py-1.5 text-sm"
+                      onKeyDown={(e) => e.key === 'Enter' && void handleSaveLocation(project.id)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveLocation(project.id)}
+                      disabled={savingLocation}
+                      className="investo-btn-primary text-xs"
+                    >
+                      {savingLocation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingLocationProjectId(null)}
+                      className="text-xs text-ink-muted underline"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
                 {draftsInZone.map((draft) => (
                   <div
                     key={draft.id}

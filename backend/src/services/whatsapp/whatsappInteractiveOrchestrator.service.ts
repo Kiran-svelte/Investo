@@ -11,7 +11,10 @@ import {
   resolveHeroMediaComponentFromPropertyIds,
 } from './whatsappTurnOrchestrator.service';
 import { searchAlternativeTiers } from '../alternativeInventory.service';
-import { setConversationAwaitingCallTime } from '../../utils/conversationCallContext.util';
+import {
+  clearConversationAwaitingCallTime,
+  setConversationAwaitingCallTime,
+} from '../../utils/conversationCallContext.util';
 import {
   parseVisitTimeInteractiveId,
   resolveVisitSlotToDate,
@@ -39,7 +42,7 @@ import {
   resolveProjectHeroImageComponent,
   buildProjectSelectListComponent,
   buildActiveVisitActionButtons,
-  hasPropertyLocationData,
+  hasEffectiveLocationData,
 } from '../projectBrowse.service';
 import { buyerButtonTitle, buyerFilterButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
 import config from '../../config';
@@ -491,6 +494,10 @@ async function handleBookVisit(params: InteractiveActionParams): Promise<Interac
     });
   }
 
+  // The buyer pivoted to visit scheduling: a stale awaiting-call-time marker from an
+  // earlier callback flow must not steal their next bare time reply ("Tomorrow at 1pm").
+  await clearConversationAwaitingCallTime(conversation.id).catch(() => undefined);
+
   return {
     handled: true,
     action: 'book-visit-initiated',
@@ -645,6 +652,17 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
 
   const property = await prisma.property.findFirst({
     where: { id: propertyId, companyId: company.id, status: { in: ['available', 'upcoming'] } },
+    include: {
+      project: {
+        select: {
+          locationArea: true,
+          locationCity: true,
+          locationPincode: true,
+          latitude: true,
+          longitude: true,
+        },
+      },
+    },
   });
   if (!property) {
     return {
@@ -689,17 +707,23 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
         language: lang,
       },
     );
-    const hero = await resolveHeroMediaComponentFromPropertyIds(company.id, [property.id]);
+    // Re-tapping the already-focused property must not resend the same images.
+    const alreadyFocusedBooked = conversation.selectedPropertyId === propertyId;
+    const hero = alreadyFocusedBooked
+      ? undefined
+      : await resolveHeroMediaComponentFromPropertyIds(company.id, [property.id]);
     const { resolvePropertyDetailMediaComponents } = await import('../brochureDelivery.service');
-    const detailMedia = await resolvePropertyDetailMediaComponents({
-      companyId: company.id,
-      property: {
-        id: property.id,
-        name: property.name,
-        brochureUrl: property.brochureUrl,
-        images: property.images,
-      },
-    });
+    const detailMedia = alreadyFocusedBooked
+      ? []
+      : await resolvePropertyDetailMediaComponents({
+          companyId: company.id,
+          property: {
+            id: property.id,
+            name: property.name,
+            brochureUrl: property.brochureUrl,
+            images: property.images,
+          },
+        });
     const components = enforceTurnComponentBudget([
       ...detailMedia,
       buttonComponent,
@@ -744,7 +768,7 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
   let outboundText = details;
   const buttonComponent = scopeValidateButtons(
     buildPropertyDetailButtons(propertyId, property.projectId, lang, {
-      hasLocation: hasPropertyLocationData(property),
+      hasLocation: hasEffectiveLocationData(property, property.project ?? null),
     }),
     {
       conversation,
@@ -778,16 +802,21 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
       `${tBuyer(lang, 'visit_pending_approval_prefix', { property: visitPropName, date: visitDate })}\n\n` + details;
   }
 
+  // A repeat "View Listing"/"More Info" tap on the property already in focus keeps
+  // the fresh details text but must not resend the same image/brochure payloads.
+  const alreadyFocused = conversation.selectedPropertyId === propertyId;
   const { resolvePropertyDetailMediaComponents } = await import('../brochureDelivery.service');
-  const detailMedia = await resolvePropertyDetailMediaComponents({
-    companyId: company.id,
-    property: {
-      id: property.id,
-      name: property.name,
-      brochureUrl: property.brochureUrl,
-      images: property.images,
-    },
-  });
+  const detailMedia = alreadyFocused
+    ? []
+    : await resolvePropertyDetailMediaComponents({
+        companyId: company.id,
+        property: {
+          id: property.id,
+          name: property.name,
+          brochureUrl: property.brochureUrl,
+          images: property.images,
+        },
+      });
 
   const components = enforceTurnComponentBudget([
     ...detailMedia,
