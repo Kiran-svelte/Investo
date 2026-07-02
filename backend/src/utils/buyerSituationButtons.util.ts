@@ -51,6 +51,8 @@ export type SituationButtonInput = {
   allowedPropertyIds?: string[];
   /** Focused project id for project-listing fallback buttons. */
   focusedProjectId?: string | null;
+  /** Property ids with verified address or coordinates for a Location button. */
+  locationAvailablePropertyIds?: string[];
 };
 
 const BARE_GREETING =
@@ -234,6 +236,7 @@ export function resolveButtonsForBuyerSituation(
   const primaryId = pickPrimaryPropertyId(input);
   const mentioned = propertiesMentionedInText(input.outboundText, input.properties ?? []);
   const lang = input.language ?? 'en';
+  const propertyHasLocation = (propertyId: string) => input.locationAvailablePropertyIds?.includes(propertyId) ?? false;
 
   switch (situation) {
     case 'active_call':
@@ -312,7 +315,9 @@ export function resolveButtonsForBuyerSituation(
     case 'general_followup': {
       if (primaryId) {
         const projectId = input.focusedProjectId ?? input.visitPropertyProjectId ?? null;
-        const component = buildPropertyDetailButtons(primaryId, projectId, lang);
+        const component = buildPropertyDetailButtons(primaryId, projectId, lang, {
+          hasLocation: propertyHasLocation(primaryId),
+        });
         return component.kind === 'buttons' ? component.buttons : null;
       }
       const buttons: Array<{ id: string; title: string }> = [
@@ -329,6 +334,7 @@ export function resolveButtonsForBuyerSituation(
           primaryId,
           input.focusedProjectId ?? input.visitPropertyProjectId ?? null,
           lang,
+          { hasLocation: propertyHasLocation(primaryId) },
         );
         return component.kind === 'buttons' ? component.buttons : null;
       }
@@ -345,6 +351,7 @@ export function resolveButtonsForBuyerSituation(
           primaryId,
           input.focusedProjectId ?? input.visitPropertyProjectId ?? null,
           lang,
+          { hasLocation: propertyHasLocation(primaryId) },
         );
         return component.kind === 'buttons' ? component.buttons : null;
       }

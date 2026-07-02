@@ -5,6 +5,7 @@ import {
   isBuyerLocationRequest,
   isHumanTakeoverActive,
   resolveHeroMediaComponent,
+  shouldAttachPropertyDetailMediaForBuyerTurn,
 } from '../../services/whatsapp/whatsappTurnOrchestrator.service';
 
 describe('whatsappTurnOrchestrator.service', () => {
@@ -59,6 +60,32 @@ describe('whatsappTurnOrchestrator.service', () => {
     expect(budget).toHaveLength(3);
     expect(budget.filter((c) => c.kind === 'media')).toHaveLength(2);
     expect(budget[budget.length - 1]?.kind).toBe('buttons');
+  });
+
+  test('shouldAttachPropertyDetailMediaForBuyerTurn blocks stale selected-property media on unrelated replies', () => {
+    for (const messageText of ['It was good', 'There no option to tap', 'Yes']) {
+      expect(shouldAttachPropertyDetailMediaForBuyerTurn({
+        messageText,
+        selectedPropertyId: 'prop-sunset',
+        componentPropertyId: 'prop-sunset',
+        hasSelectedPropertyPatch: true,
+      })).toBe(false);
+    }
+  });
+
+  test('shouldAttachPropertyDetailMediaForBuyerTurn allows explicit media or newly selected property context', () => {
+    expect(shouldAttachPropertyDetailMediaForBuyerTurn({
+      messageText: 'send photos for this property',
+      selectedPropertyId: 'prop-sunset',
+      componentPropertyId: 'prop-sunset',
+    })).toBe(true);
+
+    expect(shouldAttachPropertyDetailMediaForBuyerTurn({
+      messageText: 'I like Lake Vista',
+      selectedPropertyId: 'prop-sunset',
+      resolvedPropertyId: 'prop-lake',
+      componentPropertyId: 'prop-lake',
+    })).toBe(true);
   });
 
   test('isBuyerLocationRequest detects direct location asks without catching browse preferences', () => {

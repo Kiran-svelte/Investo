@@ -103,6 +103,7 @@ import {
 } from '../buyer/buyerScopedCatalog.service';
 import { validateBuyerOutboundForTurn } from '../buyer/buyerOutboundValidator.service';
 import { buildAddressFromProperty } from '../geocoding.service';
+import { hasPropertyLocationData } from '../projectBrowse.service';
 
 /**
  * All data needed for one buyer turn. The nested `input` matches BuyerTurnInput;
@@ -202,6 +203,34 @@ export function resolveHeroMediaComponent(
   }
 
   return undefined;
+}
+
+const EXPLICIT_PROPERTY_MEDIA_REQUEST =
+  /\b(photo|photos|image|images|picture|pictures|gallery|brochure|pdf|floor\s*plans?|details?|more\s+info|listing|send\s+(me\s+)?(photos?|images?|pictures?|brochure|details?|listing)|show\s+(me\s+)?(photos?|images?|pictures?|brochure|details?|listing))\b/i;
+
+export function shouldAttachPropertyDetailMediaForBuyerTurn(input: {
+  messageText: string;
+  selectedPropertyId?: string | null;
+  resolvedPropertyId?: string | null;
+  componentPropertyId?: string | null;
+  hasSelectedPropertyPatch?: boolean;
+  hasBrochureMedia?: boolean;
+}): boolean {
+  const newlyResolvedProperty = Boolean(
+    input.resolvedPropertyId && input.resolvedPropertyId !== input.selectedPropertyId,
+  );
+  const newlySelectedProperty = Boolean(
+    input.hasSelectedPropertyPatch
+    && input.componentPropertyId
+    && input.componentPropertyId !== input.selectedPropertyId,
+  );
+  if (newlyResolvedProperty || newlySelectedProperty) return true;
+
+  const explicitMediaRequest = Boolean(input.hasBrochureMedia)
+    || EXPLICIT_PROPERTY_MEDIA_REQUEST.test(input.messageText);
+  if (!explicitMediaRequest) return false;
+
+  return Boolean(input.componentPropertyId || input.resolvedPropertyId || input.selectedPropertyId);
 }
 
 /** Fetch first property by id and resolve hero media (interactive shortlist path). */
@@ -2191,13 +2220,18 @@ async function handleFullAiTurn(
   }
 
   const recentAction = resolveRecentAction(visitCommit);
-  const hasPropertyContextPatch = Boolean(propertyContextPatch.recommendedPropertyIds?.length);
+  const hasPropertyContextPatch = Boolean(
+    propertyContextPatch.selectedPropertyId || propertyContextPatch.recommendedPropertyIds?.length,
+  );
   const componentPropertyId = hasPropertyContextPatch
     ? propertyContextPatch.selectedPropertyId
     : aiResponse.newState?.selectedPropertyId ?? ctx.input.conversationSelectedPropertyId;
   const componentRecommendedPropertyIds = hasPropertyContextPatch
     ? propertyContextPatch.recommendedPropertyIds
     : aiResponse.newState?.recommendedProperties;
+  const locationAvailablePropertyIds = allRawProperties
+    .filter((p) => hasPropertyLocationData(p))
+    .map((p) => p.id);
   const interactiveComponents = resolveBuyerComponents({
     stage: aiResponse.newState?.stage ?? conversationState.stage,
     outboundText,
@@ -2216,26 +2250,40 @@ async function handleFullAiTurn(
         : [...(ctx.input.conversationRecommendedPropertyIds ?? [])],
       properties: properties.map((p) => ({ id: p.id, name: p.name })),
     }),
+    locationAvailablePropertyIds,
   });
 
-  const heroPropertyIds = [
-    ...new Set([
-      ...(resolvedPropertyId ? [resolvedPropertyId] : []),
-      ...(componentPropertyId ? [componentPropertyId] : []),
-      ...properties.map((p) => p.id),
-    ]),
-  ].filter(Boolean);
-
-  const heroMediaComponent = await resolveHeroMediaForBuyerTurn({
-    companyId: ctx.companyId,
-    propertyIds: heroPropertyIds,
-    brochureMedia: brochureResolution.mediaComponent,
-    stage: aiResponse.newState?.stage ?? conversationState.stage,
+  const shouldAttachPropertyMedia = shouldAttachPropertyDetailMediaForBuyerTurn({
+    messageText: ctx.input.messageText,
+    selectedPropertyId: ctx.input.conversationSelectedPropertyId,
+    resolvedPropertyId,
+    componentPropertyId,
+    hasSelectedPropertyPatch: Boolean(propertyContextPatch.selectedPropertyId),
+    hasBrochureMedia: Boolean(brochureResolution.mediaComponent),
   });
+
+  const heroPropertyIds = shouldAttachPropertyMedia
+    ? [
+      ...new Set([
+        ...(resolvedPropertyId ? [resolvedPropertyId] : []),
+        ...(componentPropertyId ? [componentPropertyId] : []),
+        ...properties.map((p) => p.id),
+      ]),
+    ].filter(Boolean)
+    : [];
+
+  const heroMediaComponent = shouldAttachPropertyMedia
+    ? await resolveHeroMediaForBuyerTurn({
+      companyId: ctx.companyId,
+      propertyIds: heroPropertyIds,
+      brochureMedia: brochureResolution.mediaComponent,
+      stage: aiResponse.newState?.stage ?? conversationState.stage,
+    })
+    : undefined;
 
   const detailPropertyId = componentPropertyId ?? resolvedPropertyId ?? null;
   let propertyDetailMedia: WhatsAppComponent[] = [];
-  if (detailPropertyId) {
+  if (detailPropertyId && shouldAttachPropertyMedia) {
     const detailProp = allRawProperties.find((p) => p.id === detailPropertyId)
       ?? await prisma.property.findFirst({
         where: { id: detailPropertyId, companyId: ctx.companyId },
@@ -2274,7 +2322,7 @@ async function handleFullAiTurn(
     conversationId: ctx.input.conversationId,
     stage: aiResponse.newState?.stage,
     action: aiResponse.nextAction?.action,
-    hasMedia: Boolean(heroMediaComponent),
+    hasMedia: Boolean(heroMediaComponent || propertyDetailMedia.length),
   });
 
   return {

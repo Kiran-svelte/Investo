@@ -5,6 +5,7 @@ import {
   buildActiveVisitActionButtons,
   formatProjectCatalogIntro,
   formatProjectSelectedIntro,
+  hasPropertyLocationData,
 } from '../../services/projectBrowse.service';
 
 describe('projectBrowse.service', () => {
@@ -59,6 +60,23 @@ describe('projectBrowse.service', () => {
       'more-info-prop-1',
       'project-properties-proj-investo',
     ]);
+  });
+
+  it('buildPropertyDetailButtons uses Location only when verified location exists', () => {
+    const buttons = buildPropertyDetailButtons('prop-1', 'proj-investo', 'en', { hasLocation: true });
+    expect(buttons.kind).toBe('buttons');
+    if (buttons.kind !== 'buttons') throw new Error('expected buttons');
+    expect(buttons.buttons.map((b) => b.id)).toEqual([
+      'book-visit-prop-1',
+      'more-info-prop-1',
+      'location-prop-1',
+    ]);
+  });
+
+  it('hasPropertyLocationData requires address or coordinates', () => {
+    expect(hasPropertyLocationData({ locationArea: 'Whitefield' })).toBe(true);
+    expect(hasPropertyLocationData({ latitude: '12.9', longitude: '77.7' })).toBe(true);
+    expect(hasPropertyLocationData({ locationArea: '', latitude: null, longitude: null })).toBe(false);
   });
 
   it('formatProjectCatalogIntro mentions project not individual units', () => {

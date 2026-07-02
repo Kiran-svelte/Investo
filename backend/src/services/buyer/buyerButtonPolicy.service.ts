@@ -31,6 +31,7 @@ export type BuyerButtonContext = {
   language?: string;
   allowedPropertyIds?: string[];
   focusedProjectId?: string | null;
+  locationAvailablePropertyIds?: string[];
 };
 
 const BARE_GREETING_OUTBOUND =
@@ -83,6 +84,7 @@ export function resolveBuyerComponents(ctx: BuyerButtonContext): WhatsAppCompone
     language: ctx.language,
     allowedPropertyIds,
     focusedProjectId,
+    locationAvailablePropertyIds: ctx.locationAvailablePropertyIds,
   });
 
   if (!buttons?.length) return [];

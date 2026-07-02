@@ -25,6 +25,16 @@ describe('buyerButtonScope.service', () => {
     expect(result.map((b) => b.id)).toContain('call-me');
   });
 
+  test('flag ON strips out-of-scope location button', () => {
+    (config.features as { buttonScopeValidate: boolean }).buttonScopeValidate = true;
+    const result = validateBuyerButtonSet(
+      [{ id: 'location-bad-id', title: 'Location' }, { id: 'call-me', title: 'Call' }],
+      { allowedPropertyIds: ['p1'], language: 'en' },
+    );
+    expect(result.map((b) => b.id)).not.toContain('location-bad-id');
+    expect(result.map((b) => b.id)).toContain('call-me');
+  });
+
   test('flag ON multi list with 4 properties has no book-visit', () => {
     (config.features as { buttonScopeValidate: boolean }).buttonScopeValidate = true;
     const buttons = resolveSituationBuyerButtons({

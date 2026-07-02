@@ -71,6 +71,7 @@ import {
   isBuyerVisitStatusQuery,
 } from './buyerVisitQuery.service';
 import { formatCustomerSalutation } from './customerMessageFastPath.service';
+import { resolveBuyerComponents } from './buyer/buyerButtonPolicy.service';
 
 import {
   handleWrongReport,
@@ -2444,28 +2445,30 @@ export class WhatsAppService {
     whatsappConfig: CompanyWhatsAppConfig,
     bodyFallback?: string,
   ): Promise<void> {
-    logger.info('WAI-TRUST-20260701-03 suppressed buyer contextual quick replies', {
-      to: maskPhoneNumberForLogs(to),
-      componentCount: components.length,
-      hasBodyFallback: Boolean(bodyFallback?.trim()),
-    });
-    void whatsappConfig;
-    return;
-  }
+    const interactive = components.find((c) => c.kind === 'buttons' || c.kind === 'list');
+    if (!interactive) return;
 
-  private buyerDeliverableComponents(result: TurnResult): WhatsAppComponent[] | undefined {
-    const components = result.components ?? [];
-    if (result.audience !== 'buyer') return components.length ? components : undefined;
-
-    const deliverable = components.filter((component) => component.kind === 'media');
-    const strippedCount = components.length - deliverable.length;
-    if (strippedCount > 0) {
-      logger.info('WAI-TRUST-20260701-03 stripped buyer reply/list components', {
-        strippedCount,
-        mediaCount: deliverable.length,
-      });
+    if (interactive.kind === 'buttons') {
+      await this.sendInteractiveButtons(
+        to,
+        bodyFallback ?? 'Tap an option below:',
+        interactive.buttons,
+        null,
+        null,
+        whatsappConfig,
+      ).catch(() => undefined);
+      return;
     }
-    return deliverable.length ? deliverable : undefined;
+
+    await this.sendInteractiveList(
+      to,
+      bodyFallback ?? 'Choose an option:',
+      interactive.title,
+      interactive.sections,
+      null,
+      null,
+      whatsappConfig,
+    ).catch(() => undefined);
   }
 
   /**
@@ -2561,7 +2564,7 @@ export class WhatsAppService {
   ): Promise<boolean> {
     if (!result.handled) return false;
 
-    const deliverableComponents = this.buyerDeliverableComponents(result);
+    const deliverableComponents = result.components?.length ? result.components : undefined;
     const hasText = Boolean(result.text?.trim());
     const media = deliverableComponents?.find((c) => c.kind === 'media');
     const nonMediaComponents = deliverableComponents?.filter((c) => c.kind !== 'media');
@@ -2664,13 +2667,40 @@ export class WhatsAppService {
     },
     whatsappConfig: CompanyWhatsAppConfig,
   ): Promise<void> {
-    logger.info('WAI-TRUST-20260701-03 skipped buyer contextual quick-reply generation', {
-      to: maskPhoneNumberForLogs(to),
+    let browseFilters = context.browseFilters;
+    const lang = context.leadLanguage
+      ? (await import('../utils/buyerI18n.util')).resolveBuyerLanguage({ leadLanguage: context.leadLanguage })
+      : 'en';
+    if (!browseFilters && context.companyId) {
+      const { getCompanyBrowseSnapshot, buildDiscoveryButtonSet } = await import('./companyInventoryBrowse.service');
+      const snapshot = await getCompanyBrowseSnapshot(context.companyId);
+      browseFilters = buildDiscoveryButtonSet(snapshot, lang);
+    }
+    const components = resolveBuyerComponents({
       stage,
-      hasOutboundText: Boolean(context.outboundText?.trim()),
+      outboundText: context.outboundText ?? '',
+      recentAction: context.recentAction,
+      propertyId: context.propertyId,
+      recommendedPropertyIds: context.recommendedPropertyIds,
+      properties: context.properties,
+      hasActiveVisit: context.hasActiveVisit,
+      hasCompletedVisit: context.hasCompletedVisit,
+      visitStatus: context.visitStatus,
+      visitProperty: context.visitProperty,
+      visitTime: context.visitTime,
+      visitPropertyProjectId: context.visitPropertyProjectId,
+      visitPropertyId: context.visitPropertyId,
+      browseFilters,
+      language: lang,
     });
-    void whatsappConfig;
-    return;
+    if (!components.length) {
+      logger.info('WAI-TRUST-20260702-02 no contextual quick replies for buyer turn', {
+        to: maskPhoneNumberForLogs(to),
+        stage,
+      });
+      return;
+    }
+    await this.sendTurnComponents(to, components, whatsappConfig, context.outboundText);
   }
 
   /**

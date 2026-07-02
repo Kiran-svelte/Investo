@@ -39,6 +39,7 @@ import {
   resolveProjectHeroImageComponent,
   buildProjectSelectListComponent,
   buildActiveVisitActionButtons,
+  hasPropertyLocationData,
 } from '../projectBrowse.service';
 import { buyerButtonTitle, buyerFilterButtonTitle, resolveBuyerLanguage, tBuyer } from '../../utils/buyerI18n.util';
 import config from '../../config';
@@ -742,7 +743,9 @@ async function handleMoreInfo(params: InteractiveActionParams): Promise<Interact
 
   let outboundText = details;
   const buttonComponent = scopeValidateButtons(
-    buildPropertyDetailButtons(propertyId, property.projectId, lang),
+    buildPropertyDetailButtons(propertyId, property.projectId, lang, {
+      hasLocation: hasPropertyLocationData(property),
+    }),
     {
       conversation,
       visitPropertyId: activeVisit?.propertyId,

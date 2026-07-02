@@ -61,6 +61,49 @@ describe('buyerSituationButtons.util', () => {
     ]);
   });
 
+  test('single property focus shows Location only when that property has verified location data', () => {
+    const withoutLocation = resolveSituationBuyerButtons({
+      stage: 'shortlist',
+      outboundText: 'Lake Vista in Whitefield starts from â‚¹1.2Cr.',
+      propertyId: 'prop-lake',
+      focusedProjectId: 'proj-lake',
+      properties: [{ id: 'prop-lake', name: 'Lake Vista' }],
+      locationAvailablePropertyIds: [],
+    });
+    expect(withoutLocation?.map((b) => b.id)).toEqual([
+      'book-visit-prop-lake',
+      'more-info-prop-lake',
+      'project-properties-proj-lake',
+    ]);
+
+    const withLocation = resolveSituationBuyerButtons({
+      stage: 'shortlist',
+      outboundText: 'Lake Vista in Whitefield starts from â‚¹1.2Cr.',
+      propertyId: 'prop-lake',
+      focusedProjectId: 'proj-lake',
+      properties: [{ id: 'prop-lake', name: 'Lake Vista' }],
+      locationAvailablePropertyIds: ['prop-lake'],
+    });
+    expect(withLocation?.map((b) => b.id)).toEqual([
+      'book-visit-prop-lake',
+      'more-info-prop-lake',
+      'location-prop-lake',
+    ]);
+  });
+
+  test('location availability for another property does not add stale Location button', () => {
+    const buttons = resolveSituationBuyerButtons({
+      stage: 'shortlist',
+      outboundText: 'Lake Vista in Whitefield starts from â‚¹1.2Cr.',
+      propertyId: 'prop-lake',
+      focusedProjectId: 'proj-lake',
+      properties: [{ id: 'prop-lake', name: 'Lake Vista' }],
+      locationAvailablePropertyIds: ['prop-other'],
+    });
+    expect(buttons?.map((b) => b.id)).not.toContain('location-prop-lake');
+    expect(buttons?.map((b) => b.id)).toContain('project-properties-proj-lake');
+  });
+
   test('price reply with property id uses property detail buttons', () => {
     const situation = detectBuyerButtonSituation({
       stage: 'shortlist',

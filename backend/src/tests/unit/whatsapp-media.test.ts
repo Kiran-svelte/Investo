@@ -594,7 +594,7 @@ describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
   });
 
   describe('sendTurnResult', () => {
-    it('strips buyer buttons and sends the text payload once', async () => {
+    it('sends buyer buttons as the primary interactive payload', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ messages: [{ id: 'wamid.primary-text' }] }),
@@ -621,11 +621,16 @@ describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(callBody.type).toBe('text');
-      expect(callBody.text.body).toBe('What type of property are you looking for?');
+      expect(callBody.type).toBe('interactive');
+      expect(callBody.interactive.type).toBe('button');
+      expect(callBody.interactive.body.text).toBe('What type of property are you looking for?');
+      expect(callBody.interactive.action.buttons.map((b: any) => b.reply.id)).toEqual([
+        'filter-2bhk',
+        'filter-3bhk',
+      ]);
     });
 
-    it('does not attempt buyer interactive payloads when buttons are present', async () => {
+    it('keeps required buyer actions visible when buttons are present', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ messages: [{ id: 'wamid.text-only' }] }),
@@ -649,8 +654,10 @@ describe('WhatsApp Service - Rich Media (CHUNK 2)', () => {
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.type).toBe('text');
-      expect(body.text.body).toBe('Choose a visit option.');
+      expect(body.type).toBe('interactive');
+      expect(body.interactive.type).toBe('button');
+      expect(body.interactive.body.text).toBe('Choose a visit option.');
+      expect(body.interactive.action.buttons[0].reply.id).toBe('book-visit');
     });
   });
 });

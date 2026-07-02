@@ -37,6 +37,28 @@ export type BrowseProjectProperty = {
   images: unknown;
 };
 
+export type PropertyLocationAvailabilityInput = {
+  locationArea?: string | null;
+  locationCity?: string | null;
+  locationPincode?: string | null;
+  latitude?: unknown;
+  longitude?: unknown;
+};
+
+function finiteNumber(value: unknown): number | null {
+  if (value == null) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+export function hasPropertyLocationData(property: PropertyLocationAvailabilityInput): boolean {
+  const hasAddress = [property.locationArea, property.locationCity, property.locationPincode]
+    .some((part) => Boolean(part?.trim()));
+  const lat = finiteNumber(property.latitude);
+  const lng = finiteNumber(property.longitude);
+  return hasAddress || (lat !== null && lng !== null);
+}
+
 function formatPriceRange(min: unknown, max: unknown): string | null {
   const toNum = (v: unknown): number | null => {
     if (v == null) return null;
@@ -318,12 +340,15 @@ export function buildPropertyDetailButtons(
   propertyId: string,
   projectId: string | null,
   lang: string,
+  options: { hasLocation?: boolean } = {},
 ): WhatsAppComponent {
   const buttons = [
     { id: `book-visit-${propertyId}`, title: buyerButtonTitle(lang, 'book_visit') },
     { id: `more-info-${propertyId}`, title: buyerButtonTitle(lang, 'property_details') },
   ];
-  if (projectId) {
+  if (options.hasLocation) {
+    buttons.push({ id: `location-${propertyId}`, title: 'Location' });
+  } else if (projectId) {
     buttons.push({ id: `project-properties-${projectId}`, title: buyerButtonTitle(lang, 'view_project_listings') });
   } else {
     buttons.push({ id: 'browse-projects', title: buyerButtonTitle(lang, 'browse_projects') });

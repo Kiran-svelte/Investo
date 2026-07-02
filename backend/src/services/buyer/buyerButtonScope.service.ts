@@ -22,7 +22,7 @@ function isNeverStripButton(id: string): boolean {
   return false;
 }
 
-type PropertyButtonKind = 'book' | 'more' | 'brochure' | 'other';
+type PropertyButtonKind = 'book' | 'more' | 'brochure' | 'location' | 'other';
 
 function parsePropertyButton(id: string): { kind: PropertyButtonKind; propertyId: string | null } {
   if (id.startsWith('book-visit-')) return { kind: 'book', propertyId: id.slice('book-visit-'.length) };
@@ -30,12 +30,14 @@ function parsePropertyButton(id: string): { kind: PropertyButtonKind; propertyId
   if (id.startsWith('more-info-')) return { kind: 'more', propertyId: id.slice('more-info-'.length) };
   if (id === 'more-info') return { kind: 'more', propertyId: null };
   if (id.startsWith('brochure-')) return { kind: 'brochure', propertyId: id.slice('brochure-'.length) };
+  if (id.startsWith('location-')) return { kind: 'location', propertyId: id.slice('location-'.length) };
   return { kind: 'other', propertyId: null };
 }
 
 function rewriteBarePropertyButton(kind: PropertyButtonKind, propertyId: string, title: string) {
   if (kind === 'book') return { id: `book-visit-${propertyId}`, title };
   if (kind === 'more') return { id: `more-info-${propertyId}`, title };
+  if (kind === 'location') return { id: `location-${propertyId}`, title };
   return { id: `brochure-${propertyId}`, title };
 }
 
