@@ -22,7 +22,9 @@ Unique resolution identifiers:
 - `AUTH-BRAND-20260702-01`: replaced the generated gray logo with the supplied yellow/blue BIG INVESTO asset; optimized from 5419x1989 / 3.3MB down to 1090x400 / 319KB so the login page loads fast.
 - `AUTH-BRAND-20260702-02`: `AuthBrandMark` now has an entrance animation plus ambient glow motion (respects `prefers-reduced-motion`); `InvestoLogo` keeps explicit height styling so layout does not shift.
 - `AUTH-BRAND-20260702-03`: all brand surfaces render through the shared `InvestoLogo` component, so the corrected asset applies everywhere.
+- Follow-up: `LoginPage` now restores visible motion on the dark auth panel, the large left-panel logo, and the sign-in content while keeping auth logic unchanged.
 - Proof: `npm run build` passed in `frontend` (tsc + vite).
+- Proof: local preview screenshots verified desktop and mobile `/login`; desktop rendered two visible corrected logo images, and mobile had no horizontal overflow.
 - Commit/push/deploy: completed in this session together with `WAI-TRUST-20260702` (previous session was blocked by a `.git/index.lock` permission denial that is no longer present).
 
 ## Previous Task - WAI-TRUST-20260702
