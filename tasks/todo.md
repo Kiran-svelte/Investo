@@ -1,3 +1,27 @@
+# Todo - WAI-FLOW-20260702
+
+Unique resolution identifiers:
+
+- `WAI-FLOW-20260702-01`: A buyer time reply after tapping Book Visit must book the visit, never mutate/create a callback.
+- `WAI-FLOW-20260702-02`: Buyer date phrases ("Tomorrow at 1pm") must resolve to the correct IST day regardless of server timezone.
+- `WAI-FLOW-20260702-03`: Repeat property taps must not resend identical media payloads.
+- `WAI-FLOW-20260702-04`: Projects must support location in the CRM, and WhatsApp location replies must fall back property -> project with an honest reply plus agent alert when nothing is set.
+
+## Plan
+
+- [x] Trace both screenshot flows through the interactive orchestrator, call commit, and turn orchestrator. (`WAI-FLOW-20260702-01`)
+- [x] Clear stale awaiting-call-time on Book Visit pivot. (`WAI-FLOW-20260702-01`)
+- [x] Fix date parsing: explicit-date words bypass the time-only IST shortcut; chrono uses IST reference. (`WAI-FLOW-20260702-02`)
+- [x] Gate more-info media to newly-focused properties only. (`WAI-FLOW-20260702-03`)
+- [x] Add project location fields end-to-end: schema, boot patch, migration, routes, CRM board UI, WhatsApp fallback + agent alert. (`WAI-FLOW-20260702-04`)
+- [x] Regression tests for all four; run focused suites and both builds. 
+- [x] Commit, push branch + main, deploy Railway + Vercel, verify health.
+
+## Review
+
+- Fixed all four root causes; proof in docs/activity.md entry `WAI-FLOW-20260702` (9 suites 83 tests + 2 suites 33 tests green; both builds pass).
+- Deploy: pushed `0cc46017d` to `main`; Railway + Vercel deployments verified in this session.
+
 # Todo - AUTH-BRAND-20260702
 
 Unique resolution identifiers:
