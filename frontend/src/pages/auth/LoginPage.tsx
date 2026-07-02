@@ -7,6 +7,7 @@ import { resolvePostAuthPath } from '../../utils/postAuthNavigation';
 import { AxiosError } from 'axios';
 import { isTransientAuthError } from '../../services/api';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import LanguageSelector from '../../components/common/LanguageSelector';
 import AuthBrandMark from '../../components/brand/AuthBrandMark';
 import InvestoLogo from '../../components/brand/InvestoLogo';
@@ -15,6 +16,7 @@ const LoginPage: React.FC = () => {
   const { t } = useTranslation();
   const { login } = useAuth();
   const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,7 +41,7 @@ const LoginPage: React.FC = () => {
     setIsSubmitting(true);
     setLoginStatus('');
     try {
-      setLoginStatus('Signing in…');
+      setLoginStatus('Signing in...');
       const result = await login(email, password);
       if (isMfaPending(result)) {
         const target = result.mfa_purpose === 'mfa_enroll' ? '/auth/mfa/enroll' : '/auth/mfa/verify';
@@ -49,7 +51,7 @@ const LoginPage: React.FC = () => {
         });
         return;
       }
-      setLoginStatus('Opening your workspace…');
+      setLoginStatus('Opening your workspace...');
       const nextPath = await resolvePostAuthPath(result);
       navigate(nextPath, { replace: true });
     } catch (err) {
@@ -72,9 +74,34 @@ const LoginPage: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-surface-muted">
-      <div className="hidden w-[42%] flex-col justify-between border-r border-surface-border bg-slate-900 p-10 text-slate-200 lg:flex">
-        <div>
-          <InvestoLogo height={40} />
+      <div className="relative hidden w-[42%] flex-col justify-between overflow-hidden border-r border-surface-border bg-slate-950 p-10 text-slate-200 lg:flex">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+          <motion.div
+            className="absolute inset-x-0 top-0 h-44 bg-[linear-gradient(180deg,rgba(34,211,238,0.18),transparent)]"
+            animate={reduceMotion ? undefined : { y: [0, 16, 0], opacity: [0.6, 0.9, 0.6] }}
+            transition={reduceMotion ? undefined : { duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div
+            className="absolute inset-y-0 right-0 w-2/3 bg-[linear-gradient(110deg,transparent,rgba(250,204,21,0.12))]"
+            animate={reduceMotion ? undefined : { x: [0, -18, 0], opacity: [0.32, 0.55, 0.32] }}
+            transition={reduceMotion ? undefined : { duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:48px_48px] opacity-25" />
+        </div>
+
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="relative z-10"
+        >
+          <motion.div
+            className="inline-flex rounded-3xl bg-black p-2 shadow-[0_26px_70px_rgba(34,211,238,0.22)] ring-1 ring-yellow-300/25"
+            animate={reduceMotion ? undefined : { y: [0, -6, 0], rotate: [0, -0.4, 0.4, 0] }}
+            transition={reduceMotion ? undefined : { duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <InvestoLogo height={72} className="rounded-2xl" />
+          </motion.div>
           <Link to="/" className="mt-8 inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
             <ArrowLeft className="h-4 w-4" />
             Back to home
@@ -85,8 +112,15 @@ const LoginPage: React.FC = () => {
           <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-400">
             Sign in to manage leads, properties, visits, and AI conversations for your team.
           </p>
-        </div>
-        <p className="text-xs text-slate-500">BIG INVESTO · Real estate operations platform</p>
+        </motion.div>
+        <motion.p
+          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.16, ease: [0.22, 1, 0.36, 1] }}
+          className="relative z-10 text-xs text-slate-500"
+        >
+          BIG INVESTO - Real estate operations platform
+        </motion.p>
       </div>
 
       <div className="flex flex-1 flex-col">
@@ -94,7 +128,12 @@ const LoginPage: React.FC = () => {
           <LanguageSelector />
         </div>
         <div className="flex flex-1 items-center justify-center px-4 pb-12">
-          <div className="w-full max-w-md">
+          <motion.div
+            initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+            className="w-full max-w-md"
+          >
             <div className="mb-8 flex flex-col items-center lg:items-start">
               <AuthBrandMark height={48} align="start" />
               <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-primary">Sign in</h1>
@@ -172,7 +211,7 @@ const LoginPage: React.FC = () => {
                 Privacy Policy
               </Link>
             </p>
-          </div>
+          </motion.div>
         </div>
       </div>
     </div>
