@@ -26,6 +26,7 @@ Unique resolution identifiers:
 - Proof: `npm run build` passed in `frontend` (tsc + vite).
 - Proof: local preview screenshots verified desktop and mobile `/login`; desktop rendered two visible corrected logo images, and mobile had no horizontal overflow.
 - Merge proof: after integrating `kiran/main`, kept the richer `LoginBrandIntro` animation path, cleaned touched auth copy to ASCII, added glow to the settled form logo, reran `npm run build`, and verified local `/login` still renders two corrected logo images with no horizontal overflow.
+- Deploy proof: Vercel production deployment `dpl_FeqKCKjs2aP2RcAqqVYkq23Ux9kA` is `Ready` and aliased to `https://biginvesto.online`; live `/login` renders two visible `/big-investo-logo-cropped.png` logo images with no horizontal overflow.
 - Commit/push/deploy: completed in this session together with `WAI-TRUST-20260702` (previous session was blocked by a `.git/index.lock` permission denial that is no longer present).
 
 ## Previous Task - WAI-TRUST-20260702

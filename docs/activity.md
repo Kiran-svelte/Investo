@@ -306,3 +306,6 @@ Actions:
 - Resolved the branch after merging `kiran/main`; kept the richer `LoginBrandIntro` auth animation path and corrected logo asset.
 - Cleaned touched auth copy to ASCII-safe text, added glow to the settled form logo, and reran `npm run build` in `frontend`; result PASS.
 - Verified merged local preview `/login` again with Playwright: desktop rendered two visible `/big-investo-logo-cropped.png` logo images and had no horizontal overflow.
+- Pushed branch `fix/whatsapp-media-and-fallback` to `kiran`.
+- Deployed frontend production to Vercel deployment `dpl_FeqKCKjs2aP2RcAqqVYkq23Ux9kA`; Vercel aliased it to `https://biginvesto.online`.
+- Verified live `https://biginvesto.online/login`: HTTP 200, corrected logo asset HTTP 200, Vercel inspect `Ready`, and Playwright rendered two visible `/big-investo-logo-cropped.png` logo images with no horizontal overflow.
